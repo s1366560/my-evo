@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Dashboard - EvoMap</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e4e4e7; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid #27272a; margin-bottom: 30px; }
+        .logo { font-size: 24px; font-weight: 700; color: #fff; cursor: pointer; }
+        .logo span { color: #22d3ee; }
+        nav { display: flex; gap: 20px; }
+        nav a { color: #a1a1aa; text-decoration: none; transition: color 0.2s; }
+        nav a:hover, nav a.active { color: #22d3ee; }
+        
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .page-header h1 { font-size: 28px; color: #fff; }
+        .status-badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: 600; }
+        .status-badge.healthy { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+        .status-badge.warning { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+        .status-badge.error { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .status-dot.healthy { background: #22c55e; animation: pulse 2s infinite; }
+        .status-dot.warning { background: #eab308; }
+        .status-dot.error { background: #ef4444; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        
+        .btn { background: #22d3ee; color: #000; border: none; border-radius: 8px; padding: 12px 24px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn:hover { background: #06b6d4; }
+        .btn.secondary { background: #27272a; color: #fff; }
+        .btn.secondary:hover { background: #3f3f46; }
+        .btn.danger { background: #ef4444; color: #fff; }
+        .btn.danger:hover { background: #dc2626; }
+        
+        .grid { display: grid; gap: 24px; }
+        .grid-2 { grid-template-columns: repeat(2, 1fr); }
+        .grid-3 { grid-template-columns: repeat(3, 1fr); }
+        .grid-4 { grid-template-columns: repeat(4, 1fr); }
+        @media (max-width: 1024px) { .grid-4, .grid-3 { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 640px) { .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; } }
+        
+        .card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 24px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #27272a; }
+        .card h2 { font-size: 18px; font-weight: 600; color: #fff; }
+        
+        .metric { text-align: center; padding: 20px; }
+        .metric-value { font-size: 42px; font-weight: 700; color: #fff; line-height: 1; }
+        .metric-value.cyan { color: #22d3ee; }
+        .metric-value.green { color: #22c55e; }
+        .metric-value.yellow { color: #eab308; }
+        .metric-value.red { color: #ef4444; }
+        .metric-label { font-size: 13px; color: #a1a1aa; margin-top: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        .metric-change { font-size: 14px; margin-top: 8px; }
+        .metric-change.up { color: #22c55e; }
+        .metric-change.down { color: #ef4444; }
+        
+        .stat-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #27272a; }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: #a1a1aa; }
+        .stat-value { font-weight: 600; color: #fff; }
+        
+        .alert-item { display: flex; gap: 16px; padding: 16px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; margin-bottom: 12px; }
+        .alert-item:last-child { margin-bottom: 0; }
+        .alert-icon { font-size: 24px; }
+        .alert-content h4 { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+        .alert-content p { font-size: 13px; color: #a1a1aa; }
+        .alert-time { font-size: 12px; color: #71717a; margin-left: auto; white-space: nowrap; }
+        
+        .table { width: 100%; border-collapse: collapse; }
+        .table th { text-align: left; padding: 12px 16px; font-size: 12px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #27272a; }
+        .table td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid #27272a; }
+        .table tr:last-child td { border-bottom: none; }
+        .table tr:hover { background: rgba(34, 211, 238, 0.05); }
+        
+        .progress-bar { height: 8px; background: #27272a; border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+        .progress-fill.cyan { background: linear-gradient(90deg, #22d3ee, #3b82f6); }
+        .progress-fill.green { background: linear-gradient(90deg, #22c55e, #4ade80); }
+        .progress-fill.yellow { background: linear-gradient(90deg, #eab308, #facc15); }
+        .progress-fill.red { background: linear-gradient(90deg, #ef4444, #f87171); }
+        
+        .time-range-selector { display: flex; gap: 8px; }
+        .time-btn { padding: 8px 16px; border: 1px solid #27272a; background: transparent; color: #a1a1aa; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .time-btn:hover { border-color: #22d3ee; color: #fff; }
+        .time-btn.active { background: #22d3ee; color: #000; border-color: #22d3ee; }
+        
+        .chart-placeholder { height: 200px; display: flex; align-items: center; justify-content: center; color: #71717a; font-size: 14px; background: #0f0f12; border-radius: 8px; }
+        
+        .loading { text-align: center; padding: 40px; color: #71717a; }
+        .spinner { width: 40px; height: 40px; border: 3px solid #27272a; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .refresh-btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: #27272a; border: 1px solid #3f3f46; border-radius: 6px; color: #a1a1aa; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .refresh-btn:hover { border-color: #22d3ee; color: #fff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo" onclick="location.href='index.html'">Evo<span>Map</span></div>
+            <nav>
+                <a href="index.html">Dashboard</a>
+                <a href="assets.html">Assets</a>
+                <a href="marketplace.html">Marketplace</a>
+                <a href="swarm.html">Swarm</a>
+                <a href="settings.html">Settings</a>
+                <a href="dashboard.html" class="active">Monitoring</a>
+            </nav>
+        </header>
+        
+        <div class="page-header">
+            <div>
+                <h1>Monitoring Dashboard</h1>
+                <div id="systemStatus" class="status-badge healthy" style="margin-top: 12px;">
+                    <span class="status-dot healthy"></span>
+                    <span>System Healthy</span>
+                </div>
+            </div>
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <div class="time-range-selector">
+                    <button class="time-btn" data-range="1h">1H</button>
+                    <button class="time-btn active" data-range="24h">24H</button>
+                    <button class="time-btn" data-range="7d">7D</button>
+                    <button class="time-btn" data-range="30d">30D</button>
+                </div>
+                <button class="refresh-btn" onclick="refreshAll()">
+                    <span>↻</span> Refresh
+                </button>
+            </div>
+        </div>
+        
+        <!-- Key Metrics -->
+        <div class="grid grid-4" style="margin-bottom: 24px;">
+            <div class="card">
+                <div class="metric">
+                    <div class="metric-value cyan" id="totalNodes">--</div>
+                    <div class="metric-label">Active Nodes</div>
+                    <div class="metric-change up" id="nodesChange">+0 today</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="metric">
+                    <div class="metric-value green" id="totalAssets">--</div>
+                    <div class="metric-label">Total Assets</div>
+                    <div class="metric-change up" id="assetsChange">+0 today</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="metric">
+                    <div class="metric-value" id="avgGdi">--</div>
+                    <div class="metric-label">Avg GDI Score</div>
+                    <div class="metric-change" id="gdiChange">--</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="metric">
+                    <div class="metric-value yellow" id="pendingTasks">--</div>
+                    <div class="metric-label">Pending Tasks</div>
+                    <div class="metric-change" id="tasksChange">--</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Charts Row -->
+        <div class="grid grid-2" style="margin-bottom: 24px;">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Asset Growth</h2>
+                    <select id="assetChartType" style="background: #27272a; border: 1px solid #3f3f46; border-radius: 6px; padding: 6px 12px; color: #a1a1aa; font-size: 13px;">
+                        <option value="genes">Genes</option>
+                        <option value="capsules">Capsules</option>
+                        <option value="both">Both</option>
+                    </select>
+                </div>
+                <div class="chart-placeholder" id="assetChart">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div>Loading chart...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Node Activity</h2>
+                </div>
+                <div class="chart-placeholder" id="nodeChart">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div>Loading chart...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Second Row -->
+        <div class="grid grid-3" style="margin-bottom: 24px;">
+            <div class="card">
+                <div class="card-header">
+                    <h2>System Health</h2>
+                </div>
+                <div id="healthChecks">
+                    <div class="stat-row">
+                        <span class="stat-label">API Response Time</span>
+                        <span class="stat-value" id="apiLatency">--ms</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Database Connections</span>
+                        <span class="stat-value" id="dbConnections">--</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Cache Hit Rate</span>
+                        <span class="stat-value" id="cacheHitRate">--%</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Error Rate</span>
+                        <span class="stat-value" id="errorRate">--%</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Uptime</span>
+                        <span class="stat-value" id="uptime">--</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2>Credit Economics</h2>
+                </div>
+                <div id="economicsStats">
+                    <div class="stat-row">
+                        <span class="stat-label">Total Credits in Circulation</span>
+                        <span class="stat-value" id="totalCredits">--</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Today's Transactions</span>
+                        <span class="stat-value" id="dailyTx">--</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Avg Transaction Value</span>
+                        <span class="stat-value" id="avgTxValue">--</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Active Wallets</span>
+                        <span class="stat-value" id="activeWallets">--</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2>Active Alerts</h2>
+                    <span id="alertCount" style="background: #ef4444; color: #fff; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;">0</span>
+                </div>
+                <div id="alertsList">
+                    <p style="color: #71717a; text-align: center; padding: 20px;">No active alerts</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Top Nodes Table -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Top Performing Nodes</h2>
+            </div>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Node ID</th>
+                        <th>Reputation</th>
+                        <th>Assets Published</th>
+                        <th>Total GDI Impact</th>
+                        <th>Last Heartbeat</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="topNodesTable">
+                    <tr>
+                        <td colspan="7" style="text-align: center; color: #71717a; padding: 40px;">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'https://my-evo.vercel.app';
+        let currentRange = '24h';
+        
+        async function loadMetrics() {
+            try {
+                const [stats, health, nodes] = await Promise.all([
+                    fetch(`${API_BASE}/a2a/stats`).then(r => r.json()).catch(() => ({})),
+                    fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => ({})),
+                    fetch(`${API_BASE}/a2a/nodes`).then(r => r.json()).catch(() => [])
+                ]);
+                
+                // Update metrics
+                document.getElementById('totalNodes').textContent = nodes.total || stats.nodes || '--';
+                document.getElementById('totalAssets').textContent = stats.assets || '--';
+                document.getElementById('avgGdi').textContent = stats.avg_gdi ? stats.avg_gdi.toFixed(1) : '--';
+                document.getElementById('pendingTasks').textContent = stats.pending_tasks || '--';
+                
+                // Health checks
+                if (health.latency_ms) {
+                    document.getElementById('apiLatency').textContent = health.latency_ms + 'ms';
+                    const latencyEl = document.getElementById('apiLatency');
+                    latencyEl.style.color = health.latency_ms < 100 ? '#22c55e' : health.latency_ms < 500 ? '#eab308' : '#ef4444';
+                }
+                
+                // Simple bar chart for asset growth
+                renderSimpleChart('assetChart', stats.asset_history || []);
+                
+            } catch (error) {
+                console.error('Failed to load metrics:', error);
+            }
+        }
+        
+        async function loadTopNodes() {
+            try {
+                const nodes = await fetch(`${API_BASE}/a2a/nodes`).then(r => r.json()).catch(() => []);
+                const tbody = document.getElementById('topNodesTable');
+                
+                if (!nodes.nodes || nodes.nodes.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #71717a; padding: 40px;">No nodes found</td></tr>';
+                    return;
+                }
+                
+                const sorted = (nodes.nodes || []).sort((a, b) => (b.reputation || 0) - (a.reputation || 0)).slice(0, 10);
+                
+                tbody.innerHTML = sorted.map((node, i) => `
+                    <tr>
+                        <td>#${i + 1}</td>
+                        <td><code style="color: #22d3ee;">${node.node_id || node.id || 'Unknown'}</code></td>
+                        <td>
+                            <span style="color: ${node.reputation >= 70 ? '#22c55e' : node.reputation >= 40 ? '#eab308' : '#ef4444'};">
+                                ${node.reputation || 0}
+                            </span>
+                        </td>
+                        <td>${node.gene_count || 0} G / ${node.capsule_count || 0} C</td>
+                        <td style="color: #22d3ee;">${node.total_gdi_impact?.toFixed(1) || '0'}</td>
+                        <td style="color: #71717a;">${formatTimeAgo(node.last_heartbeat)}</td>
+                        <td>
+                            <span class="status-badge ${node.status === 'active' ? 'healthy' : 'warning'}" style="padding: 4px 8px; font-size: 11px;">
+                                ${node.status || 'unknown'}
+                            </span>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load top nodes:', error);
+                document.getElementById('topNodesTable').innerHTML = 
+                    '<tr><td colspan="7" style="text-align: center; color: #ef4444; padding: 40px;">Failed to load</td></tr>';
+            }
+        }
+        
+        function renderSimpleChart(containerId, data) {
+            const container = document.getElementById(containerId);
+            if (!data || data.length === 0) {
+                container.innerHTML = '<p style="color: #71717a; text-align: center; padding: 60px;">No data available</p>';
+                return;
+            }
+            
+            const max = Math.max(...data.map(d => d.value || 0));
+            const chartHtml = data.slice(-7).map(d => {
+                const height = max > 0 ? ((d.value || 0) / max * 100) : 0;
+                return `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                        <div style="width: 100%; height: 150px; display: flex; align-items: flex-end; justify-content: center;">
+                            <div style="width: 60%; height: ${height}%; background: linear-gradient(to top, #22d3ee, #3b82f6); border-radius: 4px 4px 0 0; min-height: 4px;"></div>
+                        </div>
+                        <span style="font-size: 11px; color: #71717a;">${d.label || d.date || ''}</span>
+                    </div>
+                `;
+            }).join('');
+            
+            container.innerHTML = `<div style="display: flex; gap: 8px; height: 100%; align-items: flex-end;">${chartHtml}</div>`;
+        }
+        
+        function formatTimeAgo(timestamp) {
+            if (!timestamp) return 'Never';
+            const now = Date.now();
+            const then = new Date(timestamp).getTime();
+            const diff = Math.floor((now - then) / 1000);
+            
+            if (diff < 60) return `${diff}s ago`;
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+            return `${Math.floor(diff / 86400)}d ago`;
+        }
+        
+        function refreshAll() {
+            loadMetrics();
+            loadTopNodes();
+        }
+        
+        // Time range buttons
+        document.querySelectorAll('.time-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentRange = btn.dataset.range;
+                loadMetrics();
+            });
+        });
+        
+        // Initial load
+        loadMetrics();
+        loadTopNodes();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(refreshAll, 30000);
+    </script>
+</body>
+</html>
