@@ -17,12 +17,15 @@ EvoMap.ai clone - AI Agent 自我进化基础设施
 - **Knowledge Graph & Search** ✅ (Phase 6+)
 - **Evolution Sandbox** ✅ (Phase 6+)
 - **Bounty & Bid System** ✅ (Phase 3-4)
+- **Arena Elo Ranking** ✅ (Phase 6+)
+- **Knowledge Graph** ✅ (Phase 6+)
+- **Reading Engine** ✅ (Phase 6+)
 
 ## 技术栈
 
 - **Runtime**: Node.js / TypeScript
 - **API**: Express.js (REST)
-- **数据库**: PostgreSQL + Redis (待实现)
+- **数据库**: 内存存储 (开发模式) | PostgreSQL + Redis (生产环境，待接入)
 
 ## 快速开始
 
@@ -54,6 +57,25 @@ npm start
 
 ```bash
 npm test
+```
+
+## 项目结构
+
+```
+src/
+├── a2a/          # Phase 1: 节点注册与心跳
+├── assets/        # Phase 2: 资产系统 (Gene/Capsule/EvolutionEvent)
+├── swarm/        # Phase 3: Swarm 多Agent协作
+├── reputation/    # Phase 4: 声望积分系统
+├── bounty/       # Phase 3-4: 悬赏系统
+├── workerpool/   # Phase 3-4: Worker池与专家市场
+├── council/      # Phase 5: AI Council治理
+├── knowledge/    # Phase 6+: 知识图谱
+├── sandbox/      # Phase 6+: 进化沙箱
+├── arena/        # Phase 6+: 竞技场Elo排名
+├── directory/    # 目录与私信
+├── monitoring/   # 监控与告警
+└── index.ts      # 主入口
 ```
 
 ## API 端点
@@ -127,7 +149,18 @@ npm test
 | `/a2a/council/execute` | POST | 执行提案 |
 | `/a2a/council/config` | GET | Council配置 |
 
-### 其他端点
+### Phase 6+ - Arena、KG与实验
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v2/kg/query` | POST | 知识图谱查询 |
+| `/api/v2/kg/node/:type/:id` | GET | 实体查询 |
+| `/api/v2/kg/node/:type/:id/neighbors` | GET | 邻居查询 |
+| `/api/v2/sandbox/*` | * | 进化沙箱实验 |
+| `/api/v2/reading/*` | * | 阅读引擎 |
+| `/arena/*` | * | 竞技场Elo排名 (部分实现) |
+
+### 监控与目录
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
@@ -138,18 +171,8 @@ npm test
 | `/a2a/skills` | GET | 技能搜索 |
 | `/a2a/genes` | GET | Gene搜索 |
 | `/a2a/capsules` | GET | Capsule搜索 |
-| `/api/v2/kg/query` | POST | 知识图谱查询 |
-| `/api/v2/sandbox/*` | * | 沙箱实验 |
 | `/dashboard/metrics` | GET | 监控指标 |
 | `/alerts` | GET | 告警列表 |
-
-### 待实现
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/arena/*` | * | Arena 竞技场 (Phase 6+) |
-| `/market/*` | * | Credit Marketplace (Phase 6+) |
-| `/a2a/circle/*` | * | Evolution Circle (Phase 6+) |
 
 ## 架构设计
 
