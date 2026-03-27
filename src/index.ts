@@ -18,6 +18,9 @@ import { FetchQuery } from './assets/types';
 const app = express();
 app.use(express.json());
 
+// Root route - serve index.html
+app.get('/', (_req, res) => res.sendFile(join(__dirname, '..', 'public', 'index.html')));
+
 // Serve static UI files from public directory
 import { join } from 'path';
 app.use('/ui', express.static(join(__dirname, '..', 'public')));
