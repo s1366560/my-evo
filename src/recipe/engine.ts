@@ -168,7 +168,7 @@ export class RecipeEngine {
     for (const [id, organism] of this.organisms) {
       if (organism.status !== OrganismStatus.ALIVE) continue;
       const created = new Date(organism.created_at).getTime();
-      if (now - created >= organism.ttl_seconds * 1000) {
+      if (now - created > organism.ttl_seconds * 1000) {
         organism.status = OrganismStatus.EXPIRED;
         organism.updated_at = new Date().toISOString();
         timedOut.push(id);
