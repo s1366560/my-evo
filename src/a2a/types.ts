@@ -55,7 +55,7 @@ export interface HelloResponse {
   claim_code?: string;
   claim_url?: string;
   credit_balance: number;
-  survival_status: 'alive';
+  survival_status: 'alive' | 'dead';
   referral_code: string;
   recommended_tasks: unknown[];
   network_manifest: {

@@ -1060,8 +1060,160 @@ app.get('/a2a/credit/economics', (_req: Request, res: Response) => {
 
 // ==================== Phase 5: Governance Endpoints ====================
 
+import * as council from './council/engine';
+import type { CouncilConfig, CouncilProposal } from './council/types';
+
+// POST /a2a/council/propose - Submit a proposal to the council
 app.post('/a2a/council/propose', (req: Request, res: Response) => {
-  res.status(501).json({ error: 'not_implemented', message: 'Council governance not yet implemented', correction: 'Phase 5' });
+  try {
+    const { type, title, description, proposer, ...options } = req.body;
+
+    if (!type || !title || !description || !proposer) {
+      res.status(400).json({ 
+        error: 'invalid_request', 
+        message: 'Missing required fields: type, title, description, proposer' 
+      });
+      return;
+    }
+
+    const proposal = council.createProposal(type, title, description, proposer, options);
+    res.json({ 
+      status: 'acknowledged', 
+      proposal_id: proposal.proposal_id,
+      expires_at: proposal.expires_at
+    });
+  } catch (error) {
+    console.error('Council propose error:', error);
+    res.status(500).json({ error: 'proposal_failed', message: String(error) });
+  }
+});
+
+// POST /a2a/council/vote - Cast a vote on a proposal
+app.post('/a2a/council/vote', (req: Request, res: Response) => {
+  try {
+    const { proposal_id, voter_id, vote, reason } = req.body;
+
+    if (!proposal_id || !voter_id || !vote) {
+      res.status(400).json({ 
+        error: 'invalid_request', 
+        message: 'Missing required fields: proposal_id, voter_id, vote' 
+      });
+      return;
+    }
+
+    if (!['approve', 'reject', 'abstain'].includes(vote)) {
+      res.status(400).json({ 
+        error: 'invalid_vote', 
+        message: 'Vote must be: approve, reject, or abstain' 
+      });
+      return;
+    }
+
+    const councilVote = council.castVote(proposal_id, voter_id, vote, reason);
+    res.json({ 
+      status: 'acknowledged', 
+      vote: councilVote 
+    });
+  } catch (error) {
+    console.error('Council vote error:', error);
+    res.status(400).json({ error: 'vote_failed', message: String(error) });
+  }
+});
+
+// GET /a2a/council/proposal/:id - Get proposal details
+app.get('/a2a/council/proposal/:id', (req: Request, res: Response) => {
+  try {
+    const proposal = council.getProposal(req.params.id);
+    if (!proposal) {
+      res.status(404).json({ error: 'not_found', message: 'Proposal not found' });
+      return;
+    }
+    res.json(proposal);
+  } catch (error) {
+    console.error('Get proposal error:', error);
+    res.status(500).json({ error: 'query_failed', message: String(error) });
+  }
+});
+
+// GET /a2a/council/proposals - List proposals
+app.get('/a2a/council/proposals', (req: Request, res: Response) => {
+  try {
+    const { status, type, limit } = req.query;
+    const proposals = council.listProposals({
+      status: status as any,
+      type: type as any,
+      limit: limit ? parseInt(limit as string) : undefined,
+    });
+    res.json({ proposals });
+  } catch (error) {
+    console.error('List proposals error:', error);
+    res.status(500).json({ error: 'query_failed', message: String(error) });
+  }
+});
+
+// POST /a2a/council/finalize - Finalize voting on a proposal
+app.post('/a2a/council/finalize', (req: Request, res: Response) => {
+  try {
+    const { proposal_id } = req.body;
+    if (!proposal_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing proposal_id' });
+      return;
+    }
+    const newStatus = council.finalizeProposal(proposal_id);
+    res.json({ status: 'acknowledged', new_status: newStatus });
+  } catch (error) {
+    console.error('Finalize proposal error:', error);
+    res.status(400).json({ error: 'finalize_failed', message: String(error) });
+  }
+});
+
+// POST /a2a/council/execute - Execute an approved proposal
+app.post('/a2a/council/execute', (req: Request, res: Response) => {
+  try {
+    const { proposal_id } = req.body;
+    if (!proposal_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing proposal_id' });
+      return;
+    }
+    council.executeProposal(proposal_id);
+    res.json({ status: 'executed', proposal_id });
+  } catch (error) {
+    console.error('Execute proposal error:', error);
+    res.status(400).json({ error: 'execute_failed', message: String(error) });
+  }
+});
+
+// GET /a2a/council/config - Get council configuration
+app.get('/a2a/council/config', (_req: Request, res: Response) => {
+  res.json(council.getConfig());
+});
+
+// POST /a2a/council/resolve-dispute - Resolve a bounty dispute (convenience endpoint)
+app.post('/a2a/council/resolve-dispute', (req: Request, res: Response) => {
+  try {
+    const { bounty_id, verdict } = req.body;
+    if (!bounty_id || !verdict) {
+      res.status(400).json({ 
+        error: 'invalid_request', 
+        message: 'Missing required fields: bounty_id, verdict' 
+      });
+      return;
+    }
+
+    if (!['favor_creator', 'favor_worker', 'split', 'void'].includes(verdict)) {
+      res.status(400).json({ 
+        error: 'invalid_verdict', 
+        message: 'Verdict must be: favor_creator, favor_worker, split, or void' 
+      });
+      return;
+    }
+
+    const decision = council.resolveBountyDispute(bounty_id, verdict);
+    res.json({ status: 'resolved', decision });
+  } catch (error) {
+    console.error('Resolve dispute error:', error);
+    res.status(400).json({ error: 'resolve_failed', message: String(error) });
+  }
 });
 
 // ==================== Knowledge Graph Endpoints ====================

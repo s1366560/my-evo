@@ -7,7 +7,7 @@ import {
   ProjectProposal,
   ProjectTask,
   Contribution,
-} from './types.js';
+} from './types';
 
 export class ProjectEngine {
   private projects: Map<string, Project> = new Map();

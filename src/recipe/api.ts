@@ -14,7 +14,7 @@ export const recipeApi = {
       const recipe = engine.create(create);
       res.json({ recipe });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -25,7 +25,7 @@ export const recipeApi = {
       const recipes = engine.listRecipes(status);
       res.json({ recipes });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -39,7 +39,7 @@ export const recipeApi = {
       }
       res.json({ recipe });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -53,7 +53,7 @@ export const recipeApi = {
       }
       res.json({ recipe });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -68,7 +68,7 @@ export const recipeApi = {
       }
       res.json({ recipe: forked });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -82,7 +82,7 @@ export const recipeApi = {
       }
       res.json({ recipe });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -96,7 +96,7 @@ export const recipeApi = {
       }
       res.json({ recipe: forked });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -111,7 +111,7 @@ export const recipeApi = {
       }
       res.json({ organism });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -136,7 +136,7 @@ export const recipeApi = {
         next_position: organism.current_position,
       });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -159,7 +159,7 @@ export const recipeApi = {
       }
       res.json({ organism });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -174,7 +174,7 @@ export const recipeApi = {
         draft_recipes: recipes.length - published,
       });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 };

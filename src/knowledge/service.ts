@@ -24,12 +24,8 @@ const entityIndex: Map<EntityType, Set<string>> = new Map();
 export function addEntity(entity: Partial<KGEntity> & { type: EntityType; name: string }): KGEntity {
   const now = Date.now();
   const newEntity: KGEntity = {
-    id: entity.id || `kg_${randomUUID().slice(0, 8)}`,
-    type: entity.type,
-    name: entity.name,
-    description: entity.description,
-    properties: entity.properties,
-    embedding: entity.embedding,
+    ...entity,
+    id: `kg_${randomUUID().slice(0, 8)}`,
     metadata: {
       created_at: now,
       updated_at: now,

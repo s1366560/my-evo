@@ -8,7 +8,7 @@ import {
   OrganismStatus,
   GeneRef,
   RecipeCreate,
-} from './types.js';
+} from './types';
 
 export class RecipeEngine {
   private recipes: Map<string, Recipe> = new Map();
