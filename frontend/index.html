@@ -268,9 +268,10 @@
     <section id="graph" class="mb-12 hidden">
       <h1 class="text-3xl font-bold text-gray-900 mb-6">Knowledge Graph</h1>
       
+      <!-- Search Panel -->
       <div class="bg-white rounded-xl shadow p-6 mb-6">
         <div class="flex space-x-4 mb-4">
-          <input type="text" id="kgQuery" placeholder="Search knowledge..." 
+          <input type="text" id="kgQuery" placeholder="Search nodes..." 
                  class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500">
           <select id="kgType" class="px-4 py-2 border rounded-lg">
             <option value="Gene">Genes</option>
@@ -278,20 +279,49 @@
             <option value="Agent">Agents</option>
             <option value="Topic">Topics</option>
           </select>
+          <select id="kgRelation" class="px-4 py-2 border rounded-lg">
+            <option value="">All Relations</option>
+            <option value="uses">uses</option>
+            <option value="evolved_from">evolved_from</option>
+            <option value="similar_to">similar_to</option>
+            <option value="references">references</option>
+          </select>
           <button onclick="searchKnowledge()" class="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700">
             Search
           </button>
         </div>
-      </div>
-
-      <div class="bg-white rounded-xl shadow p-6">
-        <h3 class="text-lg font-semibold mb-4">Graph Visualization</h3>
-        <div id="kgGraph" class="h-96 bg-gray-50 rounded-lg flex items-center justify-center">
-          <p class="text-gray-400">Interactive graph visualization</p>
+        <div class="flex items-center justify-between">
+          <p class="text-sm text-gray-500">
+            <span id="kgNodeCount">0</span> nodes found
+          </p>
+          <div class="flex space-x-2">
+            <button onclick="toggleKGView('graph')" id="btnGraphView" class="px-3 py-1 text-sm rounded-lg bg-purple-100 text-purple-800">Graph</button>
+            <button onclick="toggleKGView('list')" id="btnListView" class="px-3 py-1 text-sm rounded-lg bg-gray-100 text-gray-600">List</button>
+          </div>
         </div>
       </div>
 
-      <div id="kgResults" class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- Graph Visualization -->
+      <div class="bg-white rounded-xl shadow p-6 mb-6">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-semibold">Graph Visualization</h3>
+          <div class="flex space-x-4 text-sm">
+            <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-purple-500 mr-1"></span> Gene</span>
+            <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-green-500 mr-1"></span> Capsule</span>
+            <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-blue-500 mr-1"></span> Agent</span>
+            <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-orange-500 mr-1"></span> Topic</span>
+          </div>
+        </div>
+        <canvas id="kgCanvas" class="w-full h-96 bg-gray-50 rounded-lg cursor-move"></canvas>
+        <div class="flex justify-center mt-2 text-xs text-gray-400">
+          Drag to pan • Scroll to zoom • Click node for details
+        </div>
+      </div>
+
+      <!-- Results List View (hidden by default) -->
+      <div id="kgListView" class="hidden">
+        <div id="kgResults" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        </div>
       </div>
     </section>
 
@@ -1017,7 +1047,349 @@
     }
     
     // Knowledge Graph Search
+    let kgNodes = [];
+    let kgEdges = [];
+    let kgView = 'graph';
+    
     async function searchKnowledge() {
+      const query = document.getElementById('kgQuery').value;
+      const type = document.getElementById('kgType').value;
+      const relation = document.getElementById('kgRelation').value;
+      
+      // Build mock data for demo (real API would be called here)
+      kgNodes = [
+        { id: 'gene_1', type: 'Gene', label: 'Retry Strategy', x: 200, y: 200, vx: 0, vy: 0 },
+        { id: 'gene_2', type: 'Gene', label: 'Cache Strategy', x: 400, y: 200, vx: 0, vy: 0 },
+        { id: 'capsule_1', type: 'Capsule', label: 'Retry Implementation', x: 300, y: 300, vx: 0, vy: 0 },
+        { id: 'capsule_2', type: 'Capsule', label: 'Cache Fix', x: 500, y: 300, vx: 0, vy: 0 },
+        { id: 'agent_1', type: 'Agent', label: 'Dev Agent', x: 350, y: 150, vx: 0, vy: 0 },
+        { id: 'topic_1', type: 'Topic', label: 'API Errors', x: 300, y: 400, vx: 0, vy: 0 },
+      ];
+      
+      kgEdges = [
+        { source: 'gene_1', target: 'capsule_1', relation: 'used_in' },
+        { source: 'gene_2', target: 'capsule_2', relation: 'used_in' },
+        { source: 'capsule_1', target: 'topic_1', relation: 'references' },
+        { source: 'agent_1', target: 'gene_1', relation: 'created' },
+        { source: 'gene_1', target: 'gene_2', relation: 'evolved_from' },
+      ];
+      
+      // Filter by query if provided
+      if (query) {
+        kgNodes = kgNodes.filter(n => 
+          n.label.toLowerCase().includes(query.toLowerCase()) ||
+          n.type.toLowerCase() === type.toLowerCase()
+        );
+      }
+      
+      document.getElementById('kgNodeCount').textContent = kgNodes.length;
+      
+      if (kgView === 'graph') {
+        initKGGraph();
+      } else {
+        renderKGList();
+      }
+    }
+    
+    function toggleKGView(view) {
+      kgView = view;
+      document.getElementById('btnGraphView').className = view === 'graph' 
+        ? 'px-3 py-1 text-sm rounded-lg bg-purple-100 text-purple-800'
+        : 'px-3 py-1 text-sm rounded-lg bg-gray-100 text-gray-600';
+      document.getElementById('btnListView').className = view === 'list'
+        ? 'px-3 py-1 text-sm rounded-lg bg-purple-100 text-purple-800'
+        : 'px-3 py-1 text-sm rounded-lg bg-gray-100 text-gray-600';
+      document.getElementById('kgListView').className = view === 'list' ? '' : 'hidden';
+      
+      if (view === 'graph') {
+        initKGGraph();
+      }
+    }
+    
+    function renderKGList() {
+      const container = document.getElementById('kgResults');
+      container.innerHTML = kgNodes.map(node => `
+        <div class="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer" onclick="showKGNodeDetail('${node.id}')">
+          <div class="flex items-center space-x-3 mb-2">
+            <span class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold ${getNodeColor(node.type)}">
+              ${node.type[0]}
+            </span>
+            <div>
+              <p class="font-medium">${node.label}</p>
+              <p class="text-xs text-gray-500">${node.type}</p>
+            </div>
+          </div>
+          <div class="text-xs text-gray-400">
+            ${kgEdges.filter(e => e.source === node.id || e.target === node.id).length} connections
+          </div>
+        </div>
+      `).join('') || '<p class="text-gray-500 col-span-full">No nodes found</p>';
+    }
+    
+    function getNodeColor(type) {
+      const colors = {
+        Gene: 'bg-purple-500',
+        Capsule: 'bg-green-500',
+        Agent: 'bg-blue-500',
+        Topic: 'bg-orange-500'
+      };
+      return colors[type] || 'bg-gray-500';
+    }
+    
+    // Force-directed graph
+    let canvas, ctx, animationId;
+    let transform = { x: 0, y: 0, scale: 1 };
+    let dragging = null;
+    let hovered = null;
+    
+    function initKGGraph() {
+      canvas = document.getElementById('kgCanvas');
+      ctx = canvas.getContext('2d');
+      
+      // Set canvas size
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+      
+      // Initialize positions
+      kgNodes.forEach((node, i) => {
+        if (!node.x) node.x = Math.random() * canvas.width;
+        if (!node.y) node.y = Math.random() * canvas.height;
+        node.vx = 0;
+        node.vy = 0;
+      });
+      
+      // Start animation
+      if (animationId) cancelAnimationFrame(animationId);
+      animateKGGraph();
+      
+      // Mouse events
+      canvas.onmousedown = onKGMouseDown;
+      canvas.onmousemove = onKGMouseMove;
+      canvas.onmouseup = () => dragging = null;
+      canvas.onwheel = onKGScroll;
+    }
+    
+    function animateKGGraph() {
+      // Physics simulation
+      const alpha = 0.1;
+      
+      // Apply forces
+      kgNodes.forEach(node => {
+        // Center gravity
+        node.vx += (canvas.width / 2 - node.x) * 0.001;
+        node.vy += (canvas.height / 2 - node.y) * 0.001;
+        
+        // Node repulsion
+        kgNodes.forEach(other => {
+          if (node.id !== other.id) {
+            const dx = node.x - other.x;
+            const dy = node.y - other.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const force = 500 / (dist * dist);
+            node.vx += (dx / dist) * force;
+            node.vy += (dy / dist) * force;
+          }
+        });
+      });
+      
+      // Edge attraction
+      kgEdges.forEach(edge => {
+        const source = kgNodes.find(n => n.id === edge.source);
+        const target = kgNodes.find(n => n.id === edge.target);
+        if (source && target) {
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const force = (dist - 100) * 0.01;
+          source.vx += (dx / dist) * force;
+          source.vy += (dy / dist) * force;
+          target.vx -= (dx / dist) * force;
+          target.vy -= (dy / dist) * force;
+        }
+      });
+      
+      // Apply velocities
+      kgNodes.forEach(node => {
+        node.vx *= 0.9;
+        node.vy *= 0.9;
+        node.x += node.vx;
+        node.y += node.vy;
+        
+        // Bounds
+        node.x = Math.max(50, Math.min(canvas.width - 50, node.x));
+        node.y = Math.max(50, Math.min(canvas.height - 50, node.y));
+      });
+      
+      drawKGGraph();
+      animationId = requestAnimationFrame(animateKGGraph);
+    }
+    
+    function drawKGGraph() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      ctx.save();
+      ctx.translate(transform.x, transform.y);
+      ctx.scale(transform.scale, transform.scale);
+      
+      // Draw edges
+      ctx.strokeStyle = '#d1d5db';
+      ctx.lineWidth = 1;
+      kgEdges.forEach(edge => {
+        const source = kgNodes.find(n => n.id === edge.source);
+        const target = kgNodes.find(n => n.id === edge.target);
+        if (source && target) {
+          ctx.beginPath();
+          ctx.moveTo(source.x, source.y);
+          ctx.lineTo(target.x, target.y);
+          ctx.stroke();
+          
+          // Edge label
+          const midX = (source.x + target.x) / 2;
+          const midY = (source.y + target.y) / 2;
+          ctx.fillStyle = '#9ca3af';
+          ctx.font = '10px sans-serif';
+          ctx.fillText(edge.relation, midX + 5, midY - 5);
+        }
+      });
+      
+      // Draw nodes
+      kgNodes.forEach(node => {
+        const isHovered = hovered === node.id;
+        const radius = isHovered ? 25 : 20;
+        
+        // Node circle
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = getNodeColor(node.type).replace('bg-', '');
+        ctx.fill();
+        
+        // Color fill
+        const colorMap = {
+          'purple-500': '#8b5cf6',
+          'green-500': '#10b981',
+          'blue-500': '#3b82f6',
+          'orange-500': '#f97316'
+        };
+        ctx.fillStyle = colorMap[getNodeColor(node.type).replace('bg-', '')] || '#6b7280';
+        ctx.fill();
+        
+        // Border
+        ctx.strokeStyle = isHovered ? '#1f2937' : '#9ca3af';
+        ctx.lineWidth = isHovered ? 3 : 1;
+        ctx.stroke();
+        
+        // Label
+        ctx.fillStyle = '#1f2937';
+        ctx.font = '12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(node.label, node.x, node.y + radius + 15);
+        ctx.font = '10px sans-serif';
+        ctx.fillStyle = '#6b7280';
+        ctx.fillText(node.type, node.x, node.y + radius + 27);
+      });
+      
+      ctx.restore();
+    }
+    
+    function onKGMouseDown(e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left - transform.x) / transform.scale;
+      const y = (e.clientY - rect.top - transform.y) / transform.scale;
+      
+      dragging = kgNodes.find(node => {
+        const dx = node.x - x;
+        const dy = node.y - y;
+        return Math.sqrt(dx * dx + dy * dy) < 25;
+      });
+    }
+    
+    function onKGMouseMove(e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left - transform.x) / transform.scale;
+      const y = (e.clientY - rect.top - transform.y) / transform.scale;
+      
+      if (dragging) {
+        dragging.x = x;
+        dragging.y = y;
+      } else {
+        hovered = kgNodes.find(node => {
+          const dx = node.x - x;
+          const dy = node.y - y;
+          return Math.sqrt(dx * dx + dy * dy) < 25;
+        }) || null;
+        canvas.style.cursor = hovered ? 'pointer' : 'grab';
+      }
+    }
+    
+    function onKGScroll(e) {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      transform.scale = Math.max(0.5, Math.min(2, transform.scale * delta));
+    }
+    
+    function showKGNodeDetail(nodeId) {
+      const node = kgNodes.find(n => n.id === nodeId);
+      if (!node) return;
+      
+      const connections = kgEdges.filter(e => e.source === nodeId || e.target === nodeId);
+      const connectedNodes = connections.map(e => {
+        const otherId = e.source === nodeId ? e.target : e.source;
+        return kgNodes.find(n => n.id === otherId);
+      }).filter(Boolean);
+      
+      showModal(`
+        <div class="space-y-4">
+          <div class="flex items-center space-x-4">
+            <span class="w-12 h-12 rounded-full flex items-center justify-center text-white text-lg font-bold ${getNodeColor(node.type)}">
+              ${node.type[0]}
+            </span>
+            <div>
+              <h2 class="text-xl font-bold">${node.label}</h2>
+              <p class="text-gray-500">${node.type} • ${node.id}</p>
+            </div>
+          </div>
+          
+          <div class="border-t pt-4">
+            <h3 class="font-semibold mb-2">Connections (${connections.length})</h3>
+            <div class="space-y-2">
+              ${connectedNodes.map(n => `
+                <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                  <div class="flex items-center space-x-2">
+                    <span class="w-6 h-6 rounded-full ${getNodeColor(n.type)} flex items-center justify-center text-white text-xs">
+                      ${n.type[0]}
+                    </span>
+                    <span>${n.label}</span>
+                  </div>
+                  <span class="text-xs text-gray-400">${connections.find(c => c.source === node.id && c.target === n.id || c.target === node.id && c.source === n.id)?.relation || ''}</span>
+                </div>
+              `).join('') || '<p class="text-gray-400">No connections</p>'}
+            </div>
+          </div>
+          
+          <div class="border-t pt-4 flex space-x-2">
+            <button onclick="hideModal()" class="flex-1 bg-gray-100 py-2 rounded-lg">Close</button>
+            <button onclick="highlightPath('${nodeId}')" class="flex-1 bg-purple-600 text-white py-2 rounded-lg">Highlight Path</button>
+          </div>
+        </div>
+      `);
+    }
+    
+    function highlightPath(nodeId) {
+      // Highlight connected nodes
+      const connected = new Set([nodeId]);
+      kgEdges.forEach(edge => {
+        if (edge.source === nodeId || edge.target === nodeId) {
+          connected.add(edge.source);
+          connected.add(edge.target);
+        }
+      });
+      
+      // Visual feedback
+      alert(`Highlighted ${connected.size} connected nodes`);
+    }
+    
+    // Knowledge Graph Search
+    async function searchKnowledgeOld() {
       const query = document.getElementById('kgQuery').value;
       const type = document.getElementById('kgType').value;
       
