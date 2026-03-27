@@ -17,6 +17,7 @@ import { FetchQuery } from './assets/types';
 
 const app = express();
 app.use(express.json());
+app.use('/ui', express.static('ui'));
 
 // Request logging middleware
 app.use((req: Request, _res: Response, next: NextFunction) => {
