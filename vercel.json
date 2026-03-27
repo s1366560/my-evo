@@ -2,20 +2,20 @@
   "version": 2,
   "builds": [
     {
-      "src": "src/index.ts",
+      "src": "dist/index.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/ui/(.*)",
-      "dest": "public/$1"
+      "dest": "/public/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "src/index.ts"
+      "dest": "dist/index.js"
     }
   ],
-  "installCommand": "npm install",
+  "installCommand": "npm install && mkdir -p public && cp -r ui/* public/ && ls public/",
   "buildCommand": "npm run build"
 }
