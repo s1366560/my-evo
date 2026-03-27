@@ -2,7 +2,7 @@
  * Search Service - Skill/Gene/Capsule Semantic Search
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 export type AssetType = 'gene' | 'capsule' | 'skill';
 

@@ -1,6 +1,6 @@
 // Recipe Engine
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import {
   Recipe,
   RecipeStatus,
@@ -8,7 +8,7 @@ import {
   OrganismStatus,
   GeneRef,
   RecipeCreate,
-} from './types.js';
+} from './types';
 
 export class RecipeEngine {
   private recipes: Map<string, Recipe> = new Map();
@@ -17,7 +17,7 @@ export class RecipeEngine {
   // Recipe operations
   create(create: RecipeCreate): Recipe {
     const recipe: Recipe = {
-      id: `rec_${uuidv4().slice(0, 8)}`,
+      id: `rec_${randomUUID().slice(0, 8)}`,
       title: create.title,
       description: create.description,
       genes: create.genes.sort((a, b) => a.position - b.position),
@@ -69,7 +69,7 @@ export class RecipeEngine {
     if (!original) return null;
 
     const forked: Recipe = {
-      id: `rec_${uuidv4().slice(0, 8)}`,
+      id: `rec_${randomUUID().slice(0, 8)}`,
       title: changes.title || original.title,
       description: changes.description || original.description,
       genes: changes.genes || original.genes,
@@ -93,7 +93,7 @@ export class RecipeEngine {
     if (recipe.status !== RecipeStatus.PUBLISHED) return null;
 
     const organism: Organism = {
-      id: `org_${uuidv4().slice(0, 8)}`,
+      id: `org_${randomUUID().slice(0, 8)}`,
       recipe_id: recipeId,
       status: OrganismStatus.ALIVE,
       genes_expressed: 0,
