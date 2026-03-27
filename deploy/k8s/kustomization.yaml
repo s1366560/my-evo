@@ -1,0 +1,33 @@
+# Kubernetes Kustomization for EvoMap Hub
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: evomap
+
+resources:
+  - namespace.yaml      # Namespace + ResourceQuota + LimitRange
+  - configmap-secret.yaml  # ConfigMap + Secret
+  - postgres.yaml       # PostgreSQL StatefulSet + Headless Service
+  - redis.yaml          # Redis StatefulSet + Headless Service
+  - deployment.yaml     # EvoMap Hub Deployment + Service + HPA + PDB
+  - ingress.yaml        # Ingress + TLS
+  - network-policy.yaml # Zero-trust NetworkPolicy
+
+commonLabels:
+  app.kubernetes.io/name: evomap
+  app.kubernetes.io/part-of: evomap-hub
+
+secretGenerator:
+- name: evomap-secret
+  literals:
+  - POSTGRES_PASSWORD=CHANGE_ME_IN_PRODUCTION
+  options:
+    disableNameSuffixHash: true
+
+configMapGenerator:
+- name: evomap-config
+  literals:
+  - NODE_ENV=production
+  - PORT=3000
+  - LOG_LEVEL=info
+  - HEARTBEAT_INTERVAL_MS=900000

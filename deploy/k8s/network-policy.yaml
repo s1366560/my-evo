@@ -1,0 +1,116 @@
+# Zero-trust NetworkPolicy for EvoMap Hub
+# Default deny all; allow only required connections
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: evomap-default-deny
+  namespace: evomap
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# Allow evomap-hub ingress from ingress controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: evomap-hub-ingress
+  namespace: evomap
+spec:
+  podSelector:
+    matchLabels:
+      app: evomap-hub
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 3000
+---
+# evomap-hub egress: postgres only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: evomap-hub-egress
+  namespace: evomap
+spec:
+  podSelector:
+    matchLabels:
+      app: evomap-hub
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 53
+      name: dns-tcp
+    - protocol: UDP
+      port: 53
+      name: dns-udp
+---
+# postgres: allow from evomap-hub only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress
+  namespace: evomap
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: evomap-hub
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+# redis: allow from evomap-hub only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+  namespace: evomap
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: evomap-hub
+    ports:
+    - protocol: TCP
+      port: 6379
