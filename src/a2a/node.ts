@@ -77,7 +77,7 @@ export async function registerNode(
         hub_node_id: HUB_NODE_ID,
         node_secret: existingSecret,
         credit_balance: 0,  // Would fetch from DB
-        survival_status: existingNode.status === 'alive' ? 'alive' : 'dead',
+        survival_status: 'alive' as const,
         referral_code: existingNodeId,
         recommended_tasks: [],
         network_manifest: {

@@ -21,11 +21,15 @@ const entityIndex: Map<EntityType, Set<string>> = new Map();
 
 // ============ Entity Operations ============
 
-export function addEntity(entity: Omit<KGEntity, 'id' | 'metadata'>): KGEntity {
+export function addEntity(entity: Partial<KGEntity> & { type: EntityType; name: string }): KGEntity {
   const now = Date.now();
   const newEntity: KGEntity = {
-    ...entity,
     id: entity.id || `kg_${uuidv4().slice(0, 8)}`,
+    type: entity.type,
+    name: entity.name,
+    description: entity.description,
+    properties: entity.properties,
+    embedding: entity.embedding,
     metadata: {
       created_at: now,
       updated_at: now,
@@ -110,7 +114,7 @@ export function addRelationship(
   relationships.set(newRel.id, newRel);
   
   // Auto-create bidirectional for certain relationship types
-  const symmetricTypes: RelationshipType[] = ['similar_to', , 'evolved_from'];
+  const symmetricTypes: RelationshipType[] = ['similar_to', 'evolved_from'];
   if (symmetricTypes.includes(relationship.type)) {
     const reverseRel: KGRelationship = {
       ...newRel,
