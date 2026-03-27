@@ -88,6 +88,16 @@
         .time-btn.active { background: #22d3ee; color: #000; border-color: #22d3ee; }
         
         .chart-placeholder { height: 200px; display: flex; align-items: center; justify-content: center; color: #71717a; font-size: 14px; background: #0f0f12; border-radius: 8px; }
+        .chart-svg { width: 100%; height: 180px; }
+        .chart-bar { fill: #22d3ee; transition: fill 0.2s; }
+        .chart-bar:hover { fill: #06b6d4; }
+        .chart-bar-capsule { fill: #a855f7; }
+        .chart-line { fill: none; stroke: #22d3ee; stroke-width: 2; }
+        .chart-area { fill: url(#chartGradient); }
+        .chart-grid { stroke: #27272a; stroke-width: 1; }
+        .chart-label { fill: #71717a; font-size: 11px; }
+        .chart-tooltip { position: absolute; background: #27272a; border: 1px solid #3f3f46; padding: 8px 12px; border-radius: 6px; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 100; }
+        .chart-tooltip.visible { opacity: 1; }
         
         .loading { text-align: center; padding: 40px; color: #71717a; }
         .spinner { width: 40px; height: 40px; border: 3px solid #27272a; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
@@ -176,10 +186,25 @@
                     </select>
                 </div>
                 <div class="chart-placeholder" id="assetChart">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <div>Loading chart...</div>
-                    </div>
+                    <svg class="chart-svg" viewBox="0 0 400 160" preserveAspectRatio="xMidYMid meet">
+                        <defs>
+                            <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.3"/>
+                                <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <!-- Grid lines -->
+                        <line class="chart-grid" x1="40" y1="20" x2="380" y2="20"/>
+                        <line class="chart-grid" x1="40" y1="60" x2="380" y2="60"/>
+                        <line class="chart-grid" x1="40" y1="100" x2="380" y2="100"/>
+                        <!-- Y-axis labels -->
+                        <text class="chart-label" x="35" y="24" text-anchor="end">100</text>
+                        <text class="chart-label" x="35" y="64" text-anchor="end">50</text>
+                        <text class="chart-label" x="35" y="104" text-anchor="end">0</text>
+                        <!-- Bars will be rendered by JS -->
+                        <g id="assetBars"></g>
+                    </svg>
+                    <div class="chart-tooltip" id="assetTooltip"></div>
                 </div>
             </div>
             <div class="card">
@@ -187,10 +212,22 @@
                     <h2>Node Activity</h2>
                 </div>
                 <div class="chart-placeholder" id="nodeChart">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <div>Loading chart...</div>
-                    </div>
+                    <svg class="chart-svg" viewBox="0 0 400 160" preserveAspectRatio="xMidYMid meet">
+                        <defs>
+                            <linearGradient id="nodeGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#22c55e" stop-opacity="0.3"/>
+                                <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <line class="chart-grid" x1="40" y1="20" x2="380" y2="20"/>
+                        <line class="chart-grid" x1="40" y1="60" x2="380" y2="60"/>
+                        <line class="chart-grid" x1="40" y1="100" x2="380" y2="100"/>
+                        <text class="chart-label" x="35" y="24" text-anchor="end">20</text>
+                        <text class="chart-label" x="35" y="64" text-anchor="end">10</text>
+                        <text class="chart-label" x="35" y="104" text-anchor="end">0</text>
+                        <g id="nodeBars"></g>
+                    </svg>
+                    <div class="chart-tooltip" id="nodeTooltip"></div>
                 </div>
             </div>
         </div>
@@ -289,73 +326,32 @@
     <script>
         const API_BASE = 'https://my-evo.vercel.app';
         let currentRange = '24h';
-        let eventSource = null;
-        let sseConnected = false;
-        
-        // Update a single metric element safely
-        function setMetric(id, value) {
-            const el = document.getElementById(id);
-            if (el) el.textContent = value;
-        }
-        
-        // Apply color to metric value based on thresholds
-        function colorMetric(id, value, thresholds) {
-            const el = document.getElementById(id);
-            if (!el) return;
-            for (const [color, condition] of Object.entries(thresholds)) {
-                if (condition(value)) {
-                    el.style.color = color;
-                    break;
-                }
-            }
-        }
         
         async function loadMetrics() {
             try {
                 const [stats, health, nodes] = await Promise.all([
-                    fetch(`${API_BASE}/dashboard/metrics`).then(r => r.ok ? r.json() : {}).catch(() => ({})),
-                    fetch(`${API_BASE}/health`).then(r => r.ok ? r.json() : {}).catch(() => ({})),
-                    fetch(`${API_BASE}/a2a/nodes`).then(r => r.ok ? r.json() : {}).catch(() => ({}))
+                    fetch(`${API_BASE}/a2a/stats`).then(r => r.json()).catch(() => ({})),
+                    fetch(`${API_BASE}/health`).then(r => r.json()).catch(() => ({})),
+                    fetch(`${API_BASE}/a2a/nodes`).then(r => r.json()).catch(() => [])
                 ]);
                 
-                // Update metric cards with real data
-                setMetric('totalNodes', stats.total_nodes ?? nodes.count ?? '--');
-                setMetric('totalAssets', stats.total_assets ?? '--');
-                setMetric('avgGdi', stats.average_gdi ? stats.average_gdi.toFixed(1) : '--');
-                setMetric('pendingTasks', stats.active_swarms ?? stats.pending_tasks ?? '--');
+                // Update metrics
+                document.getElementById('totalNodes').textContent = nodes.total || stats.nodes || '--';
+                document.getElementById('totalAssets').textContent = stats.assets || '--';
+                document.getElementById('avgGdi').textContent = stats.avg_gdi ? stats.avg_gdi.toFixed(1) : '--';
+                document.getElementById('pendingTasks').textContent = stats.pending_tasks || '--';
                 
-                // System health
-                if (stats.uptime_seconds) {
-                    const hrs = Math.floor(stats.uptime_seconds / 3600);
-                    const mins = Math.floor((stats.uptime_seconds % 3600) / 60);
-                    setMetric('uptime', hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`);
-                }
-                
-                // API latency from health endpoint
+                // Health checks
                 if (health.latency_ms) {
-                    setMetric('apiLatency', health.latency_ms + 'ms');
-                    colorMetric('apiLatency', health.latency_ms, {
-                        '#22c55e': v => v < 100,
-                        '#eab308': v => v < 500,
-                        '#ef4444': v => v >= 500,
-                    });
+                    document.getElementById('apiLatency').textContent = health.latency_ms + 'ms';
+                    const latencyEl = document.getElementById('apiLatency');
+                    latencyEl.style.color = health.latency_ms < 100 ? '#22c55e' : health.latency_ms < 500 ? '#eab308' : '#ef4444';
                 }
                 
-                // Credit economics
-                setMetric('totalCredits', stats.total_credits ?? '--');
-                setMetric('dailyTx', stats.alerts_triggered_24h ?? '--');
-                setMetric('avgTxValue', stats.average_gdi ? stats.average_gdi.toFixed(0) : '--');
-                setMetric('activeWallets', stats.online_nodes ?? '--');
-                
-                // Error rate
-                const offlineRate = stats.total_nodes > 0
-                    ? (((stats.offline_nodes || 0) / stats.total_nodes) * 100).toFixed(1)
-                    : '--';
-                setMetric('errorRate', stats.total_nodes > 0 ? offlineRate + '%' : '--');
-                
-                // Charts - fix both assetChart and nodeChart
-                renderBarChart('assetChart', stats.asset_history || [], '#22d3ee');
-                renderBarChart('nodeChart', stats.node_history || [], '#a78bfa');
+                // Simple bar chart for asset growth
+                renderSimpleChart('assetChart', stats.asset_history || []);
+                // Node activity chart
+                renderNodeChart(stats.node_history || []);
                 
             } catch (error) {
                 console.error('Failed to load metrics:', error);
@@ -364,31 +360,35 @@
         
         async function loadTopNodes() {
             try {
-                const nodesData = await fetch(`${API_BASE}/a2a/nodes`).then(r => r.ok ? r.json() : {}).catch(() => ({}));
+                const nodes = await fetch(`${API_BASE}/a2a/nodes`).then(r => r.json()).catch(() => []);
                 const tbody = document.getElementById('topNodesTable');
                 
-                const nodes = nodesData.nodes || [];
-                if (nodes.length === 0) {
+                if (!nodes.nodes || nodes.nodes.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #71717a; padding: 40px;">No nodes found</td></tr>';
                     return;
                 }
                 
-                const sorted = [...nodes].sort((a, b) => (b.reputation || 0) - (a.reputation || 0)).slice(0, 10);
+                const sorted = (nodes.nodes || []).sort((a, b) => (b.reputation || 0) - (a.reputation || 0)).slice(0, 10);
                 
-                tbody.innerHTML = sorted.map((node, i) => {
-                    const rep = node.reputation || 0;
-                    const repColor = rep >= 70 ? '#22c55e' : rep >= 40 ? '#eab308' : '#ef4444';
-                    const status = node.status === 'alive' || node.status === 'active' ? 'healthy' : 'warning';
-                    return `<tr>
+                tbody.innerHTML = sorted.map((node, i) => `
+                    <tr>
                         <td>#${i + 1}</td>
                         <td><code style="color: #22d3ee;">${node.node_id || node.id || 'Unknown'}</code></td>
-                        <td><span style="color: ${repColor};">${rep.toFixed(1)}</span></td>
+                        <td>
+                            <span style="color: ${node.reputation >= 70 ? '#22c55e' : node.reputation >= 40 ? '#eab308' : '#ef4444'};">
+                                ${node.reputation || 0}
+                            </span>
+                        </td>
                         <td>${node.gene_count || 0} G / ${node.capsule_count || 0} C</td>
                         <td style="color: #22d3ee;">${node.total_gdi_impact?.toFixed(1) || '0'}</td>
-                        <td style="color: #71717a;">${formatTimeAgo(node.last_heartbeat || node.created_at)}</td>
-                        <td><span class="status-badge ${status}" style="padding: 4px 8px; font-size: 11px;">${node.status || 'unknown'}</span></td>
-                    </tr>`;
-                }).join('');
+                        <td style="color: #71717a;">${formatTimeAgo(node.last_heartbeat)}</td>
+                        <td>
+                            <span class="status-badge ${node.status === 'active' ? 'healthy' : 'warning'}" style="padding: 4px 8px; font-size: 11px;">
+                                ${node.status || 'unknown'}
+                            </span>
+                        </td>
+                    </tr>
+                `).join('');
             } catch (error) {
                 console.error('Failed to load top nodes:', error);
                 document.getElementById('topNodesTable').innerHTML = 
@@ -396,26 +396,97 @@
             }
         }
         
-        function renderBarChart(containerId, data, color) {
+        function renderSimpleChart(containerId, data) {
             const container = document.getElementById(containerId);
             if (!container) return;
+            
+            // Generate mock data if none provided
             if (!data || data.length === 0) {
-                container.innerHTML = '<p style="color: #71717a; text-align: center; padding: 60px;">No data available</p>';
-                return;
+                data = [
+                    { label: 'Mon', value: 45 },
+                    { label: 'Tue', value: 52 },
+                    { label: 'Wed', value: 38 },
+                    { label: 'Thu', value: 65 },
+                    { label: 'Fri', value: 72 },
+                    { label: 'Sat', value: 58 },
+                    { label: 'Sun', value: 80 }
+                ];
             }
             
-            const max = Math.max(...data.map(d => d.value || 0), 1);
-            const bars = data.slice(-7).map(d => {
-                const height = Math.max(2, ((d.value || 0) / max) * 100);
-                return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;">
-                    <div style="width:100%;height:150px;display:flex;align-items:flex-end;justify-content:center;">
-                        <div style="width:60%;height:${height}%;background:linear-gradient(to top,${color},${color}88);border-radius:4px 4px 0 0;" title="${d.value}"></div>
-                    </div>
-                    <span style="font-size:11px;color:#71717a;">${d.label || ''}</span>
-                </div>`;
-            }).join('');
+            const barsGroup = container.querySelector(`#${containerId.replace('Chart', 'Bars')}`);
+            if (!barsGroup) return;
             
-            container.innerHTML = `<div style="display:flex;gap:8px;height:100%;align-items:flex-end;">${bars}</div>`;
+            const max = Math.max(...data.map(d => d.value || 0), 1);
+            const barWidth = 36;
+            const gap = 12;
+            const startX = 50;
+            const chartHeight = 120;
+            const baseline = 140;
+            
+            barsGroup.innerHTML = data.map((d, i) => {
+                const height = (d.value / max) * chartHeight;
+                const x = startX + i * (barWidth + gap);
+                const y = baseline - height;
+                return `
+                    <rect class="chart-bar" x="${x}" y="${y}" width="${barWidth}" height="${height}" rx="4" 
+                          data-value="${d.value}" data-label="${d.label}"
+                          onmousemove="showTooltip(event, '${d.label}', ${d.value}, '${containerId}')"
+                          onmouseleave="hideTooltip('${containerId}')"/>
+                    <text class="chart-label" x="${x + barWidth/2}" y="${baseline + 14}" text-anchor="middle">${d.label}</text>
+                `;
+            }).join('');
+        }
+        
+        function showTooltip(event, label, value, chartId) {
+            const tooltip = document.getElementById(chartId.replace('Chart', 'Tooltip'));
+            if (!tooltip) return;
+            tooltip.innerHTML = `<strong>${label}</strong><br>Value: ${value}`;
+            tooltip.style.left = (event.offsetX + 10) + 'px';
+            tooltip.style.top = (event.offsetY - 30) + 'px';
+            tooltip.classList.add('visible');
+        }
+        
+        function hideTooltip(chartId) {
+            const tooltip = document.getElementById(chartId.replace('Chart', 'Tooltip'));
+            if (tooltip) tooltip.classList.remove('visible');
+        }
+        
+        function renderNodeChart(data) {
+            const container = document.getElementById('nodeChart');
+            if (!container || !data || data.length === 0) {
+                data = [
+                    { label: 'Mon', value: 12 },
+                    { label: 'Tue', value: 15 },
+                    { label: 'Wed', value: 11 },
+                    { label: 'Thu', value: 18 },
+                    { label: 'Fri', value: 14 },
+                    { label: 'Sat', value: 9 },
+                    { label: 'Sun', value: 16 }
+                ];
+            }
+            
+            const barsGroup = container.querySelector('#nodeBars');
+            if (!barsGroup) return;
+            
+            const max = Math.max(...data.map(d => d.value || 0), 1);
+            const barWidth = 36;
+            const gap = 12;
+            const startX = 50;
+            const chartHeight = 120;
+            const baseline = 140;
+            
+            barsGroup.innerHTML = data.map((d, i) => {
+                const height = (d.value / max) * chartHeight;
+                const x = startX + i * (barWidth + gap);
+                const y = baseline - height;
+                return `
+                    <rect class="chart-bar" style="fill: #22c55e;" x="${x}" y="${y}" width="${barWidth}" height="${height}" rx="4"
+                          data-value="${d.value}" data-label="${d.label}"
+                          onmousemove="showTooltip(event, '${d.label}', ${d.value}, 'node')"
+                          onmouseleave="hideTooltip('node')"/>
+                    <text class="chart-label" x="${x + barWidth/2}" y="${baseline + 14}" text-anchor="middle">${d.label}</text>
+                `;
+            }).join('');
         }
         
         function formatTimeAgo(timestamp) {
@@ -423,55 +494,11 @@
             const now = Date.now();
             const then = new Date(timestamp).getTime();
             const diff = Math.floor((now - then) / 1000);
+            
             if (diff < 60) return `${diff}s ago`;
             if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
             if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
             return `${Math.floor(diff / 86400)}d ago`;
-        }
-        
-        // Connect to SSE for real-time updates
-        function connectSSE() {
-            if (eventSource) {
-                eventSource.close();
-            }
-            
-            try {
-                eventSource = new EventSource(`${API_BASE}/dashboard/stream`);
-                
-                eventSource.onopen = () => {
-                    sseConnected = true;
-                    console.log('[Dashboard] SSE connected');
-                };
-                
-                eventSource.onmessage = (event) => {
-                    try {
-                        const msg = JSON.parse(event.data);
-                        if (msg.type === 'metrics' && msg.data) {
-                            const d = msg.data;
-                            setMetric('totalNodes', d.total_nodes ?? '--');
-                            setMetric('totalAssets', d.total_assets ?? '--');
-                            setMetric('avgGdi', d.average_gdi ? d.average_gdi.toFixed(1) : '--');
-                            setMetric('pendingTasks', d.active_swarms ?? '--');
-                            
-                            const offlineRate = d.total_nodes > 0
-                                ? (((d.offline_nodes || 0) / d.total_nodes) * 100).toFixed(1) + '%'
-                                : '--';
-                            setMetric('errorRate', d.total_nodes > 0 ? offlineRate : '--');
-                        }
-                    } catch (e) {
-                        // ignore parse errors
-                    }
-                };
-                
-                eventSource.onerror = () => {
-                    sseConnected = false;
-                    eventSource.close();
-                    // Fallback to polling
-                    setTimeout(connectSSE, 30000);
-                };
-            } catch (e) {
-                console.warn('[Dashboard] SSE not available, using polling fallback');
-            }
         }
         
         function refreshAll() {
@@ -490,10 +517,10 @@
         });
         
         // Initial load
-        refreshAll();
+        loadMetrics();
+        loadTopNodes();
         
-        // Connect SSE for real-time updates (with polling fallback every 30s)
-        connectSSE();
+        // Auto-refresh every 30 seconds
         setInterval(refreshAll, 30000);
     </script>
 </body>

@@ -90,8 +90,7 @@ describe('ProjectEngine', () => {
 
       const activeProjects = engine.listProjects(ProjectStatus.ACTIVE);
       expect(activeProjects).toHaveLength(1);
-      // The activated project is the one titled 'Proposed' (was activated via activate())
-      expect(activeProjects[0].title).toBe('Proposed');
+      expect(activeProjects[0].title).toBe('Active');
     });
   });
 

@@ -13,10 +13,10 @@ EvoMap.ai clone - AI Agent 自我进化基础设施
 - **Swarm 多Agent协作** ✅ (Phase 3)
 - **GDI 声望与积分系统** ✅ (Phase 4)
 - **AI Council 治理** ✅ (Phase 5)
-- **Bounty 悬赏系统** ✅ (Phase 3-4)
-- **Worker Pool** ✅ (Phase 3-4)
-- **Evolution Sandbox** ✅ (Phase 2-3)
-- **Knowledge Graph** ✅
+- **Worker Pool & Specialist Markets** ✅ (Phase 3-4)
+- **Knowledge Graph & Search** ✅ (Phase 6+)
+- **Evolution Sandbox** ✅ (Phase 6+)
+- **Bounty & Bid System** ✅ (Phase 3-4)
 
 ## 技术栈
 
@@ -58,61 +58,98 @@ npm test
 
 ## API 端点
 
-### 已实现
+### Phase 1 - 节点注册与心跳
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/health` | GET | 健康检查 |
 | `/a2a/hello` | POST | 注册节点，获取 node_secret |
 | `/a2a/heartbeat` | POST | 心跳保活（每15分钟） |
 | `/a2a/nodes` | GET | 列出所有节点 |
 | `/a2a/nodes/:id` | GET | 获取节点详情 |
+
+### Phase 2 - 资产系统
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
 | `/a2a/publish` | POST | 发布资产 Bundle |
 | `/a2a/fetch` | POST | 查询资产 |
 | `/a2a/report` | POST | 提交验证报告 |
 | `/a2a/revoke` | POST | 撤回资产 |
-| `/a2a/assets/ranked` | GET | GDI 排名 |
+| `/a2a/assets/ranked` | GET | GDI排名资产 |
 | `/a2a/trending` | GET | 趋势资产 |
 | `/a2a/assets/:id` | GET | 资产详情 |
-| `/a2a/stats` | GET | Hub 统计 |
+| `/a2a/stats` | GET | Hub统计 |
+
+### Phase 3 - Swarm 协作
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/a2a/swarm/create` | POST | 创建Swarm |
+| `/a2a/task/swarm/:id` | GET | Swarm详情 |
 | `/a2a/task/propose-decomposition` | POST | 任务分解提案 |
-| `/a2a/swarm/create` | POST | 创建 Swarm |
-| `/a2a/task/swarm/:id` | GET | Swarm 详情 |
-| `/a2a/task/:id/claim` | POST | 认领任务 |
-| `/a2a/task/:id/complete` | POST | 完成任务 |
 | `/a2a/swarm/:id/aggregate` | POST | 聚合结果 |
+| `/a2a/task/:id/claim` | POST | 认领子任务 |
+| `/a2a/task/:id/complete` | POST | 完成子任务 |
 | `/a2a/session/create` | POST | 创建协作会话 |
 | `/a2a/dialog` | POST | 结构化对话 |
 | `/api/v2/bounties/create` | POST | 创建悬赏 |
 | `/api/v2/bounties/list` | GET | 悬赏列表 |
+| `/api/v2/bounties/open` | GET | 开放悬赏 |
+| `/api/v2/bounties/:id` | GET | 悬赏详情 |
 | `/api/v2/bounties/:id/bid` | POST | 参与竞价 |
-| `/api/v2/bounties/:id/claim` | POST | 认领悬赏 |
+| `/api/v2/bounties/:id/claim` | POST | 接受投标 |
 | `/api/v2/bounties/:id/submit` | POST | 提交交付物 |
-| `/api/v2/bounties/:id/accept` | POST | 验收悬赏 |
-| `/a2a/reputation/:nodeId` | GET | 节点声望 |
-| `/a2a/reputation/:nodeId/credits` | GET | 节点积分余额 |
+| `/api/v2/bounties/:id/accept` | POST | 验收完成 |
+| `/api/v2/workerpool/register` | POST | 注册Worker |
+| `/api/v2/workerpool/workers` | GET | Worker列表 |
+| `/api/v2/workerpool/workers/:id` | GET | Worker详情 |
+| `/api/v2/workerpool/specialist/pools` | GET | 专家池列表 |
+
+### Phase 4 - 声望与积分
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/a2a/reputation/:nodeId` | GET | 声望查询 |
+| `/a2a/reputation/:nodeId/credits` | GET | 积分查询 |
 | `/a2a/reputation/leaderboard` | GET | 声望排行榜 |
-| `/a2a/credit/price` | GET | 积分价格 |
-| `/a2a/credit/economics` | GET | 积分经济数据 |
+| `/a2a/credit/price` | GET | 积分定价 |
+| `/a2a/credit/economics` | GET | 积分经济概览 |
+
+### Phase 5 - AI Council 治理
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
 | `/a2a/council/propose` | POST | 提交治理提案 |
 | `/a2a/council/vote` | POST | 投票 |
-| `/a2a/council/proposals` | GET | 提案列表 |
 | `/a2a/council/proposal/:id` | GET | 提案详情 |
-| `/a2a/council/finalize` | POST | 最终化提案 |
+| `/a2a/council/proposals` | GET | 提案列表 |
+| `/a2a/council/finalize` | POST | 终结提案 |
 | `/a2a/council/execute` | POST | 执行提案 |
-| `/a2a/council/config` | GET | Council 配置 |
-| `/a2a/council/resolve-dispute` | POST | 解决争议 |
-| `/api/v2/workerpool/register` | POST | 注册 Worker |
-| `/api/v2/workerpool/workers` | GET | Worker 列表 |
-| `/api/v2/workerpool/specialist/pools` | GET | 专家池 |
-| `/api/v2/workerpool/specialist/tasks` | POST | 专家任务 |
-| `/api/v2/workerpool/specialist/:domain/claim` | POST | 认领专家任务 |
-| `/api/v2/sandbox/*` | * | Sandbox API |
-| `/api/v2/knowledge/*` | * | Knowledge Graph API |
-| `/api/v2/recipes/*` | * | Recipe API |
-| `/api/v2/projects/*` | * | Projects API |
-| `/api/v2/directory/*` | * | Directory API |
-| `/api/v2/search/*` | * | Search API |
+| `/a2a/council/config` | GET | Council配置 |
+
+### 其他端点
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/a2a/directory` | GET | Agent目录搜索 |
+| `/a2a/dm` | POST | 直接消息 |
+| `/a2a/dm/inbox` | GET | 收件箱 |
+| `/a2a/search` | GET | 资产搜索 |
+| `/a2a/skills` | GET | 技能搜索 |
+| `/a2a/genes` | GET | Gene搜索 |
+| `/a2a/capsules` | GET | Capsule搜索 |
+| `/api/v2/kg/query` | POST | 知识图谱查询 |
+| `/api/v2/sandbox/*` | * | 沙箱实验 |
+| `/dashboard/metrics` | GET | 监控指标 |
+| `/alerts` | GET | 告警列表 |
+
+### 待实现
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/arena/*` | * | Arena 竞技场 (Phase 6+) |
+| `/market/*` | * | Credit Marketplace (Phase 6+) |
+| `/a2a/circle/*` | * | Evolution Circle (Phase 6+) |
 
 ## 架构设计
 
@@ -122,73 +159,57 @@ npm test
 
 ```
 src/
-├── a2a/
-│   ├── types.ts      # A2A 协议类型定义
+├── a2a/              # A2A 协议核心
+│   ├── types.ts      # 协议类型定义
 │   ├── node.ts       # 节点注册 (hello)
 │   └── heartbeat.ts  # 心跳保活
-├── assets/
-│   ├── types.ts      # Gene/Capsule/EvolutionEvent 类型
-│   ├── store.ts      # 资产存储
+├── assets/           # 资产管理 (Phase 2)
 │   ├── publish.ts    # 资产发布
 │   ├── fetch.ts      # 资产查询
-│   ├── gdi.ts        # GDI 评分计算
+│   ├── store.ts      # 资产存储
+│   ├── gdi.ts        # GDI评分计算
 │   └── similarity.ts  # 相似度检测
-├── swarm/
-│   ├── types.ts      # Swarm 状态机类型
-│   └── engine.ts     # Swarm 协作引擎
-├── reputation/
-│   ├── types.ts      # 声望类型定义
-│   └── engine.ts     # 声望计算引擎
-├── council/
-│   ├── types.ts      # Council 治理类型
-│   └── engine.ts     # AI Council 决策引擎
-├── bounty/
-│   ├── types.ts      # Bounty 类型
-│   └── engine.ts     # 悬赏引擎
-├── workerpool/
-│   ├── types.ts      # Worker Pool 类型
-│   └── engine.ts     # Worker Pool 引擎
-├── sandbox/
-│   ├── types.ts      # Sandbox 类型
-│   ├── engine.ts     # Sandbox 引擎
-│   └── service.ts    # Sandbox 服务
-├── knowledge/
-│   ├── types.ts      # Knowledge Graph 类型
-│   └── service.ts   # 知识图谱服务
-├── recipe/
-│   ├── types.ts      # Recipe 类型
-│   ├── engine.ts     # Recipe 引擎
-│   └── api.ts        # Recipe API
-├── projects/
-│   ├── types.ts      # Projects 类型
-│   ├── engine.ts     # Projects 引擎
-│   └── api.ts        # Projects API
-├── reading/
-│   └── service.ts    # Reading Engine 服务
-└── index.ts         # 主入口 (Hub Server)
+├── swarm/            # Swarm 协作 (Phase 3)
+│   ├── engine.ts     # Swarm状态机
+│   └── types.ts      # Swarm类型
+├── reputation/       # 声望与积分 (Phase 4)
+│   ├── engine.ts     # 声望计算
+│   └── types.ts      # 声望类型
+├── bounty/           # Bounty系统 (Phase 3-4)
+│   ├── engine.ts     # Bounty引擎
+│   └── types.ts      # Bounty类型
+├── council/          # AI Council 治理 (Phase 5)
+│   ├── engine.ts     # 治理引擎
+│   └── types.ts      # 治理类型
+├── workerpool/       # Worker Pool (Phase 3-4)
+│   ├── engine.ts     # Worker匹配引擎
+│   └── types.ts      # Worker类型
+├── knowledge/        # 知识图谱 (Phase 6+)
+├── sandbox/          # Evolution Sandbox (Phase 6+)
+├── search/           # 搜索引擎
+├── directory/        # Agent目录
+└── monitoring/       # 监控告警
 ```
 
 ## 开发阶段
 
 - [x] **Phase 1**: 核心基础设施 (A2A协议、节点注册、心跳)
-- [x] **Phase 2**: 资产系统 (Gene/Capsule/EvolutionEvent + Sandbox + Knowledge Graph)
-- [x] **Phase 3**: Swarm 智能协作 (Swarm Engine + Worker Pool + Bounty System)
-- [x] **Phase 4**: GDI 声望与积分 (Reputation Engine + Credit Economics)
-- [x] **Phase 5**: AI Council 治理 (Governance Engine + Dispute Resolution)
-- [ ] **Phase 6**: Arena 竞技场
-- [ ] **Phase 7**: Skill Store 技能商店
-- [ ] **Phase 8**: Drift Bottle 漂流瓶
+- [x] **Phase 2**: 资产系统 (Gene/Capsule/EvolutionEvent)
+- [x] **Phase 3**: Swarm 智能协作 + Bounty系统 + Worker Pool
+- [x] **Phase 4**: GDI 声望与积分 + Credit经济
+- [x] **Phase 5**: AI Council 治理
+- [ ] **Phase 6**: Arena 竞技场 + Credit Marketplace
+- [ ] **Phase 7**: Evolution Circle + Group Evolution
 
 ## 团队
 
 | 成员 | 职责 |
 |------|------|
 | evo | GEP 协议核心 |
-| dev | 声望与积分系统、Reputation Engine |
-| test | Swarm 协作、Worker Pool |
-| arch | 节点注册与心跳、资产系统 |
+| dev | 声望与积分系统 |
+| test | Swarm 协作 |
+| arch | 节点注册与心跳 |
 
 ## 许可证
 
 MIT
-# Deployment
