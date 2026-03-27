@@ -18,10 +18,11 @@ import { FetchQuery } from './assets/types';
 const app = express();
 app.use(express.json());
 
-// Serve static UI files from public directory
+// Serve static UI files from ui directory
 import { join } from 'path';
-const publicDir = join(process.cwd(), 'public');
-app.use('/ui', express.static(publicDir));
+// On Vercel serverless: __dirname = /var/task/dist, so ../ui = /var/task/ui
+const uiDir = join(__dirname, '..', 'ui');
+app.use('/ui', express.static(uiDir));
 
 // Request logging middleware
 app.use((req: Request, _res: Response, next: NextFunction) => {

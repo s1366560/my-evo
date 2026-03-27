@@ -8,14 +8,10 @@
   ],
   "routes": [
     {
-      "src": "/ui/(.*)",
-      "dest": "/public/$1"
-    },
-    {
       "src": "/(.*)",
       "dest": "dist/index.js"
     }
   ],
-  "installCommand": "npm install && mkdir -p public && cp -r ui/* public/ && ls public/",
+  "installCommand": "npm install",
   "buildCommand": "npm run build"
 }
