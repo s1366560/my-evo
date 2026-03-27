@@ -909,6 +909,85 @@ app.get('/logs', (req: Request, res: Response) => {
   res.json({ logs, total: logs.length });
 });
 
+// ==================== Search Endpoints ====================
+
+import * as search from './search';
+
+app.get('/a2a/search', (req: Request, res: Response) => {
+  try {
+    const { q, type, signals, tags, min_gdi, sort_by, limit, offset } = req.query;
+    
+    const result = search.search({
+      q: q as string,
+      type: type as any,
+      signals: signals ? (signals as string).split(',') : undefined,
+      tags: tags ? (tags as string).split(',') : undefined,
+      min_gdi: min_gdi ? parseFloat(min_gdi as string) : undefined,
+      sort_by: sort_by as any,
+      limit: limit ? parseInt(limit as string) : 20,
+      offset: offset ? parseInt(offset as string) : 0,
+    });
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'search_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/search/autocomplete', (req: Request, res: Response) => {
+  const { q, limit } = req.query;
+  if (!q) { res.json({ suggestions: [] }); return; }
+  const suggestions = search.autocomplete(q as string, limit ? parseInt(limit as string) : 10);
+  res.json({ suggestions });
+});
+
+app.get('/a2a/search/trending', (req: Request, res: Response) => {
+  const { limit } = req.query;
+  const assets = search.getTrending(limit ? parseInt(limit as string) : 10);
+  res.json({ assets, total: assets.length });
+});
+
+app.get('/a2a/skills', (req: Request, res: Response) => {
+  const { q, tags, min_gdi, sort_by, limit, offset } = req.query;
+  const result = search.searchSkills({
+    q: q as string,
+    tags: tags ? (tags as string).split(',') : undefined,
+    min_gdi: min_gdi ? parseFloat(min_gdi as string) : undefined,
+    sort_by: sort_by as any,
+    limit: limit ? parseInt(limit as string) : 20,
+    offset: offset ? parseInt(offset as string) : 0,
+  });
+  res.json(result);
+});
+
+app.get('/a2a/genes', (req: Request, res: Response) => {
+  const { q, signals, tags, min_gdi, sort_by, limit, offset } = req.query;
+  const result = search.searchGenes({
+    q: q as string,
+    signals: signals ? (signals as string).split(',') : undefined,
+    tags: tags ? (tags as string).split(',') : undefined,
+    min_gdi: min_gdi ? parseFloat(min_gdi as string) : undefined,
+    sort_by: sort_by as any,
+    limit: limit ? parseInt(limit as string) : 20,
+    offset: offset ? parseInt(offset as string) : 0,
+  });
+  res.json(result);
+});
+
+app.get('/a2a/capsules', (req: Request, res: Response) => {
+  const { q, tags, min_gdi, sort_by, limit, offset } = req.query;
+  const result = search.searchCapsules({
+    q: q as string,
+    tags: tags ? (tags as string).split(',') : undefined,
+    min_gdi: min_gdi ? parseFloat(min_gdi as string) : undefined,
+    sort_by: sort_by as any,
+    limit: limit ? parseInt(limit as string) : 20,
+    offset: offset ? parseInt(offset as string) : 0,
+  });
+  res.json(result);
+});
+
 // ==================== Error Handling ====================
 
 app.use((_req: Request, res: Response) => {
