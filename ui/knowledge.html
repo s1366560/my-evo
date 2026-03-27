@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Knowledge Graph - EvoMap</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e4e4e7; min-height: 100vh; }
@@ -155,7 +156,7 @@
             <!-- Knowledge Graph Visualization -->
             <div class="card" style="padding: 0;">
                 <div class="kg-container">
-                    <canvas id="kgCanvas" class="kg-canvas"></canvas>
+                    <svg id="kgSvg" class="kg-canvas"></svg>
                     
                     <div class="kg-controls">
                         <button class="kg-btn" onclick="zoomIn()" title="Zoom In">+</button>
@@ -266,26 +267,20 @@
             signal: '#f97316'
         };
         
+        let svg, g, simulation, width, height;
+        
         function init() {
-            canvas = document.getElementById('kgCanvas');
-            ctx = canvas.getContext('2d');
-            resizeCanvas();
-            window.addEventListener('resize', resizeCanvas);
-            
-            canvas.addEventListener('mousedown', onMouseDown);
-            canvas.addEventListener('mousemove', onMouseMove);
-            canvas.addEventListener('mouseup', onMouseUp);
-            canvas.addEventListener('wheel', onWheel);
-            canvas.addEventListener('click', onClick);
-            
+            svg = d3.select('#kgSvg');
+            resizeSvg();
+            window.addEventListener('resize', resizeSvg);
             loadGraph();
         }
         
-        function resizeCanvas() {
-            const container = canvas.parentElement;
-            canvas.width = container.clientWidth;
-            canvas.height = container.clientHeight;
-            draw();
+        function resizeSvg() {
+            const container = document.querySelector('.kg-container');
+            width = container.clientWidth;
+            height = container.clientHeight;
+            svg.attr('viewBox', [0, 0, width, height]);
         }
         
         async function loadGraph() {
@@ -308,12 +303,12 @@
                 edges = graphData.edges || [];
                 
                 // Update stats
-                document.getElementById('totalEntities').textContent = nodes.length;
-                document.getElementById('totalRelations').textContent = edges.length;
-                document.getElementById('avgConnections').textContent = edges.length > 0 ? (edges.length * 2 / nodes.length).toFixed(1) : '0';
-                document.getElementById('graphDepth').textContent = calculateDepth();
+                document.getElementById('totalEntities').textContent = graphData.nodes?.length || 0;
+                document.getElementById('totalRelations').textContent = graphData.edges?.length || 0;
+                document.getElementById('avgConnections').textContent = graphData.edges?.length > 0 ? (graphData.edges.length * 2 / (graphData.nodes?.length || 1)).toFixed(1) : '0';
+                document.getElementById('graphDepth').textContent = calculateDepth(graphData);
                 
-                draw();
+                drawGraph(graphData);
             } catch (error) {
                 console.error('Failed to load graph:', error);
             }
@@ -347,7 +342,9 @@
             return { nodes: mockNodes, edges: mockEdges };
         }
         
-        function calculateDepth() {
+        function calculateDepth(graphData) {
+            const nodes = graphData.nodes || [];
+            const edges = graphData.edges || [];
             // Simplified depth calculation
             let maxDepth = 0;
             const visited = new Set();
@@ -364,121 +361,111 @@
             return maxDepth;
         }
         
-        function draw() {
-            if (!ctx) return;
+        function drawGraph(graphData) {
+            // Clear previous
+            svg.selectAll('*').remove();
             
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.save();
-            ctx.translate(panX, panY);
-            ctx.scale(zoom, zoom);
+            // Create zoom behavior
+            const zoomBehavior = d3.zoom()
+                .scaleExtent([0.3, 3])
+                .on('zoom', (event) => {
+                    g.attr('transform', event.transform);
+                });
+            
+            svg.call(zoomBehavior);
+            
+            // Create container group
+            g = svg.append('g');
+            
+            // Create simulation
+            simulation = d3.forceSimulation(graphData.nodes)
+                .force('link', d3.forceLink(graphData.edges).id(d => d.id).distance(100))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(40));
             
             // Draw edges
-            edges.forEach(edge => {
-                const source = nodes.find(n => n.id === edge.source);
-                const target = nodes.find(n => n.id === edge.target);
-                if (!source || !target) return;
-                
-                ctx.beginPath();
-                ctx.moveTo(source.x * canvas.width, source.y * canvas.height);
-                ctx.lineTo(target.x * canvas.width, target.y * canvas.height);
-                ctx.strokeStyle = '#3f3f46';
-                ctx.lineWidth = 1;
-                ctx.stroke();
-            });
+            const link = g.append('g')
+                .selectAll('line')
+                .data(graphData.edges)
+                .join('line')
+                .attr('stroke', '#3f3f46')
+                .attr('stroke-width', 1.5)
+                .attr('stroke-opacity', 0.6);
             
             // Draw nodes
-            nodes.forEach(node => {
-                if (currentFilter !== 'all' && node.type !== currentFilter) return;
-                
-                const x = node.x * canvas.width;
-                const y = node.y * canvas.height;
-                const radius = node.type === 'signal' ? 8 : 20;
-                
-                // Node circle
-                ctx.beginPath();
-                ctx.arc(x, y, radius, 0, Math.PI * 2);
-                ctx.fillStyle = colors[node.type] || '#71717a';
-                ctx.fill();
-                
-                // Selection ring
-                if (selectedNode === node.id) {
-                    ctx.beginPath();
-                    ctx.arc(x, y, radius + 5, 0, Math.PI * 2);
-                    ctx.strokeStyle = '#fff';
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-                }
-                
-                // Label
-                ctx.fillStyle = '#fff';
-                ctx.font = '11px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText(node.label.substring(0, 15), x, y + radius + 14);
+            const node = g.append('g')
+                .selectAll('g')
+                .data(graphData.nodes)
+                .join('g')
+                .attr('cursor', 'pointer')
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+            
+            // Node circles
+            node.append('circle')
+                .attr('r', d => d.type === 'signal' ? 8 : 20)
+                .attr('fill', d => colors[d.type] || '#71717a')
+                .attr('stroke', '#18181b')
+                .attr('stroke-width', 2);
+            
+            // Node labels
+            node.append('text')
+                .text(d => d.label.substring(0, 15))
+                .attr('dy', d => d.type === 'signal' ? 16 : 32)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#e4e4e7')
+                .attr('font-size', '11px');
+            
+            // Click handler
+            node.on('click', (event, d) => {
+                event.stopPropagation();
+                selectedNode = d.id;
+                showDetail(d);
+                node.selectAll('circle').attr('stroke', n => n.id === d.id ? '#fff' : '#18181b').attr('stroke-width', n => n.id === d.id ? 3 : 2);
             });
             
-            ctx.restore();
-        }
-        
-        function onMouseDown(e) {
-            const rect = canvas.getBoundingClientRect();
-            const x = (e.clientX - rect.left - panX) / zoom;
-            const y = (e.clientY - rect.top - panY) / zoom;
-            
-            dragging = { startX: x, startY: y, node: findNodeAt(x, y) };
-        }
-        
-        function onMouseMove(e) {
-            if (!dragging) return;
-            
-            const rect = canvas.getBoundingClientRect();
-            const x = (e.clientX - rect.left - panX) / zoom;
-            const y = (e.clientY - rect.top - panY) / zoom;
-            
-            if (dragging.node) {
-                dragging.node.x = x / canvas.width;
-                dragging.node.y = y / canvas.height;
-            } else {
-                panX += e.movementX;
-                panY += e.movementY;
-            }
-            
-            draw();
-        }
-        
-        function onMouseUp() {
-            dragging = null;
-        }
-        
-        function onWheel(e) {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? 0.9 : 1.1;
-            zoom = Math.max(0.5, Math.min(3, zoom * delta));
-            draw();
-        }
-        
-        function onClick(e) {
-            const rect = canvas.getBoundingClientRect();
-            const x = (e.clientX - rect.left - panX) / zoom;
-            const y = (e.clientY - rect.top - panY) / zoom;
-            
-            const node = findNodeAt(x, y);
-            if (node) {
-                selectedNode = node.id;
-                showDetail(node);
-            } else {
+            // Click on background to deselect
+            svg.on('click', () => {
                 selectedNode = null;
                 closeDetail();
-            }
-            draw();
+                node.selectAll('circle').attr('stroke', '#18181b').attr('stroke-width', 2);
+            });
+            
+            // Update positions on tick
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+                
+                node.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+            
+            // Zoom controls
+            window.zoomIn = () => svg.transition().call(zoomBehavior.scaleBy, 1.3);
+            window.zoomOut = () => svg.transition().call(zoomBehavior.scaleBy, 0.7);
+            window.resetZoom = () => svg.transition().call(zoomBehavior.transform, d3.zoomIdentity);
         }
         
-        function findNodeAt(x, y) {
-            return nodes.find(n => {
-                const nx = n.x * canvas.width;
-                const ny = n.y * canvas.height;
-                const radius = n.type === 'signal' ? 8 : 20;
-                return Math.sqrt((x - nx) ** 2 + (y - ny) ** 2) <= radius;
-            });
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+        
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+        
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
         }
         
         function showDetail(node) {

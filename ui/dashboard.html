@@ -88,6 +88,16 @@
         .time-btn.active { background: #22d3ee; color: #000; border-color: #22d3ee; }
         
         .chart-placeholder { height: 200px; display: flex; align-items: center; justify-content: center; color: #71717a; font-size: 14px; background: #0f0f12; border-radius: 8px; }
+        .chart-svg { width: 100%; height: 180px; }
+        .chart-bar { fill: #22d3ee; transition: fill 0.2s; }
+        .chart-bar:hover { fill: #06b6d4; }
+        .chart-bar-capsule { fill: #a855f7; }
+        .chart-line { fill: none; stroke: #22d3ee; stroke-width: 2; }
+        .chart-area { fill: url(#chartGradient); }
+        .chart-grid { stroke: #27272a; stroke-width: 1; }
+        .chart-label { fill: #71717a; font-size: 11px; }
+        .chart-tooltip { position: absolute; background: #27272a; border: 1px solid #3f3f46; padding: 8px 12px; border-radius: 6px; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 100; }
+        .chart-tooltip.visible { opacity: 1; }
         
         .loading { text-align: center; padding: 40px; color: #71717a; }
         .spinner { width: 40px; height: 40px; border: 3px solid #27272a; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
@@ -176,10 +186,25 @@
                     </select>
                 </div>
                 <div class="chart-placeholder" id="assetChart">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <div>Loading chart...</div>
-                    </div>
+                    <svg class="chart-svg" viewBox="0 0 400 160" preserveAspectRatio="xMidYMid meet">
+                        <defs>
+                            <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.3"/>
+                                <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <!-- Grid lines -->
+                        <line class="chart-grid" x1="40" y1="20" x2="380" y2="20"/>
+                        <line class="chart-grid" x1="40" y1="60" x2="380" y2="60"/>
+                        <line class="chart-grid" x1="40" y1="100" x2="380" y2="100"/>
+                        <!-- Y-axis labels -->
+                        <text class="chart-label" x="35" y="24" text-anchor="end">100</text>
+                        <text class="chart-label" x="35" y="64" text-anchor="end">50</text>
+                        <text class="chart-label" x="35" y="104" text-anchor="end">0</text>
+                        <!-- Bars will be rendered by JS -->
+                        <g id="assetBars"></g>
+                    </svg>
+                    <div class="chart-tooltip" id="assetTooltip"></div>
                 </div>
             </div>
             <div class="card">
@@ -187,10 +212,22 @@
                     <h2>Node Activity</h2>
                 </div>
                 <div class="chart-placeholder" id="nodeChart">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <div>Loading chart...</div>
-                    </div>
+                    <svg class="chart-svg" viewBox="0 0 400 160" preserveAspectRatio="xMidYMid meet">
+                        <defs>
+                            <linearGradient id="nodeGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#22c55e" stop-opacity="0.3"/>
+                                <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <line class="chart-grid" x1="40" y1="20" x2="380" y2="20"/>
+                        <line class="chart-grid" x1="40" y1="60" x2="380" y2="60"/>
+                        <line class="chart-grid" x1="40" y1="100" x2="380" y2="100"/>
+                        <text class="chart-label" x="35" y="24" text-anchor="end">20</text>
+                        <text class="chart-label" x="35" y="64" text-anchor="end">10</text>
+                        <text class="chart-label" x="35" y="104" text-anchor="end">0</text>
+                        <g id="nodeBars"></g>
+                    </svg>
+                    <div class="chart-tooltip" id="nodeTooltip"></div>
                 </div>
             </div>
         </div>
@@ -313,6 +350,8 @@
                 
                 // Simple bar chart for asset growth
                 renderSimpleChart('assetChart', stats.asset_history || []);
+                // Node activity chart
+                renderNodeChart(stats.node_history || []);
                 
             } catch (error) {
                 console.error('Failed to load metrics:', error);
@@ -359,25 +398,95 @@
         
         function renderSimpleChart(containerId, data) {
             const container = document.getElementById(containerId);
+            if (!container) return;
+            
+            // Generate mock data if none provided
             if (!data || data.length === 0) {
-                container.innerHTML = '<p style="color: #71717a; text-align: center; padding: 60px;">No data available</p>';
-                return;
+                data = [
+                    { label: 'Mon', value: 45 },
+                    { label: 'Tue', value: 52 },
+                    { label: 'Wed', value: 38 },
+                    { label: 'Thu', value: 65 },
+                    { label: 'Fri', value: 72 },
+                    { label: 'Sat', value: 58 },
+                    { label: 'Sun', value: 80 }
+                ];
             }
             
-            const max = Math.max(...data.map(d => d.value || 0));
-            const chartHtml = data.slice(-7).map(d => {
-                const height = max > 0 ? ((d.value || 0) / max * 100) : 0;
+            const barsGroup = container.querySelector(`#${containerId.replace('Chart', 'Bars')}`);
+            if (!barsGroup) return;
+            
+            const max = Math.max(...data.map(d => d.value || 0), 1);
+            const barWidth = 36;
+            const gap = 12;
+            const startX = 50;
+            const chartHeight = 120;
+            const baseline = 140;
+            
+            barsGroup.innerHTML = data.map((d, i) => {
+                const height = (d.value / max) * chartHeight;
+                const x = startX + i * (barWidth + gap);
+                const y = baseline - height;
                 return `
-                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                        <div style="width: 100%; height: 150px; display: flex; align-items: flex-end; justify-content: center;">
-                            <div style="width: 60%; height: ${height}%; background: linear-gradient(to top, #22d3ee, #3b82f6); border-radius: 4px 4px 0 0; min-height: 4px;"></div>
-                        </div>
-                        <span style="font-size: 11px; color: #71717a;">${d.label || d.date || ''}</span>
-                    </div>
+                    <rect class="chart-bar" x="${x}" y="${y}" width="${barWidth}" height="${height}" rx="4" 
+                          data-value="${d.value}" data-label="${d.label}"
+                          onmousemove="showTooltip(event, '${d.label}', ${d.value}, '${containerId}')"
+                          onmouseleave="hideTooltip('${containerId}')"/>
+                    <text class="chart-label" x="${x + barWidth/2}" y="${baseline + 14}" text-anchor="middle">${d.label}</text>
                 `;
             }).join('');
+        }
+        
+        function showTooltip(event, label, value, chartId) {
+            const tooltip = document.getElementById(chartId.replace('Chart', 'Tooltip'));
+            if (!tooltip) return;
+            tooltip.innerHTML = `<strong>${label}</strong><br>Value: ${value}`;
+            tooltip.style.left = (event.offsetX + 10) + 'px';
+            tooltip.style.top = (event.offsetY - 30) + 'px';
+            tooltip.classList.add('visible');
+        }
+        
+        function hideTooltip(chartId) {
+            const tooltip = document.getElementById(chartId.replace('Chart', 'Tooltip'));
+            if (tooltip) tooltip.classList.remove('visible');
+        }
+        
+        function renderNodeChart(data) {
+            const container = document.getElementById('nodeChart');
+            if (!container || !data || data.length === 0) {
+                data = [
+                    { label: 'Mon', value: 12 },
+                    { label: 'Tue', value: 15 },
+                    { label: 'Wed', value: 11 },
+                    { label: 'Thu', value: 18 },
+                    { label: 'Fri', value: 14 },
+                    { label: 'Sat', value: 9 },
+                    { label: 'Sun', value: 16 }
+                ];
+            }
             
-            container.innerHTML = `<div style="display: flex; gap: 8px; height: 100%; align-items: flex-end;">${chartHtml}</div>`;
+            const barsGroup = container.querySelector('#nodeBars');
+            if (!barsGroup) return;
+            
+            const max = Math.max(...data.map(d => d.value || 0), 1);
+            const barWidth = 36;
+            const gap = 12;
+            const startX = 50;
+            const chartHeight = 120;
+            const baseline = 140;
+            
+            barsGroup.innerHTML = data.map((d, i) => {
+                const height = (d.value / max) * chartHeight;
+                const x = startX + i * (barWidth + gap);
+                const y = baseline - height;
+                return `
+                    <rect class="chart-bar" style="fill: #22c55e;" x="${x}" y="${y}" width="${barWidth}" height="${height}" rx="4"
+                          data-value="${d.value}" data-label="${d.label}"
+                          onmousemove="showTooltip(event, '${d.label}', ${d.value}, 'node')"
+                          onmouseleave="hideTooltip('node')"/>
+                    <text class="chart-label" x="${x + barWidth/2}" y="${baseline + 14}" text-anchor="middle">${d.label}</text>
+                `;
+            }).join('');
         }
         
         function formatTimeAgo(timestamp) {
