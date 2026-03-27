@@ -12,6 +12,7 @@
       "dest": "src/index.ts"
     }
   ],
-  "installCommand": "npm ci",
-  "buildCommand": "npm run build"
+  "installCommand": "rm -rf node_modules package-lock.json && npm install",
+  "buildCommand": "npm run build",
+  "devCommand": "npx tsx src/index.ts"
 }
