@@ -17,6 +17,10 @@ import { FetchQuery } from './assets/types';
 
 const app = express();
 app.use(express.json());
+
+// Serve static UI files
+app.use('/ui', express.static('ui'));
+app.use('/static', express.static('public'));
 app.use('/ui', express.static('ui'));
 
 // Request logging middleware
