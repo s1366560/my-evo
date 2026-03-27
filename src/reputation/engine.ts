@@ -30,6 +30,7 @@ import {
   TIER_CAPABILITIES,
 } from './types';
 import { listAssets, countAssets, getAssetsByOwner } from '../assets/store';
+import { getNodeInfo } from '../a2a/node';
 
 // In-memory stores
 const reputationScores = new Map<string, ReputationScore>();
@@ -79,10 +80,12 @@ export function calculateReputation(
   };
 
   // Compute total
+  // Note: avg_gdi is on 0-100 scale, normalize to 0-1 for fair weighting
+  const normalizedAvgGdi = positive.avg_gdi / 100;
   const positiveScore =
     positive.promotion_rate * REP_PROMOTION_RATE_WEIGHT +
     positive.usage_factor * REP_USAGE_FACTOR_WEIGHT +
-    positive.avg_gdi * REP_AVG_GDI_WEIGHT;
+    normalizedAvgGdi * REP_AVG_GDI_WEIGHT;
 
   const negativeScore =
     negative.reject_rate * REP_REJECT_RATE_WEIGHT +
@@ -124,9 +127,19 @@ function computeUsageFactor(assets: { fetch_count?: number; report_count?: numbe
 
 function computeMaturityFactor(nodeId: string): number {
   // Get node creation time from a2a/node store
-  // For now, return 0 - maturity factor grows over time
-  // In production, look up node registration time
-  return 0;
+  const nodeInfo = getNodeInfo(nodeId);
+  if (!nodeInfo || !nodeInfo.registered_at) return 0;
+
+  // Calculate node age in days
+  const registeredAt = new Date(nodeInfo.registered_at).getTime();
+  const now = Date.now();
+  const ageInDays = (now - registeredAt) / (1000 * 60 * 60 * 24);
+
+  // Maturity grows with age, capped at 30 days for max bonus
+  // Max maturity bonus is 10 points
+  const ageFactor = Math.min(ageInDays, 30) / 30 * 10;
+
+  return Math.round(ageFactor * 100) / 100;
 }
 
 export function getReputation(nodeId: string): ReputationScore | undefined {
@@ -143,11 +156,21 @@ export function calculateTier(nodeId: string): NodeTier {
   const promoted = assets.filter(a => a.status === 'promoted' || a.status === 'active').length;
   const avgGdi = rep?.positive.avg_gdi ?? 0;
 
-  // Determine tier
+  // Determine tier - use store counts when available, fall back to reputation-based estimates only if reasonable
   let tier: ModelTier = 'Tier 4';
-  if (total >= 90 && published >= 50 && promoted >= 20 && avgGdi >= 80) tier = 'Tier 1';
-  else if (total >= 75 && published >= 30 && promoted >= 10 && avgGdi >= 70) tier = 'Tier 2';
-  else if (total >= 60 && published >= 15 && promoted >= 5 && avgGdi >= 60) tier = 'Tier 3';
+  
+  // Only use store counts if they exist; otherwise the node has no track record
+  // and should be Tier 4 regardless of reputation score
+  if (published === 0) {
+    // No assets in store - Tier 4 by default unless avgGdi is extremely high
+    if (avgGdi >= 90 && total >= 80) tier = 'Tier 2';
+  } else if (total >= 90 && published >= 50 && promoted >= 20 && avgGdi >= 80) {
+    tier = 'Tier 1';
+  } else if (total >= 75 && published >= 30 && promoted >= 10 && avgGdi >= 70) {
+    tier = 'Tier 2';
+  } else if (total >= 60 && published >= 15 && promoted >= 5 && avgGdi >= 60) {
+    tier = 'Tier 3';
+  }
 
   const requirements = TIER_REQUIREMENTS[tier];
   const capabilities = TIER_CAPABILITIES[tier];
@@ -369,4 +392,12 @@ export function getReputationLeaderboard(limit: number = 20): ReputationScore[] 
   return [...reputationScores.values()]
     .sort((a, b) => b.total - a.total)
     .slice(0, limit);
+}
+
+/**
+ * Reset all in-memory stores - FOR TESTING ONLY
+ */
+export function resetStores(): void {
+  reputationScores.clear();
+  creditBalances.clear();
 }

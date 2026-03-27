@@ -78,7 +78,7 @@ describe('ProjectEngine', () => {
         plan: 'Plan',
       });
 
-      engine.propose({
+      const active = engine.propose({
         sender_id: 'node-1',
         title: 'Active',
         description: 'Desc',
@@ -86,7 +86,7 @@ describe('ProjectEngine', () => {
         plan: 'Plan',
       });
 
-      engine.activate(proposed.id);
+      engine.activate(active.id);
 
       const activeProjects = engine.listProjects(ProjectStatus.ACTIVE);
       expect(activeProjects).toHaveLength(1);
