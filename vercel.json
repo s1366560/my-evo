@@ -12,6 +12,6 @@
       "dest": "dist/index.js"
     }
   ],
-  "installCommand": "npm install && mkdir -p public && cp -r ui/* public/",
+  "installCommand": "npm install",
   "buildCommand": "npm run build"
 }
