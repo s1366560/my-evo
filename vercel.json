@@ -8,11 +8,14 @@
   ],
   "routes": [
     {
+      "src": "/ui/(.*)",
+      "dest": "public/$1"
+    },
+    {
       "src": "/(.*)",
       "dest": "src/index.ts"
     }
   ],
-  "installCommand": "rm -rf node_modules package-lock.json && npm install",
-  "buildCommand": "npm run build",
-  "devCommand": "npx tsx src/index.ts"
+  "installCommand": "npm install",
+  "buildCommand": "npm run build"
 }

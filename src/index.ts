@@ -18,9 +18,9 @@ import { FetchQuery } from './assets/types';
 const app = express();
 app.use(express.json());
 
-// Serve static UI files
+// Serve static UI files from public directory
 import { join } from 'path';
-app.use('/ui', express.static(join(process.cwd(), 'ui')));
+app.use('/ui', express.static(join(__dirname, '..', 'public')));
 
 // Request logging middleware
 app.use((req: Request, _res: Response, next: NextFunction) => {
