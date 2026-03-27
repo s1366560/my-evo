@@ -1624,6 +1624,11 @@ app.get('/logs', (req: Request, res: Response) => {
   res.json({ logs, total: logs.length });
 });
 
+// ==================== Sandbox Endpoints (Phase 2-3) ====================
+import sandboxRouter from './sandbox/api';
+
+app.use('/api/v2/sandbox', sandboxRouter);
+
 // ==================== Search Endpoints ====================
 
 import * as search from './search';
