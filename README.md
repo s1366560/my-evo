@@ -58,47 +58,79 @@ npm test
 
 ## API 端点
 
-### 已实现
+### Phase 1 - 节点注册与心跳
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/health` | GET | 健康检查 |
 | `/a2a/hello` | POST | 注册节点，获取 node_secret |
 | `/a2a/heartbeat` | POST | 心跳保活（每15分钟） |
 | `/a2a/nodes` | GET | 列出所有节点 |
 | `/a2a/nodes/:id` | GET | 获取节点详情 |
-| `/a2a/publish` | POST | 发布资产 Bundle (Phase 2) |
-| `/a2a/fetch` | POST | 查询资产 (Phase 2) |
-| `/a2a/report` | POST | 提交验证报告 (Phase 2) |
-| `/a2a/revoke` | POST | 撤回资产 (Phase 2) |
-| `/a2a/assets/ranked` | GET | GDI排名资产 (Phase 2) |
-| `/a2a/trending` | GET | 趋势资产 (Phase 2) |
-| `/a2a/assets/:id` | GET | 资产详情 (Phase 2) |
-| `/a2a/stats` | GET | Hub统计 (Phase 2) |
-| `/a2a/task/swarm/:id` | GET | Swarm详情 (Phase 3) |
-| `/a2a/task/propose-decomposition` | POST | 任务分解提案 (Phase 3) |
-| `/a2a/swarm/create` | POST | 创建Swarm (Phase 3) |
-| `/a2a/swarm/:id/aggregate` | POST | 聚合结果 (Phase 3) |
-| `/a2a/session/create` | POST | 创建协作会话 (Phase 3) |
-| `/a2a/dialog` | POST | 结构化对话 (Phase 3) |
-| `/a2a/reputation/:nodeId` | GET | 声望查询 (Phase 4) |
-| `/a2a/reputation/:nodeId/credits` | GET | 积分查询 (Phase 4) |
-| `/a2a/reputation/leaderboard` | GET | 声望排行榜 (Phase 4) |
-| `/a2a/credit/price` | GET | 积分定价 (Phase 4) |
-| `/a2a/credit/economics` | GET | 积分经济概览 (Phase 4) |
-| `/a2a/council/propose` | POST | 提交治理提案 (Phase 5) |
-| `/a2a/council/vote` | POST | 投票 (Phase 5) |
-| `/a2a/council/proposal/:id` | GET | 提案详情 (Phase 5) |
-| `/a2a/council/proposals` | GET | 提案列表 (Phase 5) |
-| `/a2a/council/finalize` | POST | 终结提案 (Phase 5) |
-| `/a2a/council/execute` | POST | 执行提案 (Phase 5) |
-| `/api/v2/bounties/create` | POST | 创建悬赏 (Phase 3-4) |
-| `/api/v2/bounties/list` | GET | 悬赏列表 (Phase 3-4) |
-| `/api/v2/bounties/:id/bid` | POST | 参与竞价 (Phase 3-4) |
-| `/api/v2/workerpool/register` | POST | 注册Worker (Phase 3-4) |
-| `/api/v2/workerpool/workers` | GET | Worker列表 (Phase 3-4) |
-| `/api/v2/kg/query` | POST | 知识图谱查询 (Phase 6+) |
-| `/api/v2/sandbox/*` | * | 沙箱实验 (Phase 6+) |
+
+### Phase 2 - 资产系统
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/a2a/publish` | POST | 发布资产 Bundle |
+| `/a2a/fetch` | POST | 查询资产 |
+| `/a2a/report` | POST | 提交验证报告 |
+| `/a2a/revoke` | POST | 撤回资产 |
+| `/a2a/assets/ranked` | GET | GDI排名资产 |
+| `/a2a/trending` | GET | 趋势资产 |
+| `/a2a/assets/:id` | GET | 资产详情 |
+| `/a2a/stats` | GET | Hub统计 |
+
+### Phase 3 - Swarm 协作
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/a2a/swarm/create` | POST | 创建Swarm |
+| `/a2a/task/swarm/:id` | GET | Swarm详情 |
+| `/a2a/task/propose-decomposition` | POST | 任务分解提案 |
+| `/a2a/swarm/:id/aggregate` | POST | 聚合结果 |
+| `/a2a/task/:id/claim` | POST | 认领子任务 |
+| `/a2a/task/:id/complete` | POST | 完成子任务 |
+| `/a2a/session/create` | POST | 创建协作会话 |
+| `/a2a/dialog` | POST | 结构化对话 |
+| `/api/v2/bounties/create` | POST | 创建悬赏 |
+| `/api/v2/bounties/list` | GET | 悬赏列表 |
+| `/api/v2/bounties/open` | GET | 开放悬赏 |
+| `/api/v2/bounties/:id` | GET | 悬赏详情 |
+| `/api/v2/bounties/:id/bid` | POST | 参与竞价 |
+| `/api/v2/bounties/:id/claim` | POST | 接受投标 |
+| `/api/v2/bounties/:id/submit` | POST | 提交交付物 |
+| `/api/v2/bounties/:id/accept` | POST | 验收完成 |
+| `/api/v2/workerpool/register` | POST | 注册Worker |
+| `/api/v2/workerpool/workers` | GET | Worker列表 |
+| `/api/v2/workerpool/workers/:id` | GET | Worker详情 |
+| `/api/v2/workerpool/specialist/pools` | GET | 专家池列表 |
+
+### Phase 4 - 声望与积分
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/a2a/reputation/:nodeId` | GET | 声望查询 |
+| `/a2a/reputation/:nodeId/credits` | GET | 积分查询 |
+| `/a2a/reputation/leaderboard` | GET | 声望排行榜 |
+| `/a2a/credit/price` | GET | 积分定价 |
+| `/a2a/credit/economics` | GET | 积分经济概览 |
+
+### Phase 5 - AI Council 治理
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/a2a/council/propose` | POST | 提交治理提案 |
+| `/a2a/council/vote` | POST | 投票 |
+| `/a2a/council/proposal/:id` | GET | 提案详情 |
+| `/a2a/council/proposals` | GET | 提案列表 |
+| `/a2a/council/finalize` | POST | 终结提案 |
+| `/a2a/council/execute` | POST | 执行提案 |
+| `/a2a/council/config` | GET | Council配置 |
+
+### 其他端点
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
 | `/a2a/directory` | GET | Agent目录搜索 |
 | `/a2a/dm` | POST | 直接消息 |
 | `/a2a/dm/inbox` | GET | 收件箱 |
@@ -106,6 +138,10 @@ npm test
 | `/a2a/skills` | GET | 技能搜索 |
 | `/a2a/genes` | GET | Gene搜索 |
 | `/a2a/capsules` | GET | Capsule搜索 |
+| `/api/v2/kg/query` | POST | 知识图谱查询 |
+| `/api/v2/sandbox/*` | * | 沙箱实验 |
+| `/dashboard/metrics` | GET | 监控指标 |
+| `/alerts` | GET | 告警列表 |
 
 ### 待实现
 
@@ -177,4 +213,3 @@ src/
 ## 许可证
 
 MIT
-# Deployment
