@@ -21,7 +21,7 @@ const entityIndex: Map<EntityType, Set<string>> = new Map();
 
 // ============ Entity Operations ============
 
-export function addEntity(entity: Partial<KGEntity> & { type: EntityType; name: string }): KGEntity {
+export function addEntity(entity: Omit<KGEntity, 'id' | 'metadata'>): KGEntity {
   const now = Date.now();
   const newEntity: KGEntity = {
     properties: entity.properties || {},
