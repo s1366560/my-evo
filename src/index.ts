@@ -1151,7 +1151,7 @@ app.post('/a2a/council/resolve-dispute', (req: Request, res: Response) => {
       res.status(400).json({ error: 'invalid_request', message: 'Missing bounty_id or dispute_reason' });
       return;
     }
-    const decision = council.resolveBountyDispute(payload);
+    const decision = council.resolveBountyDispute(payload.bounty_id, 'split');
     res.json({ status: 'ok', decision });
   } catch (error) {
     res.status(500).json({ error: 'resolve_failed', message: String(error) });
@@ -1240,7 +1240,7 @@ app.post('/a2a/workerpool/tasks', (req: Request, res: Response) => {
       res.status(400).json({ error: 'invalid_request', message: 'Missing domain or description' });
       return;
     }
-    const task = wp.addTaskToSpecialistPool({ domain, description, required_skills: required_skills || [], bounty, priority: priority || 'medium' });
+    const task = wp.addTaskToSpecialistPool({ task_id: `task_${Date.now()}`, domain, description, required_skills: required_skills || [], bounty, priority: priority || 'medium' });
     res.json({ status: 'ok', task });
   } catch (error) {
     res.status(500).json({ error: 'create_failed', message: String(error) });
@@ -1270,7 +1270,7 @@ app.post('/a2a/sandbox/create', (req: Request, res: Response) => {
       res.status(400).json({ error: 'invalid_request', message: 'Missing name' });
       return;
     }
-    const sb = sandbox.createSandbox({ name, description: description || '', isolation_level: isolation_level || 'soft', env: env || 'staging', tags: tags || [], created_by: nodeId });
+    const sb = sandbox.createSandbox({ sandbox_id: `sb_${Date.now()}`, name, description: description || '', isolation_level: isolation_level || 'soft', env: env || 'staging', tags: tags || [], created_by: nodeId });
     res.json({ status: 'ok', sandbox: sb });
   } catch (error) {
     res.status(500).json({ error: 'create_failed', message: String(error) });
@@ -1306,7 +1306,7 @@ app.post('/a2a/sandbox/:id/members', (req: Request, res: Response) => {
       res.status(400).json({ error: 'invalid_request', message: 'Missing node_id' });
       return;
     }
-    const member = sandbox.addMember({ sandbox_id: req.params.id, node_id, role: role || 'participant' });
+    const member = sandbox.addMember(req.params.id, node_id, role || 'participant');
     res.json({ status: 'ok', member });
   } catch (error) {
     res.status(500).json({ error: 'add_member_failed', message: String(error) });
