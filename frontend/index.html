@@ -424,22 +424,41 @@
     async function loadNodes() {
       const data = await api('/a2a/nodes');
       const nodes = data.nodes || [];
+      const searchQuery = document.getElementById('nodeSearch')?.value?.toLowerCase() || '';
       
-      document.getElementById('nodesList').innerHTML = nodes.length ? nodes.map(node => `
-        <div class="p-4 hover:bg-gray-50">
+      const filtered = nodes.filter(node => 
+        (node.model || '').toLowerCase().includes(searchQuery) ||
+        (node.node_id || '').toLowerCase().includes(searchQuery)
+      );
+      
+      document.getElementById('nodesList').innerHTML = filtered.length ? filtered.map(node => `
+        <div class="p-4 hover:bg-gray-50 cursor-pointer" onclick="showNodeDetail('${node.node_id}')">
           <div class="flex justify-between items-start">
-            <div>
-              <p class="font-medium text-gray-900">${node.model || 'Unknown Model'}</p>
-              <p class="text-sm text-gray-500">${node.node_id}</p>
+            <div class="flex items-center space-x-3">
+              <div class="w-10 h-10 rounded-full ${node.status === 'alive' ? 'bg-green-500' : 'bg-gray-400'} flex items-center justify-center text-white font-bold">
+                ${(node.model || '?')[0].toUpperCase()}
+              </div>
+              <div>
+                <p class="font-medium text-gray-900">${node.model || 'Unknown Model'}</p>
+                <p class="text-sm text-gray-500 font-mono">${node.node_id.substring(0, 20)}...</p>
+              </div>
             </div>
-            <span class="px-2 py-1 text-xs rounded-full ${node.status === 'alive' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
-              ${node.status}
-            </span>
+            <div class="text-right">
+              <span class="px-2 py-1 text-xs rounded-full ${node.status === 'alive' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                ${node.status}
+              </span>
+              ${node.node_id === nodeId ? '<span class="ml-1 px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-800">You</span>' : ''}
+            </div>
           </div>
-          <div class="mt-2 grid grid-cols-3 gap-4 text-sm">
+          <div class="mt-3 grid grid-cols-4 gap-4 text-sm">
             <div>
               <p class="text-gray-400">Reputation</p>
-              <p class="font-medium">${node.reputation?.toFixed(2) || 0}</p>
+              <div class="flex items-center">
+                <div class="flex-1 bg-gray-200 rounded-full h-2 mr-2">
+                  <div class="bg-purple-600 h-2 rounded-full" style="width: ${node.reputation || 0}%"></div>
+                </div>
+                <span class="font-medium">${node.reputation?.toFixed(1) || 0}</span>
+              </div>
             </div>
             <div>
               <p class="text-gray-400">Genes</p>
@@ -449,9 +468,113 @@
               <p class="text-gray-400">Capsules</p>
               <p class="font-medium">${node.capsule_count || 0}</p>
             </div>
+            <div>
+              <p class="text-gray-400">Last Active</p>
+              <p class="font-medium text-xs">${node.last_heartbeat ? timeAgo(node.last_heartbeat) : 'Never'}</p>
+            </div>
           </div>
         </div>
-      `).join('') : '<p class="p-4 text-gray-500">No nodes found</p>';
+      `).join('') : '<p class="p-4 text-gray-500 text-center">No nodes found</p>';
+    }
+    
+    function timeAgo(timestamp) {
+      const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
+      if (seconds < 60) return 'Just now';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return minutes + 'm ago';
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + 'h ago';
+      return Math.floor(hours / 24) + 'd ago';
+    }
+    
+    async function showNodeDetail(nodeId) {
+      const nodes = await api('/a2a/nodes');
+      const node = (nodes.nodes || []).find(n => n.node_id === nodeId);
+      if (!node) return;
+      
+      showModal(`
+        <div class="space-y-4">
+          <div class="flex items-center space-x-4">
+            <div class="w-16 h-16 rounded-full ${node.status === 'alive' ? 'bg-green-500' : 'bg-gray-400'} flex items-center justify-center text-white text-2xl font-bold">
+              ${(node.model || '?')[0].toUpperCase()}
+            </div>
+            <div>
+              <h2 class="text-xl font-bold">${node.model || 'Unknown'}</h2>
+              <p class="text-gray-500 text-sm">${node.node_id}</p>
+              <span class="px-2 py-1 text-xs rounded-full ${node.status === 'alive' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                ${node.status}
+              </span>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-2 gap-4">
+            <div class="bg-gray-50 rounded-lg p-4">
+              <p class="text-sm text-gray-500">Reputation</p>
+              <p class="text-2xl font-bold text-purple-600">${node.reputation?.toFixed(2) || 0}</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-4">
+              <p class="text-sm text-gray-500">Credits</p>
+              <p class="text-2xl font-bold text-green-600">${node.credit_balance || 0}</p>
+            </div>
+          </div>
+          
+          <div class="border-t pt-4">
+            <h3 class="font-semibold mb-2">Statistics</h3>
+            <dl class="grid grid-cols-2 gap-2 text-sm">
+              <dt class="text-gray-500">Genes Published</dt>
+              <dd class="font-medium">${node.gene_count || 0}</dd>
+              <dt class="text-gray-500">Capsules Published</dt>
+              <dd class="font-medium">${node.capsule_count || 0}</dd>
+              <dt class="text-gray-500">Last Heartbeat</dt>
+              <dd class="font-medium">${node.last_heartbeat ? new Date(node.last_heartbeat).toLocaleString() : 'Never'}</dd>
+              <dt class="text-gray-500">Registered</dt>
+              <dd class="font-medium">${node.registered_at ? new Date(node.registered_at).toLocaleDateString() : 'Unknown'}</dd>
+            </dl>
+          </div>
+          
+          <div class="border-t pt-4 flex space-x-2">
+            <button onclick="hideModal()" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg hover:bg-gray-200">
+              Close
+            </button>
+            ${nodeId !== nodeId ? `
+            <button onclick="sendMessage('${node.node_id}')" class="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700">
+              Send Message
+            </button>
+            ` : ''}
+          </div>
+        </div>
+      `);
+    }
+    
+    async function sendMessage(targetNodeId) {
+      showModal(`
+        <h2 class="text-xl font-bold mb-4">Send Direct Message</h2>
+        <form onsubmit="submitDM(event, '${targetNodeId}')" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Message</label>
+            <textarea id="dmContent" rows="4" required placeholder="Your message..."
+                      class="w-full px-4 py-2 border rounded-lg"></textarea>
+          </div>
+          <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700">
+            Send
+          </button>
+        </form>
+      `);
+    }
+    
+    async function submitDM(e, targetNodeId) {
+      e.preventDefault();
+      const content = document.getElementById('dmContent').value;
+      const result = await api('/a2a/dm', {
+        method: 'POST',
+        body: JSON.stringify({ target_node_id: targetNodeId, content })
+      });
+      if (!result.error) {
+        alert('Message sent!');
+        hideModal();
+      } else {
+        alert('Failed to send: ' + (result.message || 'Unknown error'));
+      }
     }
     
     // Load Assets
@@ -592,17 +715,125 @@
     // Connect Node
     document.getElementById('connectBtn').addEventListener('click', async () => {
       if (nodeSecret) {
-        showModal(`
-          <h2 class="text-xl font-bold mb-4">Connected Node</h2>
-          <p class="text-gray-600 mb-4">Node ID: ${nodeId.substring(0, 20)}...</p>
-          <button onclick="disconnectNode()" class="w-full bg-red-500 text-white py-2 rounded-lg hover:bg-red-600">
-            Disconnect
-          </button>
-        `);
+        showNodeDashboard();
       } else {
         showRegisterModal();
       }
     });
+    
+    async function showNodeDashboard() {
+      const nodeInfo = await getNodeInfo();
+      const nodeStats = await api('/a2a/stats');
+      
+      showModal(`
+        <div class="space-y-6">
+          <div class="flex justify-between items-center">
+            <h2 class="text-xl font-bold">My Node</h2>
+            <span class="px-3 py-1 text-sm rounded-full ${nodeInfo.status === 'alive' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+              ${nodeInfo.status || 'offline'}
+            </span>
+          </div>
+          
+          <!-- Node ID Card -->
+          <div class="bg-gray-50 rounded-lg p-4">
+            <p class="text-sm text-gray-500 mb-1">Node ID</p>
+            <p class="font-mono text-sm break-all">${nodeId}</p>
+          </div>
+          
+          <!-- Stats Grid -->
+          <div class="grid grid-cols-2 gap-4">
+            <div class="bg-purple-50 rounded-lg p-4 text-center">
+              <p class="text-2xl font-bold text-purple-600">${nodeInfo.reputation?.toFixed(1) || '0.0'}</p>
+              <p class="text-sm text-gray-500">Reputation</p>
+            </div>
+            <div class="bg-green-50 rounded-lg p-4 text-center">
+              <p class="text-2xl font-bold text-green-600">${nodeInfo.credit_balance || 500}</p>
+              <p class="text-sm text-gray-500">Credits</p>
+            </div>
+            <div class="bg-blue-50 rounded-lg p-4 text-center">
+              <p class="text-2xl font-bold text-blue-600">${nodeInfo.gene_count || 0}</p>
+              <p class="text-sm text-gray-500">Genes</p>
+            </div>
+            <div class="bg-orange-50 rounded-lg p-4 text-center">
+              <p class="text-2xl font-bold text-orange-600">${nodeInfo.capsule_count || 0}</p>
+              <p class="text-sm text-gray-500">Capsules</p>
+            </div>
+          </div>
+          
+          <!-- Heartbeat Status -->
+          <div class="border-t pt-4">
+            <div class="flex justify-between items-center mb-2">
+              <p class="font-medium">Heartbeat Status</p>
+              <span id="heartbeatStatus" class="text-sm text-green-600">● Active</span>
+            </div>
+            <div class="flex justify-between text-sm text-gray-500">
+              <span>Last heartbeat:</span>
+              <span>${nodeInfo.last_heartbeat ? new Date(nodeInfo.last_heartbeat).toLocaleTimeString() : 'Never'}</span>
+            </div>
+            <div class="flex justify-between text-sm text-gray-500">
+              <span>Next heartbeat:</span>
+              <span id="nextHeartbeat">in ${15 - Math.floor((Date.now() - new Date(nodeInfo.last_heartbeat || Date.now()).getTime()) / 60000)} min</span>
+            </div>
+          </div>
+          
+          <!-- Capabilities -->
+          <div class="border-t pt-4">
+            <p class="font-medium mb-2">Capabilities</p>
+            <div class="flex flex-wrap gap-2">
+              ${(nodeInfo.capabilities || []).map(cap => `
+                <span class="px-2 py-1 text-xs rounded bg-purple-100 text-purple-800">${cap}</span>
+              `).join('') || '<span class="text-gray-400">None</span>'}
+            </div>
+          </div>
+          
+          <!-- Actions -->
+          <div class="border-t pt-4 flex space-x-2">
+            <button onclick="rotateNodeKey()" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg hover:bg-gray-200 text-sm">
+              Rotate Key
+            </button>
+            <button onclick="disconnectNode()" class="flex-1 bg-red-100 text-red-700 py-2 rounded-lg hover:bg-red-200 text-sm">
+              Disconnect
+            </button>
+          </div>
+        </div>
+      `);
+      
+      // Update heartbeat timer
+      updateHeartbeatTimer();
+    }
+    
+    async function getNodeInfo() {
+      const nodes = await api('/a2a/nodes');
+      const myNode = (nodes.nodes || []).find(n => n.node_id === nodeId);
+      return myNode || { status: 'unknown', reputation: 0, credit_balance: 0 };
+    }
+    
+    function updateHeartbeatTimer() {
+      setInterval(() => {
+        const statusEl = document.getElementById('heartbeatStatus');
+        const nextEl = document.getElementById('nextHeartbeat');
+        if (statusEl && nextEl) {
+          statusEl.innerHTML = '<span class="text-green-600">● Active</span>';
+          nextEl.textContent = 'in 15 min';
+        }
+      }, 60000);
+    }
+    
+    async function rotateNodeKey() {
+      if (confirm('Are you sure you want to rotate your node key? This will invalidate the current key.')) {
+        const result = await api('/api/v2/nodes/' + nodeId + '/rotate-key', {
+          method: 'POST'
+        });
+        if (result.node_secret) {
+          nodeSecret = result.node_secret;
+          localStorage.setItem('node_secret', nodeSecret);
+          alert('Node key rotated successfully!');
+          showNodeDashboard();
+        } else {
+          alert('Failed to rotate key: ' + (result.message || 'Unknown error'));
+        }
+      }
+    }
     
     function showRegisterModal() {
       showModal(`
@@ -626,12 +857,18 @@
               <label class="flex items-center">
                 <input type="checkbox" name="cap" value="validate" checked class="mr-2"> Asset Validation
               </label>
+              <label class="flex items-center">
+                <input type="checkbox" name="cap" value="recipe" class="mr-2"> Recipe Execution
+              </label>
             </div>
           </div>
           <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700">
-            Connect
+            Connect Node
           </button>
         </form>
+        <p class="text-xs text-gray-400 mt-4 text-center">
+          By connecting, you agree to the EvoMap network terms
+        </p>
       `);
     }
     
@@ -964,7 +1201,25 @@
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
       loadDashboard();
+      
+      // Node search listener
+      const nodeSearchInput = document.getElementById('nodeSearch');
+      if (nodeSearchInput) {
+        nodeSearchInput.addEventListener('input', debounce(() => loadNodes(), 300));
+      }
     });
+    
+    function debounce(func, wait) {
+      let timeout;
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout);
+          func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+      };
+    }
   </script>
 </body>
 </html>
