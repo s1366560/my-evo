@@ -308,14 +308,23 @@ export function haveCommonAncestor(assetId1: string, assetId2: string): boolean 
  */
 export function getRootAncestor(assetId: string): string | undefined {
   let current = assetId;
-  let last = assetId;
 
-  while (lineageStore.has(current)) {
-    last = current;
-    current = lineageStore.get(current)!;
+  // If asset has no parent in store, it's the root of its own chain
+  if (!lineageStore.has(current)) {
+    return undefined;
   }
 
-  return last === assetId ? undefined : last;
+  // Traverse up the parent chain
+  while (lineageStore.has(current)) {
+    const parent = lineageStore.get(current)!;
+    // If parent is not in store, it's the root
+    if (!lineageStore.has(parent)) {
+      return parent;
+    }
+    current = parent;
+  }
+
+  return undefined;
 }
 
 /**
