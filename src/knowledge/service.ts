@@ -25,7 +25,7 @@ export function addEntity(entity: Omit<KGEntity, 'id' | 'metadata'>): KGEntity {
   const now = Date.now();
   const newEntity: KGEntity = {
     ...entity,
-    id: entity.id || `kg_${uuidv4().slice(0, 8)}`,
+    id: `kg_${uuidv4().slice(0, 8)}`,
     metadata: {
       created_at: now,
       updated_at: now,
@@ -110,7 +110,7 @@ export function addRelationship(
   relationships.set(newRel.id, newRel);
   
   // Auto-create bidirectional for certain relationship types
-  const symmetricTypes: RelationshipType[] = ['similar_to', , 'evolved_from'];
+  const symmetricTypes: RelationshipType[] = ['similar_to', 'evolved_from'];
   if (symmetricTypes.includes(relationship.type)) {
     const reverseRel: KGRelationship = {
       ...newRel,

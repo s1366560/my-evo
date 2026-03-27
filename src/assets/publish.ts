@@ -230,7 +230,7 @@ export function publishAsset(
   if (evolution_event) {
     const normalizedEvt = normalizeAsset(evolution_event) as EvolutionEvent;
     if (!normalizedEvt.asset_id.startsWith('sha256:')) {
-      (normalizedEvt as Record<string, unknown>).asset_id = computeAssetHash(evolution_event);
+      (normalizedEvt as unknown as Record<string, unknown>).asset_id = computeAssetHash(evolution_event);
     }
     saveAsset(normalizedEvt, ownerId, 'candidate');
     gdiScores[normalizedEvt.asset_id] = calculateGDI(normalizedEvt);

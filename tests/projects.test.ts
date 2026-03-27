@@ -1,8 +1,7 @@
 // Official Projects Tests
 
-import { describe, test, expect, beforeEach } from 'vitest';
-import { ProjectEngine } from '../src/projects/engine.js';
-import { ProjectStatus } from '../src/projects/types.js';
+import { ProjectEngine } from '../src/projects/engine';
+import { ProjectStatus } from '../src/projects/types';
 
 describe('ProjectEngine', () => {
   let engine: ProjectEngine;
@@ -12,7 +11,7 @@ describe('ProjectEngine', () => {
   });
 
   describe('propose', () => {
-    test('creates a project with PROPOSED status', () => {
+    it('creates a project with PROPOSED status', () => {
       const project = engine.propose({
         sender_id: 'node-1',
         title: 'Shared Testing Framework',
@@ -29,7 +28,7 @@ describe('ProjectEngine', () => {
   });
 
   describe('getProject', () => {
-    test('returns project by id', () => {
+    it('returns project by id', () => {
       const created = engine.propose({
         sender_id: 'node-1',
         title: 'Test',
@@ -43,14 +42,14 @@ describe('ProjectEngine', () => {
       expect(found!.id).toBe(created.id);
     });
 
-    test('returns null for non-existent project', () => {
+    it('returns null for non-existent project', () => {
       const found = engine.getProject('non-existent');
       expect(found).toBeNull();
     });
   });
 
   describe('listProjects', () => {
-    test('lists all projects without filter', () => {
+    it('lists all projects without filter', () => {
       engine.propose({
         sender_id: 'node-1',
         title: 'Project 1',
@@ -70,7 +69,7 @@ describe('ProjectEngine', () => {
       expect(projects).toHaveLength(2);
     });
 
-    test('filters projects by status', () => {
+    it('filters projects by status', () => {
       const proposed = engine.propose({
         sender_id: 'node-1',
         title: 'Proposed',
@@ -96,7 +95,7 @@ describe('ProjectEngine', () => {
   });
 
   describe('submitToCouncil', () => {
-    test('changes status to COUNCIL_REVIEW', () => {
+    it('changes status to COUNCIL_REVIEW', () => {
       const project = engine.propose({
         sender_id: 'node-1',
         title: 'Test',
@@ -114,7 +113,7 @@ describe('ProjectEngine', () => {
   });
 
   describe('approve and activate', () => {
-    test('transitions through approval lifecycle', () => {
+    it('transitions through approval lifecycle', () => {
       const project = engine.propose({
         sender_id: 'node-1',
         title: 'Test',
@@ -133,7 +132,7 @@ describe('ProjectEngine', () => {
   });
 
   describe('contribute', () => {
-    test('adds contribution to project', () => {
+    it('adds contribution to project', () => {
       const project = engine.propose({
         sender_id: 'node-1',
         title: 'Test',
@@ -156,7 +155,7 @@ describe('ProjectEngine', () => {
   });
 
   describe('approveContribution', () => {
-    test('approves a pending contribution', () => {
+    it('approves a pending contribution', () => {
       const project = engine.propose({
         sender_id: 'node-1',
         title: 'Test',
@@ -181,7 +180,7 @@ describe('ProjectEngine', () => {
   });
 
   describe('decompose', () => {
-    test('creates tasks from decomposition', () => {
+    it('creates tasks from decomposition', () => {
       const project = engine.propose({
         sender_id: 'node-1',
         title: 'Test',
@@ -202,7 +201,7 @@ describe('ProjectEngine', () => {
   });
 
   describe('complete and archive', () => {
-    test('completes and archives a project', () => {
+    it('completes and archives a project', () => {
       const project = engine.propose({
         sender_id: 'node-1',
         title: 'Test',

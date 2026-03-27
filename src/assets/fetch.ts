@@ -105,13 +105,13 @@ export function fetchAssets(
  */
 function matchesSignals(asset: AssetWithScore, signals: string[]): boolean {
   if (asset.type === 'Gene') {
-    const gene = asset as Gene;
+    const gene = asset as unknown as Gene;
     return signals.some(sig =>
       gene.signals_match.some(pattern => signalMatch(pattern, sig))
     );
   }
   if (asset.type === 'Capsule') {
-    const capsule = asset as Capsule;
+    const capsule = asset as unknown as Capsule;
     return signals.some(sig =>
       capsule.trigger.some(pattern => signalMatch(pattern, sig))
     );

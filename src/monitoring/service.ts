@@ -198,7 +198,7 @@ export function getLogs(options?: {
   }
   
   if (options?.since) {
-    result = result.filter(l => l.created_at >= options.since);
+    result = result.filter(l => l.created_at >= options.since!);
   }
   
   result.sort((a, b) => b.created_at - a.created_at);
