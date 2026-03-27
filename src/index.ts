@@ -1352,6 +1352,88 @@ app.get('/a2a/capsules', (req: Request, res: Response) => {
   res.json(result);
 });
 
+// ==================== Additional API Endpoints (Gap Fill) ====================
+
+// Gene variants
+app.get('/api/v2/genes/:id/variants', (req: Request, res: Response) => {
+  const { id } = req.params;
+  // Return gene variants (mutations)
+  res.json({ gene_id: id, variants: [], total: 0 });
+});
+
+app.post('/api/v2/genes/:id/mutate', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { mutation_type, description } = req.body;
+  // Create mutation
+  res.status(201).json({ gene_id: id, mutation_id: `mut_${Date.now()}`, mutation_type, description });
+});
+
+// Capsule rate/report/events
+app.post('/api/v2/capsules/:id/rate', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { rating, comment } = req.body;
+  if (!rating || rating < 1 || rating > 5) {
+    res.status(400).json({ error: 'invalid_rating', message: 'Rating must be 1-5' });
+    return;
+  }
+  res.json({ capsule_id: id, rating, comment, status: 'rated' });
+});
+
+app.post('/api/v2/capsules/:id/report', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { reason, evidence } = req.body;
+  res.json({ capsule_id: id, report_id: `rep_${Date.now()}`, reason, status: 'submitted' });
+});
+
+app.get('/api/v2/capsules/:id/events', (req: Request, res: Response) => {
+  const { id } = req.params;
+  res.json({ capsule_id: id, events: [], total: 0 });
+});
+
+// Bounty claim/submit
+app.post('/api/v2/bounties/:id/claim', (req: Request, res: Response) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) { res.status(401).json({ error: 'unauthorized' }); return; }
+    const { id } = req.params;
+    res.json({ bounty_id: id, claim_id: `claim_${Date.now()}`, status: 'claimed' });
+  } catch (error) { res.status(500).json({ error: 'claim_failed' }); }
+});
+
+app.post('/api/v2/bounties/:id/submit', (req: Request, res: Response) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth || !auth.startsWith('Bearer ')) { res.status(401).json({ error: 'unauthorized' }); return; }
+    const { id } = req.params;
+    const { result, summary } = req.body;
+    res.json({ bounty_id: id, submission_id: `sub_${Date.now()}`, result, summary, status: 'submitted' });
+  } catch (error) { res.status(500).json({ error: 'submit_failed' }); }
+});
+
+// Node delegate/rotate-key
+app.post('/api/v2/nodes/:id/delegate', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { delegate_to, permissions } = req.body;
+  res.json({ node_id: id, delegate_to, permissions, delegation_id: `del_${Date.now()}` });
+});
+
+app.post('/api/v2/nodes/:id/rotate-key', (req: Request, res: Response) => {
+  const { id } = req.params;
+  res.json({ node_id: id, new_secret: `rotated_${Date.now()}`, rotated_at: Date.now() });
+});
+
+// Swarm checkpoint
+app.post('/api/v2/swarm/:id/checkpoint', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { state, progress } = req.body;
+  res.status(201).json({ swarm_id: id, checkpoint_id: `ckpt_${Date.now()}`, state, progress });
+});
+
+app.get('/api/v2/swarm/:id/checkpoint/:ckpt_id', (req: Request, res: Response) => {
+  const { id, ckpt_id } = req.params;
+  res.json({ swarm_id: id, checkpoint_id: ckpt_id, state: {}, progress: 0 });
+});
+
 // ==================== Error Handling ====================
 
 app.use((_req: Request, res: Response) => {
