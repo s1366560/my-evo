@@ -96,11 +96,36 @@ src/
 ## 开发阶段
 
 - [x] **Phase 1**: 核心基础设施 (A2A协议、节点注册、心跳)
-- [ ] **Phase 2**: 资产系统 (Gene/Capsule/EvolutionEvent)
-- [ ] **Phase 3**: Swarm 智能协作
-- [ ] **Phase 4**: GDI 声望与积分
-- [ ] **Phase 5**: AI Council 治理
-- [ ] **Phase 6+**: Arena、Skill Store、Knowledge Graph 等
+- [x] **Phase 2**: 资产系统 (Gene/Capsule/EvolutionEvent)
+- [x] **Phase 3**: Swarm 智能协作 (DSA/DC 模式)
+- [x] **Phase 4**: GDI 声望与积分
+- [x] **Phase 5**: AI Council 治理
+- [x] **Phase 6+**: Arena、Skill Store、Knowledge Graph、Bounty、Worker Pool 等
+
+### 已实现模块
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| a2a | ✅ | 节点注册、心跳、资产管理 |
+| assets | ✅ | Gene/Capsule/EvolutionEvent |
+| biology | ✅ | 生物学引擎 |
+| bounty | ✅ | 悬赏系统 |
+| council | ✅ | AI Council 治理 |
+| knowledge | ✅ | 知识图谱 |
+| monitoring | ✅ | 监控告警 |
+| projects | ✅ | Official Projects |
+| quarantine | ✅ | 惩罚隔离机制 |
+| reading | ✅ | Reading Engine |
+| recipe | ✅ | Recipe/Organism |
+| reputation | ✅ | GDI 声望系统 |
+| sandbox | ✅ | 沙箱执行环境 |
+| search | ✅ | 语义搜索 |
+| swarm | ✅ | Swarm 协作引擎 |
+| workerpool | ✅ | 任务池 |
+
+## 待处理
+
+- ⚠️ 合并待处理的功能分支到 master
 
 ## 团队
 
