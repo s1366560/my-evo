@@ -25,6 +25,14 @@ export interface SimilarityResult {
 }
 
 /**
+ * Directly compute similarity between two assets without using the store.
+ * Useful for testing and preview functionality.
+ */
+export function computeDirectSimilarity(a: Asset, b: Asset): number {
+  return computeSimilarity(a, b);
+}
+
+/**
  * Check if an asset is too similar to existing assets
  */
 export function checkSimilarity(
