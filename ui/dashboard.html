@@ -205,6 +205,10 @@
                         <g id="assetBars"></g>
                     </svg>
                     <div class="chart-tooltip" id="assetTooltip"></div>
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div>Loading chart...</div>
+                    </div>
                 </div>
             </div>
             <div class="card">
@@ -228,6 +232,10 @@
                         <g id="nodeBars"></g>
                     </svg>
                     <div class="chart-tooltip" id="nodeTooltip"></div>
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div>Loading chart...</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -487,6 +495,25 @@
                     <text class="chart-label" x="${x + barWidth/2}" y="${baseline + 14}" text-anchor="middle">${d.label}</text>
                 `;
             }).join('');
+            if (!data || data.length === 0) {
+                container.innerHTML = '<p style="color: #71717a; text-align: center; padding: 60px;">No data available</p>';
+                return;
+            }
+            
+            const max = Math.max(...data.map(d => d.value || 0));
+            const chartHtml = data.slice(-7).map(d => {
+                const height = max > 0 ? ((d.value || 0) / max * 100) : 0;
+                return `
+                    <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                        <div style="width: 100%; height: 150px; display: flex; align-items: flex-end; justify-content: center;">
+                            <div style="width: 60%; height: ${height}%; background: linear-gradient(to top, #22d3ee, #3b82f6); border-radius: 4px 4px 0 0; min-height: 4px;"></div>
+                        </div>
+                        <span style="font-size: 11px; color: #71717a;">${d.label || d.date || ''}</span>
+                    </div>
+                `;
+            }).join('');
+            
+            container.innerHTML = `<div style="display: flex; gap: 8px; height: 100%; align-items: flex-end;">${chartHtml}</div>`;
         }
         
         function formatTimeAgo(timestamp) {

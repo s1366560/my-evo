@@ -157,6 +157,7 @@
             <div class="card" style="padding: 0;">
                 <div class="kg-container">
                     <svg id="kgSvg" class="kg-canvas"></svg>
+                    <canvas id="kgCanvas" class="kg-canvas"></canvas>
                     
                     <div class="kg-controls">
                         <button class="kg-btn" onclick="zoomIn()" title="Zoom In">+</button>
@@ -281,6 +282,26 @@
             width = container.clientWidth;
             height = container.clientHeight;
             svg.attr('viewBox', [0, 0, width, height]);
+        function init() {
+            canvas = document.getElementById('kgCanvas');
+            ctx = canvas.getContext('2d');
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('wheel', onWheel);
+            canvas.addEventListener('click', onClick);
+            
+            loadGraph();
+        }
+        
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            draw();
         }
         
         async function loadGraph() {
@@ -309,6 +330,12 @@
                 document.getElementById('graphDepth').textContent = calculateDepth(graphData);
                 
                 drawGraph(graphData);
+                document.getElementById('totalEntities').textContent = nodes.length;
+                document.getElementById('totalRelations').textContent = edges.length;
+                document.getElementById('avgConnections').textContent = edges.length > 0 ? (edges.length * 2 / nodes.length).toFixed(1) : '0';
+                document.getElementById('graphDepth').textContent = calculateDepth();
+                
+                draw();
             } catch (error) {
                 console.error('Failed to load graph:', error);
             }
@@ -345,6 +372,7 @@
         function calculateDepth(graphData) {
             const nodes = graphData.nodes || [];
             const edges = graphData.edges || [];
+        function calculateDepth() {
             // Simplified depth calculation
             let maxDepth = 0;
             const visited = new Set();
@@ -466,6 +494,121 @@
             if (!event.active) simulation.alphaTarget(0);
             d.fx = null;
             d.fy = null;
+        function draw() {
+            if (!ctx) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(panX, panY);
+            ctx.scale(zoom, zoom);
+            
+            // Draw edges
+            edges.forEach(edge => {
+                const source = nodes.find(n => n.id === edge.source);
+                const target = nodes.find(n => n.id === edge.target);
+                if (!source || !target) return;
+                
+                ctx.beginPath();
+                ctx.moveTo(source.x * canvas.width, source.y * canvas.height);
+                ctx.lineTo(target.x * canvas.width, target.y * canvas.height);
+                ctx.strokeStyle = '#3f3f46';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            });
+            
+            // Draw nodes
+            nodes.forEach(node => {
+                if (currentFilter !== 'all' && node.type !== currentFilter) return;
+                
+                const x = node.x * canvas.width;
+                const y = node.y * canvas.height;
+                const radius = node.type === 'signal' ? 8 : 20;
+                
+                // Node circle
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = colors[node.type] || '#71717a';
+                ctx.fill();
+                
+                // Selection ring
+                if (selectedNode === node.id) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius + 5, 0, Math.PI * 2);
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+                
+                // Label
+                ctx.fillStyle = '#fff';
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(node.label.substring(0, 15), x, y + radius + 14);
+            });
+            
+            ctx.restore();
+        }
+        
+        function onMouseDown(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left - panX) / zoom;
+            const y = (e.clientY - rect.top - panY) / zoom;
+            
+            dragging = { startX: x, startY: y, node: findNodeAt(x, y) };
+        }
+        
+        function onMouseMove(e) {
+            if (!dragging) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left - panX) / zoom;
+            const y = (e.clientY - rect.top - panY) / zoom;
+            
+            if (dragging.node) {
+                dragging.node.x = x / canvas.width;
+                dragging.node.y = y / canvas.height;
+            } else {
+                panX += e.movementX;
+                panY += e.movementY;
+            }
+            
+            draw();
+        }
+        
+        function onMouseUp() {
+            dragging = null;
+        }
+        
+        function onWheel(e) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            zoom = Math.max(0.5, Math.min(3, zoom * delta));
+            draw();
+        }
+        
+        function onClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left - panX) / zoom;
+            const y = (e.clientY - rect.top - panY) / zoom;
+            
+            const node = findNodeAt(x, y);
+            if (node) {
+                selectedNode = node.id;
+                showDetail(node);
+            } else {
+                selectedNode = null;
+                closeDetail();
+            }
+            draw();
+        }
+        
+        function findNodeAt(x, y) {
+            return nodes.find(n => {
+                const nx = n.x * canvas.width;
+                const ny = n.y * canvas.height;
+                const radius = n.type === 'signal' ? 8 : 20;
+                return Math.sqrt((x - nx) ** 2 + (y - ny) ** 2) <= radius;
+            });
         }
         
         function showDetail(node) {
