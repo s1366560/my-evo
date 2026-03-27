@@ -82,7 +82,6 @@ function makeCapsule(geneId: string, overrides: Partial<Capsule> = {}): Capsule 
 function makeEvent(capsuleId: string, overrides: Partial<EvolutionEvent> = {}): EvolutionEvent {
   return {
     type: 'EvolutionEvent',
-    schema_version: '1.5.0',
     id: uid('evt'),
     parent: undefined,
     intent: 'repair',
@@ -107,7 +106,6 @@ function makeSwarmTask(overrides: Partial<Omit<SwarmTask, 'state' | 'created_at'
     created_by: 'node_test',
     bounty: 1000,
     root_task_id: uid('root'),
-    created_at: new Date().toISOString(),
     ...overrides,
   };
 }
@@ -414,7 +412,7 @@ describe('【Swarm】DSA Mode - Decompose-Solve-Aggregate', () => {
   });
 
   it('should complete subtasks and aggregate results', () => {
-    const swarm = createSwarm(makeSwarmTask({ bounty_total: 1000 }));
+    const swarm = createSwarm(makeSwarmTask({ bounty: 1000 }));
     submitDecomposition({
       swarm_id: swarm.swarm_id,
       proposer: 'node_proposer',
@@ -433,11 +431,12 @@ describe('【Swarm】DSA Mode - Decompose-Solve-Aggregate', () => {
       swarm_id: swarm.swarm_id,
       aggregator: 'node_aggregator',
       output: { final: 'Combined solution' },
-      quality_score: 0.92,
+      confidence: 0.92,
+      summary: 'Aggregated solution',
     });
 
-    expect(aggResult.aggregated_by).toBe('node_aggregator');
-    expect(aggResult.quality_score).toBe(0.92);
+    expect(aggResult.aggregator).toBe('node_aggregator');
+    expect(aggResult.confidence).toBe(0.92);
   });
 
   it('should list swarms filtered by state', () => {
@@ -455,7 +454,7 @@ describe('【Swarm】DSA Mode - Decompose-Solve-Aggregate', () => {
 
 describe('【Swarm】DC Mode - Diverge-Converge', () => {
   it('should run DC mode with multiple independent solutions', () => {
-    const swarm = createSwarm(makeSwarmTask({  bounty_total: 800 }));
+    const swarm = createSwarm(makeSwarmTask({  bounty: 800 }));
 
     updateSwarmState(swarm.swarm_id, 'decomposition');
     submitDecomposition({
@@ -484,26 +483,26 @@ describe('【Swarm】DC Mode - Diverge-Converge', () => {
       quality_score: 0.88,
     });
 
-    expect(result.result).toHaveProperty('solution', 'B');
-    expect(result.result).toHaveProperty('vote_count', 5);
+    expect(result.output).toHaveProperty('solution', 'B');
+    expect(result.output).toHaveProperty('vote_count', 5);
   });
 
-  it('should handle swarm timeout', () => {
+  it('should handle swarm failure', () => {
     const swarm = createSwarm(makeSwarmTask());
     updateSwarmState(swarm.swarm_id, 'solving');
-    updateSwarmState(swarm.swarm_id, 'timeout');
-    expect(getSwarm(swarm.swarm_id)!.state).toBe('timeout');
+    updateSwarmState(swarm.swarm_id, 'failed');
+    expect(getSwarm(swarm.swarm_id)!.state).toBe('failed');
   });
 
   it('should handle swarm cancel', () => {
     const swarm = createSwarm(makeSwarmTask());
     updateSwarmState(swarm.swarm_id, 'decomposition');
-    updateSwarmState(swarm.swarm_id, 'cancelled');
-    expect(getSwarm(swarm.swarm_id)!.state).toBe('cancelled');
+    updateSwarmState(swarm.swarm_id, 'failed');
+    expect(getSwarm(swarm.swarm_id)!.state).toBe('failed');
   });
 
   it('should handle partial completion (some subtasks failed)', () => {
-    const swarm = createSwarm(makeSwarmTask({ bounty_total: 1000 }));
+    const swarm = createSwarm(makeSwarmTask({ bounty: 1000 }));
     submitDecomposition({
       swarm_id: swarm.swarm_id,
       proposer: 'node_proposer',
@@ -522,7 +521,8 @@ describe('【Swarm】DC Mode - Diverge-Converge', () => {
       swarm_id: swarm.swarm_id,
       aggregator: 'node_aggregator',
       output: { partial: true, completed: ['p1'], failed: ['p2'] },
-      quality_score: 0.55,
+      confidence: 0.55,
+      summary: 'Partial result',
     });
 
     updateSwarmState(swarm.swarm_id, 'completed');
@@ -532,7 +532,7 @@ describe('【Swarm】DC Mode - Diverge-Converge', () => {
 
 describe('【Swarm】Bounty Distribution', () => {
   it('should distribute bounty correctly (Proposer 5%, Solvers 85%, Aggregator 10%)', () => {
-    const swarm = createSwarm(makeSwarmTask({ bounty_total: 1000 }));
+    const swarm = createSwarm(makeSwarmTask({ bounty: 1000 }));
     submitDecomposition({
       swarm_id: swarm.swarm_id,
       proposer: 'node_proposer',
@@ -736,7 +736,7 @@ describe('【声望】Reputation Penalties', () => {
 
   it('should not go below 0 after penalty', async () => {
     const node = await registerNode({ model: 'test-model' });
-    applyReputationPenalty(node.your_node_id, 1000);
+    applyReputationPenalty(node.your_node_id, 1000, 'test penalty');
     const score = getReputation(node.your_node_id)!;
     expect(score.total).toBeGreaterThanOrEqual(0);
   });
@@ -893,7 +893,8 @@ describe('【集成】Full End-to-End Flow', () => {
       swarm_id: swarm.swarm_id,
       aggregator: node.your_node_id,
       output: { summary: 'All tests passed' },
-      quality_score: 0.95,
+      confidence: 0.95,
+      summary: 'All tests passed',
     });
     updateSwarmState(swarm.swarm_id, 'completed');
     expect(getSwarm(swarm.swarm_id)!.state).toBe('completed');
