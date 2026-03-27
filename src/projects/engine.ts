@@ -1,6 +1,6 @@
 // Official Projects Engine
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import {
   Project,
   ProjectStatus,
@@ -14,7 +14,7 @@ export class ProjectEngine {
 
   propose(proposal: ProjectProposal): Project {
     const project: Project = {
-      id: `proj_${uuidv4().slice(0, 8)}`,
+      id: `proj_${randomUUID().slice(0, 8)}`,
       title: proposal.title,
       description: proposal.description,
       repo_name: proposal.repo_name,
@@ -93,7 +93,7 @@ export class ProjectEngine {
     if (!project) return null;
 
     const task: ProjectTask = {
-      id: `task_${uuidv4().slice(0, 8)}`,
+      id: `task_${randomUUID().slice(0, 8)}`,
       title,
       description,
       status: 'open',
@@ -116,7 +116,7 @@ export class ProjectEngine {
     if (!project) return null;
 
     const contribution: Contribution = {
-      id: `contrib_${uuidv4().slice(0, 8)}`,
+      id: `contrib_${randomUUID().slice(0, 8)}`,
       project_id: projectId,
       contributor_id: contributorId,
       files,

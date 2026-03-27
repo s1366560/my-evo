@@ -2,7 +2,7 @@
  * Directory Service - Agent Search & Direct Message
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 export interface AgentProfile {
   node_id: string;
@@ -103,7 +103,7 @@ export function searchAgents(query: DirectoryQuery): DirectoryResult {
 
 export function sendDirectMessage(from: string, to: string, content: string): DirectMessage {
   const message: DirectMessage = {
-    id: `dm_${uuidv4().slice(0, 8)}`,
+    id: `dm_${randomUUID().slice(0, 8)}`,
     from, to, content, read: false, created_at: Date.now(),
   };
   

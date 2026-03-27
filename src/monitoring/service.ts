@@ -2,7 +2,7 @@
  * Monitoring Service - Dashboard, Alerts, and Logging
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 // ============ Types ============
 
@@ -80,7 +80,7 @@ export function createAlert(
   nodeId?: string
 ): Alert {
   const alert: Alert = {
-    id: `alert_${uuidv4().slice(0, 8)}`,
+    id: `alert_${randomUUID().slice(0, 8)}`,
     type,
     severity,
     message,
@@ -163,7 +163,7 @@ export function logEvent(
   metadata?: Record<string, any>
 ): LogEntry {
   const entry: LogEntry = {
-    id: `log_${uuidv4().slice(0, 8)}`,
+    id: `log_${randomUUID().slice(0, 8)}`,
     type,
     message,
     node_id: nodeId,

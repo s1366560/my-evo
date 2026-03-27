@@ -2,7 +2,7 @@
  * Session Service - Real-time Collaboration
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import {
   Session,
   SessionMember,
@@ -72,7 +72,7 @@ export function createSession(params: {
   const ttl = (params.ttl_seconds || 7200) * 1000;
   
   return {
-    id: params.id || `sess_${uuidv4().slice(0, 8)}`,
+    id: params.id || `sess_${randomUUID().slice(0, 8)}`,
     title: params.title,
     status: 'creating',
     creator_id: params.creator_id,
@@ -148,7 +148,7 @@ export function addMessage(
   const newClock = incrementClock(session.vector_clock, message.from);
   const newMessage: SessionMessage = {
     ...message,
-    id: `msg_${uuidv4().slice(0, 8)}`,
+    id: `msg_${randomUUID().slice(0, 8)}`,
     session_id: session.id,
     timestamp: now,
     vector_clock: newClock,
@@ -170,7 +170,7 @@ export function createConsensusProposal(params: {
   timeout_ms?: number;
 }): ConsensusProposal {
   return {
-    id: `prop_${uuidv4().slice(0, 8)}`,
+    id: `prop_${randomUUID().slice(0, 8)}`,
     session_id: params.session_id,
     proposer_id: params.proposer_id,
     type: params.type,

@@ -2,7 +2,7 @@
  * Knowledge Graph Service
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import {
   KGEntity,
   KGRelationship,
@@ -24,7 +24,7 @@ const entityIndex: Map<EntityType, Set<string>> = new Map();
 export function addEntity(entity: Partial<KGEntity> & { type: EntityType; name: string }): KGEntity {
   const now = Date.now();
   const newEntity: KGEntity = {
-    id: entity.id || `kg_${uuidv4().slice(0, 8)}`,
+    id: entity.id || `kg_${randomUUID().slice(0, 8)}`,
     type: entity.type,
     name: entity.name,
     description: entity.description,
@@ -104,7 +104,7 @@ export function addRelationship(
 ): KGRelationship {
   const newRel: KGRelationship = {
     ...relationship,
-    id: `rel_${uuidv4().slice(0, 8)}`,
+    id: `rel_${randomUUID().slice(0, 8)}`,
     metadata: {
       created_at: Date.now(),
       verified: false,
@@ -118,7 +118,7 @@ export function addRelationship(
   if (symmetricTypes.includes(relationship.type)) {
     const reverseRel: KGRelationship = {
       ...newRel,
-      id: `rel_${uuidv4().slice(0, 8)}`,
+      id: `rel_${randomUUID().slice(0, 8)}`,
       source_id: relationship.target_id,
       source_type: relationship.target_type,
       target_id: relationship.source_id,

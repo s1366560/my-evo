@@ -7,7 +7,7 @@
  * - L3: Hard isolation, 30 days or manual release, 30 reputation penalty
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import {
   QuarantineLevel,
   QuarantineReason,
@@ -97,7 +97,7 @@ export function quarantineNode(
   
   // Create violation record
   const violation: QuarantineViolation = {
-    id: `viol_${uuidv4().slice(0, 8)}`,
+    id: `viol_${randomUUID().slice(0, 8)}`,
     type: reason,
     severity,
     description: getViolationDescription(reason),
@@ -190,7 +190,7 @@ export function escalateQuarantine(nodeId: string): QuarantineRecord | undefined
     violations: [
       ...record.violations,
       {
-        id: `viol_${uuidv4().slice(0, 8)}`,
+        id: `viol_${randomUUID().slice(0, 8)}`,
         type: 'escalation',
         severity: 'high',
         description: `Escalated from ${record.level} to ${newLevel}`,
