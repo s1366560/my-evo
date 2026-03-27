@@ -14,7 +14,7 @@ export const projectApi = {
       const project = engine.propose(proposal);
       res.json({ project });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -25,7 +25,7 @@ export const projectApi = {
       const projects = engine.listProjects(status);
       res.json({ projects });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -39,7 +39,7 @@ export const projectApi = {
       }
       res.json({ project });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -59,7 +59,7 @@ export const projectApi = {
       }
       res.json({ contribution });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -90,7 +90,7 @@ export const projectApi = {
       }
       res.json({ result });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -104,7 +104,7 @@ export const projectApi = {
       }
       res.json({ project });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 
@@ -119,7 +119,7 @@ export const projectApi = {
       }
       res.json({ tasks: result });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as Error).message });
     }
   },
 };

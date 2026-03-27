@@ -1,8 +1,7 @@
 // Recipe/Organism Tests
 
-import { describe, test, expect, beforeEach } from 'vitest';
-import { RecipeEngine } from '../src/recipe/engine.js';
-import { RecipeStatus, OrganismStatus } from '../src/recipe/types.js';
+import { RecipeEngine } from '../src/recipe/engine';
+import { RecipeStatus, OrganismStatus } from '../src/recipe/types';
 
 describe('RecipeEngine', () => {
   let engine: RecipeEngine;
@@ -12,7 +11,7 @@ describe('RecipeEngine', () => {
   });
 
   describe('create', () => {
-    test('creates a recipe in DRAFT status', () => {
+    it('creates a recipe in DRAFT status', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Bug Fix Pipeline',
@@ -32,7 +31,7 @@ describe('RecipeEngine', () => {
   });
 
   describe('publish', () => {
-    test('publishes a recipe', () => {
+    it('publishes a recipe', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Test',
@@ -45,7 +44,7 @@ describe('RecipeEngine', () => {
       expect(published!.status).toBe(RecipeStatus.PUBLISHED);
     });
 
-    test('rejects unauthorized publish', () => {
+    it('rejects unauthorized publish', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Test',
@@ -60,7 +59,7 @@ describe('RecipeEngine', () => {
   });
 
   describe('express', () => {
-    test('expresses a published recipe into organism', () => {
+    it('expresses a published recipe into organism', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Test',
@@ -77,7 +76,7 @@ describe('RecipeEngine', () => {
       expect(organism!.genes_expressed).toBe(0);
     });
 
-    test('cannot express unpublished recipe', () => {
+    it('cannot express unpublished recipe', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Test',
@@ -92,7 +91,7 @@ describe('RecipeEngine', () => {
   });
 
   describe('expressGene', () => {
-    test('expresses genes and tracks progress', () => {
+    it('expresses genes and tracks progress', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Test',
@@ -114,7 +113,7 @@ describe('RecipeEngine', () => {
       expect(result2!.status).toBe(OrganismStatus.COMPLETED);
     });
 
-    test('fails organism on required gene failure', () => {
+    it('fails organism on required gene failure', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Test',
@@ -132,7 +131,7 @@ describe('RecipeEngine', () => {
       expect(result!.status).toBe(OrganismStatus.FAILED);
     });
 
-    test('skips optional genes without failing', () => {
+    it('skips optional genes without failing', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Test',
@@ -156,7 +155,7 @@ describe('RecipeEngine', () => {
   });
 
   describe('fork', () => {
-    test('forks a recipe', () => {
+    it('forks a recipe', () => {
       const original = engine.create({
         sender_id: 'node-1',
         title: 'Original',
@@ -174,7 +173,7 @@ describe('RecipeEngine', () => {
   });
 
   describe('archive', () => {
-    test('archives a recipe', () => {
+    it('archives a recipe', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Test',
@@ -189,7 +188,7 @@ describe('RecipeEngine', () => {
   });
 
   describe('checkTimeouts', () => {
-    test('expires organisms after TTL', () => {
+    it('expires organisms after TTL', () => {
       const recipe = engine.create({
         sender_id: 'node-1',
         title: 'Test',
