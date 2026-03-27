@@ -5,6 +5,7 @@
  * Phase 2: Asset system (Gene/Capsule/EvolutionEvent) - COMPLETE
  * Phase 3: Swarm Multi-Agent Collaboration - COMPLETE
  * Phase 4: GDI Reputation & Credit System - COMPLETE
+ * Phase 5: Governance (Council) & WorkerPool & Sandbox - COMPLETE
  */
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -15,6 +16,18 @@ import { publishAsset, submitValidationReport, revokeAsset } from './assets/publ
 import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails } from './assets/fetch';
 import { FetchQuery } from './assets/types';
 import { countAssets } from './assets/store';
+
+// Council Governance Module
+import * as council from './council';
+import type { CouncilProposal, DisputeArbitrationPayload } from './council/types';
+
+// Worker Pool Module
+import * as wp from './workerpool';
+import type { WorkerPoolWorker, SpecialistTask, WorkerAssignment } from './workerpool/types';
+
+// Evolution Sandbox Module
+import * as sandbox from './sandbox';
+import type { EvolutionSandbox, SandboxAsset, SandboxMember } from './sandbox/types';
 
 const app = express();
 app.use(express.json());
@@ -1062,10 +1075,303 @@ app.get('/a2a/credit/economics', (_req: Request, res: Response) => {
   });
 });
 
-// ==================== Phase 5: Governance Endpoints ====================
+// ==================== Phase 5: Governance & WorkerPool & Sandbox Endpoints ====================
+
+// --- Council Governance Endpoints ---
+
+// Initialize council with current GDI leaders
+council.initializeCouncil([]);
 
 app.post('/a2a/council/propose', (req: Request, res: Response) => {
-  res.status(501).json({ error: 'not_implemented', message: 'Council governance not yet implemented', correction: 'Phase 5' });
+  try {
+    const { type, title, description, target_bounty_id, target_dispute_reason } = req.body;
+    if (!type || !title || !description) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing required fields: type, title, description' });
+      return;
+    }
+    const nodeId = (req as Request & { nodeId?: string }).nodeId || 'anonymous';
+    const proposal = council.createProposal(type, title, description, nodeId, { target_bounty_id, target_dispute_reason });
+    res.json({ status: 'ok', proposal });
+  } catch (error) {
+    console.error('Council propose error:', error);
+    res.status(500).json({ error: 'propose_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/council/proposals', (req: Request, res: Response) => {
+  try {
+    const proposals = council.listProposals({});
+    res.json({ proposals });
+  } catch (error) {
+    res.status(500).json({ error: 'list_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/council/proposals/:id', (req: Request, res: Response) => {
+  try {
+    const proposal = council.getProposal(req.params.id);
+    if (!proposal) {
+      res.status(404).json({ error: 'not_found', message: 'Proposal not found' });
+      return;
+    }
+    res.json({ proposal });
+  } catch (error) {
+    res.status(500).json({ error: 'get_failed', message: String(error) });
+  }
+});
+
+app.post('/a2a/council/vote', (req: Request, res: Response) => {
+  try {
+    const { proposal_id, vote, reason } = req.body;
+    if (!proposal_id || !vote) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing proposal_id or vote' });
+      return;
+    }
+    const nodeId = (req as Request & { nodeId?: string }).nodeId || 'anonymous';
+    council.castVote(proposal_id, nodeId, vote, reason);
+    res.json({ status: 'ok', message: 'Vote cast successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'vote_failed', message: String(error) });
+  }
+});
+
+app.post('/a2a/council/finalize/:id', (req: Request, res: Response) => {
+  try {
+    const status = council.finalizeProposal(req.params.id);
+    res.json({ status: 'ok', final_status: status });
+  } catch (error) {
+    res.status(500).json({ error: 'finalize_failed', message: String(error) });
+  }
+});
+
+app.post('/a2a/council/resolve-dispute', (req: Request, res: Response) => {
+  try {
+    const payload = req.body as DisputeArbitrationPayload;
+    if (!payload.bounty_id || !payload.dispute_reason) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing bounty_id or dispute_reason' });
+      return;
+    }
+    const decision = council.resolveBountyDispute(payload);
+    res.json({ status: 'ok', decision });
+  } catch (error) {
+    res.status(500).json({ error: 'resolve_failed', message: String(error) });
+  }
+});
+
+// --- Worker Pool Endpoints ---
+
+app.post('/a2a/workerpool/register', (req: Request, res: Response) => {
+  try {
+    const { type, skills, domain, max_concurrent_tasks } = req.body;
+    const nodeId = (req as Request & { nodeId?: string }).nodeId;
+    if (!nodeId) {
+      res.status(401).json({ error: 'unauthorized', message: 'Missing node authentication' });
+      return;
+    }
+    const worker = wp.registerWorker({ worker_id: nodeId, type: type || 'passive', skills: skills || [], domain, max_concurrent_tasks: max_concurrent_tasks || 3 });
+    res.json({ status: 'ok', worker });
+  } catch (error) {
+    res.status(500).json({ error: 'register_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/workerpool/workers', (req: Request, res: Response) => {
+  try {
+    const workers = wp.listWorkers({});
+    res.json({ workers });
+  } catch (error) {
+    res.status(500).json({ error: 'list_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/workerpool/workers/:id', (req: Request, res: Response) => {
+  try {
+    const worker = wp.getWorker(req.params.id);
+    if (!worker) {
+      res.status(404).json({ error: 'not_found', message: 'Worker not found' });
+      return;
+    }
+    res.json({ worker });
+  } catch (error) {
+    res.status(500).json({ error: 'get_failed', message: String(error) });
+  }
+});
+
+app.patch('/a2a/workerpool/workers/:id/availability', (req: Request, res: Response) => {
+  try {
+    const { is_available } = req.body;
+    const worker = wp.updateWorkerAvailability(req.params.id, is_available);
+    if (!worker) {
+      res.status(404).json({ error: 'not_found', message: 'Worker not found' });
+      return;
+    }
+    res.json({ status: 'ok', worker });
+  } catch (error) {
+    res.status(500).json({ error: 'update_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/workerpool/pools', (req: Request, res: Response) => {
+  try {
+    const pools = wp.listSpecialistPools();
+    res.json({ pools });
+  } catch (error) {
+    res.status(500).json({ error: 'list_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/workerpool/pools/:domain', (req: Request, res: Response) => {
+  try {
+    const pool = wp.getSpecialistPool(req.params.domain);
+    if (!pool) {
+      res.status(404).json({ error: 'not_found', message: 'Specialist pool not found' });
+      return;
+    }
+    res.json({ pool });
+  } catch (error) {
+    res.status(500).json({ error: 'get_failed', message: String(error) });
+  }
+});
+
+app.post('/a2a/workerpool/tasks', (req: Request, res: Response) => {
+  try {
+    const { domain, description, required_skills, bounty, priority } = req.body;
+    if (!domain || !description) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing domain or description' });
+      return;
+    }
+    const task = wp.addTaskToSpecialistPool({ domain, description, required_skills: required_skills || [], bounty, priority: priority || 'medium' });
+    res.json({ status: 'ok', task });
+  } catch (error) {
+    res.status(500).json({ error: 'create_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/workerpool/stats', (req: Request, res: Response) => {
+  try {
+    const stats = wp.getWorkerPoolStats();
+    res.json({ stats });
+  } catch (error) {
+    res.status(500).json({ error: 'stats_failed', message: String(error) });
+  }
+});
+
+// --- Evolution Sandbox Endpoints ---
+
+app.post('/a2a/sandbox/create', (req: Request, res: Response) => {
+  try {
+    const { name, description, isolation_level, env, tags } = req.body;
+    const nodeId = (req as Request & { nodeId?: string }).nodeId;
+    if (!nodeId) {
+      res.status(401).json({ error: 'unauthorized', message: 'Missing node authentication' });
+      return;
+    }
+    if (!name) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing name' });
+      return;
+    }
+    const sb = sandbox.createSandbox({ name, description: description || '', isolation_level: isolation_level || 'soft', env: env || 'staging', tags: tags || [], created_by: nodeId });
+    res.json({ status: 'ok', sandbox: sb });
+  } catch (error) {
+    res.status(500).json({ error: 'create_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/sandbox', (req: Request, res: Response) => {
+  try {
+    const sandboxes = sandbox.listSandboxes({});
+    res.json({ sandboxes });
+  } catch (error) {
+    res.status(500).json({ error: 'list_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/sandbox/:id', (req: Request, res: Response) => {
+  try {
+    const sb = sandbox.getSandbox(req.params.id);
+    if (!sb) {
+      res.status(404).json({ error: 'not_found', message: 'Sandbox not found' });
+      return;
+    }
+    res.json({ sandbox: sb });
+  } catch (error) {
+    res.status(500).json({ error: 'get_failed', message: String(error) });
+  }
+});
+
+app.post('/a2a/sandbox/:id/members', (req: Request, res: Response) => {
+  try {
+    const { node_id, role } = req.body;
+    if (!node_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing node_id' });
+      return;
+    }
+    const member = sandbox.addMember({ sandbox_id: req.params.id, node_id, role: role || 'participant' });
+    res.json({ status: 'ok', member });
+  } catch (error) {
+    res.status(500).json({ error: 'add_member_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/sandbox/:id/members', (req: Request, res: Response) => {
+  try {
+    const members = sandbox.listMembers(req.params.id);
+    res.json({ members });
+  } catch (error) {
+    res.status(500).json({ error: 'list_failed', message: String(error) });
+  }
+});
+
+app.post('/a2a/sandbox/:id/assets', (req: Request, res: Response) => {
+  try {
+    const { asset_id, asset_type, name, content, tags } = req.body;
+    const nodeId = (req as Request & { nodeId?: string }).nodeId;
+    if (!asset_id || !asset_type || !name) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing required fields' });
+      return;
+    }
+    const asset = sandbox.addSandboxAsset({ sandbox_id: req.params.id, asset_id, asset_type, name, content: content || '', tags: tags || [], created_by: nodeId || 'anonymous' });
+    res.json({ status: 'ok', asset });
+  } catch (error) {
+    res.status(500).json({ error: 'add_asset_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/sandbox/:id/assets', (req: Request, res: Response) => {
+  try {
+    const assets = sandbox.getSandboxAssets(req.params.id, {});
+    res.json({ assets });
+  } catch (error) {
+    res.status(500).json({ error: 'list_failed', message: String(error) });
+  }
+});
+
+app.post('/a2a/sandbox/:id/promote', (req: Request, res: Response) => {
+  try {
+    const { asset_id } = req.body;
+    const nodeId = (req as Request & { nodeId?: string }).nodeId;
+    if (!asset_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing asset_id' });
+      return;
+    }
+    const asset = sandbox.promoteAsset(req.params.id, asset_id, nodeId || 'anonymous');
+    res.json({ status: 'ok', asset });
+  } catch (error) {
+    res.status(500).json({ error: 'promote_failed', message: String(error) });
+  }
+});
+
+app.get('/a2a/sandbox/:id/metrics', (req: Request, res: Response) => {
+  try {
+    const metrics = sandbox.getSandboxMetrics(req.params.id);
+    if (!metrics) {
+      res.status(404).json({ error: 'not_found', message: 'Sandbox not found' });
+      return;
+    }
+    res.json({ metrics });
+  } catch (error) {
+    res.status(500).json({ error: 'metrics_failed', message: String(error) });
+  }
 });
 
 // ==================== Knowledge Graph Endpoints ====================
@@ -1575,7 +1881,7 @@ app.listen(PORT, () => {
 ║  Status: Running                                          ║
 ║  Hub ID: ${HUB_NODE_ID.padEnd(45)}║
 ║  Port:   ${PORT.toString().padEnd(45)}║
-║  Phase:  4 (Asset+Swarm+Reputation)                        ║
+║  Phase:  5 (Asset+Swarm+Reputation+Governance)             ║
 ║                                                           ║
 ║  Endpoints:                                               ║
 ║  Phase 1:                                                 ║
