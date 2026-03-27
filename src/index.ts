@@ -20,7 +20,8 @@ app.use(express.json());
 
 // Serve static UI files from public directory
 import { join } from 'path';
-app.use('/ui', express.static(join(__dirname, '..', 'public')));
+const publicDir = join(process.cwd(), 'public');
+app.use('/ui', express.static(publicDir));
 
 // Request logging middleware
 app.use((req: Request, _res: Response, next: NextFunction) => {
