@@ -19,10 +19,41 @@ const app = express();
 app.use(express.json());
 
 // Serve static UI files from public directory
-import { join } from 'path';
-const publicPath = join(process.cwd(), 'public');
+import { join, dirname } from 'path';
+import { existsSync, readFileSync } from 'fs';
+
+// Try multiple paths for static files
+const possiblePaths = [
+  join(process.cwd(), 'public'),
+  join(__dirname, '..', 'public'),
+  join(__dirname, 'public'),
+  'public'
+];
+
+let publicPath = possiblePaths.find(p => existsSync(p));
+if (!publicPath) {
+  console.warn('[Static] Warning: public directory not found, tried:', possiblePaths);
+  publicPath = 'public';
+}
 console.log('[Static] Serving UI from:', publicPath);
 app.use('/ui', express.static(publicPath));
+
+// Fallback: serve index.html for /ui routes
+app.get('/ui/:page', (req: Request, res: Response) => {
+  const page = req.params.page;
+  const indexPath = join(publicPath, page);
+  if (existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    // Try index.html as fallback
+    const fallback = join(publicPath, 'index.html');
+    if (existsSync(fallback)) {
+      res.sendFile(fallback);
+    } else {
+      res.status(404).send('UI not found');
+    }
+  }
+});
 
 // Request logging middleware
 app.use((req: Request, _res: Response, next: NextFunction) => {
