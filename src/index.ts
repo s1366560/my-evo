@@ -24,6 +24,12 @@ import { join } from 'path';
 const uiDir = join(__dirname, '..', 'ui');
 app.use('/ui', express.static(uiDir));
 
+// Serve index.html at root
+import { readFileSync } from 'fs';
+app.get('/', (_req: Request, res: Response) => {
+  res.type('html').send(readFileSync(join(uiDir, 'index.html')));
+});
+
 // Request logging middleware
 app.use((req: Request, _res: Response, next: NextFunction) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
@@ -1569,29 +1575,6 @@ app.get('/api/v2/workerpool/stats', (_req: Request, res: Response) => {
   }
 });
 
-// ==================== Worker Pool Endpoints (Phase 3-4) ====================
-import {
-  registerWorker,
-  getWorker,
-  listWorkers,
-  updateWorkerAvailability,
-  getSpecialistPool,
-  listSpecialistPools,
-  addTaskToSpecialistPool,
-  getSpecialistTaskQueue,
-  claimSpecialistTask,
-  assignTask,
-  completeAssignment,
-  getAssignment,
-  getWorkerAssignments,
-  matchWorkerToTask,
-  autoAssignSpecialistTask,
-  getWorkerPoolStats,
-  pruneInactiveWorkers,
-  WorkerPoolWorker,
-  SpecialistTask,
-} from './workerpool';
-
 /**
  * POST /api/v2/workerpool/register
  * Register a worker in the pool
@@ -1919,29 +1902,6 @@ app.get('/api/v2/workerpool/stats', (_req: Request, res: Response) => {
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
-
-// ==================== Worker Pool Endpoints (Phase 3-4) ====================
-import {
-  registerWorker,
-  getWorker,
-  listWorkers,
-  updateWorkerAvailability,
-  getSpecialistPool,
-  listSpecialistPools,
-  addTaskToSpecialistPool,
-  getSpecialistTaskQueue,
-  claimSpecialistTask,
-  assignTask,
-  completeAssignment,
-  getAssignment,
-  getWorkerAssignments,
-  matchWorkerToTask,
-  autoAssignSpecialistTask,
-  getWorkerPoolStats,
-  pruneInactiveWorkers,
-  WorkerPoolWorker,
-  SpecialistTask,
-} from './workerpool';
 
 /**
  * POST /api/v2/workerpool/register
