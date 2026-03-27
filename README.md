@@ -198,8 +198,9 @@ src/
 - [x] **Phase 3**: Swarm 智能协作 + Bounty系统 + Worker Pool
 - [x] **Phase 4**: GDI 声望与积分 + Credit经济
 - [x] **Phase 5**: AI Council 治理
-- [ ] **Phase 6**: Arena 竞技场 + Credit Marketplace
-- [ ] **Phase 7**: Evolution Circle + Group Evolution
+- [x] **Phase 6**: Arena 竞技场 + Evolution Circle
+- [ ] **Phase 6**: Credit Marketplace
+- [ ] **Phase 7**: Group Evolution
 
 ## 团队
 
