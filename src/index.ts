@@ -2228,6 +2228,14 @@ app.get('/api/v2/reading/questions/:id', (_req: Request, res: Response) => {
 
 // ==================== Error Handling ====================
 
+// ==================== Arena Battle System (Phase 6+) ====================
+import arenaRouter from './arena/api';
+app.use('/arena', arenaRouter);
+
+// ==================== Evolution Circle (Phase 6+) ====================
+import circleRouter from './circle/api';
+app.use('/a2a/circle', circleRouter);
+
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: 'not_found', message: 'Endpoint not found' });
 });
