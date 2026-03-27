@@ -19,9 +19,8 @@ const app = express();
 app.use(express.json());
 
 // Serve static UI files
-app.use('/ui', express.static('ui'));
-app.use('/static', express.static('public'));
-app.use('/ui', express.static('ui'));
+import { join } from 'path';
+app.use('/ui', express.static(join(process.cwd(), 'ui')));
 
 // Request logging middleware
 app.use((req: Request, _res: Response, next: NextFunction) => {
