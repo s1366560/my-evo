@@ -426,7 +426,10 @@ describe('【Swarm】DSA Mode - Decompose-Solve-Aggregate', () => {
   });
 
   it('should complete subtasks and aggregate results', () => {
+<<<<<<< HEAD
+=======
     // SwarmTask uses 'bounty' not 'bounty_total'
+>>>>>>> origin/feature/council-governance
     const swarm = createSwarm(makeSwarmTask({ bounty: 1000 }));
     submitDecomposition({
       swarm_id: swarm.swarm_id,
@@ -447,10 +450,16 @@ describe('【Swarm】DSA Mode - Decompose-Solve-Aggregate', () => {
       aggregator: 'node_aggregator',
       output: { final: 'Combined solution' },
       confidence: 0.92,
+<<<<<<< HEAD
+      summary: 'Aggregated solution',
+    });
+
+=======
       summary: 'All parts combined',
     });
 
     // AggregatedResult has 'aggregator' not 'aggregated_by', 'confidence' not 'quality_score'
+>>>>>>> origin/feature/council-governance
     expect(aggResult.aggregator).toBe('node_aggregator');
     expect(aggResult.confidence).toBe(0.92);
   });
@@ -470,8 +479,12 @@ describe('【Swarm】DSA Mode - Decompose-Solve-Aggregate', () => {
 
 describe('【Swarm】DC Mode - Diverge-Converge', () => {
   it('should run DC mode with multiple independent solutions', () => {
+<<<<<<< HEAD
+    const swarm = createSwarm(makeSwarmTask({  bounty: 800 }));
+=======
     // SwarmTask uses 'bounty' not 'bounty_total'
     const swarm = createSwarm(makeSwarmTask({ bounty: 800 }));
+>>>>>>> origin/feature/council-governance
 
     updateSwarmState(swarm.swarm_id, 'decomposition');
     submitDecomposition({
@@ -501,15 +514,23 @@ describe('【Swarm】DC Mode - Diverge-Converge', () => {
       summary: 'Solution B won',
     });
 
+<<<<<<< HEAD
+    expect(result.output).toHaveProperty('solution', 'B');
+    expect(result.output).toHaveProperty('vote_count', 5);
+=======
     // AggregatedResult.output is 'unknown', not a nested 'result' object
     expect((result.output as any).solution).toBe('B');
     expect((result.output as any).vote_count).toBe(5);
+>>>>>>> origin/feature/council-governance
   });
 
   it('should handle swarm failure', () => {
     const swarm = createSwarm(makeSwarmTask());
     updateSwarmState(swarm.swarm_id, 'solving');
+<<<<<<< HEAD
+=======
     // SwarmState does not have 'timeout' - use 'failed' instead
+>>>>>>> origin/feature/council-governance
     updateSwarmState(swarm.swarm_id, 'failed');
     expect(getSwarm(swarm.swarm_id)!.state).toBe('failed');
   });
@@ -517,13 +538,19 @@ describe('【Swarm】DC Mode - Diverge-Converge', () => {
   it('should handle swarm cancel', () => {
     const swarm = createSwarm(makeSwarmTask());
     updateSwarmState(swarm.swarm_id, 'decomposition');
+<<<<<<< HEAD
+=======
     // SwarmState does not have 'cancelled' - use 'failed' instead
+>>>>>>> origin/feature/council-governance
     updateSwarmState(swarm.swarm_id, 'failed');
     expect(getSwarm(swarm.swarm_id)!.state).toBe('failed');
   });
 
   it('should handle partial completion (some subtasks failed)', () => {
+<<<<<<< HEAD
+=======
     // SwarmTask uses 'bounty' not 'bounty_total'
+>>>>>>> origin/feature/council-governance
     const swarm = createSwarm(makeSwarmTask({ bounty: 1000 }));
     submitDecomposition({
       swarm_id: swarm.swarm_id,
@@ -544,7 +571,11 @@ describe('【Swarm】DC Mode - Diverge-Converge', () => {
       aggregator: 'node_aggregator',
       output: { partial: true, completed: ['p1'], failed: ['p2'] },
       confidence: 0.55,
+<<<<<<< HEAD
+      summary: 'Partial result',
+=======
       summary: 'Partial completion',
+>>>>>>> origin/feature/council-governance
     });
 
     updateSwarmState(swarm.swarm_id, 'completed');
@@ -554,7 +585,10 @@ describe('【Swarm】DC Mode - Diverge-Converge', () => {
 
 describe('【Swarm】Bounty Distribution', () => {
   it('should distribute bounty correctly (Proposer 5%, Solvers 85%, Aggregator 10%)', () => {
+<<<<<<< HEAD
+=======
     // SwarmTask uses 'bounty' not 'bounty_total'
+>>>>>>> origin/feature/council-governance
     const swarm = createSwarm(makeSwarmTask({ bounty: 1000 }));
     submitDecomposition({
       swarm_id: swarm.swarm_id,
@@ -777,8 +811,12 @@ describe('【声望】Reputation Penalties', () => {
 
   it('should not go below 0 after penalty', async () => {
     const node = await registerNode({ model: 'test-model' });
+<<<<<<< HEAD
+    applyReputationPenalty(node.your_node_id, 1000, 'test penalty');
+=======
     // applyReputationPenalty requires 3 args: nodeId, penalty, reason
     applyReputationPenalty(node.your_node_id, 1000, 'severe penalty');
+>>>>>>> origin/feature/council-governance
     const score = getReputation(node.your_node_id)!;
     expect(score.total).toBeGreaterThanOrEqual(0);
   });
