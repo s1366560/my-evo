@@ -1438,6 +1438,206 @@ app.get('/api/v2/swarm/:id/checkpoint/:ckpt_id', (req: Request, res: Response) =
   res.json({ swarm_id: id, checkpoint_id: ckpt_id, state: {}, progress: 0 });
 });
 
+// ==================== Evolution Sandbox ====================
+
+import * as sandbox from './sandbox/service';
+
+// POST /api/v2/sandbox/create - Create a new sandbox
+app.post('/api/v2/sandbox/create', (req: Request, res: Response) => {
+  const { name, mode, env_fingerprint, participants, ttl_hours } = req.body;
+  
+  if (!name || !mode || !env_fingerprint) {
+    res.status(400).json({
+      error: 'invalid_request',
+      message: 'Missing required fields: name, mode, env_fingerprint',
+    });
+    return;
+  }
+  
+  if (!['soft-tagged', 'hard-isolated'].includes(mode)) {
+    res.status(400).json({
+      error: 'invalid_request',
+      message: 'Mode must be "soft-tagged" or "hard-isolated"',
+    });
+    return;
+  }
+  
+  const result = sandbox.createSandbox({
+    name,
+    mode,
+    created_by: req.headers['x-node-id'] as string || 'anonymous',
+    env_fingerprint,
+    participants,
+    ttl_hours,
+  });
+  
+  res.status(201).json(result);
+});
+
+// GET /api/v2/sandbox/list - List sandboxes
+app.get('/api/v2/sandbox/list', (req: Request, res: Response) => {
+  const { status, mode, created_by } = req.query;
+  
+  const result = sandbox.listSandboxes({
+    status: status as sandbox.SandboxStatus,
+    mode: mode as sandbox.SandboxMode,
+    created_by: created_by as string,
+  });
+  
+  res.json({ sandboxes: result, count: result.length });
+});
+
+// GET /api/v2/sandbox/:id - Get sandbox details
+app.get('/api/v2/sandbox/:id', (req: Request, res: Response) => {
+  const result = sandbox.getSandbox(req.params.id);
+  
+  if (!result) {
+    res.status(404).json({
+      error: 'not_found',
+      message: 'Sandbox not found',
+    });
+    return;
+  }
+  
+  res.json(result);
+});
+
+// POST /api/v2/sandbox/:id/experiment - Run experiment
+app.post('/api/v2/sandbox/:id/experiment', (req: Request, res: Response) => {
+  const { name, description, genes, capsules, config } = req.body;
+  
+  if (!name || !genes || !capsules || !config) {
+    res.status(400).json({
+      error: 'invalid_request',
+      message: 'Missing required fields: name, genes, capsules, config',
+    });
+    return;
+  }
+  
+  const result = sandbox.runExperiment({
+    sandbox_id: req.params.id,
+    name,
+    description: description || '',
+    genes,
+    capsules,
+    config: {
+      iterations: config.iterations || 1,
+      timeout_ms: config.timeout_ms || 30000,
+      validation_mode: config.validation_mode || 'relaxed',
+      track_mutations: config.track_mutations !== false,
+      expected_outcome: config.expected_outcome,
+    },
+  });
+  
+  if (!result) {
+    res.status(404).json({
+      error: 'not_found',
+      message: 'Sandbox not found',
+    });
+    return;
+  }
+  
+  res.status(201).json(result);
+});
+
+// POST /api/v2/sandbox/:id/asset - Add asset to sandbox
+app.post('/api/v2/sandbox/:id/asset', (req: Request, res: Response) => {
+  const { asset_id, type, original_id, sandboxed_content } = req.body;
+  
+  if (!asset_id || !type || !original_id || !sandboxed_content) {
+    res.status(400).json({
+      error: 'invalid_request',
+      message: 'Missing required fields: asset_id, type, original_id, sandboxed_content',
+    });
+    return;
+  }
+  
+  const result = sandbox.addAssetToSandbox({
+    sandbox_id: req.params.id,
+    asset_id,
+    type,
+    original_id,
+    sandboxed_content,
+  });
+  
+  if (!result) {
+    res.status(404).json({
+      error: 'not_found',
+      message: 'Sandbox not found',
+    });
+    return;
+  }
+  
+  res.status(201).json(result);
+});
+
+// POST /api/v2/sandbox/:id/modify - Modify asset in sandbox
+app.post('/api/v2/sandbox/:id/modify', (req: Request, res: Response) => {
+  const { asset_id, field, new_value, modified_by } = req.body;
+  
+  const success = sandbox.modifyAsset({
+    sandbox_id: req.params.id,
+    asset_id,
+    field,
+    new_value,
+    modified_by: modified_by || 'anonymous',
+  });
+  
+  if (!success) {
+    res.status(404).json({
+      error: 'not_found',
+      message: 'Sandbox or asset not found',
+    });
+    return;
+  }
+  
+  res.json({ success: true });
+});
+
+// POST /api/v2/sandbox/:id/complete - Complete experiment
+app.post('/api/v2/sandbox/:id/complete', (req: Request, res: Response) => {
+  const { experiment_id, success, score, mutations_found, recommendations } = req.body;
+  
+  const result = sandbox.completeExperiment({
+    sandbox_id: req.params.id,
+    experiment_id,
+    success: success || false,
+    score: score || 0,
+    mutations_found: mutations_found || 0,
+    recommendations: recommendations || [],
+  });
+  
+  if (!result) {
+    res.status(404).json({
+      error: 'not_found',
+      message: 'Sandbox or experiment not found',
+    });
+    return;
+  }
+  
+  res.json({ success: true });
+});
+
+// POST /api/v2/sandbox/:id/cancel - Cancel sandbox
+app.post('/api/v2/sandbox/:id/cancel', (req: Request, res: Response) => {
+  const success = sandbox.cancelSandbox(req.params.id);
+  
+  if (!success) {
+    res.status(404).json({
+      error: 'not_found',
+      message: 'Sandbox not found',
+    });
+    return;
+  }
+  
+  res.json({ success: true });
+});
+
+// GET /api/v2/sandbox/stats - Get sandbox statistics
+app.get('/api/v2/sandbox/stats', (_req: Request, res: Response) => {
+  res.json(sandbox.getSandboxStats());
+});
+
 // ==================== Error Handling ====================
 
 app.use((_req: Request, res: Response) => {
