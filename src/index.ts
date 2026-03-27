@@ -2850,6 +2850,73 @@ app.get('/api/v2/sandbox/stats', (_req: Request, res: Response) => {
   res.json(sandbox.getSandboxStats());
 });
 
+// ==================== Reading Engine Endpoints ====================
+
+import * as reading from './reading/service';
+
+// POST /api/v2/reading/process - Process article and generate questions
+app.post('/api/v2/reading/process', (req: Request, res: Response) => {
+  const { url, content, title, generateQuestions } = req.body;
+  
+  if (!content) {
+    res.status(400).json({ error: 'invalid_request', message: 'content is required' });
+    return;
+  }
+  
+  const result = reading.processArticle({
+    url,
+    content,
+    title,
+    generateQuestions,
+  });
+  
+  res.status(201).json(result);
+});
+
+// POST /api/v2/reading/session - Create reading session
+app.post('/api/v2/reading/session', (req: Request, res: Response) => {
+  const { userId } = req.body;
+  const session = reading.createSession(userId);
+  res.status(201).json(session);
+});
+
+// GET /api/v2/reading/session/:id - Get session
+app.get('/api/v2/reading/session/:id', (_req: Request, res: Response) => {
+  const session = reading.getSession(_req.params.id);
+  
+  if (!session) {
+    res.status(404).json({ error: 'not_found', message: 'Session not found' });
+    return;
+  }
+  
+  res.json(session);
+});
+
+// GET /api/v2/reading/trending - Get trending readings
+app.get('/api/v2/reading/trending', (req: Request, res: Response) => {
+  const limit = parseInt(req.query.limit as string) || 10;
+  const readings = reading.getTrendingReadings(limit);
+  res.json({ readings, count: readings.length });
+});
+
+// GET /api/v2/reading/stats - Get reading statistics
+app.get('/api/v2/reading/stats', (_req: Request, res: Response) => {
+  res.json(reading.getReadingStats());
+});
+
+// GET /api/v2/reading/questions/:id - Get questions for a reading
+app.get('/api/v2/reading/questions/:id', (_req: Request, res: Response) => {
+  const readings = reading.getTrendingReadings(100);
+  const found = readings.find(r => r.id === _req.params.id);
+  
+  if (!found) {
+    res.status(404).json({ error: 'not_found', message: 'Reading not found' });
+    return;
+  }
+  
+  res.json({ questions: found.questions, count: found.questions.length });
+});
+
 // ==================== Error Handling ====================
 
 app.use((_req: Request, res: Response) => {
