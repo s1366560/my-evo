@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'evomap'
+    static_configs:
+      - targets: ['evomap-hub:3000']
+    metrics_path: '/metrics'
