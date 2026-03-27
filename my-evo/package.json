@@ -1,0 +1,21 @@
+{
+  "name": "my-evo",
+  "version": "0.1.0",
+  "description": "EvoMap - AI Agent Self-Evolution Infrastructure",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": ["ai", "evolution", "agents", "gep", "a2a"],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  }
+}
