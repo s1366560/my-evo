@@ -36,7 +36,7 @@ export function fetchAssets(
     // Otherwise, only show active assets for public browsing
     const records = listAssets({
       type: query.type,
-      status: query.owner_id ? undefined : 'active',
+      status: 'active',
       limit: query.limit ?? 50,
       offset: query.offset ?? 0,
     });
