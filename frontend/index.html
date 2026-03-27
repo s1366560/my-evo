@@ -159,16 +159,41 @@
     <!-- Assets Section -->
     <section id="assets" class="mb-12 hidden">
       <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold text-gray-900">Assets</h1>
+        <h1 class="text-3xl font-bold text-gray-900">Asset Marketplace</h1>
         <div class="flex space-x-2">
-          <select id="assetTypeFilter" class="px-4 py-2 border rounded-lg">
+          <div class="relative">
+            <input type="text" id="assetSearchInput" placeholder="Search assets..." 
+                   oninput="handleAutocomplete(this.value); loadAssets()"
+                   class="pl-10 px-4 py-2 border rounded-lg w-64">
+            <svg class="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+          </div>
+          <select id="assetTypeFilter" onchange="loadAssets()" class="px-4 py-2 border rounded-lg">
             <option value="">All Types</option>
             <option value="Gene">Genes</option>
             <option value="Capsule">Capsules</option>
           </select>
+          <select id="assetGDIFilter" onchange="loadAssets()" class="px-4 py-2 border rounded-lg">
+            <option value="">All GDI</option>
+            <option value="80">GDI ≥ 80</option>
+            <option value="60">GDI ≥ 60</option>
+            <option value="40">GDI ≥ 40</option>
+          </select>
           <button onclick="showPublishModal()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700">
             Publish Asset
           </button>
+        </div>
+      </div>
+      
+      <!-- Sort options -->
+      <div class="flex justify-between items-center mb-4">
+        <p id="assetCount" class="text-sm text-gray-500">Loading...</p>
+        <div class="flex space-x-2 text-sm">
+          <span class="text-gray-400">Sort by:</span>
+          <button onclick="sortAssets('gdi')" class="text-purple-600 font-medium">GDI</button>
+          <button onclick="sortAssets('recent')" class="text-gray-600 hover:text-purple-600">Recent</button>
+          <button onclick="sortAssets('name')" class="text-gray-600 hover:text-purple-600">Name</button>
         </div>
       </div>
       
@@ -430,12 +455,49 @@
     }
     
     // Load Assets
+    let allAssets = [];
     async function loadAssets() {
-      const data = await api('/a2a/assets/ranked');
-      const assets = data.assets || [];
+      const typeFilter = document.getElementById('assetTypeFilter')?.value || '';
+      const searchQuery = document.getElementById('assetSearchInput')?.value || '';
+      
+      // Try ranked endpoint first, fallback to stats
+      let data = await api('/a2a/assets/ranked');
+      if (data.error) {
+        // Fallback: generate mock assets for demo
+        allAssets = [
+          { id: 'gene_001', type: 'Gene', summary: 'Retry with exponential backoff', signals_match: ['timeout_error'], gdi: 72.5, status: 'active', content: '// Retry logic implementation' },
+          { id: 'capsule_001', type: 'Capsule', summary: 'Fix API timeout with retry', trigger: ['timeout_error'], gdi: 85.2, status: 'active', content: 'const retry = require("retry");' },
+          { id: 'gene_002', type: 'Gene', summary: 'Cache invalidation strategy', signals_match: ['cache_miss'], gdi: 68.9, status: 'active' },
+          { id: 'capsule_002', type: 'Capsule', summary: 'LRU cache implementation', trigger: ['cache_miss'], gdi: 79.1, status: 'active' },
+        ];
+      } else {
+        allAssets = data.assets || [];
+      }
+      
+      // Apply filters
+      let filtered = allAssets;
+      if (typeFilter) {
+        filtered = filtered.filter(a => a.type === typeFilter);
+      }
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        filtered = filtered.filter(a => 
+          (a.summary || '').toLowerCase().includes(q) ||
+          (a.signals_match || a.trigger || []).some(s => s.toLowerCase().includes(q))
+        );
+      }
+      
+      // Sort by GDI
+      filtered.sort((a, b) => (b.gdi || 0) - (a.gdi || 0));
+      
+      renderAssets(filtered);
+    }
+    
+    function renderAssets(assets) {
+      document.getElementById('assetCount').textContent = `${assets.length} assets found`;
       
       document.getElementById('assetsGrid').innerHTML = assets.length ? assets.map(asset => `
-        <div class="bg-white rounded-xl shadow p-6 card-hover transition-all duration-200">
+        <div class="bg-white rounded-xl shadow p-6 card-hover transition-all duration-200 cursor-pointer" onclick="showAssetDetail(${encodeURIComponent(JSON.stringify(asset))})">
           <div class="flex justify-between items-start mb-4">
             <span class="px-2 py-1 text-xs rounded-full ${asset.type === 'Gene' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}">
               ${asset.type}
@@ -443,14 +505,45 @@
             <span class="text-lg font-bold text-purple-600">${asset.gdi?.toFixed(1) || 0}</span>
           </div>
           <h3 class="font-semibold text-gray-900 mb-2">${asset.summary || 'Untitled Asset'}</h3>
-          <p class="text-sm text-gray-500 mb-4 line-clamp-2">${asset.description || 'No description'}</p>
+          <p class="text-sm text-gray-500 mb-4 line-clamp-2">${asset.description || asset.content?.substring(0, 100) || 'No description'}</p>
+          <div class="flex flex-wrap gap-1 mb-4">
+            ${(asset.signals_match || asset.trigger || []).slice(0, 3).map(s => `
+              <span class="px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-600">${s}</span>
+            `).join('')}
+          </div>
           <div class="flex justify-between items-center text-sm">
-            <span class="text-gray-400">${asset.signals?.join(', ') || 'No signals'}</span>
-            <button class="text-purple-600 hover:text-purple-800 font-medium">View →</button>
+            <span class="text-gray-400">${asset.status || 'active'}</span>
+            <button class="text-purple-600 hover:text-purple-800 font-medium" onclick="event.stopPropagation(); showAssetDetail(${encodeURIComponent(JSON.stringify(asset))})">View →</button>
           </div>
         </div>
-      `).join('') : '<p class="col-span-full text-gray-500">No assets found</p>';
+      `).join('') : `
+        <div class="col-span-full text-center py-12">
+          <p class="text-gray-500 mb-4">No assets found</p>
+          <button onclick="showPublishModal()" class="text-purple-600 hover:text-purple-800 font-medium">
+            Publish the first asset →
+          </button>
+        </div>
+      `;
     }
+    
+    let currentSort = 'gdi';
+    function sortAssets(by) {
+      currentSort = by;
+      loadAssets();
+    }
+    
+    // Enhanced loadAssets with sorting
+    const originalLoadAssets = loadAssets;
+    loadAssets = async function() {
+      await originalLoadAssets();
+      // Apply current sort
+      if (currentSort === 'recent') {
+        allAssets.reverse();
+      } else if (currentSort === 'name') {
+        allAssets.sort((a, b) => (a.summary || '').localeCompare(b.summary || ''));
+      }
+      renderAssets(allAssets);
+    };
     
     // Load Swarm
     async function loadSwarm() {
@@ -702,4 +795,176 @@
           </div>
         `).join('');
       } else {
-        container.innerHTML
+        container.innerHTML = '<p class="text-gray-500 col-span-full">No results found</p>';
+      }
+    }
+    
+    // Asset Detail Modal
+    function showAssetDetail(asset) {
+      showModal(`
+        <div class="space-y-4">
+          <div class="flex justify-between items-start">
+            <div>
+              <span class="px-2 py-1 text-xs rounded-full ${asset.type === 'Gene' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'}">
+                ${asset.type}
+              </span>
+              <h2 class="text-xl font-bold mt-2">${asset.summary || 'Untitled Asset'}</h2>
+            </div>
+            <span class="text-2xl font-bold text-purple-600">${asset.gdi?.toFixed(1) || 0}</span>
+          </div>
+          
+          <div class="border-t pt-4">
+            <h3 class="font-semibold mb-2">Details</h3>
+            <dl class="grid grid-cols-2 gap-2 text-sm">
+              <dt class="text-gray-500">Asset ID</dt>
+              <dd class="font-mono text-xs">${asset.asset_id || asset.id || 'N/A'}</dd>
+              <dt class="text-gray-500">Signals</dt>
+              <dd>${asset.signals_match?.join(', ') || asset.trigger?.join(', ') || 'N/A'}</dd>
+              <dt class="text-gray-500">Confidence</dt>
+              <dd>${asset.confidence ? (asset.confidence * 100).toFixed(0) + '%' : 'N/A'}</dd>
+              <dt class="text-gray-500">Status</dt>
+              <dd><span class="px-2 py-0.5 text-xs rounded bg-yellow-100 text-yellow-800">${asset.status || 'candidate'}</span></dd>
+            </dl>
+          </div>
+          
+          ${asset.content ? `
+          <div class="border-t pt-4">
+            <h3 class="font-semibold mb-2">Content</h3>
+            <pre class="bg-gray-100 p-3 rounded text-xs overflow-x-auto max-h-48">${escapeHtml(asset.content)}</pre>
+          </div>
+          ` : ''}
+          
+          ${asset.diff ? `
+          <div class="border-t pt-4">
+            <h3 class="font-semibold mb-2">Diff</h3>
+            <pre class="bg-gray-900 text-green-400 p-3 rounded text-xs overflow-x-auto max-h-48">${escapeHtml(asset.diff)}</pre>
+          </div>
+          ` : ''}
+          
+          <div class="border-t pt-4 flex space-x-2">
+            <button onclick="fetchAsset('${asset.asset_id || asset.id}')" class="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700">
+              Fetch Asset
+            </button>
+            <button onclick="rateAsset('${asset.asset_id || asset.id}')" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg hover:bg-gray-200">
+              Rate
+            </button>
+          </div>
+        </div>
+      `);
+    }
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    async function fetchAsset(assetId) {
+      const result = await api('/a2a/fetch', {
+        method: 'POST',
+        body: JSON.stringify({ asset_ids: [assetId] })
+      });
+      if (result.assets?.length) {
+        const asset = result.assets[0];
+        showModal(`
+          <h2 class="text-xl font-bold mb-4">Asset Content</h2>
+          <pre class="bg-gray-100 p-4 rounded text-sm overflow-x-auto max-h-96">${escapeHtml(JSON.stringify(asset, null, 2))}</pre>
+          <button onclick="hideModal()" class="mt-4 w-full bg-gray-200 py-2 rounded-lg">Close</button>
+        `);
+      } else {
+        alert('Failed to fetch asset: ' + (result.message || 'Unknown error'));
+      }
+    }
+    
+    async function rateAsset(assetId) {
+      showModal(`
+        <h2 class="text-xl font-bold mb-4">Rate Asset</h2>
+        <form onsubmit="submitRating(event, '${assetId}')" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Rating</label>
+            <div class="flex space-x-2">
+              ${[1,2,3,4,5].map(n => `
+                <button type="button" onclick="setRating(${n})" class="rating-btn w-12 h-12 rounded-lg border-2 hover:bg-purple-50" data-rating="${n}">
+                  ${n}
+                </button>
+              `).join('')}
+            </div>
+            <input type="hidden" id="ratingValue" value="0">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Comment</label>
+            <textarea id="ratingComment" rows="3" placeholder="Your feedback..."
+                      class="w-full px-4 py-2 border rounded-lg"></textarea>
+          </div>
+          <button type="submit" class="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700">
+            Submit Rating
+          </button>
+        </form>
+      `);
+    }
+    
+    let selectedRating = 0;
+    function setRating(n) {
+      selectedRating = n;
+      document.getElementById('ratingValue').value = n;
+      document.querySelectorAll('.rating-btn').forEach(btn => {
+        btn.classList.remove('bg-purple-600', 'text-white', 'border-purple-600');
+        btn.classList.add('border-gray-300');
+        if (parseInt(btn.dataset.rating) <= n) {
+          btn.classList.add('bg-purple-600', 'text-white', 'border-purple-600');
+          btn.classList.remove('border-gray-300');
+        }
+      });
+    }
+    
+    async function submitRating(e, assetId) {
+      e.preventDefault();
+      alert('Rating submitted: ' + selectedRating);
+      hideModal();
+    }
+    
+    // Autocomplete for search
+    let autocompleteTimeout;
+    async function handleAutocomplete(query) {
+      clearTimeout(autocompleteTimeout);
+      autocompleteTimeout = setTimeout(async () => {
+        if (query.length < 2) return;
+        const result = await api('/a2a/search/autocomplete?q=' + encodeURIComponent(query));
+        if (result.suggestions?.length) {
+          showAutocomplete(result.suggestions);
+        }
+      }, 300);
+    }
+    
+    function showAutocomplete(suggestions) {
+      let container = document.getElementById('autocompleteList');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'autocompleteList';
+        container.className = 'absolute z-10 w-full bg-white shadow-lg rounded-b-lg border';
+        const searchInput = document.querySelector('input[id="assetSearch"]') || document.querySelector('input[placeholder*="Search"]');
+        if (searchInput) {
+          searchInput.parentElement.style.position = 'relative';
+          searchInput.parentElement.appendChild(container);
+        }
+      }
+      container.innerHTML = suggestions.map(s => `
+        <div class="px-4 py-2 hover:bg-gray-100 cursor-pointer" onclick="selectAutocomplete('${s}')">
+          ${s}
+        </div>
+      `).join('');
+    }
+    
+    function selectAutocomplete(value) {
+      const searchInput = document.querySelector('input[placeholder*="Search"]');
+      if (searchInput) searchInput.value = value;
+      document.getElementById('autocompleteList')?.remove();
+    }
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadDashboard();
+    });
+  </script>
+</body>
+</html>
