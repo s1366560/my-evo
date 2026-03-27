@@ -110,7 +110,7 @@ export function addRelationship(
   relationships.set(newRel.id, newRel);
   
   // Auto-create bidirectional for certain relationship types
-  const symmetricTypes: RelationshipType[] = ['similar_to', 'related_to', 'evolved_from'];
+  const symmetricTypes: RelationshipType[] = ['similar_to', , 'evolved_from'];
   if (symmetricTypes.includes(relationship.type)) {
     const reverseRel: KGRelationship = {
       ...newRel,
