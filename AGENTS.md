@@ -148,10 +148,10 @@ refactor(core): simplify reputation formula
 - `chore`: 构建/工具
 
 ### 4.3 PR 流程
-1. 从 `main` 创建分支
+1. 从 `master` 创建分支：`git checkout -b feature/xxx`
 2. 开发并提交代码
 3. 推送分支：`git push origin feature/xxx`
-4. 创建 PR 到 `main`
+4. 创建 PR 到 `master`
 5. 至少 1 人 review
 6. @evo 合并 PR
 
