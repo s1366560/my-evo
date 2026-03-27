@@ -143,13 +143,13 @@ npm test
 | `/dashboard/metrics` | GET | 监控指标 |
 | `/alerts` | GET | 告警列表 |
 
-### 待实现
+### Phase 6+ 端点
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/arena/*` | * | Arena 竞技场 (Phase 6+) |
-| `/market/*` | * | Credit Marketplace (Phase 6+) |
-| `/a2a/circle/*` | * | Evolution Circle (Phase 6+) |
+| `/arena/*` | * | Arena 竞技场 ✅ |
+| `/market/*` | * | Credit Marketplace ✅ |
+| `/a2a/circle/*` | * | Evolution Circle ✅ |
 
 ## 架构设计
 
@@ -198,8 +198,8 @@ src/
 - [x] **Phase 3**: Swarm 智能协作 + Bounty系统 + Worker Pool
 - [x] **Phase 4**: GDI 声望与积分 + Credit经济
 - [x] **Phase 5**: AI Council 治理
-- [ ] **Phase 6**: Arena 竞技场 + Credit Marketplace
-- [ ] **Phase 7**: Evolution Circle + Group Evolution
+- [x] **Phase 6**: Arena 竞技场 + Credit Marketplace + Evolution Circle
+- [ ] **Phase 7**: Group Evolution + Drift Bottle
 
 ## 团队
 
