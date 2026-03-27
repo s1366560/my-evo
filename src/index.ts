@@ -243,14 +243,129 @@ app.get('/a2a/recipes', auth, (req: Request, res: Response) => {
 
 // ============ Node Endpoints ============
 
-// GET /a2a/node/status
-app.get('/a2a/node/status', (req: Request, res: Response) => {
+// Node registration state
+interface NodeState {
+  registered: boolean;
+  last_heartbeat: Date;
+  capabilities: string[];
+  env_fingerprint: string;
+  pending_events: any[];
+  available_work: any[];
+}
+
+const nodeState: NodeState = {
+  registered: false,
+  last_heartbeat: new Date(),
+  capabilities: [],
+  env_fingerprint: '',
+  pending_events: [],
+  available_work: []
+};
+
+// POST /a2a/hello - Node registration
+app.post('/a2a/hello', async (req: Request, res: Response) => {
+  const { capabilities, env_fingerprint, rotate_secret } = req.body;
+
+  // If rotate_secret is true, regenerate credentials
+  if (rotate_secret) {
+    config.node_secret = crypto.randomBytes(32).toString('hex');
+  }
+
+  // Generate claim_code for verification
+  const claim_code = crypto.randomBytes(16).toString('hex');
+  const claim_url = `${config.hub_url}/claim/${claim_code}`;
+
+  // Update node state
+  nodeState.registered = true;
+  nodeState.capabilities = capabilities || ['swarm', 'recipe', 'gene', 'capsule'];
+  nodeState.env_fingerprint = env_fingerprint || '';
+  nodeState.last_heartbeat = new Date();
+
+  // Save config with credentials (best-effort)
+  try {
+    const { writeFileSync } = await import('fs');
+    const configPath = join(__dirname, '..', 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      node_id: config.node_id,
+      node_secret: config.node_secret,
+      hub_url: config.hub_url,
+      port: config.port
+    }, null, 2));
+  } catch (e) {
+    // Config save is best-effort, continue even if fails
+  }
+
   res.json({
     node_id: config.node_id,
-    status: 'online',
+    node_secret: config.node_secret,
+    claim_code,
+    claim_url,
+    registered_at: new Date().toISOString(),
+    heartbeat_interval_ms: 900000, // 15 minutes
+    timeout_ms: 2700000 // 45 minutes
+  });
+});
+
+// POST /a2a/heartbeat - Node heartbeat (15 minute interval)
+app.post('/a2a/heartbeat', auth, (req: Request, res: Response) => {
+  const { status, pending_events } = req.body;
+
+  // Update last heartbeat time
+  nodeState.last_heartbeat = new Date();
+
+  // Process incoming pending events from hub
+  if (pending_events && Array.isArray(pending_events)) {
+    nodeState.pending_events.push(...pending_events);
+  }
+
+  // Check for timeout (45 minutes)
+  const timeSinceLastHeartbeat = Date.now() - nodeState.last_heartbeat.getTime();
+  const isTimedOut = timeSinceLastHeartbeat > 2700000; // 45 minutes
+
+  if (isTimedOut) {
+    return res.status(408).json({
+      error: 'node_timeout',
+      message: 'Node heartbeat timeout exceeded. Please re-register with /a2a/hello'
+    });
+  }
+
+  // Return pending events and available work for this node
+  const eventsToProcess = nodeState.pending_events.splice(0, 10);
+  const workToAssign = nodeState.available_work.splice(0, 5);
+
+  res.json({
+    node_id: config.node_id,
+    status: status || 'online',
+    heartbeat_at: nodeState.last_heartbeat.toISOString(),
+    next_heartbeat_in_ms: 900000, // 15 minutes
+    pending_events: eventsToProcess,
+    available_work: workToAssign
+  });
+});
+
+// Helper function to add events (for internal use)
+export function addPendingEvent(event: any) {
+  nodeState.pending_events.push(event);
+}
+
+// Helper function to add available work (for internal use)
+export function addAvailableWork(work: any) {
+  nodeState.available_work.push(work);
+}
+
+// GET /a2a/node/status
+app.get('/a2a/node/status', (req: Request, res: Response) => {
+  const timeSinceLastHeartbeat = Date.now() - nodeState.last_heartbeat.getTime();
+  const isOnline = nodeState.registered && timeSinceLastHeartbeat < 2700000;
+
+  res.json({
+    node_id: config.node_id,
+    status: isOnline ? 'online' : 'offline',
+    registered: nodeState.registered,
+    last_heartbeat: nodeState.last_heartbeat.toISOString(),
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    capabilities: ['swarm', 'recipe', 'gene', 'capsule']
+    capabilities: nodeState.capabilities || ['swarm', 'recipe', 'gene', 'capsule']
   });
 });
 
