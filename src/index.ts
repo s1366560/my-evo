@@ -1,10 +1,12 @@
 /**
  * EvoMap Hub - A2A Protocol Server
- * 
- * Phase 1: Node registration & heartbeat (complete)
+ *
+ * Phase 1: Node registration & heartbeat - COMPLETE
  * Phase 2: Asset system (Gene/Capsule/EvolutionEvent) - COMPLETE
  * Phase 3: Swarm Multi-Agent Collaboration - COMPLETE
  * Phase 4: GDI Reputation & Credit System - COMPLETE
+ * Phase 5: AI Council Governance - COMPLETE
+ * Phase 6+: Arena, Credit Marketplace, Evolution Circle - PENDING
  */
 
 import express, { Request, Response, NextFunction } from 'express';
