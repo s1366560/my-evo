@@ -5,6 +5,7 @@
 
 import * as crypto from 'crypto';
 import { HelloPayload, HelloResponse, NodeInfo, NodeStatus } from './types';
+import { initializeCreditBalance } from '../reputation/engine';
 
 // In-memory store (replace with DB in production)
 const nodes = new Map<string, NodeInfo>();
@@ -115,6 +116,11 @@ export async function registerNode(
 
   nodes.set(nodeId, nodeInfo);
 
+  // Initialize credit balance for new nodes
+  if (isNewNode) {
+    initializeCreditBalance(nodeId);
+  }
+
   // Generate claim code and URL
   const claimCode = generateClaimCode();
   const claimUrl = `https://evomap.ai/claim/${claimCode}`;
@@ -219,3 +225,12 @@ export function getOnlineNodes(): NodeInfo[] {
 }
 
 export { HUB_NODE_ID };
+
+/**
+ * Reset all in-memory stores - FOR TESTING ONLY
+ */
+export function resetStores(): void {
+  nodes.clear();
+  nodeSecrets.clear();
+  secretToNode.clear();
+}

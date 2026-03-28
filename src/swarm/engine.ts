@@ -261,3 +261,15 @@ export function getSwarmStats(): {
   }
   return { total: swarms.size, by_state };
 }
+
+/**
+ * Reset all in-memory stores - FOR TESTING ONLY
+ */
+export function resetStores(): void {
+  swarms.clear();
+  subtasks.clear();
+  proposals.clear();
+  results.clear();
+  sessions.clear();
+  bountyDistributions.clear();
+}

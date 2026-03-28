@@ -32,9 +32,12 @@ export function fetchAssets(
     assets = searchAssets(query);
   } else {
     // List with filters
+    // When fetching by owner_id, include all statuses (candidate, active, etc.)
+    // Otherwise, only show active assets for public browsing
     const records = listAssets({
       type: query.type,
-      status: 'active',
+      status: query.owner_id ? undefined : 'active',
+      ownerId: query.owner_id,
       limit: query.limit ?? 50,
       offset: query.offset ?? 0,
     });

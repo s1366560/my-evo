@@ -344,3 +344,12 @@ export function toAssetWithScoreFromRecord(record: AssetRecord): AssetWithScore 
 
 // Re-export FetchQuery for convenience
 export type { FetchQuery } from './types';
+
+/**
+ * Reset all in-memory stores - FOR TESTING ONLY
+ */
+export function resetStores(): void {
+  assetStore.clear();
+  nodeAssets.clear();
+  publishRateLimit.clear();
+}
