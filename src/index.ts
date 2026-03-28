@@ -15,6 +15,20 @@ import { publishAsset, submitValidationReport, revokeAsset } from './assets/publ
 import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails } from './assets/fetch';
 import { FetchQuery } from './assets/types';
 import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
+import {
+  calculateConfidence,
+  getConfidenceRecord,
+  getAssetConfidence,
+  initConfidence,
+  recordPositiveVerification,
+  recordNegativeVerification,
+  getBatchConfidence,
+  filterByMinGrade,
+  getConfidenceStats,
+  gradeAllowedOps,
+  CONFIDENCE_PARAMS,
+} from './assets/confidence';
+import { getAsset } from './assets/store';
 import { projectApi } from './projects/api';
 import { recipeApi } from './recipe/api';
 import {
@@ -363,6 +377,128 @@ app.get('/a2a/stats', (_req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Stats error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// ==================== Confidence Decay Model (Chapter 28) ====================
+
+/**
+ * GET /a2a/confidence/params
+ * Get confidence decay model parameters
+ */
+app.get('/a2a/confidence/params', (_req: Request, res: Response) => {
+  res.json({ parameters: CONFIDENCE_PARAMS });
+});
+
+/**
+ * GET /a2a/confidence/stats
+ * Hub-wide confidence statistics
+ */
+app.get('/a2a/confidence/stats', (_req: Request, res: Response) => {
+  try {
+    const stats = getConfidenceStats();
+    res.json({ hub_id: HUB_NODE_ID, ...stats });
+  } catch (error) {
+    console.error('Confidence stats error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/confidence/:assetId
+ * Get current confidence score for an asset
+ */
+app.get('/a2a/confidence/:assetId', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const record = getAsset(assetId);
+    if (!record) {
+      res.status(404).json({ error: 'not_found', message: 'Asset not found' });
+      return;
+    }
+    const score = getAssetConfidence(assetId, record.gdi?.total ?? 50, record.published_at);
+    const record_data = getConfidenceRecord(assetId);
+    res.json({
+      asset_id: assetId,
+      ...score,
+      allowed_ops: gradeAllowedOps(score.grade),
+      tracked: record_data !== undefined,
+    });
+  } catch (error) {
+    console.error('Confidence error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/confidence/:assetId/verify
+ * Record a verification result (positive or negative)
+ * Body: { result: 'positive' | 'negative' }
+ */
+app.post('/a2a/confidence/:assetId/verify', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const { result } = req.body as { result?: string };
+
+    if (!getAsset(assetId)) {
+      res.status(404).json({ error: 'not_found', message: 'Asset not found' });
+      return;
+    }
+
+    if (result === 'positive') {
+      recordPositiveVerification(assetId);
+    } else if (result === 'negative') {
+      recordNegativeVerification(assetId);
+    } else {
+      res.status(400).json({ error: 'invalid_request', message: 'result must be "positive" or "negative"' });
+      return;
+    }
+
+    const record = getAsset(assetId)!;
+    const confidence = getAssetConfidence(assetId, record.gdi?.total ?? 50, record.published_at);
+    const record_data = getConfidenceRecord(assetId);
+
+    res.json({
+      asset_id: assetId,
+      verification_recorded: result,
+      ...confidence,
+      allowed_ops: gradeAllowedOps(confidence.grade),
+    });
+  } catch (error) {
+    console.error('Confidence verify error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/confidence
+ * Get confidence scores for all assets (with optional filtering)
+ * Query: ?min_grade=A&limit=20
+ */
+app.get('/a2a/confidence', (req: Request, res: Response) => {
+  try {
+    const { listAssets } = require('./assets/store');
+    const minGrade = req.query.min_grade as string | undefined;
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 1000);
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    let assets = listAssets({ status: 'active' });
+    assets = assets.slice(offset, offset + limit);
+
+    if (minGrade) {
+      assets = filterByMinGrade(assets, minGrade as any);
+    }
+
+    const scores = getBatchConfidence(assets);
+
+    res.json({
+      hub_id: HUB_NODE_ID,
+      count: scores.length,
+      confidence_scores: scores,
+    });
+  } catch (error) {
+    console.error('Confidence list error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
