@@ -246,11 +246,12 @@ export function getConfidenceRecord(assetId: string): ConfidenceRecord | undefin
  * Calculate confidence for an AssetRecord (combining store data with asset data)
  */
 export function calculateAssetConfidence(record: AssetRecord): ConfidenceScore {
+  const confidenceRecord = confidenceStore.get(record.asset.id);
   return calculateConfidence(record.asset.id, record.gdi?.total ?? 50, {
-    positiveCount: 0,  // TODO: track separately; for now use report_count as proxy
-    negativeCount: 0,
+    positiveCount: confidenceRecord?.positive_count ?? 0,
+    negativeCount: confidenceRecord?.negative_count ?? 0,
     publishedAt: record.published_at,
-    lastVerifiedAt: undefined,
+    lastVerifiedAt: confidenceRecord?.last_verified_at,
   });
 }
 
