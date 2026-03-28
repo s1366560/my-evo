@@ -2394,6 +2394,106 @@ app.get('/api/v2/reading/questions/:id', (_req: Request, res: Response) => {
   res.json({ questions: found.questions, count: found.questions.length });
 });
 
+// ==================== Biology Dashboard Endpoints ====================
+
+import * as biology from './biology/service';
+
+// GET /api/v2/biology/stats - Get biology dashboard stats
+app.get('/api/v2/biology/stats', (_req: Request, res: Response) => {
+  const stats = biology.getBiologyStats();
+  res.json(stats);
+});
+
+// GET /api/v2/biology/ecosystem - Get ecosystem metrics
+app.get('/api/v2/biology/ecosystem', (req: Request, res: Response) => {
+  const { activeNodes7d, totalGenes, totalCapsules } = req.query;
+  
+  const metrics = biology.getEcosystemMetrics({
+    activeNodes7d: activeNodes7d ? Number(activeNodes7d) : 50,
+    categoryDistribution: { repair: 12, optimize: 8, innovate: 5, security: 7, performance: 6, reliability: 4 },
+    nodeContributions: [10, 8, 15, 12, 7, 9, 11, 6, 13, 10],
+    uniqueSignals: totalGenes ? Number(totalGenes) : 52,
+  });
+  
+  res.json(metrics);
+});
+
+// GET /api/v2/biology/phylogeny - Get phylogeny tree
+app.get('/api/v2/biology/phylogeny', (req: Request, res: Response) => {
+  const { rootId } = req.query;
+  
+  const tree = biology.getPhylogenyTree(rootId as string | undefined);
+  res.json({ tree, count: tree.length });
+});
+
+// GET /api/v2/biology/lineage/:nodeId - Get evolutionary lineage
+app.get('/api/v2/biology/lineage/:nodeId', (req: Request, res: Response) => {
+  const { nodeId } = req.params;
+  
+  const lineage = biology.getLineage(nodeId);
+  res.json({ lineage, count: lineage.length });
+});
+
+// GET /api/v2/biology/macro-events - Get macro evolution events
+app.get('/api/v2/biology/macro-events', (req: Request, res: Response) => {
+  const { limit } = req.query;
+  
+  const events = biology.getMacroEvents(limit ? Number(limit) : 12);
+  res.json({ events, count: events.length });
+});
+
+// GET /api/v2/biology/symbiotic - Get symbiotic relationships
+app.get('/api/v2/biology/symbiotic', (req: Request, res: Response) => {
+  const { minStrength } = req.query;
+  
+  const relationships = biology.getSymbioticRelationships(
+    minStrength ? { minStrength: Number(minStrength) } : undefined
+  );
+  res.json({ relationships, count: relationships.length });
+});
+
+// GET /api/v2/biology/emergent - Get emergent patterns
+app.get('/api/v2/biology/emergent', (req: Request, res: Response) => {
+  const { minLift } = req.query;
+  
+  const patterns = biology.getEmergentPatterns(
+    minLift ? { minLift: Number(minLift) } : undefined
+  );
+  res.json({ patterns, count: patterns.length });
+});
+
+// POST /api/v2/biology/phylogeny/node - Add phylogeny node
+app.post('/api/v2/biology/phylogeny/node', (req: Request, res: Response) => {
+  const { type, name, parentId, gdiScore, category } = req.body;
+  
+  if (!type || !name) {
+    res.status(400).json({ error: 'invalid_request', message: 'type, name are required' });
+    return;
+  }
+  
+  const node = biology.addPhylogenyNode({ type, name, parentId, gdiScore, category });
+  res.status(201).json(node);
+});
+
+// POST /api/v2/biology/macro-event - Record macro evolution event
+app.post('/api/v2/biology/macro-event', (req: Request, res: Response) => {
+  const { type, magnitude, week, createdCount, revokedCount } = req.body;
+  
+  if (!type || magnitude === undefined) {
+    res.status(400).json({ error: 'invalid_request', message: 'type, magnitude are required' });
+    return;
+  }
+  
+  const event = biology.recordMacroEvent({
+    type,
+    magnitude,
+    week: week || '2026-W13',
+    createdCount: createdCount || 0,
+    revokedCount: revokedCount || 0,
+  });
+  res.status(201).json(event);
+});
+
 // ==================== Error Handling ====================
 
 app.use((_req: Request, res: Response) => {
