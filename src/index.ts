@@ -14,6 +14,7 @@ import { HelloPayload, HeartbeatPayload } from './a2a/types';
 import { publishAsset, submitValidationReport, revokeAsset } from './assets/publish';
 import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails } from './assets/fetch';
 import { FetchQuery } from './assets/types';
+import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
 
 const app = express();
 app.use(express.json());
@@ -343,6 +344,165 @@ app.get('/a2a/stats', (_req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Stats error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// ==================== Phase 2: Asset Lineage Endpoints ====================
+
+/**
+ * GET /a2a/lineage/:assetId
+ * Get full lineage (parents + children) for an asset
+ */
+app.get('/a2a/lineage/:assetId', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const { max_depth } = req.query;
+
+    const lineage = getLineage(assetId);
+    res.json({
+      asset_id: assetId,
+      ...lineage,
+      max_depth: max_depth ? parseInt(max_depth as string) : undefined,
+    });
+  } catch (error) {
+    console.error('Lineage error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/chain
+ * Get ancestor chain for an asset
+ */
+app.get('/a2a/lineage/:assetId/chain', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const maxDepth = parseInt(req.query.max_depth as string) || 10;
+
+    const chain = getLineageChain(assetId, maxDepth);
+
+    // Resolve asset types and statuses for each chain entry
+    const { getAsset } = require('./assets/store');
+    const resolvedChain = chain.chain.map((ref: { asset_id: string; type: string; id: string; status: string }) => {
+      const record = getAsset(ref.asset_id);
+      return {
+        asset_id: ref.asset_id,
+        type: record?.asset.type ?? 'unknown',
+        id: record?.asset.id ?? ref.asset_id,
+        status: record?.status ?? 'unknown',
+      };
+    });
+
+    res.json({
+      asset_id: assetId,
+      chain: resolvedChain,
+      depth: chain.depth,
+    });
+  } catch (error) {
+    console.error('Lineage chain error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/descendants
+ * Get descendant chain for an asset
+ */
+app.get('/a2a/lineage/:assetId/descendants', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const maxDepth = parseInt(req.query.max_depth as string) || 10;
+
+    const chain = getDescendantChain(assetId, maxDepth);
+
+    // Resolve asset types and statuses
+    const { getAsset } = require('./assets/store');
+    const resolvedChain = chain.chain.map((ref: { asset_id: string; type: string; id: string; status: string }) => {
+      const record = getAsset(ref.asset_id);
+      return {
+        asset_id: ref.asset_id,
+        type: record?.asset.type ?? 'unknown',
+        id: record?.asset.id ?? ref.asset_id,
+        status: record?.status ?? 'unknown',
+      };
+    });
+
+    res.json({
+      asset_id: assetId,
+      descendants: resolvedChain,
+      depth: chain.depth,
+    });
+  } catch (error) {
+    console.error('Lineage descendants error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/tree-size
+ * Get total number of assets in the lineage tree
+ */
+app.get('/a2a/lineage/:assetId/tree-size', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const size = getLineageTreeSize(assetId);
+    const root = getRootAncestor(assetId);
+
+    res.json({
+      asset_id: assetId,
+      root_ancestor: root,
+      tree_size: size,
+    });
+  } catch (error) {
+    console.error('Lineage tree-size error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/metadata
+ * Get lineage metadata for an asset
+ */
+app.get('/a2a/lineage/:assetId/metadata', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const metadata = getLineageMetadata(assetId);
+
+    if (!metadata) {
+      res.status(404).json({ error: 'not_found', message: 'No lineage metadata found for this asset' });
+      return;
+    }
+
+    res.json(metadata);
+  } catch (error) {
+    console.error('Lineage metadata error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/common-ancestor/:otherAssetId
+ * Check if two assets share a common ancestor
+ */
+app.get('/a2a/lineage/:assetId/common-ancestor/:otherAssetId', (req: Request, res: Response) => {
+  try {
+    const { assetId, otherAssetId } = req.params;
+    const hasCommon = haveCommonAncestor(assetId, otherAssetId);
+
+    let commonRoot: string | undefined;
+    if (hasCommon) {
+      commonRoot = getRootAncestor(assetId);
+    }
+
+    res.json({
+      asset_id_1: assetId,
+      asset_id_2: otherAssetId,
+      has_common_ancestor: hasCommon,
+      common_root: commonRoot,
+    });
+  } catch (error) {
+    console.error('Lineage common-ancestor error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
