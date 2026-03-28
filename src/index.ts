@@ -2703,6 +2703,10 @@ app.use('/biology', biologyRouter);
 import marketplaceRouter from './marketplace/api';
 app.use('/market', marketplaceRouter);
 
+// ==================== Analytics Endpoints (Chapter 25) ====================
+import analyticsRouter from './analytics/api';
+app.use('/analytics', analyticsRouter);
+
 // ==================== Search Endpoints ====================
 
 import * as search from './search';
