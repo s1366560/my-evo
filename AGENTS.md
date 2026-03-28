@@ -13,29 +13,90 @@ my-evo/
 │   │   ├── types.ts       # 类型定义
 │   │   ├── node.ts        # 节点注册
 │   │   └── heartbeat.ts   # 心跳保活
-│   ├── core/              # 核心业务逻辑
-│   │   ├── gdi.ts        # GDI 评分计算
-│   │   ├── reputation.ts  # 声望系统
-│   │   └── credits.ts    # 积分系统
-│   ├── assets/           # 资产管理
-│   │   ├── gene.ts       # Gene 实体
-│   │   ├── capsule.ts    # Capsule 实体
-│   │   └── evolution.ts  # EvolutionEvent
-│   ├── swarm/            # Swarm 协作
-│   │   ├── engine.ts     # Swarm 引擎
-│   │   └── tasks.ts     # 任务管理
-│   ├── governance/        # 治理系统
-│   │   ├── council.ts    # AI Council
-│   │   └── projects.ts   # Official Projects
-│   └── utils/            # 工具函数
-│       ├── crypto.ts     # 加密工具
-│       └── validation.ts # 验证工具
-├── tests/                 # 测试文件
-│   ├── unit/            # 单元测试
-│   └── integration/     # 集成测试
-├── docs/                 # 文档
-└── scripts/             # 部署脚本
+│   ├── assets/            # 资产管理 (Phase 2)
+│   │   ├── types.ts       # Gene, Capsule, EvolutionEvent 类型
+│   │   ├── store.ts       # 内存存储 + CRUD + GDI 跟踪
+│   │   ├── publish.ts     # 发布 + 相似度检测 + 碳成本
+│   │   ├── fetch.ts       # 搜索 + 排名 + 趋势
+│   │   ├── gdi.ts         # GDI 全局需求指数 (4 维评分)
+│   │   ├── lineage.ts     # 资产血缘链跟踪
+│   │   └── similarity.ts  # 多策略相似度检测
+│   ├── swarm/             # Swarm 多 Agent 协作 (Phase 3)
+│   │   ├── types.ts       # Swarm 状态机 + Subtask + Bounty
+│   │   └── engine.ts      # DSA (分解-解决-聚合) 引擎
+│   ├── reputation/         # 声望与积分 (Phase 4)
+│   │   ├── types.ts       # ReputationScore, CreditBalance, Tier
+│   │   └── engine.ts      # 声望计算 + 积分生命周期
+│   ├── bounty/            # 悬赏系统 (Phase 3-4)
+│   │   ├── types.ts       # Bounty, Bid, Deliverable 类型
+│   │   └── engine.ts      # 悬赏全生命周期
+│   ├── workerpool/        # Worker 池与专家市场 (Phase 3-4)
+│   │   ├── types.ts       # Worker, SpecialistTask, Assignment 类型
+│   │   └── engine.ts      # Worker 注册 + 任务分配
+│   ├── council/            # AI Council 治理 (Phase 5)
+│   │   ├── types.ts       # Proposal, Vote, Dispute 类型
+│   │   └── engine.ts      # 提案 + 投票 + 执行引擎
+│   ├── projects/           # 官方项目 (Phase 5)
+│   │   ├── types.ts       # Project, Contribution, Milestone
+│   │   ├── engine.ts      # 项目管理引擎
+│   │   └── api.ts         # 项目 API
+│   ├── knowledge/          # 知识图谱 (Phase 6+)
+│   │   ├── types.ts       # Entity, Relationship 类型
+│   │   └── service.ts     # KG 查询 + 邻居关系
+│   ├── sandbox/            # 进化沙箱 (Phase 6+)
+│   │   ├── types.ts       # Sandbox, Experiment 类型
+│   │   ├── engine.ts      # 沙箱引擎
+│   │   └── api.ts         # 沙箱 API
+│   ├── arena/              # 竞技场 Elo 排名 (Phase 6+)
+│   │   ├── types.ts       # Battle, Season, EloRating 类型
+│   │   └── engine.ts      # 匹配 + 战斗 + Elo 计算
+│   ├── marketplace/         # 积分市场 (Phase 6+)
+│   │   ├── types.ts       # Listing, Transaction 类型
+│   │   └── api.ts         # 市场 API
+│   ├── circle/             # Evolution Circle (Phase 6+)
+│   │   ├── types.ts       # Circle, Round, Vote 类型
+│   │   └── api.ts         # Circle API
+│   ├── biology/            # 生物学引擎 (Phase 6+)
+│   ├── bounty/             # 悬赏系统 (Phase 3-4)
+│   ├── directory/          # 目录与私信
+│   │   └── service.ts     # Agent 目录 + DM
+│   ├── monitoring/         # 监控与告警
+│   │   └── service.ts     # 指标 + 告警 + 日志
+│   ├── quarantine/         # 隔离区
+│   ├── reading/            # 阅读引擎
+│   │   └── service.ts     # 文章处理 + 问题生成
+│   ├── recipe/             # Recipe 引擎
+│   │   ├── types.ts       # Recipe, Organism 类型
+│   │   └── engine.ts      # Recipe 创建 + 发布 + 表达
+│   ├── search/             # 搜索服务
+│   │   └── service.ts     # 语义搜索 + 自动补全
+│   ├── session/            # 协作会话
+│   │   └── service.ts     # Session 管理
+│   ├── utils/              # 工具函数
+│   │   ├── crypto.ts      # SHA-256 哈希 + 密钥派生
+│   │   └── validation.ts   # 输入验证 + Schema 校验
+│   └── index.ts           # 主入口 (所有路由在此汇聚)
+├── ui/                     # 前端 UI
+├── tests/                  # 测试
+│   ├── unit/              # 单元测试 (*.test.ts)
+│   └── integration/        # 集成测试
+├── docs/                   # 文档
+└── scripts/                # 部署脚本
 ```
+
+### 目录映射说明
+
+以下 AGENTS.md 早期规划中的目录已重组：
+
+| 原规划 | 实际位置 |
+|--------|---------|
+| `src/core/gdi.ts` | `src/assets/gdi.ts` |
+| `src/core/reputation.ts` | `src/reputation/engine.ts` |
+| `src/core/credits.ts` | `src/reputation/engine.ts` |
+| `src/governance/council.ts` | `src/council/engine.ts` |
+| `src/governance/projects.ts` | `src/projects/engine.ts` |
+| `src/swarm/tasks.ts` | `src/swarm/engine.ts` (内嵌) |
+| `src/assets/{gene,cape,evolution}.ts` | `src/assets/{types,store,publish}.ts` |
 
 ---
 
@@ -341,4 +402,4 @@ node_modules/  # 依赖（通过 npm install）
 
 ---
 
-*最后更新: 2026-03-27 | 版本: 1.0*
+*最后更新: 2026-03-28 | 版本: 1.1*
