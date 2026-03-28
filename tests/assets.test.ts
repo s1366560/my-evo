@@ -178,7 +178,7 @@ describe('validateAsset', () => {
     it('should reject gene missing asset_id', () => {
       const gene = makeGene({ asset_id: '' as any });
       const errors = validateAsset(gene);
-      expect(errors).toContain('asset_id must start with "sha256:"');
+      expect(errors).toContain('Missing asset_id (SHA-256 content hash required)');
     });
   });
 
@@ -334,7 +334,7 @@ describe('Asset Store', () => {
     it('should save and retrieve an asset record', () => {
       const gene = makeGene();
       const record = makeAssetRecord(gene);
-      saveAsset(record);
+      saveAsset(record.asset, record.owner_id);
 
       const retrieved = getAsset(gene.asset_id);
       expect(retrieved).toBeDefined();
@@ -350,7 +350,7 @@ describe('Asset Store', () => {
     it('should update asset status', () => {
       const gene = makeGene();
       const record = makeAssetRecord(gene);
-      saveAsset(record);
+      saveAsset(record.asset, record.owner_id);
 
       updateAssetStatus(gene.asset_id, 'promoted');
       const retrieved = getAsset(gene.asset_id);
@@ -362,7 +362,7 @@ describe('Asset Store', () => {
     it('should return the asset content from a record', () => {
       const gene = makeGene();
       const record = makeAssetRecord(gene);
-      saveAsset(record);
+      saveAsset(record.asset, record.owner_id);
 
       const content = getAssetContent(gene.asset_id);
       expect(content).toBeDefined();
@@ -379,8 +379,8 @@ describe('Asset Store', () => {
     it('should return assets owned by a specific node', () => {
       const gene = makeGene({ id: 'gene_1' });
       const capsule = makeCapsule({ id: 'capsule_1' });
-      saveAsset(makeAssetRecord(gene, { owner_id: 'node_a' }));
-      saveAsset(makeAssetRecord(capsule, { owner_id: 'node_b' }));
+      saveAsset(gene, 'node_a');
+      saveAsset(capsule, 'node_b');
 
       const nodeAAssets = getAssetsByOwner('node_a');
       expect(nodeAAssets).toHaveLength(1);
@@ -397,8 +397,8 @@ describe('Asset Store', () => {
     it('should list all assets when no filter', () => {
       const gene = makeGene({ id: 'gene_1' });
       const capsule = makeCapsule({ id: 'capsule_1' });
-      saveAsset(makeAssetRecord(gene));
-      saveAsset(makeAssetRecord(capsule));
+      saveAsset(gene, 'node_test_001');
+      saveAsset(capsule, 'node_test_001');
 
       const all = listAssets();
       expect(all.length).toBeGreaterThanOrEqual(2);
@@ -407,8 +407,8 @@ describe('Asset Store', () => {
     it('should filter by status', () => {
       const gene = makeGene({ id: 'gene_status_1' });
       const capsule = makeCapsule({ id: 'capsule_status_1' });
-      saveAsset(makeAssetRecord(gene, { status: 'candidate' }));
-      saveAsset(makeAssetRecord(capsule, { status: 'promoted' }));
+      saveAsset(gene, 'node_test_001', 'candidate');
+      saveAsset(capsule, 'node_test_001', 'promoted');
 
       const candidates = listAssets({ status: 'candidate' });
       expect(candidates.every(a => a.status === 'candidate')).toBe(true);
@@ -417,8 +417,8 @@ describe('Asset Store', () => {
     it('should filter by type', () => {
       const gene = makeGene({ id: 'gene_filter_1' });
       const capsule = makeCapsule({ id: 'capsule_filter_1' });
-      saveAsset(makeAssetRecord(gene));
-      saveAsset(makeAssetRecord(capsule));
+      saveAsset(gene, 'node_test_001');
+      saveAsset(capsule, 'node_test_001');
 
       const genes = listAssets({ type: 'Gene' });
       expect(genes.every(a => a.asset.type === 'Gene')).toBe(true);
@@ -429,8 +429,8 @@ describe('Asset Store', () => {
     it('should count all assets', () => {
       const gene = makeGene({ id: 'gene_count_1' });
       const capsule = makeCapsule({ id: 'capsule_count_1' });
-      saveAsset(makeAssetRecord(gene));
-      saveAsset(makeAssetRecord(capsule));
+      saveAsset(gene, 'node_test_001');
+      saveAsset(capsule, 'node_test_001');
 
       const count = countAssets();
       expect(count).toBeGreaterThanOrEqual(2);
@@ -438,7 +438,7 @@ describe('Asset Store', () => {
 
     it('should count assets by type', () => {
       const gene = makeGene({ id: 'gene_count_type_1' });
-      saveAsset(makeAssetRecord(gene));
+      saveAsset(gene, 'node_test_001');
 
       const geneCount = countAssets({ type: 'Gene' });
       const capsuleCount = countAssets({ type: 'Capsule' });
@@ -451,7 +451,7 @@ describe('Asset Store', () => {
     it('should increment fetch count', () => {
       const gene = makeGene({ id: 'gene_fetch_1' });
       const record = makeAssetRecord(gene, { fetch_count: 5 });
-      saveAsset(record);
+      saveAsset(record.asset, record.owner_id);
 
       incrementFetchCount(gene.asset_id);
       const retrieved = getAsset(gene.asset_id);
@@ -461,7 +461,7 @@ describe('Asset Store', () => {
     it('should increment report count', () => {
       const gene = makeGene({ id: 'gene_report_1' });
       const record = makeAssetRecord(gene, { report_count: 3 });
-      saveAsset(record);
+      saveAsset(record.asset, record.owner_id);
 
       incrementReportCount(gene.asset_id);
       const retrieved = getAsset(gene.asset_id);
@@ -472,7 +472,7 @@ describe('Asset Store', () => {
   describe('getActiveAssets / getPromotedAssets', () => {
     it('should return active assets', () => {
       const gene = makeGene({ id: 'gene_active_1' });
-      saveAsset(makeAssetRecord(gene, { status: 'active' }));
+      saveAsset(gene, 'node_test_001', 'active');
 
       const active = getActiveAssets();
       expect(active.every(a => a.status === 'active')).toBe(true);
@@ -480,7 +480,7 @@ describe('Asset Store', () => {
 
     it('should return promoted assets', () => {
       const gene = makeGene({ id: 'gene_promo_1' });
-      saveAsset(makeAssetRecord(gene, { status: 'promoted' }));
+      saveAsset(gene, 'node_test_001', 'promoted');
 
       const promoted = getPromotedAssets();
       expect(promoted.every(a => a.status === 'promoted')).toBe(true);
@@ -490,7 +490,7 @@ describe('Asset Store', () => {
   describe('getAssetsBySignal', () => {
     it('should find assets by signal keyword', () => {
       const gene = makeGene({ id: 'gene_signal_1', signals_match: ['timeout', 'retry'] });
-      saveAsset(makeAssetRecord(gene));
+      saveAsset(gene, 'node_test_001');
 
       const timeoutAssets = getAssetsBySignal('timeout');
       expect(timeoutAssets.length).toBeGreaterThanOrEqual(1);
@@ -500,7 +500,7 @@ describe('Asset Store', () => {
   describe('getAssetStats', () => {
     it('should return asset statistics', () => {
       const gene = makeGene({ id: 'gene_stats_1' });
-      saveAsset(makeAssetRecord(gene, { status: 'active', fetch_count: 10 }));
+      saveAsset(gene, 'node_test_001', 'active');
 
       const stats = getAssetStats();
       expect(stats).toHaveProperty('total');
@@ -513,7 +513,7 @@ describe('Asset Store', () => {
   describe('searchAssets', () => {
     it('should search assets by query string', () => {
       const gene = makeGene({ id: 'gene_search_1', category: 'repair' });
-      saveAsset(makeAssetRecord(gene));
+      saveAsset(gene, 'node_test_001');
 
       const results = searchAssets({ query: 'repair' });
       expect(results.length).toBeGreaterThanOrEqual(1);
@@ -524,7 +524,7 @@ describe('Asset Store', () => {
       const record = makeAssetRecord(gene, {
         gdi: { total: 75, intrinsic: 30, usage: 20, social: 15, freshness: 100 },
       });
-      saveAsset(record);
+      saveAsset(record.asset, record.owner_id);
 
       const results = searchAssets({ min_gdi: 70 });
       expect(results.length).toBeGreaterThanOrEqual(1);
@@ -628,9 +628,9 @@ describe('revokeAsset', () => {
   it('should revoke an existing asset', () => {
     const gene = makeGene({ id: 'gene_revoke_1' });
     const record = makeAssetRecord(gene, { status: 'active' });
-    saveAsset(record);
+    saveAsset(record.asset, record.owner_id);
 
-    const result = revokeAsset(gene.asset_id, 'node_revoke_001');
+    const result = revokeAsset(gene.asset_id, record.owner_id);
     expect(result).toBeDefined();
     expect(result.success).toBe(true);
 
@@ -639,7 +639,7 @@ describe('revokeAsset', () => {
   });
 
   it('should return failure for non-existent asset', () => {
-    const result = revokeAsset('sha256:nonexistent_revoke', 'node_test');
+    const result = revokeAsset('sha256:nonexistent_revoke', 'node_test_001');
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
   });
@@ -720,27 +720,23 @@ describe('submitValidationReport', () => {
     const gene = makeGene({ id: 'gene_report_submit_1' });
     publishAsset({ assets: [gene] }, 'node_report', 'secret_report');
 
-    const result = submitValidationReport({
-      asset_id: gene.asset_id,
-      outcome: { status: 'success', score: 0.9 },
-      usage_context: 'production API',
-      reported_by: 'node_report',
-      blast_radius: { files: 1, lines: 10 },
-    });
+    const result = submitValidationReport(
+      gene.asset_id,
+      { status: 'success', score: 0.9 },
+      'node_report'
+    );
 
     expect(result).toBeDefined();
-    expect(result.success).toBe(true);
+    expect(result.accepted).toBe(true);
   });
 
   it('should fail for non-existent asset', () => {
-    const result = submitValidationReport({
-      asset_id: 'sha256:nonexistent_report',
-      outcome: { status: 'success', score: 0.9 },
-      usage_context: 'test',
-      reported_by: 'node_test',
-      blast_radius: { files: 1, lines: 5 },
-    });
+    const result = submitValidationReport(
+      'sha256:nonexistent_report',
+      { status: 'success', score: 0.9 },
+      'node_test'
+    );
 
-    expect(result.success).toBe(false);
+    expect(result.accepted).toBe(false);
   });
 });
