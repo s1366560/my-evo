@@ -1,10 +1,14 @@
 /**
  * EvoMap Hub - A2A Protocol Server
- * 
- * Phase 1: Node registration & heartbeat (complete)
+ *
+ * Phase 1: Node registration & heartbeat - COMPLETE
  * Phase 2: Asset system (Gene/Capsule/EvolutionEvent) - COMPLETE
  * Phase 3: Swarm Multi-Agent Collaboration - COMPLETE
  * Phase 4: GDI Reputation & Credit System - COMPLETE
+ * Phase 5: AI Council Governance - COMPLETE
+ * Phase 6+: Arena Battle System - COMPLETE
+ *           Credit Marketplace - COMPLETE
+ *           Evolution Circle - COMPLETE
  */
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -14,8 +18,7 @@ import { HelloPayload, HeartbeatPayload } from './a2a/types';
 import { publishAsset, submitValidationReport, revokeAsset } from './assets/publish';
 import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails } from './assets/fetch';
 import { FetchQuery } from './assets/types';
-import { projectApi } from './projects/api';
-import { recipeApi } from './recipe/api';
+import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
 
 const app = express();
 app.use(express.json());
@@ -352,6 +355,165 @@ app.get('/a2a/stats', (_req: Request, res: Response) => {
   }
 });
 
+// ==================== Phase 2: Asset Lineage Endpoints ====================
+
+/**
+ * GET /a2a/lineage/:assetId
+ * Get full lineage (parents + children) for an asset
+ */
+app.get('/a2a/lineage/:assetId', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const { max_depth } = req.query;
+
+    const lineage = getLineage(assetId);
+    res.json({
+      asset_id: assetId,
+      ...lineage,
+      max_depth: max_depth ? parseInt(max_depth as string) : undefined,
+    });
+  } catch (error) {
+    console.error('Lineage error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/chain
+ * Get ancestor chain for an asset
+ */
+app.get('/a2a/lineage/:assetId/chain', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const maxDepth = parseInt(req.query.max_depth as string) || 10;
+
+    const chain = getLineageChain(assetId, maxDepth);
+
+    // Resolve asset types and statuses for each chain entry
+    const { getAsset } = require('./assets/store');
+    const resolvedChain = chain.chain.map((ref: { asset_id: string; type: string; id: string; status: string }) => {
+      const record = getAsset(ref.asset_id);
+      return {
+        asset_id: ref.asset_id,
+        type: record?.asset.type ?? 'unknown',
+        id: record?.asset.id ?? ref.asset_id,
+        status: record?.status ?? 'unknown',
+      };
+    });
+
+    res.json({
+      asset_id: assetId,
+      chain: resolvedChain,
+      depth: chain.depth,
+    });
+  } catch (error) {
+    console.error('Lineage chain error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/descendants
+ * Get descendant chain for an asset
+ */
+app.get('/a2a/lineage/:assetId/descendants', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const maxDepth = parseInt(req.query.max_depth as string) || 10;
+
+    const chain = getDescendantChain(assetId, maxDepth);
+
+    // Resolve asset types and statuses
+    const { getAsset } = require('./assets/store');
+    const resolvedChain = chain.chain.map((ref: { asset_id: string; type: string; id: string; status: string }) => {
+      const record = getAsset(ref.asset_id);
+      return {
+        asset_id: ref.asset_id,
+        type: record?.asset.type ?? 'unknown',
+        id: record?.asset.id ?? ref.asset_id,
+        status: record?.status ?? 'unknown',
+      };
+    });
+
+    res.json({
+      asset_id: assetId,
+      descendants: resolvedChain,
+      depth: chain.depth,
+    });
+  } catch (error) {
+    console.error('Lineage descendants error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/tree-size
+ * Get total number of assets in the lineage tree
+ */
+app.get('/a2a/lineage/:assetId/tree-size', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const size = getLineageTreeSize(assetId);
+    const root = getRootAncestor(assetId);
+
+    res.json({
+      asset_id: assetId,
+      root_ancestor: root,
+      tree_size: size,
+    });
+  } catch (error) {
+    console.error('Lineage tree-size error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/metadata
+ * Get lineage metadata for an asset
+ */
+app.get('/a2a/lineage/:assetId/metadata', (req: Request, res: Response) => {
+  try {
+    const { assetId } = req.params;
+    const metadata = getLineageMetadata(assetId);
+
+    if (!metadata) {
+      res.status(404).json({ error: 'not_found', message: 'No lineage metadata found for this asset' });
+      return;
+    }
+
+    res.json(metadata);
+  } catch (error) {
+    console.error('Lineage metadata error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lineage/:assetId/common-ancestor/:otherAssetId
+ * Check if two assets share a common ancestor
+ */
+app.get('/a2a/lineage/:assetId/common-ancestor/:otherAssetId', (req: Request, res: Response) => {
+  try {
+    const { assetId, otherAssetId } = req.params;
+    const hasCommon = haveCommonAncestor(assetId, otherAssetId);
+
+    let commonRoot: string | undefined;
+    if (hasCommon) {
+      commonRoot = getRootAncestor(assetId);
+    }
+
+    res.json({
+      asset_id_1: assetId,
+      asset_id_2: otherAssetId,
+      has_common_ancestor: hasCommon,
+      common_root: commonRoot,
+    });
+  } catch (error) {
+    console.error('Lineage common-ancestor error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
 // ==================== Phase 3: Swarm Endpoints ====================
 
 /**
@@ -623,96 +785,6 @@ app.post('/a2a/dialog', requireAuth, (req: Request, res: Response) => {
     console.error('Dialog error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
-});
-
-// ==================== Recipe & Organism Endpoints ====================
-
-/**
- * POST /a2a/recipe
- * Create a new recipe
- */
-app.post('/a2a/recipe', (req: Request, res: Response) => {
-  recipeApi.create(req, res);
-});
-
-/**
- * GET /a2a/recipe/list
- * List all recipes
- */
-app.get('/a2a/recipe/list', (req: Request, res: Response) => {
-  recipeApi.list(req, res);
-});
-
-/**
- * GET /a2a/recipe/:id
- * Get recipe details
- */
-app.get('/a2a/recipe/:id', (req: Request, res: Response) => {
-  recipeApi.get(req, res);
-});
-
-/**
- * POST /a2a/recipe/:id/publish
- * Publish a recipe
- */
-app.post('/a2a/recipe/:id/publish', (req: Request, res: Response) => {
-  recipeApi.publish(req, res);
-});
-
-/**
- * PATCH /a2a/recipe/:id
- * Update recipe (via fork)
- */
-app.patch('/a2a/recipe/:id', (req: Request, res: Response) => {
-  recipeApi.update(req, res);
-});
-
-/**
- * POST /a2a/recipe/:id/archive
- * Archive a recipe
- */
-app.post('/a2a/recipe/:id/archive', (req: Request, res: Response) => {
-  recipeApi.archive(req, res);
-});
-
-/**
- * POST /a2a/recipe/:id/fork
- * Fork a recipe
- */
-app.post('/a2a/recipe/:id/fork', (req: Request, res: Response) => {
-  recipeApi.fork(req, res);
-});
-
-/**
- * POST /a2a/recipe/:id/express
- * Express a recipe into an organism
- */
-app.post('/a2a/recipe/:id/express', (req: Request, res: Response) => {
-  recipeApi.express(req, res);
-});
-
-/**
- * POST /a2a/organism/:id/express-gene
- * Express a gene in an organism
- */
-app.post('/a2a/organism/:id/express-gene', (req: Request, res: Response) => {
-  recipeApi.expressGene(req, res);
-});
-
-/**
- * PATCH /a2a/organism/:id
- * Update organism status (completed/failed)
- */
-app.patch('/a2a/organism/:id', (req: Request, res: Response) => {
-  recipeApi.updateOrganism(req, res);
-});
-
-/**
- * GET /a2a/recipe/stats
- * Get recipe statistics
- */
-app.get('/a2a/recipe/stats', (req: Request, res: Response) => {
-  recipeApi.stats(req, res);
 });
 
 // ==================== Phase 4: Bounty Endpoints ====================
@@ -1319,64 +1391,6 @@ app.post('/a2a/council/resolve-dispute', (req: Request, res: Response) => {
   }
 });
 
-// ==================== Projects API Endpoints ====================
-
-/**
- * POST /a2a/project/propose
- * Submit a project proposal
- */
-app.post('/a2a/project/propose', (req: Request, res: Response) => {
-  projectApi.propose(req, res);
-});
-
-/**
- * GET /a2a/project/list
- * List all projects
- */
-app.get('/a2a/project/list', (req: Request, res: Response) => {
-  projectApi.list(req, res);
-});
-
-/**
- * GET /a2a/project/:id
- * Get project details
- */
-app.get('/a2a/project/:id', (req: Request, res: Response) => {
-  projectApi.get(req, res);
-});
-
-/**
- * POST /a2a/project/:id/contribute
- * Submit a contribution to a project
- */
-app.post('/a2a/project/:id/contribute', (req: Request, res: Response) => {
-  projectApi.contribute(req, res);
-});
-
-/**
- * POST /a2a/project/:id/review
- * Review a contribution (approve/reject)
- */
-app.post('/a2a/project/:id/review', (req: Request, res: Response) => {
-  projectApi.review(req, res);
-});
-
-/**
- * POST /a2a/project/:id/merge
- * Merge an approved project
- */
-app.post('/a2a/project/:id/merge', (req: Request, res: Response) => {
-  projectApi.merge(req, res);
-});
-
-/**
- * POST /a2a/project/:id/decompose
- * Decompose a project into tasks
- */
-app.post('/a2a/project/:id/decompose', (req: Request, res: Response) => {
-  projectApi.decompose(req, res);
-});
-
 // ==================== Worker Pool Endpoints (Phase 3-4) ====================
 import {
   registerWorker,
@@ -1943,8 +1957,14 @@ app.get('/logs', (req: Request, res: Response) => {
 
 // ==================== Sandbox Endpoints (Phase 2-3) ====================
 import sandboxRouter from './sandbox/api';
+import marketplaceRouter from './marketplace/api';
+import arenaRouter from './arena/api';
+import circleRouter from './circle/api';
 
 app.use('/api/v2/sandbox', sandboxRouter);
+app.use('/market', marketplaceRouter);
+app.use('/arena', arenaRouter);
+app.use('/a2a/circle', circleRouter);
 
 // ==================== Search Endpoints ====================
 
@@ -2372,6 +2392,106 @@ app.get('/api/v2/reading/questions/:id', (_req: Request, res: Response) => {
   }
   
   res.json({ questions: found.questions, count: found.questions.length });
+});
+
+// ==================== Biology Dashboard Endpoints ====================
+
+import * as biology from './biology/service';
+
+// GET /api/v2/biology/stats - Get biology dashboard stats
+app.get('/api/v2/biology/stats', (_req: Request, res: Response) => {
+  const stats = biology.getBiologyStats();
+  res.json(stats);
+});
+
+// GET /api/v2/biology/ecosystem - Get ecosystem metrics
+app.get('/api/v2/biology/ecosystem', (req: Request, res: Response) => {
+  const { activeNodes7d, totalGenes, totalCapsules } = req.query;
+  
+  const metrics = biology.getEcosystemMetrics({
+    activeNodes7d: activeNodes7d ? Number(activeNodes7d) : 50,
+    categoryDistribution: { repair: 12, optimize: 8, innovate: 5, security: 7, performance: 6, reliability: 4 },
+    nodeContributions: [10, 8, 15, 12, 7, 9, 11, 6, 13, 10],
+    uniqueSignals: totalGenes ? Number(totalGenes) : 52,
+  });
+  
+  res.json(metrics);
+});
+
+// GET /api/v2/biology/phylogeny - Get phylogeny tree
+app.get('/api/v2/biology/phylogeny', (req: Request, res: Response) => {
+  const { rootId } = req.query;
+  
+  const tree = biology.getPhylogenyTree(rootId as string | undefined);
+  res.json({ tree, count: tree.length });
+});
+
+// GET /api/v2/biology/lineage/:nodeId - Get evolutionary lineage
+app.get('/api/v2/biology/lineage/:nodeId', (req: Request, res: Response) => {
+  const { nodeId } = req.params;
+  
+  const lineage = biology.getLineage(nodeId);
+  res.json({ lineage, count: lineage.length });
+});
+
+// GET /api/v2/biology/macro-events - Get macro evolution events
+app.get('/api/v2/biology/macro-events', (req: Request, res: Response) => {
+  const { limit } = req.query;
+  
+  const events = biology.getMacroEvents(limit ? Number(limit) : 12);
+  res.json({ events, count: events.length });
+});
+
+// GET /api/v2/biology/symbiotic - Get symbiotic relationships
+app.get('/api/v2/biology/symbiotic', (req: Request, res: Response) => {
+  const { minStrength } = req.query;
+  
+  const relationships = biology.getSymbioticRelationships(
+    minStrength ? { minStrength: Number(minStrength) } : undefined
+  );
+  res.json({ relationships, count: relationships.length });
+});
+
+// GET /api/v2/biology/emergent - Get emergent patterns
+app.get('/api/v2/biology/emergent', (req: Request, res: Response) => {
+  const { minLift } = req.query;
+  
+  const patterns = biology.getEmergentPatterns(
+    minLift ? { minLift: Number(minLift) } : undefined
+  );
+  res.json({ patterns, count: patterns.length });
+});
+
+// POST /api/v2/biology/phylogeny/node - Add phylogeny node
+app.post('/api/v2/biology/phylogeny/node', (req: Request, res: Response) => {
+  const { type, name, parentId, gdiScore, category } = req.body;
+  
+  if (!type || !name) {
+    res.status(400).json({ error: 'invalid_request', message: 'type, name are required' });
+    return;
+  }
+  
+  const node = biology.addPhylogenyNode({ type, name, parentId, gdiScore, category });
+  res.status(201).json(node);
+});
+
+// POST /api/v2/biology/macro-event - Record macro evolution event
+app.post('/api/v2/biology/macro-event', (req: Request, res: Response) => {
+  const { type, magnitude, week, createdCount, revokedCount } = req.body;
+  
+  if (!type || magnitude === undefined) {
+    res.status(400).json({ error: 'invalid_request', message: 'type, magnitude are required' });
+    return;
+  }
+  
+  const event = biology.recordMacroEvent({
+    type,
+    magnitude,
+    week: week || '2026-W13',
+    createdCount: createdCount || 0,
+    revokedCount: revokedCount || 0,
+  });
+  res.status(201).json(event);
 });
 
 // ==================== Error Handling ====================

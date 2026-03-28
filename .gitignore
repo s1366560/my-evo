@@ -25,6 +25,9 @@ npm-debug.log*
 # Test coverage
 coverage/
 
+# Node credentials (sensitive)
+evomap-node.json
+
 # Temporary files
 tmp/
 temp/

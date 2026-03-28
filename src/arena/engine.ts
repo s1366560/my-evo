@@ -1,0 +1,309 @@
+/**
+ * Arena Engine - In-memory battle system
+ * Phase 6+: Arena Battle System
+ */
+
+import { randomBytes } from 'crypto';
+import {
+  ArenaBattle,
+  ArenaSeason,
+  LeaderboardEntry,
+  BattleResultPayload,
+  MatchmakingEntry,
+  BattleStatus,
+  ARENA_INITIAL_ELO,
+  ARENA_K_FACTOR,
+  ARENA_SEASON_DURATION_DAYS,
+} from './types';
+
+// In-memory stores
+const battles = new Map<string, ArenaBattle>();
+const seasons = new Map<string, ArenaSeason>();
+const eloRatings = new Map<string, number>(); // node_id -> elo
+const battleResults = new Map<string, BattleResultPayload>(); // battle_id -> result submitted by node_a
+const matchmakingQueue: MatchmakingEntry[] = [];
+
+/** Generate a short ID */
+function genId(prefix: string): string {
+  return `${prefix}_${randomBytes(4).toString('hex')}`;
+}
+
+/** Get or init Elo for a node */
+function getElo(nodeId: string): number {
+  if (!eloRatings.has(nodeId)) {
+    eloRatings.set(nodeId, ARENA_INITIAL_ELO);
+  }
+  return eloRatings.get(nodeId)!;
+}
+
+/** Calculate expected score */
+function expectedScore(eloA: number, eloB: number): number {
+  return 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
+}
+
+/** Calculate new Elo after a battle */
+function computeNewElo(currentElo: number, expected: number, actual: number): number {
+  return Math.round(currentElo + ARENA_K_FACTOR * (actual - expected));
+}
+
+// ============ Season Management ============
+
+export function getOrCreateActiveSeason(): ArenaSeason {
+  const now = new Date();
+  
+  // Find active season
+  for (const season of seasons.values()) {
+    if (season.status === 'active') {
+      return season;
+    }
+  }
+  
+  // Create new season
+  const seasonNumber = seasons.size + 1;
+  const startDate = new Date();
+  const endDate = new Date(startDate.getTime() + ARENA_SEASON_DURATION_DAYS * 24 * 60 * 60 * 1000);
+  
+  const season: ArenaSeason = {
+    season_id: genId('season'),
+    number: seasonNumber,
+    started_at: startDate.toISOString(),
+    ends_at: endDate.toISOString(),
+    status: 'active',
+    top_battles: [],
+  };
+  
+  seasons.set(season.season_id, season);
+  return season;
+}
+
+// ============ Matchmaking ============
+
+export function joinMatchmaking(nodeId: string, topic: string): { position: number; estimated_wait_s: number } {
+  // Remove if already in queue
+  const existingIdx = matchmakingQueue.findIndex(e => e.node_id === nodeId);
+  if (existingIdx !== -1) {
+    matchmakingQueue.splice(existingIdx, 1);
+  }
+  
+  const entry: MatchmakingEntry = {
+    node_id: nodeId,
+    elo: getElo(nodeId),
+    topic,
+    joined_at: new Date().toISOString(),
+  };
+  
+  matchmakingQueue.push(entry);
+  
+  // Try to match immediately
+  tryMatch(nodeId, topic);
+  
+  return {
+    position: matchmakingQueue.findIndex(e => e.node_id === nodeId) + 1,
+    estimated_wait_s: 30,
+  };
+}
+
+export function leaveMatchmaking(nodeId: string): boolean {
+  const idx = matchmakingQueue.findIndex(e => e.node_id === nodeId);
+  if (idx !== -1) {
+    matchmakingQueue.splice(idx, 1);
+    return true;
+  }
+  return false;
+}
+
+export function getMatchmakingStatus(nodeId: string): { in_queue: boolean; position?: number; opponent?: string } {
+  const idx = matchmakingQueue.findIndex(e => e.node_id === nodeId);
+  if (idx === -1) return { in_queue: false };
+  
+  // Check if matched
+  const opponent = matchmakingQueue.find((e, i) => i !== idx && e.topic === matchmakingQueue[idx]?.topic);
+  
+  return {
+    in_queue: true,
+    position: idx + 1,
+    opponent: opponent?.node_id,
+  };
+}
+
+function tryMatch(nodeId: string, topic: string): ArenaBattle | null {
+  const myEntry = matchmakingQueue.find(e => e.node_id === nodeId);
+  if (!myEntry) return null;
+  
+  // Find opponent with similar Elo (±100) and same topic
+  const opponentIdx = matchmakingQueue.findIndex(
+    (e, i) => e.node_id !== nodeId && 
+               e.topic === topic && 
+               Math.abs(e.elo - myEntry.elo) <= 100
+  );
+  
+  if (opponentIdx === -1) return null;
+  
+  const opponent = matchmakingQueue.splice(opponentIdx, 1)[0];
+  // Remove self too
+  const selfIdx = matchmakingQueue.findIndex(e => e.node_id === nodeId);
+  if (selfIdx !== -1) matchmakingQueue.splice(selfIdx, 1);
+  
+  // Create battle
+  return createBattle(myEntry.node_id, opponent.node_id, topic);
+}
+
+// ============ Battle Management ============
+
+export function createBattle(nodeA: string, nodeB: string, topic: string): ArenaBattle {
+  const season = getOrCreateActiveSeason();
+  const now = new Date();
+  const expires = new Date(now.getTime() + 30 * 60 * 1000); // 30 min expiry
+  
+  const battle: ArenaBattle = {
+    battle_id: genId('battle'),
+    season_id: season.season_id,
+    node_a: nodeA,
+    node_b: nodeB,
+    topic,
+    status: 'pending',
+    created_at: now.toISOString(),
+    expires_at: expires.toISOString(),
+  };
+  
+  battles.set(battle.battle_id, battle);
+  return battle;
+}
+
+export function getBattle(battleId: string): ArenaBattle | undefined {
+  return battles.get(battleId);
+}
+
+export function submitBattleResult(payload: BattleResultPayload): ArenaBattle | null {
+  const battle = battles.get(payload.battle_id);
+  if (!battle || battle.status !== 'pending') return null;
+  
+  // Store result
+  battleResults.set(`${payload.battle_id}_${payload.node_id}`, payload);
+  
+  // Check if both submitted
+  const resA = battleResults.get(`${payload.battle_id}_${battle.node_a}`);
+  const resB = battleResults.get(`${payload.battle_id}_${battle.node_b}`);
+  
+  if (!resA || !resB) {
+    // First submission - mark as in_progress
+    battle.status = 'in_progress';
+    return battle;
+  }
+  
+  // Both submitted - resolve
+  return resolveBattle(battle, resA, resB);
+}
+
+function resolveBattle(battle: ArenaBattle, resA: BattleResultPayload, resB: BattleResultPayload): ArenaBattle {
+  const scoreA = resA.score;
+  const scoreB = resB.score;
+  
+  battle.score_a = scoreA;
+  battle.score_b = scoreB;
+  battle.status = 'completed';
+  battle.completed_at = new Date().toISOString();
+  
+  // Determine winner
+  if (scoreA > scoreB) {
+    battle.winner = 'a';
+  } else if (scoreB > scoreA) {
+    battle.winner = 'b';
+  } else {
+    battle.winner = 'draw';
+  }
+  
+  // Calculate Elo
+  const eloA = getElo(battle.node_a);
+  const eloB = getElo(battle.node_b);
+  const expA = expectedScore(eloA, eloB);
+  const expB = 1 - expA;
+  
+  let actualA: number, actualB: number;
+  if (battle.winner === 'a') { actualA = 1; actualB = 0; }
+  else if (battle.winner === 'b') { actualA = 0; actualB = 1; }
+  else { actualA = 0.5; actualB = 0.5; }
+  
+  battle.elo_delta_a = computeNewElo(eloA, expA, actualA) - eloA;
+  battle.elo_delta_b = computeNewElo(eloB, expB, actualB) - eloB;
+  
+  eloRatings.set(battle.node_a, eloA + battle.elo_delta_a);
+  eloRatings.set(battle.node_b, eloB + battle.elo_delta_b);
+  
+  return battle;
+}
+
+export function listBattles(filter?: { season_id?: string; node_id?: string; status?: BattleStatus }): ArenaBattle[] {
+  let all = [...battles.values()];
+  if (filter?.season_id) all = all.filter(b => b.season_id === filter.season_id);
+  if (filter?.node_id) all = all.filter(b => b.node_a === filter.node_id || b.node_b === filter.node_id);
+  if (filter?.status) all = all.filter(b => b.status === filter.status);
+  return all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
+// ============ Leaderboard ============
+
+export function getLeaderboard(limit = 20): LeaderboardEntry[] {
+  const entries: LeaderboardEntry[] = [];
+  const nodeStats = new Map<string, { wins: number; losses: number; draws: number }>();
+  
+  // Compute stats from completed battles
+  for (const battle of battles.values()) {
+    if (battle.status !== 'completed') continue;
+    
+    const statsA = nodeStats.get(battle.node_a) ?? { wins: 0, losses: 0, draws: 0 };
+    const statsB = nodeStats.get(battle.node_b) ?? { wins: 0, losses: 0, draws: 0 };
+    
+    if (battle.winner === 'a') { statsA.wins++; statsB.losses++; }
+    else if (battle.winner === 'b') { statsA.losses++; statsB.wins++; }
+    else { statsA.draws++; statsB.draws++; }
+    
+    nodeStats.set(battle.node_a, statsA);
+    nodeStats.set(battle.node_b, statsB);
+  }
+  
+  // Build entries
+  for (const [nodeId, stats] of nodeStats.entries()) {
+    entries.push({
+      node_id: nodeId,
+      elo: getElo(nodeId),
+      wins: stats.wins,
+      losses: stats.losses,
+      draws: stats.draws,
+      rank: 0,
+    });
+  }
+  
+  // Sort by Elo descending
+  entries.sort((a, b) => b.elo - a.elo);
+  
+  // Assign ranks
+  entries.forEach((e, i) => { e.rank = i + 1; });
+  
+  return entries.slice(0, limit);
+}
+
+export function getNodeArenaStats(nodeId: string): { elo: number; wins: number; losses: number; draws: number; rank: number } | null {
+  if (!eloRatings.has(nodeId)) return null;
+  
+  let wins = 0, losses = 0, draws = 0;
+  for (const battle of battles.values()) {
+    if (battle.status !== 'completed') continue;
+    if (battle.node_a === nodeId) {
+      if (battle.winner === 'a') wins++;
+      else if (battle.winner === 'b') losses++;
+      else draws++;
+    } else if (battle.node_b === nodeId) {
+      if (battle.winner === 'b') wins++;
+      else if (battle.winner === 'a') losses++;
+      else draws++;
+    }
+  }
+  
+  const leaderboard = getLeaderboard(1000);
+  const rank = leaderboard.findIndex(e => e.node_id === nodeId) + 1;
+  
+  return { elo: getElo(nodeId), wins, losses, draws, rank: rank || 999 };
+}
+
+export { getElo };

@@ -1,3 +1,4 @@
+# EvoMap Hub Deployment + Service + HPA
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -90,3 +91,14 @@ spec:
       target:
         type: Utilization
         averageUtilization: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: evomap-pdb
+  namespace: evomap
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: evomap-hub
