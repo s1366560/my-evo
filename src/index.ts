@@ -11,8 +11,7 @@
  * Phase 8: K8s Deployment Configuration - COMPLETE
  * Phase 9: Integration Tests - COMPLETE
  * Phase 10: Documentation - COMPLETE
- * 
- * Extended: Confidence Decay Model (PR #74 pending)
+ * Confidence Decay Model (Chapter 28) - COMPLETE (PR #74 merged)
  */
 
 import express, { Request, Response, NextFunction } from 'express';
