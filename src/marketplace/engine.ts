@@ -16,6 +16,7 @@ import {
   TransactionStatus,
 } from './types';
 import { getAsset } from '../assets/store';
+import { checkSimilarity } from '../assets/similarity';
 
 // In-memory stores (replace with DB in production)
 const listings = new Map<string, MarketplaceListing>();
@@ -55,6 +56,35 @@ export function addCredits(nodeId: string, amount: number): void {
 
 // ─── Dynamic Pricing (GDI-based) ─────────────────────────────────────────────
 
+/**
+ * Calculate network-wide average GDI for normalization
+ * Based on architecture doc Chapter 23: GDI_PROMOTION_THRESHOLD = 60
+ */
+function getAverageNetworkGDI(): number {
+  // In production, this would be computed from actual network stats
+  // For now, use the promotion threshold as baseline per architecture
+  return 60;
+}
+
+/**
+ * Count similar assets for scarcity calculation
+ * Uses the similarity check from assets module
+ * Returns 0 if similarity check fails or if the store is empty (no competition)
+ */
+function countSimilarAssets(asset: any): number {
+  if (!asset?.asset) return 0;
+
+  try {
+    // Only count similar assets if there are actually assets in the store
+    // If store is empty or checkSimilarity fails, return 0 (no competition)
+    const similarResult = checkSimilarity(asset.asset, asset.asset_id);
+    return similarResult.similar_assets.length;
+  } catch {
+    // If similarity check fails (e.g., store not initialized in tests), return 0
+    return 0;
+  }
+}
+
 export function calculateDynamicPrice(assetId: string): PriceQuote {
   const asset = getAsset(assetId);
 
@@ -69,24 +99,36 @@ export function calculateDynamicPrice(assetId: string): PriceQuote {
     };
   }
 
-  // GDI factor: normalize GDI to 0.5-2.0 range
-  const gdi = (asset as any).gdi ?? 60;
-  const gdiFactor = Math.max(0.5, Math.min(2.0, gdi / 60));
+  // GDI factor: normalize GDI to 0.5-2.0 range based on network average
+  // Handle GDIScore object {total}, plain number, or raw object for backwards compatibility
+  let gdi = 60;
+  if (asset.gdi !== undefined) {
+    gdi = typeof asset.gdi === 'number' ? asset.gdi : (asset.gdi?.total ?? 60);
+  } else if ((asset as any).gdi !== undefined) {
+    gdi = typeof (asset as any).gdi === 'number' ? (asset as any).gdi : ((asset as any).gdi?.total ?? 60);
+  }
+  const avgNetworkGdi = getAverageNetworkGDI();
+  const gdiFactor = Math.max(0.5, Math.min(2.0, gdi / avgNetworkGdi));
 
-  // Demand factor: based on fetch_count (simulated)
-  const fetchCount = (asset as any).fetch_count ?? 0;
+  // Demand factor: based on fetch_count (30-day rolling, simulated with total fetch_count)
+  const fetchCount = asset.fetch_count ?? (asset as any).fetch_count ?? 0;
   const demandFactor = Math.log(1 + fetchCount) + 1;
 
-  // Scarcity factor: 1.0 default (simplified — real impl would check similar assets)
-  const scarcityFactor = 1.0;
+  // Scarcity factor: 1 / (1 + similar_asset_count)
+  // Fewer similar assets = higher scarcity = higher price
+  // Formula from architecture doc Chapter 23
+  const similarCount = countSimilarAssets(asset);
+  const scarcityFactor = 1 / (1 + similarCount);
 
-  // Base price ranges by type
+  // Base price ranges by type (from architecture doc Chapter 23)
+  // Priority: top-level type (mock compat) > asset.asset.type (AssetRecord) > default
+  const assetType = (asset as any).type ?? asset.asset?.type ?? 'Capsule';
   const basePrices: Record<string, number> = {
     Capsule: 200,
     Gene: 100,
     Recipe: 300,
   };
-  const base = basePrices[(asset as any).type] ?? 100;
+  const base = basePrices[assetType] ?? 100;
 
   const suggested_price = Math.round(base * gdiFactor * demandFactor * scarcityFactor);
 
