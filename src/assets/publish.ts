@@ -258,30 +258,37 @@ export function publishAsset(
   };
 }
 
+export interface ValidationReportParams {
+  asset_id: string;
+  outcome: { status: 'success' | 'failure'; score: number };
+  usage_context?: string;
+  reported_by?: string;
+  blast_radius?: { files: number; lines: number };
+}
+
 /**
  * Submit a validation report for an asset
  */
 export function submitValidationReport(
-  assetId: string,
-  outcome: { status: 'success' | 'failure'; score: number },
-  reporterId?: string
-): { accepted: boolean; reason?: string } {
-  const record = getAsset(assetId);
+  params: ValidationReportParams
+): { success: boolean; reason?: string } {
+  const record = getAsset(params.asset_id);
 
   if (!record) {
-    return { accepted: false, reason: 'Asset not found' };
+    return { success: false, reason: 'Asset not found' };
   }
 
   if (record.status === 'rejected' || record.status === 'archived') {
-    return { accepted: false, reason: 'Asset is not in an active state' };
+    return { success: false, reason: 'Asset is not in an active state' };
   }
 
   // In a real system, we would:
   // 1. Verify the reporter is a legitimate node
   // 2. Apply reputation impact
-  // 3. Update the GDI score
+  // 3. Update the GDI score based on outcome.score
+  // 4. Record usage_context and blast_radius for analytics
 
-  return { accepted: true };
+  return { success: true };
 }
 
 /**

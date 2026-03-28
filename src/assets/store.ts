@@ -83,19 +83,56 @@ export function countAssets(filter?: { type?: string; status?: AssetStatus }): n
 
 // ============ Store Mutations ============
 
+// Overload: accept AssetRecord directly (convenience for tests)
+export function saveAsset(record: AssetRecord): AssetRecord;
+// Overload: accept individual fields (original signature)
 export function saveAsset(
   asset: Asset,
   ownerId: string,
-  status: AssetStatus = 'candidate',
+  status?: AssetStatus,
+  gdi?: GDIScore
+): AssetRecord;
+// Implementation
+export function saveAsset(
+  assetOrRecord: Asset | AssetRecord,
+  ownerId?: string,
+  status?: AssetStatus,
   gdi?: GDIScore
 ): AssetRecord {
-  const now = new Date().toISOString();
-  const existing = assetStore.get(asset.asset_id);
+  // Detect AssetRecord overload: first arg has .asset property
+  const isRecordOverload = typeof assetOrRecord === 'object' && 'asset' in (assetOrRecord as any);
+  const recordArg = assetOrRecord as AssetRecord;
 
+  const now = new Date().toISOString();
+
+  if (isRecordOverload) {
+    const existing = assetStore.get(recordArg.asset.asset_id);
+    const record: AssetRecord = {
+      asset: recordArg.asset,
+      status: recordArg.status,
+      owner_id: recordArg.owner_id,
+      gdi: recordArg.gdi,
+      fetch_count: existing?.fetch_count ?? recordArg.fetch_count ?? 0,
+      report_count: existing?.report_count ?? recordArg.report_count ?? 0,
+      published_at: existing?.published_at ?? recordArg.published_at ?? now,
+      updated_at: now,
+      version: (existing?.version ?? 0) + 1,
+    };
+    assetStore.set(record.asset.asset_id, record);
+    if (!nodeAssets.has(record.owner_id)) {
+      nodeAssets.set(record.owner_id, new Set());
+    }
+    nodeAssets.get(record.owner_id)!.add(record.asset.asset_id);
+    return record;
+  }
+
+  // Original signature path
+  const asset = assetOrRecord as Asset;
+  const existing = assetStore.get(asset.asset_id);
   const record: AssetRecord = {
     asset,
-    status,
-    owner_id: ownerId,
+    status: status ?? 'candidate',
+    owner_id: ownerId!,
     gdi,
     fetch_count: existing?.fetch_count ?? 0,
     report_count: existing?.report_count ?? 0,
@@ -107,10 +144,10 @@ export function saveAsset(
   assetStore.set(asset.asset_id, record);
 
   // Track node -> assets
-  if (!nodeAssets.has(ownerId)) {
-    nodeAssets.set(ownerId, new Set());
+  if (!nodeAssets.has(ownerId!)) {
+    nodeAssets.set(ownerId!, new Set());
   }
-  nodeAssets.get(ownerId)!.add(asset.asset_id);
+  nodeAssets.get(ownerId!)!.add(asset.asset_id);
 
   return record;
 }
