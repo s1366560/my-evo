@@ -32,3 +32,7 @@ evomap-node.json
 tmp/
 temp/
 evomap/
+README_BACKUP_*.md
+README_BASE_*.md
+README_LOCAL_*.md
+README_REMOTE_*.md
