@@ -1,14 +1,10 @@
 /**
  * EvoMap Hub - A2A Protocol Server
- *
- * Phase 1: Node registration & heartbeat - COMPLETE
+ * 
+ * Phase 1: Node registration & heartbeat (complete)
  * Phase 2: Asset system (Gene/Capsule/EvolutionEvent) - COMPLETE
  * Phase 3: Swarm Multi-Agent Collaboration - COMPLETE
  * Phase 4: GDI Reputation & Credit System - COMPLETE
- * Phase 5: AI Council Governance - COMPLETE
- * Phase 6+: Arena Battle System - COMPLETE
- *           Credit Marketplace - COMPLETE
- *           Evolution Circle - COMPLETE
  */
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -28,6 +24,12 @@ import { join } from 'path';
 // On Vercel serverless: __dirname = /var/task/dist, so ../ui = /var/task/ui
 const uiDir = join(__dirname, '..', 'ui');
 app.use('/ui', express.static(uiDir));
+
+// Serve index.html at root
+import { readFileSync } from 'fs';
+app.get('/', (_req: Request, res: Response) => {
+  res.type('html').send(readFileSync(join(uiDir, 'index.html')));
+});
 
 // Request logging middleware
 app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -718,96 +720,6 @@ app.get('/a2a/swarm/stats', (_req: Request, res: Response) => {
     res.json(stats);
   } catch (error) {
     console.error('Swarm stats error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-// ==================== Periodic Sync Endpoints (Phase 2-4) ====================
-
-/**
- * POST /a2a/sync/fetch
- * STEP 1: Pull new/updated/revoked assets since last sync
- */
-app.post('/a2a/sync/fetch', requireAuth, (req: Request, res: Response) => {
-  try {
-    const nodeId = (req as Request & { nodeId: string }).nodeId;
-    const { last_sync } = req.body;
-
-    const result = sync.syncFetch(nodeId, last_sync);
-    res.json(result);
-  } catch (error) {
-    console.error('Sync fetch error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * POST /a2a/sync/publish
- * STEP 2: Push pending local assets to Hub
- */
-app.post('/a2a/sync/publish', requireAuth, (req: Request, res: Response) => {
-  try {
-    const nodeId = (req as Request & { nodeId: string }).nodeId;
-    const { assets } = req.body;
-
-    if (!assets || !Array.isArray(assets)) {
-      res.status(400).json({ error: 'invalid_request', message: 'Missing assets array' });
-      return;
-    }
-
-    const result = sync.syncPublish(nodeId, assets);
-    res.json(result);
-  } catch (error) {
-    console.error('Sync publish error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * POST /a2a/sync/claim
- * STEP 3: Claim tasks assigned to this node
- */
-app.post('/a2a/sync/claim', requireAuth, (req: Request, res: Response) => {
-  try {
-    const nodeId = (req as Request & { nodeId: string }).nodeId;
-    const { capacity = 5, skills } = req.body;
-
-    const result = sync.syncClaim(nodeId, capacity, skills);
-    res.json(result);
-  } catch (error) {
-    console.error('Sync claim error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * POST /a2a/sync/check
- * STEP 4: Reputation check + submit pending verification reports
- */
-app.post('/a2a/sync/check', requireAuth, (req: Request, res: Response) => {
-  try {
-    const nodeId = (req as Request & { nodeId: string }).nodeId;
-    const { pending_reports } = req.body;
-
-    const result = sync.syncCheck(nodeId, pending_reports ?? []);
-    res.json(result);
-  } catch (error) {
-    console.error('Sync check error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * GET /a2a/sync/state
- * Get sync state for current node
- */
-app.get('/a2a/sync/state', requireAuth, (req: Request, res: Response) => {
-  try {
-    const nodeId = (req as Request & { nodeId: string }).nodeId;
-    const state = sync.getSyncState(nodeId);
-    res.json(state ?? { node_id: nodeId, sync_status: 'UNKNOWN', last_sync: null });
-  } catch (error) {
-    console.error('Sync state error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
@@ -1832,6 +1744,662 @@ app.get('/api/v2/workerpool/stats', (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/v2/workerpool/register
+ * Register a worker in the pool
+ * Body: { worker_id, type?, skills?, domain?, max_concurrent_tasks? }
+ */
+app.post('/api/v2/workerpool/register', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { type, skills, domain, max_concurrent_tasks } = req.body;
+
+    const worker = registerWorker({
+      worker_id: nodeId,
+      type,
+      skills: skills ?? [],
+      domain,
+      max_concurrent_tasks,
+    });
+
+    res.json({ status: 'registered', worker });
+  } catch (error) {
+    console.error('Worker pool register error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/workers
+ * List workers with optional filters
+ * Query: type, domain, is_available, min_reputation
+ */
+app.get('/api/v2/workerpool/workers', (req: Request, res: Response) => {
+  try {
+    const { type, domain, is_available, min_reputation } = req.query;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const filter: Record<string, any> = {};
+    if (type) filter.type = type;
+    if (domain) filter.domain = domain;
+    if (is_available !== undefined) filter.is_available = is_available === 'true';
+    if (min_reputation) filter.min_reputation = parseFloat(min_reputation as string);
+
+    const workers = listWorkers(filter as Parameters<typeof listWorkers>[0]);
+    res.json({ workers, total: workers.length });
+  } catch (error) {
+    console.error('Worker pool list error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/workers/:id
+ * Get worker details
+ */
+app.get('/api/v2/workerpool/workers/:id', (req: Request, res: Response) => {
+  try {
+    const worker = getWorker(req.params.id);
+    if (!worker) {
+      res.status(404).json({ error: 'worker_not_found', message: `Worker ${req.params.id} not found` });
+      return;
+    }
+    res.json(worker);
+  } catch (error) {
+    console.error('Worker pool get error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/workers/:id/availability
+ * Update worker availability
+ * Body: { available: boolean }
+ */
+app.post('/api/v2/workerpool/workers/:id/availability', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const workerId = req.params.id;
+
+    if (workerId !== nodeId) {
+      res.status(403).json({ error: 'forbidden', message: 'Cannot update another worker\'s availability' });
+      return;
+    }
+
+    const { available } = req.body;
+    if (available === undefined) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing available field' });
+      return;
+    }
+
+    const worker = updateWorkerAvailability(workerId, !!available);
+    res.json({ status: 'updated', worker });
+  } catch (error) {
+    console.error('Worker availability error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/workers/:id/assignments
+ * Get assignments for a worker
+ */
+app.get('/api/v2/workerpool/workers/:id/assignments', (req: Request, res: Response) => {
+  try {
+    const assignments = getWorkerAssignments(req.params.id);
+    res.json({ assignments, total: assignments.length });
+  } catch (error) {
+    console.error('Worker assignments error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/specialist/pools
+ * List all specialist pools
+ */
+app.get('/api/v2/workerpool/specialist/pools', (_req: Request, res: Response) => {
+  try {
+    const pools = listSpecialistPools();
+    const plain = pools.map(p => ({
+      ...p,
+      workers: [...p.workers],
+    }));
+    res.json({ pools: plain, total: plain.length });
+  } catch (error) {
+    console.error('Specialist pools error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/specialist/:domain/pools
+ * Get a specific specialist pool
+ */
+app.get('/api/v2/workerpool/specialist/:domain/pools', (req: Request, res: Response) => {
+  try {
+    const pool = getSpecialistPool(req.params.domain);
+    if (!pool) {
+      res.status(404).json({ error: 'pool_not_found', message: `Specialist pool ${req.params.domain} not found` });
+      return;
+    }
+    res.json({ ...pool, workers: [...pool.workers] });
+  } catch (error) {
+    console.error('Specialist pool error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/specialist/tasks
+ * Add a task to a specialist pool
+ * Body: { task_id, domain, description, required_skills, bounty?, priority }
+ */
+app.post('/api/v2/workerpool/specialist/tasks', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { task_id, domain, description, required_skills, bounty, priority } = req.body;
+
+    if (!task_id || !domain || !description || !required_skills || !Array.isArray(required_skills)) {
+      res.status(400).json({
+        error: 'invalid_request',
+        message: 'Missing required fields: task_id, domain, description, required_skills (array)',
+      });
+      return;
+    }
+
+    const task = addTaskToSpecialistPool({
+      task_id,
+      domain,
+      description,
+      required_skills,
+      bounty,
+      priority: priority ?? 'medium',
+    });
+
+    res.json({ status: 'queued', task });
+  } catch (error) {
+    console.error('Specialist task add error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/specialist/:domain/tasks
+ * Get specialist task queue for a domain
+ */
+app.get('/api/v2/workerpool/specialist/:domain/tasks', (req: Request, res: Response) => {
+  try {
+    const tasks = getSpecialistTaskQueue(req.params.domain);
+    res.json({ domain: req.params.domain, tasks, total: tasks.length });
+  } catch (error) {
+    console.error('Specialist task queue error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/specialist/:domain/claim
+ * Claim a specialist task (worker self-assigns)
+ * Body: { task_id }
+ */
+app.post('/api/v2/workerpool/specialist/:domain/claim', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const domain = req.params.domain;
+    const { task_id } = req.body;
+
+    if (!task_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing task_id' });
+      return;
+    }
+
+    const task = claimSpecialistTask(task_id, domain, nodeId);
+    if (!task) {
+      res.status(404).json({ error: 'task_not_found', message: 'Task not found or already claimed' });
+      return;
+    }
+
+    const assignment = assignTask({ task_id, worker_id: nodeId, pool_type: 'specialist' });
+    res.json({ status: 'claimed', task, assignment });
+  } catch (error) {
+    console.error('Specialist claim error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/assign
+ * Manually assign a task to a worker (admin/internal)
+ * Body: { task_id, worker_id, pool_type }
+ */
+app.post('/api/v2/workerpool/assign', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { task_id, worker_id, pool_type } = req.body;
+
+    if (!task_id || !worker_id || !pool_type) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing task_id, worker_id, or pool_type' });
+      return;
+    }
+
+    const assignment = assignTask({ task_id, worker_id, pool_type });
+    res.json({ status: 'assigned', assignment });
+  } catch (error) {
+    console.error('Worker pool assign error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/match
+ * Get worker match scores for a task
+ * Body: { task_id, required_skills, bounty? }
+ */
+app.post('/api/v2/workerpool/match', (req: Request, res: Response) => {
+  try {
+    const { task_id, required_skills, bounty } = req.body;
+
+    if (!task_id || !required_skills || !Array.isArray(required_skills)) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing task_id or required_skills' });
+      return;
+    }
+
+    const matches = matchWorkerToTask(task_id, required_skills, bounty);
+    res.json({ task_id, matches, total: matches.length });
+  } catch (error) {
+    console.error('Worker match error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/assignments/:id/complete
+ * Complete a worker assignment
+ * Body: { outcome, quality_score?, response_time_ms? }
+ */
+app.post('/api/v2/workerpool/assignments/:id/complete', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { outcome, quality_score, response_time_ms } = req.body;
+
+    if (!outcome || !['success', 'failed', 'partial'].includes(outcome)) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing or invalid outcome (success|failed|partial)' });
+      return;
+    }
+
+    const assignment = completeAssignment(req.params.id, outcome, quality_score, response_time_ms);
+    if (!assignment) {
+      res.status(404).json({ error: 'assignment_not_found', message: `Assignment ${req.params.id} not found` });
+      return;
+    }
+
+    res.json({ status: 'completed', assignment });
+  } catch (error) {
+    console.error('Assignment complete error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/assignments/:id
+ * Get assignment details
+ */
+app.get('/api/v2/workerpool/assignments/:id', (req: Request, res: Response) => {
+  try {
+    const assignment = getAssignment(req.params.id);
+    if (!assignment) {
+      res.status(404).json({ error: 'assignment_not_found', message: `Assignment ${req.params.id} not found` });
+      return;
+    }
+    res.json(assignment);
+  } catch (error) {
+    console.error('Assignment get error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/stats
+ * Get worker pool statistics
+ */
+app.get('/api/v2/workerpool/stats', (_req: Request, res: Response) => {
+  try {
+    // Prune inactive workers first
+    pruneInactiveWorkers();
+    const stats = getWorkerPoolStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Worker pool stats error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/register
+ * Register a worker in the pool
+ * Body: { worker_id, type?, skills?, domain?, max_concurrent_tasks? }
+ */
+app.post('/api/v2/workerpool/register', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { type, skills, domain, max_concurrent_tasks } = req.body;
+
+    const worker = registerWorker({
+      worker_id: nodeId,
+      type,
+      skills: skills ?? [],
+      domain,
+      max_concurrent_tasks,
+    });
+
+    res.json({ status: 'registered', worker });
+  } catch (error) {
+    console.error('Worker pool register error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/workers
+ * List workers with optional filters
+ * Query: type, domain, is_available, min_reputation
+ */
+app.get('/api/v2/workerpool/workers', (req: Request, res: Response) => {
+  try {
+    const { type, domain, is_available, min_reputation } = req.query;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const filter: Record<string, any> = {};
+    if (type) filter.type = type;
+    if (domain) filter.domain = domain;
+    if (is_available !== undefined) filter.is_available = is_available === 'true';
+    if (min_reputation) filter.min_reputation = parseFloat(min_reputation as string);
+
+    const workers = listWorkers(filter as Parameters<typeof listWorkers>[0]);
+    res.json({ workers, total: workers.length });
+  } catch (error) {
+    console.error('Worker pool list error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/workers/:id
+ * Get worker details
+ */
+app.get('/api/v2/workerpool/workers/:id', (req: Request, res: Response) => {
+  try {
+    const worker = getWorker(req.params.id);
+    if (!worker) {
+      res.status(404).json({ error: 'worker_not_found', message: `Worker ${req.params.id} not found` });
+      return;
+    }
+    res.json(worker);
+  } catch (error) {
+    console.error('Worker pool get error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/workers/:id/availability
+ * Update worker availability
+ * Body: { available: boolean }
+ */
+app.post('/api/v2/workerpool/workers/:id/availability', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const workerId = req.params.id;
+
+    if (workerId !== nodeId) {
+      res.status(403).json({ error: 'forbidden', message: 'Cannot update another worker\'s availability' });
+      return;
+    }
+
+    const { available } = req.body;
+    if (available === undefined) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing available field' });
+      return;
+    }
+
+    const worker = updateWorkerAvailability(workerId, !!available);
+    res.json({ status: 'updated', worker });
+  } catch (error) {
+    console.error('Worker availability error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/workers/:id/assignments
+ * Get assignments for a worker
+ */
+app.get('/api/v2/workerpool/workers/:id/assignments', (req: Request, res: Response) => {
+  try {
+    const assignments = getWorkerAssignments(req.params.id);
+    res.json({ assignments, total: assignments.length });
+  } catch (error) {
+    console.error('Worker assignments error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/specialist/pools
+ * List all specialist pools
+ */
+app.get('/api/v2/workerpool/specialist/pools', (_req: Request, res: Response) => {
+  try {
+    const pools = listSpecialistPools();
+    const plain = pools.map(p => ({
+      ...p,
+      workers: [...p.workers],
+    }));
+    res.json({ pools: plain, total: plain.length });
+  } catch (error) {
+    console.error('Specialist pools error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/specialist/:domain/pools
+ * Get a specific specialist pool
+ */
+app.get('/api/v2/workerpool/specialist/:domain/pools', (req: Request, res: Response) => {
+  try {
+    const pool = getSpecialistPool(req.params.domain);
+    if (!pool) {
+      res.status(404).json({ error: 'pool_not_found', message: `Specialist pool ${req.params.domain} not found` });
+      return;
+    }
+    res.json({ ...pool, workers: [...pool.workers] });
+  } catch (error) {
+    console.error('Specialist pool error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/specialist/tasks
+ * Add a task to a specialist pool
+ * Body: { task_id, domain, description, required_skills, bounty?, priority }
+ */
+app.post('/api/v2/workerpool/specialist/tasks', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { task_id, domain, description, required_skills, bounty, priority } = req.body;
+
+    if (!task_id || !domain || !description || !required_skills || !Array.isArray(required_skills)) {
+      res.status(400).json({
+        error: 'invalid_request',
+        message: 'Missing required fields: task_id, domain, description, required_skills (array)',
+      });
+      return;
+    }
+
+    const task = addTaskToSpecialistPool({
+      task_id,
+      domain,
+      description,
+      required_skills,
+      bounty,
+      priority: priority ?? 'medium',
+    });
+
+    res.json({ status: 'queued', task });
+  } catch (error) {
+    console.error('Specialist task add error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/specialist/:domain/tasks
+ * Get specialist task queue for a domain
+ */
+app.get('/api/v2/workerpool/specialist/:domain/tasks', (req: Request, res: Response) => {
+  try {
+    const tasks = getSpecialistTaskQueue(req.params.domain);
+    res.json({ domain: req.params.domain, tasks, total: tasks.length });
+  } catch (error) {
+    console.error('Specialist task queue error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/specialist/:domain/claim
+ * Claim a specialist task (worker self-assigns)
+ * Body: { task_id }
+ */
+app.post('/api/v2/workerpool/specialist/:domain/claim', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const domain = req.params.domain;
+    const { task_id } = req.body;
+
+    if (!task_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing task_id' });
+      return;
+    }
+
+    const task = claimSpecialistTask(task_id, domain, nodeId);
+    if (!task) {
+      res.status(404).json({ error: 'task_not_found', message: 'Task not found or already claimed' });
+      return;
+    }
+
+    const assignment = assignTask({ task_id, worker_id: nodeId, pool_type: 'specialist' });
+    res.json({ status: 'claimed', task, assignment });
+  } catch (error) {
+    console.error('Specialist claim error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/assign
+ * Manually assign a task to a worker (admin/internal)
+ * Body: { task_id, worker_id, pool_type }
+ */
+app.post('/api/v2/workerpool/assign', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { task_id, worker_id, pool_type } = req.body;
+
+    if (!task_id || !worker_id || !pool_type) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing task_id, worker_id, or pool_type' });
+      return;
+    }
+
+    const assignment = assignTask({ task_id, worker_id, pool_type });
+    res.json({ status: 'assigned', assignment });
+  } catch (error) {
+    console.error('Worker pool assign error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/match
+ * Get worker match scores for a task
+ * Body: { task_id, required_skills, bounty? }
+ */
+app.post('/api/v2/workerpool/match', (req: Request, res: Response) => {
+  try {
+    const { task_id, required_skills, bounty } = req.body;
+
+    if (!task_id || !required_skills || !Array.isArray(required_skills)) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing task_id or required_skills' });
+      return;
+    }
+
+    const matches = matchWorkerToTask(task_id, required_skills, bounty);
+    res.json({ task_id, matches, total: matches.length });
+  } catch (error) {
+    console.error('Worker match error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /api/v2/workerpool/assignments/:id/complete
+ * Complete a worker assignment
+ * Body: { outcome, quality_score?, response_time_ms? }
+ */
+app.post('/api/v2/workerpool/assignments/:id/complete', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { outcome, quality_score, response_time_ms } = req.body;
+
+    if (!outcome || !['success', 'failed', 'partial'].includes(outcome)) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing or invalid outcome (success|failed|partial)' });
+      return;
+    }
+
+    const assignment = completeAssignment(req.params.id, outcome, quality_score, response_time_ms);
+    if (!assignment) {
+      res.status(404).json({ error: 'assignment_not_found', message: `Assignment ${req.params.id} not found` });
+      return;
+    }
+
+    res.json({ status: 'completed', assignment });
+  } catch (error) {
+    console.error('Assignment complete error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/assignments/:id
+ * Get assignment details
+ */
+app.get('/api/v2/workerpool/assignments/:id', (req: Request, res: Response) => {
+  try {
+    const assignment = getAssignment(req.params.id);
+    if (!assignment) {
+      res.status(404).json({ error: 'assignment_not_found', message: `Assignment ${req.params.id} not found` });
+      return;
+    }
+    res.json(assignment);
+  } catch (error) {
+    console.error('Assignment get error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /api/v2/workerpool/stats
+ * Get worker pool statistics
+ */
+app.get('/api/v2/workerpool/stats', (_req: Request, res: Response) => {
+  try {
+    // Prune inactive workers first
+    pruneInactiveWorkers();
+    const stats = getWorkerPoolStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Worker pool stats error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
 // ==================== Knowledge Graph Endpoints ====================
 
 import * as kg from './knowledge';
@@ -2047,81 +2615,8 @@ app.get('/logs', (req: Request, res: Response) => {
 
 // ==================== Sandbox Endpoints (Phase 2-3) ====================
 import sandboxRouter from './sandbox/api';
-import marketplaceRouter from './marketplace/api';
-import arenaRouter from './arena/api';
-import circleRouter from './circle/api';
-import * as sync from './sync/engine';
-import { projectApi } from './projects/api';
-import { recipeApi } from './recipe/api';
-import * as quarantine from './quarantine/service';
-import type { QuarantineLevel, QuarantineReason } from './quarantine/types';
 
 app.use('/api/v2/sandbox', sandboxRouter);
-app.use('/market', marketplaceRouter);
-app.use('/arena', arenaRouter);
-app.use('/a2a/circle', circleRouter);
-
-// ==================== Projects API (not wired - Gap found 2026-03-28) ====================
-app.post('/a2a/project/propose', (req: Request, res: Response) => projectApi.propose(req, res));
-app.get('/a2a/project/list', (req: Request, res: Response) => projectApi.list(req, res));
-app.get('/a2a/project/:id', (req: Request, res: Response) => projectApi.get(req, res));
-app.post('/a2a/project/:id/contribute', (req: Request, res: Response) => projectApi.contribute(req, res));
-app.post('/a2a/project/:id/review', (req: Request, res: Response) => projectApi.review(req, res));
-app.post('/a2a/project/:id/merge', (req: Request, res: Response) => projectApi.merge(req, res));
-app.post('/a2a/project/:id/decompose', (req: Request, res: Response) => projectApi.decompose(req, res));
-
-// ==================== Recipe API (not wired - Gap found 2026-03-28) ====================
-app.post('/a2a/recipe', (req: Request, res: Response) => recipeApi.create(req, res));
-app.get('/a2a/recipe/list', (req: Request, res: Response) => recipeApi.list(req, res));
-app.get('/a2a/recipe/:id', (req: Request, res: Response) => recipeApi.get(req, res));
-app.get('/a2a/recipe/stats', (req: Request, res: Response) => recipeApi.stats(req, res));
-app.post('/a2a/recipe/:id/publish', (req: Request, res: Response) => recipeApi.publish(req, res));
-app.patch('/a2a/recipe/:id', (req: Request, res: Response) => recipeApi.update(req, res));
-app.post('/a2a/recipe/:id/archive', (req: Request, res: Response) => recipeApi.archive(req, res));
-app.post('/a2a/recipe/:id/fork', (req: Request, res: Response) => recipeApi.fork(req, res));
-app.post('/a2a/recipe/:id/express', (req: Request, res: Response) => recipeApi.express(req, res));
-app.post('/a2a/organism/:id/express-gene', (req: Request, res: Response) => recipeApi.expressGene(req, res));
-app.patch('/a2a/organism/:id', (req: Request, res: Response) => recipeApi.updateOrganism(req, res));
-
-// ==================== Quarantine API (not wired - Gap found 2026-03-28) ====================
-app.post('/api/v2/quarantine/check', (req: Request, res: Response) => {
-  try {
-    const { node_id, asset_id } = req.body;
-    if (!node_id) { res.status(400).json({ error: 'node_id required' }); return; }
-    const isQuarantined = quarantine.isNodeQuarantined(node_id);
-    const level = quarantine.getQuarantineLevel(node_id);
-    const record = quarantine.getQuarantineRecord(node_id);
-    res.json({ node_id, is_quarantined: isQuarantined, level, record });
-  } catch (e) { res.status(500).json({ error: String(e) }); }
-});
-app.post('/api/v2/quarantine/isolate', (req: Request, res: Response) => {
-  try {
-    const { node_id, reason, severity, related_asset_ids } = req.body;
-    if (!node_id || !reason) { res.status(400).json({ error: 'node_id and reason required' }); return; }
-    const record = quarantine.quarantineNode(
-      node_id,
-      reason as QuarantineReason,
-      severity as 'low' | 'medium' | 'high' || 'medium',
-      related_asset_ids
-    );
-    res.status(201).json(record);
-  } catch (e) { res.status(500).json({ error: String(e) }); }
-});
-app.post('/api/v2/quarantine/release', (req: Request, res: Response) => {
-  try {
-    const { node_id } = req.body;
-    if (!node_id) { res.status(400).json({ error: 'node_id required' }); return; }
-    const success = quarantine.releaseQuarantine(node_id);
-    res.json({ node_id, released: success });
-  } catch (e) { res.status(500).json({ error: String(e) }); }
-});
-app.get('/api/v2/quarantine/stats', (_req: Request, res: Response) => {
-  res.json(quarantine.getQuarantineStats());
-});
-app.get('/api/v2/quarantine/history', (req: Request, res: Response) => {
-  // Note: getQuarantineHistory not exported; return empty for now
-  res.json({ records: [], message: 'history not yet implemented' });
-});
 
 // ==================== Search Endpoints ====================
 
@@ -2482,173 +2977,6 @@ app.post('/api/v2/sandbox/:id/cancel', (req: Request, res: Response) => {
 // GET /api/v2/sandbox/stats - Get sandbox statistics
 app.get('/api/v2/sandbox/stats', (_req: Request, res: Response) => {
   res.json(sandbox.getSandboxStats());
-});
-
-// ==================== Reading Engine Endpoints ====================
-
-import * as reading from './reading/service';
-
-// POST /api/v2/reading/process - Process article and generate questions
-app.post('/api/v2/reading/process', (req: Request, res: Response) => {
-  const { url, content, title, generateQuestions } = req.body;
-  
-  if (!content) {
-    res.status(400).json({ error: 'invalid_request', message: 'content is required' });
-    return;
-  }
-  
-  const result = reading.processArticle({
-    url,
-    content,
-    title,
-    generateQuestions,
-  });
-  
-  res.status(201).json(result);
-});
-
-// POST /api/v2/reading/session - Create reading session
-app.post('/api/v2/reading/session', (req: Request, res: Response) => {
-  const { userId } = req.body;
-  const session = reading.createSession(userId);
-  res.status(201).json(session);
-});
-
-// GET /api/v2/reading/session/:id - Get session
-app.get('/api/v2/reading/session/:id', (_req: Request, res: Response) => {
-  const session = reading.getSession(_req.params.id);
-  
-  if (!session) {
-    res.status(404).json({ error: 'not_found', message: 'Session not found' });
-    return;
-  }
-  
-  res.json(session);
-});
-
-// GET /api/v2/reading/trending - Get trending readings
-app.get('/api/v2/reading/trending', (req: Request, res: Response) => {
-  const limit = parseInt(req.query.limit as string) || 10;
-  const readings = reading.getTrendingReadings(limit);
-  res.json({ readings, count: readings.length });
-});
-
-// GET /api/v2/reading/stats - Get reading statistics
-app.get('/api/v2/reading/stats', (_req: Request, res: Response) => {
-  res.json(reading.getReadingStats());
-});
-
-// GET /api/v2/reading/questions/:id - Get questions for a reading
-app.get('/api/v2/reading/questions/:id', (_req: Request, res: Response) => {
-  const readings = reading.getTrendingReadings(100);
-  const found = readings.find(r => r.id === _req.params.id);
-  
-  if (!found) {
-    res.status(404).json({ error: 'not_found', message: 'Reading not found' });
-    return;
-  }
-  
-  res.json({ questions: found.questions, count: found.questions.length });
-});
-
-// ==================== Biology Dashboard Endpoints ====================
-
-import * as biology from './biology/service';
-
-// GET /api/v2/biology/stats - Get biology dashboard stats
-app.get('/api/v2/biology/stats', (_req: Request, res: Response) => {
-  const stats = biology.getBiologyStats();
-  res.json(stats);
-});
-
-// GET /api/v2/biology/ecosystem - Get ecosystem metrics
-app.get('/api/v2/biology/ecosystem', (req: Request, res: Response) => {
-  const { activeNodes7d, totalGenes, totalCapsules } = req.query;
-  
-  const metrics = biology.getEcosystemMetrics({
-    activeNodes7d: activeNodes7d ? Number(activeNodes7d) : 50,
-    categoryDistribution: { repair: 12, optimize: 8, innovate: 5, security: 7, performance: 6, reliability: 4 },
-    nodeContributions: [10, 8, 15, 12, 7, 9, 11, 6, 13, 10],
-    uniqueSignals: totalGenes ? Number(totalGenes) : 52,
-  });
-  
-  res.json(metrics);
-});
-
-// GET /api/v2/biology/phylogeny - Get phylogeny tree
-app.get('/api/v2/biology/phylogeny', (req: Request, res: Response) => {
-  const { rootId } = req.query;
-  
-  const tree = biology.getPhylogenyTree(rootId as string | undefined);
-  res.json({ tree, count: tree.length });
-});
-
-// GET /api/v2/biology/lineage/:nodeId - Get evolutionary lineage
-app.get('/api/v2/biology/lineage/:nodeId', (req: Request, res: Response) => {
-  const { nodeId } = req.params;
-  
-  const lineage = biology.getLineage(nodeId);
-  res.json({ lineage, count: lineage.length });
-});
-
-// GET /api/v2/biology/macro-events - Get macro evolution events
-app.get('/api/v2/biology/macro-events', (req: Request, res: Response) => {
-  const { limit } = req.query;
-  
-  const events = biology.getMacroEvents(limit ? Number(limit) : 12);
-  res.json({ events, count: events.length });
-});
-
-// GET /api/v2/biology/symbiotic - Get symbiotic relationships
-app.get('/api/v2/biology/symbiotic', (req: Request, res: Response) => {
-  const { minStrength } = req.query;
-  
-  const relationships = biology.getSymbioticRelationships(
-    minStrength ? { minStrength: Number(minStrength) } : undefined
-  );
-  res.json({ relationships, count: relationships.length });
-});
-
-// GET /api/v2/biology/emergent - Get emergent patterns
-app.get('/api/v2/biology/emergent', (req: Request, res: Response) => {
-  const { minLift } = req.query;
-  
-  const patterns = biology.getEmergentPatterns(
-    minLift ? { minLift: Number(minLift) } : undefined
-  );
-  res.json({ patterns, count: patterns.length });
-});
-
-// POST /api/v2/biology/phylogeny/node - Add phylogeny node
-app.post('/api/v2/biology/phylogeny/node', (req: Request, res: Response) => {
-  const { type, name, parentId, gdiScore, category } = req.body;
-  
-  if (!type || !name) {
-    res.status(400).json({ error: 'invalid_request', message: 'type, name are required' });
-    return;
-  }
-  
-  const node = biology.addPhylogenyNode({ type, name, parentId, gdiScore, category });
-  res.status(201).json(node);
-});
-
-// POST /api/v2/biology/macro-event - Record macro evolution event
-app.post('/api/v2/biology/macro-event', (req: Request, res: Response) => {
-  const { type, magnitude, week, createdCount, revokedCount } = req.body;
-  
-  if (!type || magnitude === undefined) {
-    res.status(400).json({ error: 'invalid_request', message: 'type, magnitude are required' });
-    return;
-  }
-  
-  const event = biology.recordMacroEvent({
-    type,
-    magnitude,
-    week: week || '2026-W13',
-    createdCount: createdCount || 0,
-    revokedCount: revokedCount || 0,
-  });
-  res.status(201).json(event);
 });
 
 // ==================== Error Handling ====================
