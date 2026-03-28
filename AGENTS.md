@@ -72,6 +72,8 @@ my-evo/
 │   │   └── service.ts     # 语义搜索 + 自动补全
 │   ├── session/            # 协作会话
 │   │   └── service.ts     # Session 管理
+│   ├── sync/               # Periodic Sync 协议 (Phase 2-4)
+│   │   └── engine.ts      # 节点状态同步引擎
 │   ├── utils/              # 工具函数
 │   │   ├── crypto.ts      # SHA-256 哈希 + 密钥派生
 │   │   └── validation.ts   # 输入验证 + Schema 校验
