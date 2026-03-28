@@ -1959,10 +1959,12 @@ app.get('/logs', (req: Request, res: Response) => {
 import sandboxRouter from './sandbox/api';
 import arenaRouter from './arena/api';
 import circleRouter from './circle/api';
+import biologyRouter from './biology/api';
 
 app.use('/api/v2/sandbox', sandboxRouter);
 app.use('/arena', arenaRouter);
 app.use('/a2a/circle', circleRouter);
+app.use('/biology', biologyRouter);
 
 // ==================== Search Endpoints ====================
 
