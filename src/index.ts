@@ -75,6 +75,15 @@ app.post('/a2a/hello', async (req: Request, res: Response) => {
     }
 
     const result = await registerNode(payload);
+    
+    // Initialize credit balance for new nodes
+    if (result.status === 'acknowledged' || result.status === 'ok') {
+      const nodeId = result.your_node_id;
+      if (nodeId && !getCreditBalance(nodeId)) {
+        initializeCreditBalance(nodeId);
+      }
+    }
+    
     res.json(result);
   } catch (error) {
     console.error('Hello error:', error);
