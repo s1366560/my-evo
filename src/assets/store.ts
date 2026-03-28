@@ -83,38 +83,62 @@ export function countAssets(filter?: { type?: string; status?: AssetStatus }): n
 
 // ============ Store Mutations ============
 
-export function saveAsset(record: AssetRecord): AssetRecord;
-export function saveAsset(
-  asset: Asset,
-  ownerId: string,
-  status?: AssetStatus,
-  gdi?: GDIScore
-): AssetRecord;
+/**
+ * Save an asset to the store.
+ * Supports two call signatures for backwards compatibility:
+ * - saveAsset(record) - where record is an AssetRecord
+ * - saveAsset(asset, ownerId, status?, gdi?) - separate parameters
+ */
 export function saveAsset(
   assetOrRecord: Asset | AssetRecord,
   ownerId?: string,
-  status?: AssetStatus,
+  status: AssetStatus = 'candidate',
   gdi?: GDIScore
 ): AssetRecord {
-  // Handle AssetRecord overload
-  if (ownerId === undefined && 'asset' in assetOrRecord) {
-    const record = assetOrRecord;
-    return saveAsset(record.asset, record.owner_id, record.status, record.gdi);
+  const now = new Date().toISOString();
+
+  // Detect if first argument is an AssetRecord (has 'asset' property of type Asset)
+  const isAssetRecord = 'asset' in assetOrRecord && 'owner_id' in assetOrRecord;
+
+  let asset: Asset;
+  let effectiveOwnerId: string;
+  let effectiveStatus: AssetStatus;
+  let effectiveGdi: GDIScore | undefined;
+  let passedFetchCount: number;
+  let passedReportCount: number;
+  let passedPublishedAt: string | undefined;
+
+  if (isAssetRecord) {
+    // Called as saveAsset(record)
+    const record = assetOrRecord as AssetRecord;
+    asset = record.asset;
+    effectiveOwnerId = ownerId ?? record.owner_id;
+    effectiveStatus = record.status !== undefined ? record.status : status;
+    effectiveGdi = gdi ?? record.gdi;
+    passedFetchCount = record.fetch_count;
+    passedReportCount = record.report_count;
+    passedPublishedAt = record.published_at;
+  } else {
+    // Called as saveAsset(asset, ownerId, status?, gdi?)
+    asset = assetOrRecord as Asset;
+    effectiveOwnerId = ownerId!;
+    effectiveStatus = status;
+    effectiveGdi = gdi;
+    passedFetchCount = 0;
+    passedReportCount = 0;
+    passedPublishedAt = undefined;
   }
 
-  const asset = assetOrRecord as Asset;
-  const owner = ownerId!;
-  const now = new Date().toISOString();
   const existing = assetStore.get(asset.asset_id);
 
   const newRecord: AssetRecord = {
     asset,
-    status: status ?? 'candidate',
-    owner_id: owner,
-    gdi: gdi ?? existing?.gdi,
-    fetch_count: existing?.fetch_count ?? 0,
-    report_count: existing?.report_count ?? 0,
-    published_at: existing?.published_at ?? now,
+    status: effectiveStatus,
+    owner_id: effectiveOwnerId,
+    gdi: effectiveGdi,
+    fetch_count: existing?.fetch_count ?? passedFetchCount ?? 0,
+    report_count: existing?.report_count ?? passedReportCount ?? 0,
+    published_at: existing?.published_at ?? passedPublishedAt ?? now,
     updated_at: now,
     version: (existing?.version ?? 0) + 1,
   };
@@ -122,10 +146,10 @@ export function saveAsset(
   assetStore.set(asset.asset_id, newRecord);
 
   // Track node -> assets
-  if (!nodeAssets.has(owner)) {
-    nodeAssets.set(owner, new Set());
+  if (!nodeAssets.has(effectiveOwnerId)) {
+    nodeAssets.set(effectiveOwnerId, new Set());
   }
-  nodeAssets.get(owner)!.add(asset.asset_id);
+  nodeAssets.get(effectiveOwnerId)!.add(asset.asset_id);
 
   return newRecord;
 }

@@ -178,7 +178,7 @@ export function createRound(
     created_seq: seq,
     deadline: deadline.toISOString(),
   };
-  
+
   rounds.set(round.round_id, round);
 
   // Auto-advance to voting after short delay (in real system would be automatic)

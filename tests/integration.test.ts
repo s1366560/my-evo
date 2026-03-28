@@ -839,15 +839,15 @@ describe('【相似度】Anti-Duplication Detection', () => {
 
   it('should return low similarity for different Genes', () => {
     // Use computeDirectSimilarity to avoid store pollution
-    const geneA = makeGene({ signals_match: ['timeout'], category: 'repair' });
-    const geneB = makeGene({ signals_match: ['memory leak'], category: 'optimize' });
+    const geneA = makeGene({ signals_match: ['timeout'], category: 'repair', asset_id: 'sha256:geneAhash' });
+    const geneB = makeGene({ signals_match: ['memory leak'], category: 'optimize', asset_id: 'sha256:geneBhash' });
     const similarity = computeDirectSimilarity(geneA, geneB);
     expect(similarity).toBeLessThan(0.5);
   });
 
   it('should detect ≥85% similarity for near-identical Genes', () => {
-    const geneA = makeGene({ signals_match: ['timeout', 'retry'], strategy: ['step1', 'step2'] });
-    const geneB = makeGene({ signals_match: ['timeout', 'retry'], strategy: ['step1', 'step2'] });
+    const geneA = makeGene({ signals_match: ['timeout', 'retry'], strategy: ['step1', 'step2'], asset_id: 'sha256:geneAnear' });
+    const geneB = makeGene({ signals_match: ['timeout', 'retry'], strategy: ['step1', 'step2'], asset_id: 'sha256:geneBnear' });
     const similarity = computeDirectSimilarity(geneA, geneB);
     expect(similarity).toBeGreaterThanOrEqual(0.85);
   });

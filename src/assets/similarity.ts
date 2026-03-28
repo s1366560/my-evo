@@ -10,7 +10,7 @@
  */
 
 import { Asset, Gene, Capsule } from './types';
-import { listAssets } from './store';
+import { listAssets, getAsset } from './store';
 
 const SIMILARITY_THRESHOLD = 0.85; // 85% - reject above this
 
@@ -72,6 +72,9 @@ export function checkSimilarity(
  * Compute similarity score between two assets (0-1)
  */
 function computeSimilarity(a: Asset, b: Asset): number {
+  // Exact match by content hash - highest similarity
+  if (a.asset_id === b.asset_id) return 1.0;
+
   if (a.type !== b.type) return 0;
 
   if (a.type === 'Gene' && b.type === 'Gene') {
@@ -81,13 +84,17 @@ function computeSimilarity(a: Asset, b: Asset): number {
     return computeCapsuleSimilarity(a as Capsule, b as Capsule);
   }
 
-  // Default: exact ID match only
-  return a.asset_id === b.asset_id ? 1 : 0;
+  // Default: exact ID match only (already handled above)
+  return 0;
 }
 
 function computeGeneSimilarity(a: Gene, b: Gene): number {
   let score = 0;
   let maxScore = 0;
+
+  // Exact ID match (weight: 15%) - genes with same ID are the same asset
+  maxScore += 15;
+  if (a.id === b.id) score += 15;
 
   // Category match (weight: 20%)
   maxScore += 20;
@@ -102,12 +109,6 @@ function computeGeneSimilarity(a: Gene, b: Gene): number {
   maxScore += 30;
   const strategyOverlap = jaccardSimilarity(a.strategy, b.strategy);
   score += strategyOverlap * 30;
-
-  // ID prefix match (weight: 15%) - genes with same prefix are likely versions
-  maxScore += 15;
-  const idPrefixA = a.id.split('_').slice(0, 2).join('_');
-  const idPrefixB = b.id.split('_').slice(0, 2).join('_');
-  if (idPrefixA === idPrefixB && a.id !== b.id) score += 15;
 
   return score / maxScore;
 }

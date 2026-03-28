@@ -282,7 +282,7 @@ describe('Circle Engine', () => {
       expect(round!.description).toBe('Crossbreed retry genes');
       expect(round!.genes).toEqual(['gene_retry_v1', 'gene_retry_v2']);
       expect(round!.mutation_type).toBe('crossbreed');
-      expect(round!.status).toBe('proposed');
+      expect(round!.status).toBe('voting');
       expect(round!.votes_for).toBe(0);
       expect(round!.votes_against).toBe(0);
     });
