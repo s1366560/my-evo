@@ -18,7 +18,7 @@ import type {
   ValidationConfig,
 } from './types';
 
-const DEFAULT_CONFIDENCE_THRESHOLD = 0.5;
+const DEFAULT_CONFIDENCE_THRESHOLD = 0.5; // wired: used in check() pass/fail gating
 
 /**
  * Anti-Hallucination Engine
@@ -47,7 +47,7 @@ export class AntiHallucinationEngine {
         type: 'document',
         name: 'Python Standard Library',
         description: 'Verified Python stdlib APIs',
-        verified_apis: ['requests', 'json', 'os', 'subprocess', 'http', 'collections', 'urllib'],
+        verified_apis: ['json', 'os', 'subprocess', 'http', 'collections', 'urllib'],
         verified_patterns: ['^import \\w+', '^from \\w+ import'],
         source: 'python_stdlib',
         last_updated: new Date().toISOString(),
@@ -100,13 +100,12 @@ export class AntiHallucinationEngine {
       detected_hallucinations = this.detector.detectAll(content);
     }
 
-    // Step 3: Determine overall pass/fail
+    // Step 3: Determine intermediate pass/fail flags
     const validationPassed = validations.length === 0 || validations.every(v => v.passed);
     const noHighSeverity = !detected_hallucinations.some(h => h.severity === 'high');
-    const overallPassed = validationPassed && noHighSeverity;
 
-    // Step 4: Calculate confidence
-    const baseConfidence = overallPassed ? 0.8 : 0.3;
+    // Step 4: Calculate confidence first (needed for pass/fail gating)
+    const baseConfidence = (validationPassed && noHighSeverity) ? 0.8 : 0.3;
     const severityPenalty = detected_hallucinations.reduce((sum, h) => {
       if (h.severity === 'high') return sum + 0.2;
       if (h.severity === 'medium') return sum + 0.1;
@@ -114,6 +113,10 @@ export class AntiHallucinationEngine {
     }, 0);
     const validationBonus = validations.filter(v => v.passed).length * 0.02;
     const confidence = Math.max(0, Math.min(1, baseConfidence - severityPenalty + validationBonus));
+
+    // Step 4: Determine overall pass/fail (gated by confidence threshold)
+    const confidencePass = confidence >= DEFAULT_CONFIDENCE_THRESHOLD;
+    const overallPassed = validationPassed && noHighSeverity && confidencePass;
 
     return {
       asset_id: assetId,

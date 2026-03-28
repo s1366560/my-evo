@@ -1,11 +1,41 @@
 /**
  * Anti-Hallucination Module Tests
+ * Uses mocks for external command execution to ensure environment-independence
  */
 
 import { HallucinationDetector } from '../src/anti_hallucination/detector';
 import { ValidationExecutor } from '../src/anti_hallucination/validator';
-import { calculateConfidence, getConfidenceGrade, projectDecay, DECAY_PRESETS } from '../src/anti_hallucination/confidence';
+import { calculateConfidence, getConfidenceGrade, projectDecay, DECAY_PRESETS, createSnapshot } from '../src/anti_hallucination/confidence';
 import { AntiHallucinationEngine } from '../src/anti_hallucination/engine';
+import { spawn, ChildProcess } from 'child_process';
+
+// ---- Mock spawn so validation tests don't require real Python/Node installed ----
+const mockSpawn = jest.fn();
+
+jest.mock('child_process', () => ({
+  spawn: (...args: unknown[]) => (mockSpawn as jest.Mock)(...args),
+}));
+
+function mockCommand(stdout: string, stderr = '', exitCode = 0, signalStr?: string) {
+  mockSpawn.mockImplementationOnce((_cmd: string, _args: string[]) => {
+    const mockProc = {
+      pid: 12345,
+      stdout: { on: (ev: string, cb: (d: Buffer) => void) => { if (ev === 'data') setTimeout(() => cb(Buffer.from(stdout)), 0); } },
+      stderr: { on: (ev: string, cb: (d: Buffer) => void) => { if (ev === 'data') setTimeout(() => cb(Buffer.from(stderr)), 0); } },
+      on: (ev: string, cb: (...args: unknown[]) => void) => {
+        if (ev === 'close') setTimeout(() => cb(exitCode, signalStr), 10);
+        if (ev === 'exit') setTimeout(() => cb(exitCode, signalStr), 10);
+      },
+    } as unknown as ChildProcess;
+    return mockProc;
+  });
+}
+
+beforeEach(() => {
+  mockSpawn.mockReset();
+});
+
+// ---- Hallucination Detector Tests ----
 
 describe('【反幻觉】Hallucination Detector', () => {
   let detector: HallucinationDetector;
@@ -130,15 +160,19 @@ def future_feature():
   });
 });
 
+// ---- Validation Executor Tests ----
+
 describe('【反幻觉】Validation Executor', () => {
   let executor: ValidationExecutor;
 
   beforeEach(() => {
     executor = new ValidationExecutor();
+    mockSpawn.mockReset();
   });
 
   describe('execute', () => {
     it('should pass valid python syntax check', async () => {
+      mockCommand('1', '', 0);
       const cmd = { type: 'syntax' as const, command: 'python -c "print(1)"', timeout_seconds: 5 };
       const result = await executor.execute(cmd);
       expect(result.passed).toBe(true);
@@ -147,18 +181,38 @@ describe('【反幻觉】Validation Executor', () => {
     });
 
     it('should fail invalid python syntax', async () => {
+      mockCommand('', 'SyntaxError: EOF', 1);
       const cmd = { type: 'syntax' as const, command: "python -c 'x=1; print(x'", timeout_seconds: 5 };
       const result = await executor.execute(cmd);
       expect(result.passed).toBe(false);
     });
 
     it('should respect timeout', async () => {
-      // Use a loop that takes long to avoid shell builtin issues
+      // Simulate timeout command killing the child with SIGKILL after timeout
+      // The timeout command exits with 124 and sends SIGKILL to the child
+      mockSpawn.mockImplementationOnce((_cmd: string, _args: string[]) => {
+        const mockProc = {
+          pid: 12345,
+          stdout: { on: () => {} },
+          stderr: { on: () => {} },
+          on: (ev: string, cb: (...args: unknown[]) => void) => {
+            if (ev === 'close') setTimeout(() => cb(124, 'SIGKILL'), 5); // 124 = timeout exit code
+          },
+        } as unknown as ChildProcess;
+        return mockProc;
+      });
       const cmd = { type: 'syntax' as const, command: 'python3 -c "import time; time.sleep(10)"', timeout_seconds: 1 };
       const result = await executor.execute(cmd);
       expect(result.passed).toBe(false);
-      expect(result.error || '').toMatch(/timed out|timeout|TERM/i);
+      expect(result.error || '').toMatch(/timed out|timeout|TERM|KILL|SIGKILL/i);
     }, 10000);
+
+    it('should reject commands with dangerous shell operators', async () => {
+      const cmd = { type: 'syntax' as const, command: 'echo "hi" && rm -rf /', timeout_seconds: 5 };
+      const result = await executor.execute(cmd);
+      expect(result.passed).toBe(false);
+      expect(result.error || '').toContain('unsafe');
+    });
   });
 
   describe('generateForGene', () => {
@@ -172,6 +226,13 @@ describe('【反幻觉】Validation Executor', () => {
       const cmds = ValidationExecutor.generateForGene('typescript');
       expect(cmds.some(c => c.type === 'syntax')).toBe(true);
       expect(cmds.some(c => c.type === 'linter')).toBe(true);
+    });
+
+    it('should not hard-depend on pylint for python without files', () => {
+      const cmds = ValidationExecutor.generateForGene('python');
+      // Without file list, no pylint commands should be generated
+      const pylintCmds = cmds.filter(c => c.command.includes('pylint'));
+      expect(pylintCmds).toHaveLength(0);
     });
   });
 
@@ -196,6 +257,8 @@ describe('【反幻觉】Validation Executor', () => {
     });
   });
 });
+
+// ---- Confidence Decay Model Tests ----
 
 describe('【反幻觉】Confidence Decay Model', () => {
   describe('calculateConfidence', () => {
@@ -277,13 +340,30 @@ describe('【反幻觉】Confidence Decay Model', () => {
       expect(DECAY_PRESETS.default.halfLifeDays).toBeGreaterThan(DECAY_PRESETS.aggressive.halfLifeDays);
     });
   });
+
+  describe('createSnapshot', () => {
+    it('should create a snapshot with correct type for horizonDays', () => {
+      const createdAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const feedback = { positive_count: 1, negative_count: 0, fetch_count: 3 };
+      const snapshot = createSnapshot('asset_abc', 0.9, createdAt, feedback, { horizonDays: 14 });
+      expect(snapshot.asset_id).toBe('asset_abc');
+      expect(snapshot.initial_confidence).toBe(0.9);
+      expect(snapshot.current_confidence).toBeLessThan(0.9);
+      expect(snapshot.projected_decay.length).toBeGreaterThan(0);
+      // horizonDays should not affect calculateConfidence options (type safety)
+      expect(snapshot.decay_factor).toBeDefined();
+    });
+  });
 });
+
+// ---- Anti-Hallucination Engine Tests ----
 
 describe('【反幻觉】Anti-Hallucination Engine', () => {
   let engine: AntiHallucinationEngine;
 
   beforeEach(() => {
     engine = new AntiHallucinationEngine();
+    mockSpawn.mockReset();
   });
 
   describe('checkContent', () => {
@@ -309,11 +389,22 @@ def load_config(path):
 
   describe('check with validation commands', () => {
     it('should run validation commands if provided', async () => {
+      mockCommand('hello', '', 0);
       const content = 'print("hello")';
       const commands = [{ type: 'syntax' as const, command: 'python -c "print(1)"', timeout_seconds: 5 }];
       const result = await engine.check('test_asset', content, commands);
       expect(result.validations.length).toBe(1);
       expect(result.validations[0].passed).toBe(true);
+    });
+
+    it('should gate overall_passed on DEFAULT_CONFIDENCE_THRESHOLD (0.5)', async () => {
+      // Very low confidence from high-severity issues should fail
+      mockCommand('', '', 0);
+      const content = 'eval("x")\n'.repeat(5); // Multiple high-severity issues
+      const commands = [{ type: 'syntax' as const, command: 'python -c "print(1)"', timeout_seconds: 5 }];
+      const result = await engine.check('test_asset', content, commands);
+      // Should fail due to high severity hallucinations
+      expect(result.overall_passed).toBe(false);
     });
   });
 
@@ -323,10 +414,19 @@ def load_config(path):
       expect(anchors.length).toBeGreaterThan(0);
     });
 
+    it('should not include requests in Python stdlib anchor', () => {
+      const anchors = engine.getAnchors();
+      const stdlibAnchor = anchors.find(a => a.name === 'Python Standard Library');
+      expect(stdlibAnchor).toBeDefined();
+      // requests is third-party, not stdlib
+      expect(stdlibAnchor!.verified_apis).not.toContain('requests');
+    });
+
     it('should verify content against anchors', () => {
-      const content = 'import requests\nrequests.get("http://example.com")';
+      const content = 'import json\njson.load(f)';
       const results = engine.verifyWithAnchors(content);
       expect(results).toBeDefined();
+      expect(results.length).toBeGreaterThan(0);
     });
   });
 

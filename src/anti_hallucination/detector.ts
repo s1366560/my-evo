@@ -4,7 +4,7 @@
  * Chapter 28 Section 28.1-28.3
  */
 
-import type { HallucinationAlert, TrustAnchor, AnchorVerificationResult, ErrorClassification, ErrorLevel } from './types';
+import type { HallucinationAlert, TrustAnchor, AnchorVerificationResult, ErrorClassification } from './types';
 
 // Forbidden patterns that indicate security risks or bad practices
 const FORBIDDEN_PATTERNS = [
@@ -18,16 +18,6 @@ const FORBIDDEN_PATTERNS = [
   { pattern: /password\s*=\s*['"`][^'"`]+['"`]/i, severity: 'high' as const, description: 'Hardcoded password detected' },
   { pattern: /api[_-]?key\s*=\s*['"`][^'"`]+['"`]/i, severity: 'high' as const, description: 'Hardcoded API key detected' },
   { pattern: /secret\s*=\s*['"`][^'"`]+['"`]/i, severity: 'medium' as const, description: 'Hardcoded secret detected' },
-];
-
-// Common invalid Python API patterns (hallucinated APIs that don't exist)
-const INVALID_API_PATTERNS = [
-  // Non-existent standard library APIs
-  { pattern: /requests\.(?:get|post)\(/, valid_module: 'requests', suggestion: 'requests.get(), requests.post() are valid' },
-  { pattern: /json\.load\(/, valid_module: 'json', suggestion: 'json.load() and json.loads() are valid' },
-  { pattern: /collections\.iterate/, valid_module: 'collections', suggestion: 'Use collections.abc for iteration' },
-  { pattern: /\w+\.fetch\(/, valid_module: 'generic', suggestion: 'Check if this method exists on the object' },
-  { pattern: /\.send\(.*\)/, valid_module: 'network', suggestion: 'Use appropriate send method for the protocol' },
 ];
 
 // Known valid API registry (simplified - in production would be comprehensive)
@@ -98,8 +88,9 @@ export class HallucinationDetector {
       }
     }
 
-    // Detect function bodies that just pass or return None
-    const functionPattern = /def\s+(\w+)\s*\([^)]*\)\s*:\s*\n\s*(pass|return\s+None|...)/g;
+    // Detect function bodies that just pass or return None (stub functions)
+    // Escape dots in "..." pattern to match literal ellipsis
+    const functionPattern = /def\s+(\w+)\s*\([^)]*\)\s*:\s*\n\s*(pass|return\s+None|\.\.\.)/g;
     let match;
     while ((match = functionPattern.exec(content)) !== null) {
       alerts.push({
@@ -116,6 +107,7 @@ export class HallucinationDetector {
 
   /**
    * Verify content against trust anchors
+   * Properly uses verified_apis and verified_patterns from each anchor
    */
   verifyAgainstAnchors(content: string, anchors: TrustAnchor[]): AnchorVerificationResult[] {
     const results: AnchorVerificationResult[] = [];
@@ -124,28 +116,62 @@ export class HallucinationDetector {
       const discrepancies: string[] = [];
       let matched = true;
 
-      // Check if content uses any invalid patterns from the anchor
+      // Check verified_patterns from the anchor
       for (const pattern of anchor.verified_patterns) {
         try {
           const regex = new RegExp(pattern);
           if (regex.test(content)) {
-            // Pattern found - check if it's in verified_apis
-            // This is a simplified check
+            // Pattern found in content - anchor confirms this usage
+            // No discrepancy for matching patterns
           }
         } catch {
           // Invalid regex, skip
         }
       }
 
-      // Check for invalid API calls not in the anchor's verified list
+      // Check for invalid API calls using the anchor's verified_apis list
+      if (anchor.verified_apis && anchor.verified_apis.length > 0) {
+        // Build a map of verified modules and their APIs from the anchor
+        const verifiedModules = new Set<string>();
+        for (const api of anchor.verified_apis) {
+          if (api.includes('.')) {
+            // e.g. "requests.get" - extract module
+            verifiedModules.add(api.split('.')[0]);
+          } else {
+            // Single identifier - module name
+            verifiedModules.add(api);
+          }
+        }
+
+        // For each verified module, check if called APIs are valid per the anchor
+        for (const module of verifiedModules) {
+          const modulePattern = new RegExp(`${module}\\.(\\w+)`, 'g');
+          let apiMatch;
+          while ((apiMatch = modulePattern.exec(content)) !== null) {
+            const calledApi = apiMatch[1];
+            // Check if this specific API is in the anchor's verified_apis
+            const fullApi = `${module}.${calledApi}`;
+            if (!anchor.verified_apis.includes(fullApi) && !anchor.verified_apis.includes(module)) {
+              // Not explicitly verified - could be invalid
+              discrepancies.push(
+                `API ${fullApi} not in verified list for anchor "${anchor.name}" (${anchor.type})`
+              );
+              matched = false;
+            }
+          }
+        }
+      }
+
+      // Also cross-check against global known APIs for discrepancy detection
       for (const [module, apis] of Object.entries(this.knownApis)) {
         const modulePattern = new RegExp(`${module}\\.(\\w+)`, 'g');
         let apiMatch;
         while ((apiMatch = modulePattern.exec(content)) !== null) {
           const calledApi = apiMatch[1];
           if (!apis.has(calledApi)) {
+            // Known invalid API for this module
             discrepancies.push(
-              `Potentially invalid API: ${module}.${calledApi} (not in verified list for ${anchor.type})`
+              `Potentially invalid API: ${module}.${calledApi} (not in known valid list)`
             );
             matched = false;
           }

@@ -108,11 +108,17 @@ export function createSnapshot(
   options?: { horizonDays?: number; lambda?: number; alpha?: number; beta?: number }
 ): ConfidenceSnapshot {
   const horizonDays = options?.horizonDays ?? 30;
+  // Extract only the options that calculateConfidence accepts
+  const calcOptions = {
+    lambda: options?.lambda,
+    alpha: options?.alpha,
+    beta: options?.beta,
+  };
   const currentConfidence = calculateConfidence(
     initialConfidence,
     createdAt,
     feedback,
-    options as Parameters<typeof calculateConfidence>[3]
+    calcOptions
   );
 
   return {
@@ -131,7 +137,7 @@ export function createSnapshot(
       feedback,
       horizonDays,
       7,
-      options
+      calcOptions
     ),
   };
 }
