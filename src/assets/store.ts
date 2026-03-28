@@ -131,7 +131,7 @@ export function saveAsset(
 
   const existing = assetStore.get(asset.asset_id);
 
-  const record: AssetRecord = {
+  const newRecord: AssetRecord = {
     asset,
     status: effectiveStatus,
     owner_id: effectiveOwnerId,
@@ -143,7 +143,7 @@ export function saveAsset(
     version: (existing?.version ?? 0) + 1,
   };
 
-  assetStore.set(asset.asset_id, record);
+  assetStore.set(asset.asset_id, newRecord);
 
   // Track node -> assets
   if (!nodeAssets.has(effectiveOwnerId)) {
@@ -151,7 +151,7 @@ export function saveAsset(
   }
   nodeAssets.get(effectiveOwnerId)!.add(asset.asset_id);
 
-  return record;
+  return newRecord;
 }
 
 export function updateAssetStatus(

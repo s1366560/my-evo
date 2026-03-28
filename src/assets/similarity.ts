@@ -10,7 +10,7 @@
  */
 
 import { Asset, Gene, Capsule } from './types';
-import { listAssets } from './store';
+import { listAssets, getAsset } from './store';
 
 const SIMILARITY_THRESHOLD = 0.85; // 85% - reject above this
 
@@ -220,7 +220,6 @@ function getSimilarityReason(
  * O(1) - just checks if content hash already exists
  */
 export function isExactDuplicate(assetId: string): boolean {
-  // Import getAsset from store to check if asset exists
-  const { getAsset } = require('./store');
-  return getAsset(assetId) !== undefined;
+  const record = getAsset(assetId);
+  return record !== undefined;
 }

@@ -29,6 +29,7 @@ export interface EvolutionCircle {
   gene_pool: string[];          // gene_ids in this circle
   rounds_completed: number;
   created_at: string;
+  created_seq: number;          // insertion order for stable sort
   updated_at: string;
 }
 
@@ -55,6 +56,7 @@ export interface EvolutionRound {
   votes_against: number;
   executed_at?: string;
   created_at: string;
+  created_seq: number;           // insertion order for stable sort
   deadline?: string;             // voting deadline
 }
 
