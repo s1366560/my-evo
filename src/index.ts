@@ -15,6 +15,8 @@ import { publishAsset, submitValidationReport, revokeAsset } from './assets/publ
 import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails } from './assets/fetch';
 import { FetchQuery } from './assets/types';
 import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
+import { projectApi } from './projects/api';
+import { recipeApi } from './recipe/api';
 
 const app = express();
 app.use(express.json());
@@ -789,6 +791,96 @@ app.post('/a2a/dialog', requireAuth, (req: Request, res: Response) => {
   }
 });
 
+// ==================== Recipe & Organism Endpoints ====================
+
+/**
+ * POST /a2a/recipe
+ * Create a new recipe
+ */
+app.post('/a2a/recipe', (req: Request, res: Response) => {
+  recipeApi.create(req, res);
+});
+
+/**
+ * GET /a2a/recipe/list
+ * List all recipes
+ */
+app.get('/a2a/recipe/list', (req: Request, res: Response) => {
+  recipeApi.list(req, res);
+});
+
+/**
+ * GET /a2a/recipe/:id
+ * Get recipe details
+ */
+app.get('/a2a/recipe/:id', (req: Request, res: Response) => {
+  recipeApi.get(req, res);
+});
+
+/**
+ * POST /a2a/recipe/:id/publish
+ * Publish a recipe
+ */
+app.post('/a2a/recipe/:id/publish', (req: Request, res: Response) => {
+  recipeApi.publish(req, res);
+});
+
+/**
+ * PATCH /a2a/recipe/:id
+ * Update recipe (via fork)
+ */
+app.patch('/a2a/recipe/:id', (req: Request, res: Response) => {
+  recipeApi.update(req, res);
+});
+
+/**
+ * POST /a2a/recipe/:id/archive
+ * Archive a recipe
+ */
+app.post('/a2a/recipe/:id/archive', (req: Request, res: Response) => {
+  recipeApi.archive(req, res);
+});
+
+/**
+ * POST /a2a/recipe/:id/fork
+ * Fork a recipe
+ */
+app.post('/a2a/recipe/:id/fork', (req: Request, res: Response) => {
+  recipeApi.fork(req, res);
+});
+
+/**
+ * POST /a2a/recipe/:id/express
+ * Express a recipe into an organism
+ */
+app.post('/a2a/recipe/:id/express', (req: Request, res: Response) => {
+  recipeApi.express(req, res);
+});
+
+/**
+ * POST /a2a/organism/:id/express-gene
+ * Express a gene in an organism
+ */
+app.post('/a2a/organism/:id/express-gene', (req: Request, res: Response) => {
+  recipeApi.expressGene(req, res);
+});
+
+/**
+ * PATCH /a2a/organism/:id
+ * Update organism status (completed/failed)
+ */
+app.patch('/a2a/organism/:id', (req: Request, res: Response) => {
+  recipeApi.updateOrganism(req, res);
+});
+
+/**
+ * GET /a2a/recipe/stats
+ * Get recipe statistics
+ */
+app.get('/a2a/recipe/stats', (req: Request, res: Response) => {
+  recipeApi.stats(req, res);
+});
+
 // ==================== Phase 4: Bounty Endpoints ====================
 import {
   createBounty,
@@ -1391,6 +1483,64 @@ app.post('/a2a/council/resolve-dispute', (req: Request, res: Response) => {
     console.error('Resolve dispute error:', error);
     res.status(400).json({ error: 'resolve_failed', message: String(error) });
   }
+});
+
+// ==================== Projects API Endpoints ====================
+
+/**
+ * POST /a2a/project/propose
+ * Submit a project proposal
+ */
+app.post('/a2a/project/propose', (req: Request, res: Response) => {
+  projectApi.propose(req, res);
+});
+
+/**
+ * GET /a2a/project/list
+ * List all projects
+ */
+app.get('/a2a/project/list', (req: Request, res: Response) => {
+  projectApi.list(req, res);
+});
+
+/**
+ * GET /a2a/project/:id
+ * Get project details
+ */
+app.get('/a2a/project/:id', (req: Request, res: Response) => {
+  projectApi.get(req, res);
+});
+
+/**
+ * POST /a2a/project/:id/contribute
+ * Submit a contribution to a project
+ */
+app.post('/a2a/project/:id/contribute', (req: Request, res: Response) => {
+  projectApi.contribute(req, res);
+});
+
+/**
+ * POST /a2a/project/:id/review
+ * Review a contribution (approve/reject)
+ */
+app.post('/a2a/project/:id/review', (req: Request, res: Response) => {
+  projectApi.review(req, res);
+});
+
+/**
+ * POST /a2a/project/:id/merge
+ * Merge an approved project
+ */
+app.post('/a2a/project/:id/merge', (req: Request, res: Response) => {
+  projectApi.merge(req, res);
+});
+
+/**
+ * POST /a2a/project/:id/decompose
+ * Decompose a project into tasks
+ */
+app.post('/a2a/project/:id/decompose', (req: Request, res: Response) => {
+  projectApi.decompose(req, res);
 });
 
 // ==================== Worker Pool Endpoints (Phase 3-4) ====================
@@ -2977,6 +3127,126 @@ app.post('/api/v2/sandbox/:id/cancel', (req: Request, res: Response) => {
 // GET /api/v2/sandbox/stats - Get sandbox statistics
 app.get('/api/v2/sandbox/stats', (_req: Request, res: Response) => {
   res.json(sandbox.getSandboxStats());
+});
+
+// ==================== Biology Dashboard Endpoints ====================
+
+import * as biology from './biology/service';
+
+// GET /api/v2/biology/ecosystem - Get ecosystem metrics
+app.get('/api/v2/biology/ecosystem', (req: Request, res: Response) => {
+  // Get distribution from query params or use defaults
+  const distribution: Record<string, number> = {
+    repair: 35,
+    optimize: 25,
+    innovate: 20,
+    security: 10,
+    performance: 7,
+    reliability: 3,
+  };
+  
+  const nodeContributions: number[] = Array.from({ length: 50 }, () => Math.random() * 100);
+  
+  const metrics = biology.getEcosystemMetrics({
+    categoryDistribution: distribution as any,
+    nodeContributions,
+    activeNodes7d: Math.floor(Math.random() * 100) + 20,
+    uniqueSignals: Math.floor(Math.random() * 50) + 10,
+  });
+  
+  res.json(metrics);
+});
+
+// GET /api/v2/biology/phylogeny - Get phylogeny tree
+app.get('/api/v2/biology/phylogeny', (req: Request, res: Response) => {
+  const rootId = req.query.root as string | undefined;
+  const tree = biology.getPhylogenyTree(rootId);
+  res.json({ nodes: tree, count: tree.length });
+});
+
+// POST /api/v2/biology/phylogeny/node - Add phylogeny node
+app.post('/api/v2/biology/phylogeny/node', (req: Request, res: Response) => {
+  const { type, name, parentId, gdiScore, category } = req.body;
+  
+  if (!type || !name) {
+    res.status(400).json({ error: 'invalid_request', message: 'type and name are required' });
+    return;
+  }
+  
+  const node = biology.addPhylogenyNode({
+    type,
+    name,
+    parentId,
+    gdiScore: gdiScore || 50,
+    category,
+  });
+  
+  res.status(201).json(node);
+});
+
+// GET /api/v2/biology/symbiosis - Get symbiotic relationships
+app.get('/api/v2/biology/symbiosis', (req: Request, res: Response) => {
+  const type = req.query.type as any;
+  const minStrength = req.query.minStrength ? parseFloat(req.query.minStrength as string) : undefined;
+  
+  const relationships = biology.getSymbioticRelationships({ type, minStrength });
+  res.json({ relationships, count: relationships.length });
+});
+
+// GET /api/v2/biology/macro-events - Get macro evolution events
+app.get('/api/v2/biology/macro-events', (req: Request, res: Response) => {
+  const limit = parseInt(req.query.limit as string) || 12;
+  const events = biology.getMacroEvents(limit);
+  res.json({ events, count: events.length });
+});
+
+// GET /api/v2/biology/selection-pressure - Get selection pressure
+app.get('/api/v2/biology/selection-pressure', (_req: Request, res: Response) => {
+  const pressure = biology.getSelectionPressure({
+    openBounties: Math.floor(Math.random() * 50) + 10,
+    bountyPool: Math.floor(Math.random() * 5000) + 1000,
+    rejected30d: Math.floor(Math.random() * 20),
+    total30d: 100,
+    hotSignals: ['timeout_error', 'cache_miss', 'auth_failure', 'null_pointer'],
+  });
+  res.json(pressure);
+});
+
+// GET /api/v2/biology/red-queen - Get Red Queen effect analysis
+app.get('/api/v2/biology/red-queen', (_req: Request, res: Response) => {
+  const categories = ['repair', 'optimize', 'innovate', 'security', 'performance'];
+  const earlyGDIs = categories.map(() => Math.random() * 30 + 50);
+  const recentGDIs = categories.map(() => Math.random() * 30 + 50);
+  
+  const effects = biology.getRedQueenEffect(categories as any, earlyGDIs, recentGDIs);
+  res.json({ effects, count: effects.length });
+});
+
+// GET /api/v2/biology/fitness - Get fitness landscape
+app.get('/api/v2/biology/fitness', (_req: Request, res: Response) => {
+  // Generate mock samples
+  const samples = Array.from({ length: 100 }, () => ({
+    rigor: Math.random(),
+    creativity: Math.random(),
+    fitness: Math.random() * 40 + 50,
+  }));
+  
+  const landscape = biology.getFitnessLandscape(samples);
+  res.json(landscape);
+});
+
+// GET /api/v2/biology/patterns - Get emergent patterns
+app.get('/api/v2/biology/patterns', (req: Request, res: Response) => {
+  const status = req.query.status as any;
+  const minLift = req.query.minLift ? parseFloat(req.query.minLift as string) : undefined;
+  
+  const patterns = biology.getEmergentPatterns({ status, minLift });
+  res.json({ patterns, count: patterns.length });
+});
+
+// GET /api/v2/biology/stats - Get biology stats
+app.get('/api/v2/biology/stats', (_req: Request, res: Response) => {
+  res.json(biology.getBiologyStats());
 });
 
 // ==================== Error Handling ====================
