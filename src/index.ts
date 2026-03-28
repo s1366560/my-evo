@@ -7,8 +7,8 @@
  * Phase 4: GDI Reputation & Credit System - COMPLETE
  * Phase 5: AI Council Governance - COMPLETE
  * Phase 6+: Arena Battle System - COMPLETE
- * Phase 6+: Evolution Circle - COMPLETE
- * Phase 6+: Credit Marketplace - PENDING
+ *           Credit Marketplace - COMPLETE
+ *           Evolution Circle - COMPLETE
  */
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -1957,10 +1957,12 @@ app.get('/logs', (req: Request, res: Response) => {
 
 // ==================== Sandbox Endpoints (Phase 2-3) ====================
 import sandboxRouter from './sandbox/api';
+import marketplaceRouter from './marketplace/api';
 import arenaRouter from './arena/api';
 import circleRouter from './circle/api';
 
 app.use('/api/v2/sandbox', sandboxRouter);
+app.use('/market', marketplaceRouter);
 app.use('/arena', arenaRouter);
 app.use('/a2a/circle', circleRouter);
 
