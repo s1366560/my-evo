@@ -312,3 +312,12 @@ export function respondToInvite(circleId: string, inviteeNodeId: string, accept:
   }
   return false;
 }
+
+// ============ Testing Utilities ============
+
+export function resetStores(): void {
+  circles.clear();
+  rounds.clear();
+  votes.clear();
+  invites.clear();
+}
