@@ -11,12 +11,10 @@
   ],
   "routes": [
     {
-      "src": "/ui/(.*)",
-      "dest": "/ui/$1"
-    },
-    {
       "src": "/(.*)",
       "dest": "/dist/index.js"
     }
-  ]
+  ],
+  "installCommand": "npm install",
+  "buildCommand": "npm run build"
 }

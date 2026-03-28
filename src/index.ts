@@ -51,16 +51,16 @@ import {
 const app = express();
 app.use(express.json());
 
-// Serve static UI files from ui directory
+// Serve static UI files from public directory
 import { join } from 'path';
-// On Vercel serverless: __dirname = /var/task/dist, so ../ui = /var/task/ui
-const uiDir = join(__dirname, '..', 'ui');
-app.use('/ui', express.static(uiDir));
+// On Vercel: __dirname = /var/task/dist, ../public = /var/task/public
+const publicDir = join(__dirname, '..', 'public');
+app.use('/ui', express.static(publicDir));
 
 // Serve index.html at root
 import { readFileSync } from 'fs';
 app.get('/', (_req: Request, res: Response) => {
-  res.type('html').send(readFileSync(join(uiDir, 'index.html')));
+  res.type('html').send(readFileSync(join(publicDir, 'index.html')));
 });
 
 // Request logging middleware
