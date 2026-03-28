@@ -178,7 +178,7 @@ describe('validateAsset', () => {
     it('should reject gene missing asset_id', () => {
       const gene = makeGene({ asset_id: '' as any });
       const errors = validateAsset(gene);
-      expect(errors).toContain('asset_id must start with "sha256:"');
+      expect(errors).toContain('Missing asset_id (SHA-256 content hash required)');
     });
   });
 
@@ -334,7 +334,7 @@ describe('Asset Store', () => {
     it('should save and retrieve an asset record', () => {
       const gene = makeGene();
       const record = makeAssetRecord(gene);
-      saveAsset(record.asset, record.owner_id);
+      saveAsset(record);
 
       const retrieved = getAsset(gene.asset_id);
       expect(retrieved).toBeDefined();
@@ -350,7 +350,7 @@ describe('Asset Store', () => {
     it('should update asset status', () => {
       const gene = makeGene();
       const record = makeAssetRecord(gene);
-      saveAsset(record.asset, record.owner_id);
+      saveAsset(record);
 
       updateAssetStatus(gene.asset_id, 'promoted');
       const retrieved = getAsset(gene.asset_id);
@@ -362,7 +362,7 @@ describe('Asset Store', () => {
     it('should return the asset content from a record', () => {
       const gene = makeGene();
       const record = makeAssetRecord(gene);
-      saveAsset(record.asset, record.owner_id);
+      saveAsset(record);
 
       const content = getAssetContent(gene.asset_id);
       expect(content).toBeDefined();
@@ -451,7 +451,7 @@ describe('Asset Store', () => {
     it('should increment fetch count', () => {
       const gene = makeGene({ id: 'gene_fetch_1' });
       const record = makeAssetRecord(gene, { fetch_count: 5 });
-      saveAsset(record.asset, record.owner_id);
+      saveAsset(record);
 
       incrementFetchCount(gene.asset_id);
       const retrieved = getAsset(gene.asset_id);
@@ -461,7 +461,7 @@ describe('Asset Store', () => {
     it('should increment report count', () => {
       const gene = makeGene({ id: 'gene_report_1' });
       const record = makeAssetRecord(gene, { report_count: 3 });
-      saveAsset(record.asset, record.owner_id);
+      saveAsset(record);
 
       incrementReportCount(gene.asset_id);
       const retrieved = getAsset(gene.asset_id);
@@ -524,7 +524,7 @@ describe('Asset Store', () => {
       const record = makeAssetRecord(gene, {
         gdi: { total: 75, intrinsic: 30, usage: 20, social: 15, freshness: 100 },
       });
-      saveAsset(record.asset, record.owner_id);
+      saveAsset(record);
 
       const results = searchAssets({ min_gdi: 70 });
       expect(results.length).toBeGreaterThanOrEqual(1);
@@ -628,9 +628,9 @@ describe('revokeAsset', () => {
   it('should revoke an existing asset', () => {
     const gene = makeGene({ id: 'gene_revoke_1' });
     const record = makeAssetRecord(gene, { status: 'active' });
-    saveAsset(record.asset, record.owner_id);
+    saveAsset(record);
 
-    const result = revokeAsset(gene.asset_id, 'node_revoke_001');
+    const result = revokeAsset(gene.asset_id, record.owner_id);
     expect(result).toBeDefined();
     expect(result.success).toBe(true);
 
@@ -656,8 +656,8 @@ describe('computeDirectSimilarity', () => {
   });
 
   it('should return lower similarity for different assets', () => {
-    const gene1 = makeGene({ id: 'gene_diff_1', signals_match: ['timeout'] });
-    const gene2 = makeGene({ id: 'gene_diff_2', signals_match: ['memory_leak'] });
+    const gene1 = makeGene({ id: 'gene_diff_1', signals_match: ['timeout'], asset_id: 'sha256:gene1hash' });
+    const gene2 = makeGene({ id: 'gene_diff_2', signals_match: ['memory_leak'], asset_id: 'sha256:gene2hash' });
     const similarity = computeDirectSimilarity(gene1, gene2);
     expect(similarity).toBeLessThan(1.0);
     expect(similarity).toBeGreaterThanOrEqual(0);
@@ -674,12 +674,12 @@ describe('computeDirectSimilarity', () => {
 
 describe('checkSimilarity', () => {
   it('should return no duplicates for unique assets', () => {
-    const gene = makeGene({ id: 'gene_uniq_1', signals_match: ['unique_signal_a'] });
+    const gene = makeGene({ id: 'gene_uniq_1', signals_match: ['unique_signal_a'], asset_id: 'sha256:gene_uniq_hash' });
     const bundle: AssetBundle = { assets: [gene] };
 
     publishAsset(bundle, 'node_sim_001', 'secret_sim');
 
-    const result = checkSimilarity(gene);
+    const result = checkSimilarity(gene, gene.asset_id); // exclude self
     expect(result.is_duplicate).toBe(false);
     expect(result.similar_assets).toHaveLength(0);
   });
@@ -720,22 +720,16 @@ describe('submitValidationReport', () => {
     const gene = makeGene({ id: 'gene_report_submit_1' });
     publishAsset({ assets: [gene] }, 'node_report', 'secret_report');
 
-    const result = submitValidationReport(
-      gene.asset_id,
-      { status: 'success', score: 0.9 },
-      'node_report'
-    );
+    const result = submitValidationReport(gene.asset_id, { status: 'success', score: 0.9 }, 'node_report');
 
     expect(result).toBeDefined();
     expect(result.accepted).toBe(true);
   });
 
   it('should fail for non-existent asset', () => {
-    const result = submitValidationReport(
-      'sha256:nonexistent_report',
-      { status: 'success', score: 0.9 }
-    );
+    const result = submitValidationReport('sha256:nonexistent_report', { status: 'success', score: 0.9 }, 'node_test');
 
     expect(result.accepted).toBe(false);
+    expect(result.reason).toBe('Asset not found');
   });
 });
