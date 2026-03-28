@@ -2839,6 +2839,10 @@ app.use('/arena', arenaRouter);
 import circleRouter from './circle/api';
 app.use('/a2a/circle', circleRouter);
 
+// ==================== Drift Bottle Endpoints (Chapter 13) ====================
+import driftbottleRouter from './driftbottle/api';
+app.use('/a2a/driftbottle', driftbottleRouter);
+
 // ==================== Biology Endpoints (Phase 6) ====================
 import biologyRouter from './biology/api';
 app.use('/biology', biologyRouter);
