@@ -19,6 +19,8 @@ const circles = new Map<string, EvolutionCircle>();
 const rounds = new Map<string, EvolutionRound>();
 const votes = new Map<string, CircleVote>();      // `${round_id}_${node_id}` -> vote
 const invites = new Map<string, CircleInvite>();  // invite_id -> invite
+let circleInsertOrder = 0;
+let roundInsertOrder = 0;
 
 function genId(prefix: string): string {
   return `${prefix}_${randomBytes(4).toString('hex')}`;
@@ -28,7 +30,8 @@ function genId(prefix: string): string {
 
 export function createCircle(founderNodeId: string, name: string, description: string): EvolutionCircle {
   const now = new Date().toISOString();
-  
+  const seq = ++circleInsertOrder;
+
   const circle: EvolutionCircle = {
     circle_id: genId('circle'),
     name,
@@ -45,9 +48,10 @@ export function createCircle(founderNodeId: string, name: string, description: s
     gene_pool: [],
     rounds_completed: 0,
     created_at: now,
+    created_seq: seq,
     updated_at: now,
   };
-  
+
   circles.set(circle.circle_id, circle);
   return circle;
 }
@@ -68,7 +72,11 @@ export function listCircles(filter?: { state?: CircleState; founder?: string }):
   let all = [...circles.values()];
   if (filter?.state) all = all.filter(c => c.state === filter.state);
   if (filter?.founder) all = all.filter(c => c.founder === filter.founder);
-  return all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return all.sort((a, b) => {
+    const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return b.created_seq - a.created_seq;
+  });
 }
 
 export function listMyCircles(nodeId: string): EvolutionCircle[] {
@@ -153,7 +161,8 @@ export function createRound(
   
   const now = new Date();
   const deadline = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
-  
+  const seq = ++roundInsertOrder;
+
   const round: EvolutionRound = {
     round_id: genId('round'),
     circle_id: circleId,
@@ -166,14 +175,15 @@ export function createRound(
     votes_for: 0,
     votes_against: 0,
     created_at: now.toISOString(),
+    created_seq: seq,
     deadline: deadline.toISOString(),
   };
   
   rounds.set(round.round_id, round);
-  
+
   // Auto-advance to voting after short delay (in real system would be automatic)
   round.status = 'voting';
-  
+
   return round;
 }
 
@@ -185,7 +195,11 @@ export function listRounds(circleId?: string, status?: RoundStatus): EvolutionRo
   let all = [...rounds.values()];
   if (circleId) all = all.filter(r => r.circle_id === circleId);
   if (status) all = all.filter(r => r.status === status);
-  return all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return all.sort((a, b) => {
+    const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return b.created_seq - a.created_seq;
+  });
 }
 
 // ============ Voting ============
@@ -320,4 +334,6 @@ export function resetStores(): void {
   rounds.clear();
   votes.clear();
   invites.clear();
+  circleInsertOrder = 0;
+  roundInsertOrder = 0;
 }

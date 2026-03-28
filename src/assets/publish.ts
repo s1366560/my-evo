@@ -258,22 +258,43 @@ export function publishAsset(
   };
 }
 
+interface ValidationReportOptions {
+  asset_id: string;
+  outcome: { status: 'success' | 'failure'; score: number };
+  usage_context?: string;
+  reported_by?: string;
+  blast_radius?: { files: number; lines: number };
+}
+
 /**
  * Submit a validation report for an asset
  */
+export function submitValidationReport(options: ValidationReportOptions): { accepted: boolean; success: boolean; reason?: string };
 export function submitValidationReport(
   assetId: string,
   outcome: { status: 'success' | 'failure'; score: number },
   reporterId?: string
-): { accepted: boolean; reason?: string } {
+): { accepted: boolean; success: boolean; reason?: string };
+export function submitValidationReport(
+  assetIdOrOptions: string | ValidationReportOptions,
+  outcome?: { status: 'success' | 'failure'; score: number },
+  _reporterId?: string
+): { accepted: boolean; success: boolean; reason?: string } {
+  let assetId: string;
+  if (typeof assetIdOrOptions === 'object' && 'asset_id' in assetIdOrOptions) {
+    assetId = assetIdOrOptions.asset_id;
+  } else {
+    assetId = assetIdOrOptions;
+  }
+
   const record = getAsset(assetId);
 
   if (!record) {
-    return { accepted: false, reason: 'Asset not found' };
+    return { accepted: false, success: false, reason: 'Asset not found' };
   }
 
   if (record.status === 'rejected' || record.status === 'archived') {
-    return { accepted: false, reason: 'Asset is not in an active state' };
+    return { accepted: false, success: false, reason: 'Asset is not in an active state' };
   }
 
   // In a real system, we would:
@@ -281,7 +302,7 @@ export function submitValidationReport(
   // 2. Apply reputation impact
   // 3. Update the GDI score
 
-  return { accepted: true };
+  return { accepted: true, success: true };
 }
 
 /**

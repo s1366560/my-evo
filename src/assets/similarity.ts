@@ -219,7 +219,6 @@ function getSimilarityReason(
  * O(1) - just checks if content hash already exists
  */
 export function isExactDuplicate(assetId: string): boolean {
-  const existing = listAssets({ limit: 1 });
-  // This is handled by the store - if asset_id exists it's an exact duplicate
-  return false; // Will be checked properly in publish logic
+  const record = getAsset(assetId);
+  return record !== undefined;
 }

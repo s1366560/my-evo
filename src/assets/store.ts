@@ -83,20 +83,35 @@ export function countAssets(filter?: { type?: string; status?: AssetStatus }): n
 
 // ============ Store Mutations ============
 
+export function saveAsset(record: AssetRecord): AssetRecord;
 export function saveAsset(
   asset: Asset,
   ownerId: string,
-  status: AssetStatus = 'candidate',
+  status?: AssetStatus,
+  gdi?: GDIScore
+): AssetRecord;
+export function saveAsset(
+  assetOrRecord: Asset | AssetRecord,
+  ownerId?: string,
+  status?: AssetStatus,
   gdi?: GDIScore
 ): AssetRecord {
+  // Handle AssetRecord overload
+  if (ownerId === undefined && 'asset' in assetOrRecord) {
+    const record = assetOrRecord;
+    return saveAsset(record.asset, record.owner_id, record.status, record.gdi);
+  }
+
+  const asset = assetOrRecord as Asset;
+  const owner = ownerId!;
   const now = new Date().toISOString();
   const existing = assetStore.get(asset.asset_id);
 
-  const record: AssetRecord = {
+  const newRecord: AssetRecord = {
     asset,
-    status,
-    owner_id: ownerId,
-    gdi,
+    status: status ?? 'candidate',
+    owner_id: owner,
+    gdi: gdi ?? existing?.gdi,
     fetch_count: existing?.fetch_count ?? 0,
     report_count: existing?.report_count ?? 0,
     published_at: existing?.published_at ?? now,
@@ -104,15 +119,15 @@ export function saveAsset(
     version: (existing?.version ?? 0) + 1,
   };
 
-  assetStore.set(asset.asset_id, record);
+  assetStore.set(asset.asset_id, newRecord);
 
   // Track node -> assets
-  if (!nodeAssets.has(ownerId)) {
-    nodeAssets.set(ownerId, new Set());
+  if (!nodeAssets.has(owner)) {
+    nodeAssets.set(owner, new Set());
   }
-  nodeAssets.get(ownerId)!.add(asset.asset_id);
+  nodeAssets.get(owner)!.add(asset.asset_id);
 
-  return record;
+  return newRecord;
 }
 
 export function updateAssetStatus(
