@@ -24,6 +24,7 @@ import {
 } from './store';
 import { calculateGDI, calculateCarbonCost, shouldPromote } from './gdi';
 import { checkSimilarity } from './similarity';
+import { buildBundleLineage } from './lineage';
 
 // Schema version
 const CURRENT_SCHEMA_VERSION = '1.5.0';
@@ -234,6 +235,17 @@ export function publishAsset(
     }
     saveAsset(normalizedEvt, ownerId, 'candidate');
     gdiScores[normalizedEvt.asset_id] = calculateGDI(normalizedEvt);
+  }
+
+  // Build lineage chain for successful bundle
+  const gene = assets.find(a => a.type === 'Gene') as Gene | undefined;
+  const capsule = assets.find(a => a.type === 'Capsule') as Capsule | undefined;
+  if (gene && capsule) {
+    const geneRecord = gdiScores[gene.asset_id] ? gene : undefined;
+    const capsuleRecord = gdiScores[capsule.asset_id] ? capsule : undefined;
+    if (geneRecord && capsuleRecord) {
+      buildBundleLineage(geneRecord, capsuleRecord, evolution_event);
+    }
   }
 
   const success = successfulAssets.length === assets.length;
