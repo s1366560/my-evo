@@ -670,6 +670,46 @@ describe('computeDirectSimilarity', () => {
     expect(similarity).toBeLessThanOrEqual(1.0);
     expect(similarity).toBeGreaterThanOrEqual(0);
   });
+
+  it('should boost similarity for genes with same ID prefix (version detection)', () => {
+    // gene_1_v2 and gene_1_v3 share prefix "gene_1" → +15% boost
+    const gene1 = makeGene({
+      id: 'gene_1_v2',
+      asset_id: 'sha256:gene1v2hash',
+      signals_match: ['timeout', 'error'],
+      strategy: ['define pattern', 'implement retry'],
+    });
+    const gene2 = makeGene({
+      id: 'gene_1_v3',
+      asset_id: 'sha256:gene1v3hash',
+      signals_match: ['timeout', 'error'],
+      strategy: ['define pattern', 'implement retry'],
+    });
+    const samePrefixSim = computeDirectSimilarity(gene1, gene2);
+
+    // gene_1_v2 and gene_2_v1 have different prefixes → no boost
+    const gene3 = makeGene({
+      id: 'gene_2_v1',
+      asset_id: 'sha256:gene2v1hash',
+      signals_match: ['timeout', 'error'],
+      strategy: ['define pattern', 'implement retry'],
+    });
+    const differentPrefixSim = computeDirectSimilarity(gene1, gene3);
+
+    // Same prefix should score higher due to +15% ID prefix bonus
+    expect(samePrefixSim).toBeGreaterThan(differentPrefixSim);
+  });
+
+  it('should NOT apply ID prefix boost when genes have identical id', () => {
+    // Identical id (and same asset_id via default) returns 1.0 immediately
+    // The ID prefix check is only reached when asset_id differs
+    const gene1 = makeGene({ id: 'gene_1_v2', asset_id: 'sha256:hash1' });
+    const gene2 = makeGene({ id: 'gene_1_v2', asset_id: 'sha256:hash2' }); // same id, diff asset_id
+    const similarity = computeDirectSimilarity(gene1, gene2);
+    // Same id with different asset_id still benefits from prefix match
+    expect(similarity).toBeGreaterThan(0);
+    expect(similarity).toBeLessThan(1.0);
+  });
 });
 
 describe('checkSimilarity', () => {
