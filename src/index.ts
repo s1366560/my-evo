@@ -12,6 +12,7 @@
  * Phase 9: Integration Tests - COMPLETE
  * Phase 10: Documentation - COMPLETE
  * Confidence Decay Model (Chapter 28) - COMPLETE (PR #74 merged)
+ * Memory Graph (Chapter 30) - COMPLETE
  */
 
 import express, { Request, Response, NextFunction } from 'express';
@@ -2849,6 +2850,10 @@ app.use('/market', marketplaceRouter);
 // ==================== Analytics Endpoints (Chapter 25) ====================
 import analyticsRouter from './analytics/api';
 app.use('/analytics', analyticsRouter);
+
+// ==================== Memory Graph Endpoints (Chapter 30) ====================
+import { memoryGraphApi } from './memory_graph/api';
+app.use('/api/v2/memory', memoryGraphApi);
 
 // ==================== Search Endpoints ====================
 
