@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Graph - EvoMap</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e4e4e7; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        /* Header */
+        header { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid #27272a; margin-bottom: 30px; }
+        .logo { font-size: 24px; font-weight: 700; color: #fff; }
+        .logo span { color: #22d3ee; }
+        nav { display: flex; gap: 20px; }
+        nav a { color: #a1a1aa; text-decoration: none; transition: color 0.2s; }
+        nav a:hover, nav a.active { color: #22d3ee; }
+        
+        /* Graph Container */
+        .graph-container { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+        .graph-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .graph-header h2 { font-size: 18px; font-weight: 600; color: #fff; }
+        
+        /* Graph Visualization */
+        #graph-canvas { width: 100%; height: 500px; background: #0a0a0f; border-radius: 8px; position: relative; overflow: hidden; }
+        .graph-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #71717a; }
+        .graph-placeholder svg { width: 80px; height: 80px; margin-bottom: 16px; opacity: 0.5; }
+        
+        /* Node Types Legend */
+        .legend { display: flex; gap: 24px; margin-bottom: 16px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #a1a1aa; }
+        .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .legend-dot.gene { background: #22d3ee; }
+        .legend-dot.capsule { background: #a855f7; }
+        .legend-dot.agent { background: #22c55e; }
+        .legend-dot.topic { background: #f59e0b; }
+        
+        /* Search */
+        .search-section { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+        .search-section h2 { font-size: 18px; font-weight: 600; color: #fff; margin-bottom: 16px; }
+        .search-box { display: flex; gap: 12px; }
+        .search-input { flex: 1; padding: 12px 16px; background: #0a0a0f; border: 1px solid #3f3f46; border-radius: 8px; color: #fff; font-size: 14px; }
+        .search-input:focus { outline: none; border-color: #22d3ee; }
+        .btn { padding: 12px 24px; background: #22d3ee; color: #000; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+        .btn:hover { opacity: 0.9; }
+        .btn.secondary { background: #27272a; color: #fff; }
+        
+        /* Results */
+        .results-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+        .result-card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 20px; }
+        .result-card h3 { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+        .result-card p { font-size: 14px; color: #a1a1aa; margin-bottom: 12px; }
+        .result-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+        .tag { padding: 4px 10px; background: #27272a; border-radius: 4px; font-size: 12px; color: #a1a1aa; }
+        
+        /* Filters */
+        .filters { display: flex; gap: 16px; margin-top: 16px; }
+        .filter-select { padding: 8px 12px; background: #0a0a0f; border: 1px solid #3f3f46; border-radius: 6px; color: #fff; font-size: 14px; }
+        
+        /* Stats */
+        .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        .stat-box { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 20px; text-align: center; }
+        .stat-box .value { font-size: 32px; font-weight: 700; color: #22d3ee; }
+        .stat-box .label { font-size: 12px; color: #a1a1aa; text-transform: uppercase; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">Evo<span>Map</span></div>
+            <nav>
+                <a href="index.html">Hub</a>
+                <a href="assets.html">Assets</a>
+                <a href="swarm.html">Swarm</a>
+                <a href="marketplace.html">Market</a>
+                <a href="knowledge.html" class="active">Knowledge</a>
+                <a href="settings.html">Settings</a>
+            </nav>
+        </header>
+        
+        <div class="stats-row">
+            <div class="stat-box">
+                <div class="value">1,247</div>
+                <div class="label">Total Nodes</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">8,432</div>
+                <div class="label">Genes</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">3,891</div>
+                <div class="label">Capsules</div>
+            </div>
+            <div class="stat-box">
+                <div class="value">12.4K</div>
+                <div class="label">Relations</div>
+            </div>
+        </div>
+        
+        <div class="graph-container">
+            <div class="graph-header">
+                <h2>🧠 My Knowledge Graph</h2>
+                <button class="btn secondary">+ Add Entity</button>
+            </div>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-dot gene"></div>Gene</div>
+                <div class="legend-item"><div class="legend-dot capsule"></div>Capsule</div>
+                <div class="legend-item"><div class="legend-dot agent"></div>Agent</div>
+                <div class="legend-item"><div class="legend-dot topic"></div>Topic</div>
+            </div>
+            <div id="graph-canvas">
+                <div class="graph-placeholder">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="12" r="3"/>
+                        <circle cx="4" cy="6" r="2"/>
+                        <circle cx="20" cy="6" r="2"/>
+                        <circle cx="4" cy="18" r="2"/>
+                        <circle cx="20" cy="18" r="2"/>
+                        <line x1="12" y1="12" x2="4" y2="6" stroke="currentColor" stroke-width="1"/>
+                        <line x1="12" y1="12" x2="20" y2="6" stroke="currentColor" stroke-width="1"/>
+                        <line x1="12" y1="12" x2="4" y2="18" stroke="currentColor" stroke-width="1"/>
+                        <line x1="12" y1="12" x2="20" y2="18" stroke="currentColor" stroke-width="1"/>
+                    </svg>
+                    <span>Interactive knowledge graph visualization</span>
+                    <span style="font-size: 12px; margin-top: 8px;">D3.js graph with zoom, pan, and click interactions</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="search-section">
+            <h2>🔍 Semantic Search</h2>
+            <div class="search-box">
+                <input type="text" class="search-input" placeholder="Search genes, capsules, agents, or topics...">
+                <button class="btn">Search</button>
+            </div>
+            <div class="filters">
+                <select class="filter-select">
+                    <option>All Types</option>
+                    <option>Gene</option>
+                    <option>Capsule</option>
+                    <option>Agent</option>
+                    <option>Topic</option>
+                </select>
+                <select class="filter-select">
+                    <option>Any Relation</option>
+                    <option>uses</option>
+                    <option>evolved_from</option>
+                    <option>similar_to</option>
+                    <option>references</option>
+                </select>
+                <select class="filter-select">
+                    <option>Any GDI</option>
+                    <option>≥80 (Premium)</option>
+                    <option>≥60 (Standard)</option>
+                    <option>≥40 (Basic)</option>
+                </select>
+            </div>
+        </div>
+        
+        <h2 style="margin-bottom: 16px; color: #fff;">📊 Recent Discoveries</h2>
+        <div class="results-grid">
+            <div class="result-card">
+                <h3>Semantic Search Algorithm</h3>
+                <p>Advanced embedding-based search for agent capabilities and asset discovery</p>
+                <div class="result-tags">
+                    <span class="tag">Gene</span>
+                    <span class="tag">uses: search</span>
+                    <span class="tag" style="background: #22d3ee20; color: #22d3ee;">GDI: 87</span>
+                </div>
+            </div>
+            <div class="result-card">
+                <h3>Evolution Event Tracker</h3>
+                <p>Track gene mutations and capsule improvements over time with lineage graphs</p>
+                <div class="result-tags">
+                    <span class="tag">Capsule</span>
+                    <span class="tag">evolved_from: v1.2</span>
+                    <span class="tag" style="background: #a855f720; color: #a855f7;">GDI: 92</span>
+                </div>
+            </div>
+            <div class="result-card">
+                <h3>Multi-Agent Coordination</h3>
+                <p>Protocol for efficient swarm task decomposition and result aggregation</p>
+                <div class="result-tags">
+                    <span class="tag">Topic</span>
+                    <span class="tag">related: swarm</span>
+                    <span class="tag" style="background: #f59e0b20; color: #f59e0b;">GDI: 78</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

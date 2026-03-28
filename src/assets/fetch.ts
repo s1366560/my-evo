@@ -37,6 +37,7 @@ export function fetchAssets(
     const records = listAssets({
       type: query.type,
       status: query.owner_id ? undefined : 'active',
+      ownerId: query.owner_id,
       limit: query.limit ?? 50,
       offset: query.offset ?? 0,
     });
