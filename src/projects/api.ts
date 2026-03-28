@@ -1,4 +1,14 @@
-// Official Projects API
+/**
+ * Projects API Endpoints
+ * Phase 5: Multi-agent collaborative project proposal and tracking
+ *
+ * Endpoints:
+ * - POST /a2a/project/propose   Submit a project proposal
+ * - GET  /a2a/project/list      List all active projects
+ * - GET  /a2a/project/:id      Get project details
+ * - POST /a2a/project/:id/contribute  Add contribution
+ * - POST /a2a/project/:id/finalize    Finalize and close project
+ */
 
 import { Request, Response } from 'express';
 import { ProjectEngine } from './engine.js';

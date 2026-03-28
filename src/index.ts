@@ -17,6 +17,14 @@ import { FetchQuery } from './assets/types';
 import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
 import { projectApi } from './projects/api';
 import { recipeApi } from './recipe/api';
+import {
+  syncFetch,
+  syncPublish,
+  syncClaim,
+  syncCheck,
+  getSyncState,
+  getGlobalSyncStats,
+} from './sync/engine';
 
 const app = express();
 app.use(express.json());
@@ -514,6 +522,139 @@ app.get('/a2a/lineage/:assetId/common-ancestor/:otherAssetId', (req: Request, re
     });
   } catch (error) {
     console.error('Lineage common-ancestor error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// ==================== Phase 2-4: Periodic Sync Endpoints ====================
+
+/**
+ * POST /a2a/sync/fetch
+ * STEP 1: Pull new/updated/revoked assets since last sync
+ * 
+ * Request body (optional):
+ * {
+ *   "last_sync": "2026-03-27T00:00:00Z"  // ISO timestamp of last sync
+ * }
+ */
+app.post('/a2a/sync/fetch', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { last_sync } = req.body;
+
+    const result = syncFetch(nodeId, last_sync);
+    res.json(result);
+  } catch (error) {
+    console.error('Sync fetch error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/sync/publish
+ * STEP 2: Push pending local assets to Hub
+ * 
+ * Request body:
+ * {
+ *   "assets": [Asset, ...]  // Pending assets to publish
+ * }
+ */
+app.post('/a2a/sync/publish', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { assets } = req.body;
+
+    if (!assets || !Array.isArray(assets)) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing assets array' });
+      return;
+    }
+
+    const result = syncPublish(nodeId, assets);
+    res.json(result);
+  } catch (error) {
+    console.error('Sync publish error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/sync/claim
+ * STEP 3: Claim assigned tasks during sync cycle
+ * 
+ * Request body:
+ * {
+ *   "capacity": 5,           // Max tasks to claim
+ *   "skills": ["python"],    // Optional: node skills for matching
+ * }
+ */
+app.post('/a2a/sync/claim', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { capacity, skills } = req.body;
+
+    const result = syncClaim(nodeId, capacity ?? 5, skills);
+    res.json(result);
+  } catch (error) {
+    console.error('Sync claim error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/sync/check
+ * STEP 4: Reputation check and submit pending validation reports
+ * 
+ * Request body:
+ * {
+ *   "pending_reports": [
+ *     { "asset_id": "capsule_xxx", "outcome": { "status": "success", "score": 0.85 }, "usage_context": "production" }
+ *   ]
+ * }
+ */
+app.post('/a2a/sync/check', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { pending_reports } = req.body;
+
+    const result = syncCheck(nodeId, pending_reports ?? []);
+    res.json(result);
+  } catch (error) {
+    console.error('Sync check error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/sync/state
+ * Get sync state for current node
+ */
+app.get('/a2a/sync/state', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const state = getSyncState(nodeId);
+
+    if (!state) {
+      res.status(404).json({ error: 'not_found', message: 'No sync state found for this node' });
+      return;
+    }
+
+    res.json(state);
+  } catch (error) {
+    console.error('Sync state error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/sync/stats
+ * Get global sync statistics (Hub only)
+ */
+app.get('/a2a/sync/stats', (_req: Request, res: Response) => {
+  try {
+    const stats = getGlobalSyncStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Sync stats error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
@@ -1895,117 +2036,6 @@ app.get('/api/v2/workerpool/stats', (_req: Request, res: Response) => {
 });
 
 /**
- * POST /api/v2/workerpool/register
- * Register a worker in the pool
- * Body: { worker_id, type?, skills?, domain?, max_concurrent_tasks? }
- */
-app.post('/api/v2/workerpool/register', requireAuth, (req: Request, res: Response) => {
-  try {
-    const nodeId = (req as Request & { nodeId: string }).nodeId;
-    const { type, skills, domain, max_concurrent_tasks } = req.body;
-
-    const worker = registerWorker({
-      worker_id: nodeId,
-      type,
-      skills: skills ?? [],
-      domain,
-      max_concurrent_tasks,
-    });
-
-    res.json({ status: 'registered', worker });
-  } catch (error) {
-    console.error('Worker pool register error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * GET /api/v2/workerpool/workers
- * List workers with optional filters
- * Query: type, domain, is_available, min_reputation
- */
-app.get('/api/v2/workerpool/workers', (req: Request, res: Response) => {
-  try {
-    const { type, domain, is_available, min_reputation } = req.query;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const filter: Record<string, any> = {};
-    if (type) filter.type = type;
-    if (domain) filter.domain = domain;
-    if (is_available !== undefined) filter.is_available = is_available === 'true';
-    if (min_reputation) filter.min_reputation = parseFloat(min_reputation as string);
-
-    const workers = listWorkers(filter as Parameters<typeof listWorkers>[0]);
-    res.json({ workers, total: workers.length });
-  } catch (error) {
-    console.error('Worker pool list error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * GET /api/v2/workerpool/workers/:id
- * Get worker details
- */
-app.get('/api/v2/workerpool/workers/:id', (req: Request, res: Response) => {
-  try {
-    const worker = getWorker(req.params.id);
-    if (!worker) {
-      res.status(404).json({ error: 'worker_not_found', message: `Worker ${req.params.id} not found` });
-      return;
-    }
-    res.json(worker);
-  } catch (error) {
-    console.error('Worker pool get error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * POST /api/v2/workerpool/workers/:id/availability
- * Update worker availability
- * Body: { available: boolean }
- */
-app.post('/api/v2/workerpool/workers/:id/availability', requireAuth, (req: Request, res: Response) => {
-  try {
-    const nodeId = (req as Request & { nodeId: string }).nodeId;
-    const workerId = req.params.id;
-
-    if (workerId !== nodeId) {
-      res.status(403).json({ error: 'forbidden', message: 'Cannot update another worker\'s availability' });
-      return;
-    }
-
-    const { available } = req.body;
-    if (available === undefined) {
-      res.status(400).json({ error: 'invalid_request', message: 'Missing available field' });
-      return;
-    }
-
-    const worker = updateWorkerAvailability(workerId, !!available);
-    res.json({ status: 'updated', worker });
-  } catch (error) {
-    console.error('Worker availability error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * GET /api/v2/workerpool/workers/:id/assignments
- * Get assignments for a worker
- */
-app.get('/api/v2/workerpool/workers/:id/assignments', (req: Request, res: Response) => {
-  try {
-    const assignments = getWorkerAssignments(req.params.id);
-    res.json({ assignments, total: assignments.length });
-  } catch (error) {
-    console.error('Worker assignments error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * GET /api/v2/workerpool/specialist/pools
  * List all specialist pools
  */
 app.get('/api/v2/workerpool/specialist/pools', (_req: Request, res: Response) => {
@@ -2223,117 +2253,6 @@ app.get('/api/v2/workerpool/stats', (_req: Request, res: Response) => {
 });
 
 /**
- * POST /api/v2/workerpool/register
- * Register a worker in the pool
- * Body: { worker_id, type?, skills?, domain?, max_concurrent_tasks? }
- */
-app.post('/api/v2/workerpool/register', requireAuth, (req: Request, res: Response) => {
-  try {
-    const nodeId = (req as Request & { nodeId: string }).nodeId;
-    const { type, skills, domain, max_concurrent_tasks } = req.body;
-
-    const worker = registerWorker({
-      worker_id: nodeId,
-      type,
-      skills: skills ?? [],
-      domain,
-      max_concurrent_tasks,
-    });
-
-    res.json({ status: 'registered', worker });
-  } catch (error) {
-    console.error('Worker pool register error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * GET /api/v2/workerpool/workers
- * List workers with optional filters
- * Query: type, domain, is_available, min_reputation
- */
-app.get('/api/v2/workerpool/workers', (req: Request, res: Response) => {
-  try {
-    const { type, domain, is_available, min_reputation } = req.query;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const filter: Record<string, any> = {};
-    if (type) filter.type = type;
-    if (domain) filter.domain = domain;
-    if (is_available !== undefined) filter.is_available = is_available === 'true';
-    if (min_reputation) filter.min_reputation = parseFloat(min_reputation as string);
-
-    const workers = listWorkers(filter as Parameters<typeof listWorkers>[0]);
-    res.json({ workers, total: workers.length });
-  } catch (error) {
-    console.error('Worker pool list error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * GET /api/v2/workerpool/workers/:id
- * Get worker details
- */
-app.get('/api/v2/workerpool/workers/:id', (req: Request, res: Response) => {
-  try {
-    const worker = getWorker(req.params.id);
-    if (!worker) {
-      res.status(404).json({ error: 'worker_not_found', message: `Worker ${req.params.id} not found` });
-      return;
-    }
-    res.json(worker);
-  } catch (error) {
-    console.error('Worker pool get error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * POST /api/v2/workerpool/workers/:id/availability
- * Update worker availability
- * Body: { available: boolean }
- */
-app.post('/api/v2/workerpool/workers/:id/availability', requireAuth, (req: Request, res: Response) => {
-  try {
-    const nodeId = (req as Request & { nodeId: string }).nodeId;
-    const workerId = req.params.id;
-
-    if (workerId !== nodeId) {
-      res.status(403).json({ error: 'forbidden', message: 'Cannot update another worker\'s availability' });
-      return;
-    }
-
-    const { available } = req.body;
-    if (available === undefined) {
-      res.status(400).json({ error: 'invalid_request', message: 'Missing available field' });
-      return;
-    }
-
-    const worker = updateWorkerAvailability(workerId, !!available);
-    res.json({ status: 'updated', worker });
-  } catch (error) {
-    console.error('Worker availability error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * GET /api/v2/workerpool/workers/:id/assignments
- * Get assignments for a worker
- */
-app.get('/api/v2/workerpool/workers/:id/assignments', (req: Request, res: Response) => {
-  try {
-    const assignments = getWorkerAssignments(req.params.id);
-    res.json({ assignments, total: assignments.length });
-  } catch (error) {
-    console.error('Worker assignments error:', error);
-    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-/**
- * GET /api/v2/workerpool/specialist/pools
  * List all specialist pools
  */
 app.get('/api/v2/workerpool/specialist/pools', (_req: Request, res: Response) => {
@@ -3264,6 +3183,18 @@ app.get('/api/v2/biology/patterns', (req: Request, res: Response) => {
 app.get('/api/v2/biology/stats', (_req: Request, res: Response) => {
   res.json(biology.getBiologyStats());
 });
+
+// ==================== Circle / Group Evolution Endpoints ====================
+import { default as circleRouter } from './circle/api';
+app.use('/a2a/circle', circleRouter);
+
+// ==================== Credit Marketplace Endpoints ====================
+import { default as marketplaceRouter } from './marketplace/api';
+app.use('/market', marketplaceRouter);
+
+// ==================== Arena Endpoints ====================
+import { default as arenaRouter } from './arena/api';
+app.use('/arena', arenaRouter);
 
 // ==================== Error Handling ====================
 
