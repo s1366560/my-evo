@@ -2768,6 +2768,22 @@ import sandboxRouter from './sandbox/api';
 
 app.use('/api/v2/sandbox', sandboxRouter);
 
+// ==================== Arena Endpoints (Phase 7) ====================
+import arenaRouter from './arena/api';
+app.use('/arena', arenaRouter);
+
+// ==================== Circle Endpoints (Phase 7) ====================
+import circleRouter from './circle/api';
+app.use('/a2a/circle', circleRouter);
+
+// ==================== Biology Endpoints (Phase 6) ====================
+import biologyRouter from './biology/api';
+app.use('/biology', biologyRouter);
+
+// ==================== Marketplace Endpoints (Phase 7) ====================
+import marketplaceRouter from './marketplace/api';
+app.use('/market', marketplaceRouter);
+
 // ==================== Search Endpoints ====================
 
 import * as search from './search';
