@@ -39,7 +39,7 @@ export function calculateGDI(asset: Asset, options?: {
 
   const intrinsic = calculateIntrinsic(asset);
   const usage = calculateUsage(fetchCount, reportCount);
-  const social = calculateSocial(asset, reportCount);
+  const social = calculateSocial(asset, fetchCount, reportCount);
   const freshness = calculateFreshness(ageDays);
 
   const total = Math.min(100,
@@ -169,20 +169,27 @@ function calculateUsage(fetchCount: number, reportCount: number): number {
 
 /**
  * Social score (0-100)
- * Based on votes and discussion participation
- * Note: For Phase 2, we use report count as proxy
+ * Based on fetch count (adoption signal) and report count (validation signal).
+ * Both indicate community engagement with the asset.
  */
-function calculateSocial(asset: Asset, reportCount: number): number {
-  // Phase 2 placeholder: use report count as social signal
-  // In production this would include votes, discussions, etc.
-  const baseSocial = Math.min(50, reportCount * 10);
+function calculateSocial(asset: Asset, fetchCount: number, reportCount: number): number {
+  // Fetch adoption signal (up to 40 points)
+  // High fetch count = widely used = strong social endorsement
+  const fetchScore = Math.min(40, Math.log1p(fetchCount) * 8);
 
-  // Bonus for promoted/active status
+  // Validation report signal (up to 35 points)
+  // Reports indicate active quality monitoring
+  const reportScore = Math.min(35, reportCount * 10);
+
+  // Combined base score (up to 75)
+  const baseSocial = fetchScore + reportScore;
+
+  // Status bonus for lifecycle stage
   const record = getAsset(asset.asset_id);
   let statusBonus = 0;
   if (record) {
-    if (record.status === 'active') statusBonus = 30;
-    else if (record.status === 'promoted') statusBonus = 20;
+    if (record.status === 'active') statusBonus = 20;
+    else if (record.status === 'promoted') statusBonus = 15;
     else if (record.status === 'candidate') statusBonus = 10;
   }
 
