@@ -15,6 +15,8 @@ import { publishAsset, submitValidationReport, revokeAsset } from './assets/publ
 import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails } from './assets/fetch';
 import { FetchQuery } from './assets/types';
 import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
+import { projectApi } from './projects/api';
+import { recipeApi } from './recipe/api';
 
 const app = express();
 app.use(express.json());
@@ -789,6 +791,96 @@ app.post('/a2a/dialog', requireAuth, (req: Request, res: Response) => {
   }
 });
 
+// ==================== Recipe & Organism Endpoints ====================
+
+/**
+ * POST /a2a/recipe
+ * Create a new recipe
+ */
+app.post('/a2a/recipe', (req: Request, res: Response) => {
+  recipeApi.create(req, res);
+});
+
+/**
+ * GET /a2a/recipe/list
+ * List all recipes
+ */
+app.get('/a2a/recipe/list', (req: Request, res: Response) => {
+  recipeApi.list(req, res);
+});
+
+/**
+ * GET /a2a/recipe/:id
+ * Get recipe details
+ */
+app.get('/a2a/recipe/:id', (req: Request, res: Response) => {
+  recipeApi.get(req, res);
+});
+
+/**
+ * POST /a2a/recipe/:id/publish
+ * Publish a recipe
+ */
+app.post('/a2a/recipe/:id/publish', (req: Request, res: Response) => {
+  recipeApi.publish(req, res);
+});
+
+/**
+ * PATCH /a2a/recipe/:id
+ * Update recipe (via fork)
+ */
+app.patch('/a2a/recipe/:id', (req: Request, res: Response) => {
+  recipeApi.update(req, res);
+});
+
+/**
+ * POST /a2a/recipe/:id/archive
+ * Archive a recipe
+ */
+app.post('/a2a/recipe/:id/archive', (req: Request, res: Response) => {
+  recipeApi.archive(req, res);
+});
+
+/**
+ * POST /a2a/recipe/:id/fork
+ * Fork a recipe
+ */
+app.post('/a2a/recipe/:id/fork', (req: Request, res: Response) => {
+  recipeApi.fork(req, res);
+});
+
+/**
+ * POST /a2a/recipe/:id/express
+ * Express a recipe into an organism
+ */
+app.post('/a2a/recipe/:id/express', (req: Request, res: Response) => {
+  recipeApi.express(req, res);
+});
+
+/**
+ * POST /a2a/organism/:id/express-gene
+ * Express a gene in an organism
+ */
+app.post('/a2a/organism/:id/express-gene', (req: Request, res: Response) => {
+  recipeApi.expressGene(req, res);
+});
+
+/**
+ * PATCH /a2a/organism/:id
+ * Update organism status (completed/failed)
+ */
+app.patch('/a2a/organism/:id', (req: Request, res: Response) => {
+  recipeApi.updateOrganism(req, res);
+});
+
+/**
+ * GET /a2a/recipe/stats
+ * Get recipe statistics
+ */
+app.get('/a2a/recipe/stats', (req: Request, res: Response) => {
+  recipeApi.stats(req, res);
+});
+
 // ==================== Phase 4: Bounty Endpoints ====================
 import {
   createBounty,
@@ -1391,6 +1483,64 @@ app.post('/a2a/council/resolve-dispute', (req: Request, res: Response) => {
     console.error('Resolve dispute error:', error);
     res.status(400).json({ error: 'resolve_failed', message: String(error) });
   }
+});
+
+// ==================== Projects API Endpoints ====================
+
+/**
+ * POST /a2a/project/propose
+ * Submit a project proposal
+ */
+app.post('/a2a/project/propose', (req: Request, res: Response) => {
+  projectApi.propose(req, res);
+});
+
+/**
+ * GET /a2a/project/list
+ * List all projects
+ */
+app.get('/a2a/project/list', (req: Request, res: Response) => {
+  projectApi.list(req, res);
+});
+
+/**
+ * GET /a2a/project/:id
+ * Get project details
+ */
+app.get('/a2a/project/:id', (req: Request, res: Response) => {
+  projectApi.get(req, res);
+});
+
+/**
+ * POST /a2a/project/:id/contribute
+ * Submit a contribution to a project
+ */
+app.post('/a2a/project/:id/contribute', (req: Request, res: Response) => {
+  projectApi.contribute(req, res);
+});
+
+/**
+ * POST /a2a/project/:id/review
+ * Review a contribution (approve/reject)
+ */
+app.post('/a2a/project/:id/review', (req: Request, res: Response) => {
+  projectApi.review(req, res);
+});
+
+/**
+ * POST /a2a/project/:id/merge
+ * Merge an approved project
+ */
+app.post('/a2a/project/:id/merge', (req: Request, res: Response) => {
+  projectApi.merge(req, res);
+});
+
+/**
+ * POST /a2a/project/:id/decompose
+ * Decompose a project into tasks
+ */
+app.post('/a2a/project/:id/decompose', (req: Request, res: Response) => {
+  projectApi.decompose(req, res);
 });
 
 // ==================== Worker Pool Endpoints (Phase 3-4) ====================
