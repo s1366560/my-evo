@@ -3249,6 +3249,18 @@ app.get('/api/v2/biology/stats', (_req: Request, res: Response) => {
   res.json(biology.getBiologyStats());
 });
 
+// ==================== Circle / Group Evolution Endpoints ====================
+import { default as circleRouter } from './circle/api';
+app.use('/a2a/circle', circleRouter);
+
+// ==================== Credit Marketplace Endpoints ====================
+import { default as marketplaceRouter } from './marketplace/api';
+app.use('/market', marketplaceRouter);
+
+// ==================== Arena Endpoints ====================
+import { default as arenaRouter } from './arena/api';
+app.use('/arena', arenaRouter);
+
 // ==================== Error Handling ====================
 
 app.use((_req: Request, res: Response) => {
