@@ -1,4 +1,14 @@
-// Recipe API
+/**
+ * Recipe API Endpoints
+ * Phase 5: Reusable agent capability recipes (prompt templates + config)
+ *
+ * Endpoints:
+ * - POST /a2a/recipe           Create a new recipe
+ * - GET  /a2a/recipe/list       List all recipes
+ * - GET  /a2a/recipe/:id        Get recipe details
+ * - POST /a2a/recipe/:id/rate   Rate a recipe
+ * - GET  /a2a/recipe/:id/versions  List recipe versions
+ */
 
 import { Request, Response } from 'express';
 import { RecipeEngine } from './engine.js';

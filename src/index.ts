@@ -17,6 +17,14 @@ import { FetchQuery } from './assets/types';
 import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
 import { projectApi } from './projects/api';
 import { recipeApi } from './recipe/api';
+import {
+  syncFetch,
+  syncPublish,
+  syncClaim,
+  syncCheck,
+  getSyncState,
+  getGlobalSyncStats,
+} from './sync/engine';
 
 const app = express();
 app.use(express.json());
@@ -514,6 +522,139 @@ app.get('/a2a/lineage/:assetId/common-ancestor/:otherAssetId', (req: Request, re
     });
   } catch (error) {
     console.error('Lineage common-ancestor error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// ==================== Phase 2-4: Periodic Sync Endpoints ====================
+
+/**
+ * POST /a2a/sync/fetch
+ * STEP 1: Pull new/updated/revoked assets since last sync
+ * 
+ * Request body (optional):
+ * {
+ *   "last_sync": "2026-03-27T00:00:00Z"  // ISO timestamp of last sync
+ * }
+ */
+app.post('/a2a/sync/fetch', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { last_sync } = req.body;
+
+    const result = syncFetch(nodeId, last_sync);
+    res.json(result);
+  } catch (error) {
+    console.error('Sync fetch error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/sync/publish
+ * STEP 2: Push pending local assets to Hub
+ * 
+ * Request body:
+ * {
+ *   "assets": [Asset, ...]  // Pending assets to publish
+ * }
+ */
+app.post('/a2a/sync/publish', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { assets } = req.body;
+
+    if (!assets || !Array.isArray(assets)) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing assets array' });
+      return;
+    }
+
+    const result = syncPublish(nodeId, assets);
+    res.json(result);
+  } catch (error) {
+    console.error('Sync publish error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/sync/claim
+ * STEP 3: Claim assigned tasks during sync cycle
+ * 
+ * Request body:
+ * {
+ *   "capacity": 5,           // Max tasks to claim
+ *   "skills": ["python"],    // Optional: node skills for matching
+ * }
+ */
+app.post('/a2a/sync/claim', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { capacity, skills } = req.body;
+
+    const result = syncClaim(nodeId, capacity ?? 5, skills);
+    res.json(result);
+  } catch (error) {
+    console.error('Sync claim error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/sync/check
+ * STEP 4: Reputation check and submit pending validation reports
+ * 
+ * Request body:
+ * {
+ *   "pending_reports": [
+ *     { "asset_id": "capsule_xxx", "outcome": { "status": "success", "score": 0.85 }, "usage_context": "production" }
+ *   ]
+ * }
+ */
+app.post('/a2a/sync/check', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { pending_reports } = req.body;
+
+    const result = syncCheck(nodeId, pending_reports ?? []);
+    res.json(result);
+  } catch (error) {
+    console.error('Sync check error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/sync/state
+ * Get sync state for current node
+ */
+app.get('/a2a/sync/state', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const state = getSyncState(nodeId);
+
+    if (!state) {
+      res.status(404).json({ error: 'not_found', message: 'No sync state found for this node' });
+      return;
+    }
+
+    res.json(state);
+  } catch (error) {
+    console.error('Sync state error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/sync/stats
+ * Get global sync statistics (Hub only)
+ */
+app.get('/a2a/sync/stats', (_req: Request, res: Response) => {
+  try {
+    const stats = getGlobalSyncStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Sync stats error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
@@ -2767,6 +2908,22 @@ app.get('/logs', (req: Request, res: Response) => {
 import sandboxRouter from './sandbox/api';
 
 app.use('/api/v2/sandbox', sandboxRouter);
+
+// ==================== Arena Endpoints (Phase 7) ====================
+import arenaRouter from './arena/api';
+app.use('/arena', arenaRouter);
+
+// ==================== Circle Endpoints (Phase 7) ====================
+import circleRouter from './circle/api';
+app.use('/a2a/circle', circleRouter);
+
+// ==================== Biology Endpoints (Phase 6) ====================
+import biologyRouter from './biology/api';
+app.use('/biology', biologyRouter);
+
+// ==================== Marketplace Endpoints (Phase 7) ====================
+import marketplaceRouter from './marketplace/api';
+app.use('/market', marketplaceRouter);
 
 // ==================== Search Endpoints ====================
 
