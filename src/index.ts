@@ -1960,11 +1960,77 @@ import sandboxRouter from './sandbox/api';
 import marketplaceRouter from './marketplace/api';
 import arenaRouter from './arena/api';
 import circleRouter from './circle/api';
+import { projectApi } from './projects/api';
+import { recipeApi } from './recipe/api';
+import * as quarantine from './quarantine/service';
+import type { QuarantineLevel, QuarantineReason } from './quarantine/types';
 
 app.use('/api/v2/sandbox', sandboxRouter);
 app.use('/market', marketplaceRouter);
 app.use('/arena', arenaRouter);
 app.use('/a2a/circle', circleRouter);
+
+// ==================== Projects API (not wired - Gap found 2026-03-28) ====================
+app.post('/a2a/project/propose', (req: Request, res: Response) => projectApi.propose(req, res));
+app.get('/a2a/project/list', (req: Request, res: Response) => projectApi.list(req, res));
+app.get('/a2a/project/:id', (req: Request, res: Response) => projectApi.get(req, res));
+app.post('/a2a/project/:id/contribute', (req: Request, res: Response) => projectApi.contribute(req, res));
+app.post('/a2a/project/:id/review', (req: Request, res: Response) => projectApi.review(req, res));
+app.post('/a2a/project/:id/merge', (req: Request, res: Response) => projectApi.merge(req, res));
+app.post('/a2a/project/:id/decompose', (req: Request, res: Response) => projectApi.decompose(req, res));
+
+// ==================== Recipe API (not wired - Gap found 2026-03-28) ====================
+app.post('/a2a/recipe', (req: Request, res: Response) => recipeApi.create(req, res));
+app.get('/a2a/recipe/list', (req: Request, res: Response) => recipeApi.list(req, res));
+app.get('/a2a/recipe/:id', (req: Request, res: Response) => recipeApi.get(req, res));
+app.get('/a2a/recipe/stats', (req: Request, res: Response) => recipeApi.stats(req, res));
+app.post('/a2a/recipe/:id/publish', (req: Request, res: Response) => recipeApi.publish(req, res));
+app.patch('/a2a/recipe/:id', (req: Request, res: Response) => recipeApi.update(req, res));
+app.post('/a2a/recipe/:id/archive', (req: Request, res: Response) => recipeApi.archive(req, res));
+app.post('/a2a/recipe/:id/fork', (req: Request, res: Response) => recipeApi.fork(req, res));
+app.post('/a2a/recipe/:id/express', (req: Request, res: Response) => recipeApi.express(req, res));
+app.post('/a2a/organism/:id/express-gene', (req: Request, res: Response) => recipeApi.expressGene(req, res));
+app.patch('/a2a/organism/:id', (req: Request, res: Response) => recipeApi.updateOrganism(req, res));
+
+// ==================== Quarantine API (not wired - Gap found 2026-03-28) ====================
+app.post('/api/v2/quarantine/check', (req: Request, res: Response) => {
+  try {
+    const { node_id, asset_id } = req.body;
+    if (!node_id) { res.status(400).json({ error: 'node_id required' }); return; }
+    const isQuarantined = quarantine.isNodeQuarantined(node_id);
+    const level = quarantine.getQuarantineLevel(node_id);
+    const record = quarantine.getQuarantineRecord(node_id);
+    res.json({ node_id, is_quarantined: isQuarantined, level, record });
+  } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+app.post('/api/v2/quarantine/isolate', (req: Request, res: Response) => {
+  try {
+    const { node_id, reason, severity, related_asset_ids } = req.body;
+    if (!node_id || !reason) { res.status(400).json({ error: 'node_id and reason required' }); return; }
+    const record = quarantine.quarantineNode(
+      node_id,
+      reason as QuarantineReason,
+      severity as 'low' | 'medium' | 'high' || 'medium',
+      related_asset_ids
+    );
+    res.status(201).json(record);
+  } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+app.post('/api/v2/quarantine/release', (req: Request, res: Response) => {
+  try {
+    const { node_id } = req.body;
+    if (!node_id) { res.status(400).json({ error: 'node_id required' }); return; }
+    const success = quarantine.releaseQuarantine(node_id);
+    res.json({ node_id, released: success });
+  } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+app.get('/api/v2/quarantine/stats', (_req: Request, res: Response) => {
+  res.json(quarantine.getQuarantineStats());
+});
+app.get('/api/v2/quarantine/history', (req: Request, res: Response) => {
+  // Note: getQuarantineHistory not exported; return empty for now
+  res.json({ records: [], message: 'history not yet implemented' });
+});
 
 // ==================== Search Endpoints ====================
 

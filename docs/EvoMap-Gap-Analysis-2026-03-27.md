@@ -28,6 +28,9 @@
 | Worker Pool | ✅ Fully Implemented | Medium | All endpoints wired: register, workers, pools, tasks, stats |
 | Evolution Sandbox | ✅ Fully Implemented | Medium | All endpoints wired: create, sandbox, members, assets, promote |
 | Recipe Engine | ⚠️ Separate copies | Low | src/recipe/engine.ts vs my-evo/src/recipe missing |
+| **Projects API** | ⚠️ **Not Wired** | **High** | src/projects/api.ts exists but NOT imported/used in index.ts |
+| **Recipe API** | ⚠️ **Not Wired** | **Medium** | src/recipe/api.ts exists but NOT imported/used in index.ts |
+| **Quarantine API** | ⚠️ **Not Wired** | **Medium** | src/quarantine/ exists but NOT imported/used in index.ts |
 
 ### 🔄 Outdated Local Copy - UPDATED 2026-03-27 09:31
 - ✅ my-evo/src/ now synced: bounty/, directory/, monitoring/, search/, workerpool/ added
