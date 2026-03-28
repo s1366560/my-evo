@@ -2979,6 +2979,126 @@ app.get('/api/v2/sandbox/stats', (_req: Request, res: Response) => {
   res.json(sandbox.getSandboxStats());
 });
 
+// ==================== Biology Dashboard Endpoints ====================
+
+import * as biology from './biology/service';
+
+// GET /api/v2/biology/ecosystem - Get ecosystem metrics
+app.get('/api/v2/biology/ecosystem', (req: Request, res: Response) => {
+  // Get distribution from query params or use defaults
+  const distribution: Record<string, number> = {
+    repair: 35,
+    optimize: 25,
+    innovate: 20,
+    security: 10,
+    performance: 7,
+    reliability: 3,
+  };
+  
+  const nodeContributions: number[] = Array.from({ length: 50 }, () => Math.random() * 100);
+  
+  const metrics = biology.getEcosystemMetrics({
+    categoryDistribution: distribution as any,
+    nodeContributions,
+    activeNodes7d: Math.floor(Math.random() * 100) + 20,
+    uniqueSignals: Math.floor(Math.random() * 50) + 10,
+  });
+  
+  res.json(metrics);
+});
+
+// GET /api/v2/biology/phylogeny - Get phylogeny tree
+app.get('/api/v2/biology/phylogeny', (req: Request, res: Response) => {
+  const rootId = req.query.root as string | undefined;
+  const tree = biology.getPhylogenyTree(rootId);
+  res.json({ nodes: tree, count: tree.length });
+});
+
+// POST /api/v2/biology/phylogeny/node - Add phylogeny node
+app.post('/api/v2/biology/phylogeny/node', (req: Request, res: Response) => {
+  const { type, name, parentId, gdiScore, category } = req.body;
+  
+  if (!type || !name) {
+    res.status(400).json({ error: 'invalid_request', message: 'type and name are required' });
+    return;
+  }
+  
+  const node = biology.addPhylogenyNode({
+    type,
+    name,
+    parentId,
+    gdiScore: gdiScore || 50,
+    category,
+  });
+  
+  res.status(201).json(node);
+});
+
+// GET /api/v2/biology/symbiosis - Get symbiotic relationships
+app.get('/api/v2/biology/symbiosis', (req: Request, res: Response) => {
+  const type = req.query.type as any;
+  const minStrength = req.query.minStrength ? parseFloat(req.query.minStrength as string) : undefined;
+  
+  const relationships = biology.getSymbioticRelationships({ type, minStrength });
+  res.json({ relationships, count: relationships.length });
+});
+
+// GET /api/v2/biology/macro-events - Get macro evolution events
+app.get('/api/v2/biology/macro-events', (req: Request, res: Response) => {
+  const limit = parseInt(req.query.limit as string) || 12;
+  const events = biology.getMacroEvents(limit);
+  res.json({ events, count: events.length });
+});
+
+// GET /api/v2/biology/selection-pressure - Get selection pressure
+app.get('/api/v2/biology/selection-pressure', (_req: Request, res: Response) => {
+  const pressure = biology.getSelectionPressure({
+    openBounties: Math.floor(Math.random() * 50) + 10,
+    bountyPool: Math.floor(Math.random() * 5000) + 1000,
+    rejected30d: Math.floor(Math.random() * 20),
+    total30d: 100,
+    hotSignals: ['timeout_error', 'cache_miss', 'auth_failure', 'null_pointer'],
+  });
+  res.json(pressure);
+});
+
+// GET /api/v2/biology/red-queen - Get Red Queen effect analysis
+app.get('/api/v2/biology/red-queen', (_req: Request, res: Response) => {
+  const categories = ['repair', 'optimize', 'innovate', 'security', 'performance'];
+  const earlyGDIs = categories.map(() => Math.random() * 30 + 50);
+  const recentGDIs = categories.map(() => Math.random() * 30 + 50);
+  
+  const effects = biology.getRedQueenEffect(categories as any, earlyGDIs, recentGDIs);
+  res.json({ effects, count: effects.length });
+});
+
+// GET /api/v2/biology/fitness - Get fitness landscape
+app.get('/api/v2/biology/fitness', (_req: Request, res: Response) => {
+  // Generate mock samples
+  const samples = Array.from({ length: 100 }, () => ({
+    rigor: Math.random(),
+    creativity: Math.random(),
+    fitness: Math.random() * 40 + 50,
+  }));
+  
+  const landscape = biology.getFitnessLandscape(samples);
+  res.json(landscape);
+});
+
+// GET /api/v2/biology/patterns - Get emergent patterns
+app.get('/api/v2/biology/patterns', (req: Request, res: Response) => {
+  const status = req.query.status as any;
+  const minLift = req.query.minLift ? parseFloat(req.query.minLift as string) : undefined;
+  
+  const patterns = biology.getEmergentPatterns({ status, minLift });
+  res.json({ patterns, count: patterns.length });
+});
+
+// GET /api/v2/biology/stats - Get biology stats
+app.get('/api/v2/biology/stats', (_req: Request, res: Response) => {
+  res.json(biology.getBiologyStats());
+});
+
 // ==================== Error Handling ====================
 
 app.use((_req: Request, res: Response) => {
