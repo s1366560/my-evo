@@ -86,6 +86,12 @@ export function updateSubtaskState(
   if (state === 'completed' || state === 'failed') {
     subtask.submitted_at = new Date().toISOString();
   }
+
+  // Auto-transition to aggregating when all subtasks complete
+  if (state === 'completed') {
+    tryTransitionToAggregating(subtask.swarm_id);
+  }
+
   return subtask;
 }
 
@@ -108,6 +114,10 @@ export function submitDecomposition(
     status: 'pending',
   };
   proposals.set(proposal.swarm_id, p);
+
+  // Transition swarm to decomposition state
+  updateSwarmState(proposal.swarm_id, 'decomposition');
+
   return p;
 }
 
@@ -139,6 +149,10 @@ export function rejectProposal(swarmId: string): DecompositionProposal | undefin
   const p = proposals.get(swarmId);
   if (!p) return undefined;
   p.status = 'rejected';
+
+  // Reset swarm to idle so another decomposition can be proposed
+  updateSwarmState(swarmId, 'idle');
+
   return p;
 }
 
@@ -152,7 +166,11 @@ export function submitAggregatedResult(
     created_at: new Date().toISOString(),
   };
   results.set(result.swarm_id, r);
+
+  // Transition through aggregating → completed
+  updateSwarmState(result.swarm_id, 'aggregating');
   updateSwarmState(result.swarm_id, 'completed');
+
   return r;
 }
 
@@ -260,6 +278,21 @@ export function getSwarmStats(): {
     by_state[s.state] = (by_state[s.state] ?? 0) + 1;
   }
   return { total: swarms.size, by_state };
+}
+
+/**
+ * Attempt to transition swarm to aggregating state.
+ * Called when a subtask completes — if all subtasks are done, transitions
+ * from 'solving' → 'aggregating' so the aggregator can finalize results.
+ * Returns the updated swarm or undefined if transition was not possible.
+ */
+export function tryTransitionToAggregating(swarmId: string): SwarmTask | undefined {
+  const swarm = swarms.get(swarmId);
+  if (!swarm) return undefined;
+  if (swarm.state !== 'solving') return undefined;
+  if (!areAllSubtasksComplete(swarmId)) return undefined;
+
+  return updateSwarmState(swarmId, 'aggregating');
 }
 
 /**
