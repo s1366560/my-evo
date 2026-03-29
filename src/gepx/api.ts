@@ -14,9 +14,11 @@ import { Router, Request, Response } from 'express';
 import { validateNodeSecret } from '../a2a/node';
 import { encodeGepxBundle, encodeSingleAsset, encodeLineageBundle } from './encode';
 import { decodeGepxBuffer, validateGepxPayload, extractAssets } from './decode';
-import { getAsset, listAssets, saveAsset, getAssetsByOwner, getAssetLineage } from '../assets/store';
+import { getAsset, listAssets, saveAsset, getAssetsByOwner } from '../assets/store';
+import { getLineage } from '../assets/lineage';
 import { getAssetDetails } from '../assets/fetch';
 import type { GepxLineageRecord } from './types';
+import type { Gene, Capsule, EvolutionEvent } from '../assets/types';
 
 const router = Router();
 
@@ -65,8 +67,27 @@ router.post('/export', requireAuth, (req: any, res: any) => {
   if (lineage) {
     lineageRecords = [];
     for (const record of records) {
-      const lineage = getAssetLineage(record.asset.asset_id);
-      for (const edge of lineage) {
+      const lineageResult = getLineage(record.asset.asset_id);
+      // Parents: edge from each parent -> child (this asset)
+      for (const parent of lineageResult.parents) {
+        const edge: GepxLineageRecord = {
+          parent_id: parent.asset_id,
+          child_id: record.asset.asset_id,
+          relation: 'evolved_from',
+          published_at: record.published_at,
+        };
+        if (!lineageRecords.some(r => r.parent_id === edge.parent_id && r.child_id === edge.child_id)) {
+          lineageRecords.push(edge);
+        }
+      }
+      // Children: edge from this asset -> each child
+      for (const child of lineageResult.children) {
+        const edge: GepxLineageRecord = {
+          parent_id: record.asset.asset_id,
+          child_id: child.asset_id,
+          relation: 'evolved_from',
+          published_at: record.published_at,
+        };
         if (!lineageRecords.some(r => r.parent_id === edge.parent_id && r.child_id === edge.child_id)) {
           lineageRecords.push(edge);
         }
@@ -114,9 +135,13 @@ router.post('/export/single', requireAuth, (req: any, res: any) => {
   }
 
   const asset = record.asset;
+  // Only Gene, Capsule, EvolutionEvent can be exported as single .gepx
+  if (asset.type !== 'Gene' && asset.type !== 'Capsule' && asset.type !== 'EvolutionEvent') {
+    return res.status(400).json({ error: 'invalid_type', message: 'Only Gene, Capsule, EvolutionEvent types can be exported as single .gepx' });
+  }
   const result = encodeSingleAsset({
     assetId: asset_id,
-    asset,
+    asset: asset as Gene | Capsule | EvolutionEvent,
     record,
     exporterNodeId: req.nodeId,
     compress: true,
@@ -198,9 +223,10 @@ router.post('/import', requireAuth, async (req: any, res: any) => {
       // Save to store (re-publish as the importing node)
       const saved = saveAsset({
         ...record,
-        asset: record.asset as any,
         status: 'active',
-        published_at: record.asset.published_at,
+        published_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        version: 1,
       } as any);
       if (saved) {
         imported.push(assetId);
@@ -284,9 +310,14 @@ router.get('/bundle/:id', async (req: any, res: any) => {
   }
 
   // Build a minimal preview export
+  // Only Gene, Capsule, EvolutionEvent can be previewed as single .gepx
+  const asset = record.asset;
+  if (asset.type !== 'Gene' && asset.type !== 'Capsule' && asset.type !== 'EvolutionEvent') {
+    return res.status(400).json({ error: 'invalid_type', message: 'Only Gene, Capsule, EvolutionEvent types can be previewed' });
+  }
   const result = encodeSingleAsset({
     assetId: id,
-    asset: record.asset as any,
+    asset: asset as Gene | Capsule | EvolutionEvent,
     record,
     compress: false, // uncompressed for readability
   });
