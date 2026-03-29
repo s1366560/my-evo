@@ -258,4 +258,5 @@ export interface AssetRecord {
   rejected_at?: string;
   archived_at?: string;
   version: number;
+  last_fetched_at?: string;   // For period-based trending
 }

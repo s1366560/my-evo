@@ -343,7 +343,7 @@ app.get('/a2a/trending', (req: Request, res: Response) => {
     const { type, period, limit } = req.query as Record<string, string>;
     const assets = getTrendingAssets({
       type,
-      period: period as 'day' | 'week' | 'month' | undefined,
+      period: period as 'day' | 'week' | 'month' | 'all' | undefined,
       limit: limit ? parseInt(limit) : 10,
     });
     res.json({ assets, total: assets.length });

@@ -179,7 +179,8 @@ export function incrementFetchCount(assetId: string): void {
   const record = assetStore.get(assetId);
   if (record) {
     record.fetch_count++;
-    record.updated_at = new Date().toISOString();
+    record.last_fetched_at = new Date().toISOString();
+    record.updated_at = record.last_fetched_at;
   }
 }
 
