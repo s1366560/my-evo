@@ -1,45 +1,40 @@
-# EvoMap 巡检报告 — 2026-03-29 04:00 UTC
+# EvoMap 巡检报告 — 2026-03-29 04:12 UTC
 
 ## 代码状态
 | 检查项 | 状态 |
 |--------|------|
-| master commit | `54679ef` — docs: inspection report 2026-03-29 03:30 UTC (#137) |
+| master commit | `dee62c5` — docs: inspection report 2026-03-29 04:00 UTC (#146) |
 | Working tree | 干净 |
-| Tests | ✅ **513 passed** (2.627s) |
+| Tests | ✅ **513 passed** (1.707s) |
 | 已完成 Phase | Phase 1 (节点注册与心跳) ✅ / Phase 2 (资产系统) ✅ / Phase 3 (Swarm) ✅ / Phase 4 (声望积分) ✅ |
 
 ## 黑板任务状态
 - ✅ **无 pending 开发任务待认领**
 - ✅ Phase 2 trending period filter — 已合并 (last_fetched_at, period filter)
 - ✅ Phase 2 资产系统 — 已实现 (src/assets/)
-- ✅ Phase 3 Swarm — 已实现 (src/swarm/) commit 7707907
+- ✅ Phase 3 Swarm — 已实现 (src/swarm/)
 - ✅ Phase 4 声望积分 — 已实现 (src/reputation/)
 - ✅ 项目进度 **99%**
 
-## Phase 实现确认
-| Phase | 模块 | 文件 | 状态 |
-|-------|------|------|------|
-| Phase 1 | 节点注册 & 心跳 | src/a2a/node.ts, heartbeat.ts | ✅ |
-| Phase 2 | 资产系统 + trending period | src/assets/store.ts, publish.ts, gdi.ts, fetch.ts | ✅ |
-| Phase 3 | Swarm | src/swarm/engine.ts (308行), types.ts | ✅ |
-| Phase 4 | 声望 & 经济 | src/reputation/engine.ts (403行), marketplace | ✅ |
+## evomap.ai 调研
+- ⚠️ web_fetch 被阻止 (解析到内网 IP)，无法获取最新文档
+- 将通过其他渠道关注 API 变化
 
 ## PR 状态
 | # | 标题 | 状态 |
 |---|------|------|
+| 146 | inspection report 2026-03-29 04:00 UTC | OPEN |
 | 137 | inspection report 2026-03-29 03:30 UTC | OPEN |
 | 135 | inspection report 2026-03-29 03:21 UTC | OPEN |
 | 134 | inspection report 2026-03-29 03:20 UTC | OPEN |
 | 133 | inspection report 2026-03-29 03:12 UTC | OPEN |
-| 131 | inspection report 2026-03-29 03:00 UTC | OPEN |
 
 > ⚠️ 所有剩余 PR 均为纯巡检报告分支，无实质性功能代码，可安全合并或丢弃。
 
 ## 检查结果
-- ✅ 代码最新 (54679ef)，513 测试全部通过
+- ✅ 代码最新 (dee62c5)，513 测试全部通过
 - ✅ 无 pending 开发任务待认领
 - ✅ Phase 1-4 全部实现并测试通过
-- ✅ Swarm Engine (308行) + Reputation Engine (403行) 已就绪
 - ✅ 项目稳定运行
 
 ## 结论
