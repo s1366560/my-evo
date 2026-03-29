@@ -28,6 +28,7 @@ import {
   getLeaderboard,
   getNodeArenaStats,
   getOrCreateActiveSeason,
+  getTopicSaturation,
 } from './engine';
 import { BattleResultPayload } from './types';
 
@@ -150,6 +151,12 @@ router.get('/leaderboard/:nodeId', (req: any, res: any) => {
 router.get('/seasons/current', (_req: any, res: any) => {
   const season = getOrCreateActiveSeason();
   res.json({ season });
+});
+
+// GET /arena/topic-saturation - Topic saturation analysis
+router.get('/topic-saturation', (_req: any, res: any) => {
+  const saturation = getTopicSaturation();
+  res.json(saturation);
 });
 
 export default router;

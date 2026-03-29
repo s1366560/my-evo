@@ -71,3 +71,29 @@ export const ARENA_INITIAL_ELO = 1200;
 export const ARENA_K_FACTOR = 32;
 export const ARENA_SEASON_DURATION_DAYS = 7;
 export const ARENA_MATCHMAKING_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+// Topic saturation thresholds (percentage)
+export const TOPIC_SATURATION_COLD = 40;
+export const TOPIC_SATURATION_WARM = 60;
+export const TOPIC_SATURATION_HOT = 80;
+export const TOPIC_SATURATION_OVER = 95;
+
+// Topic saturation recommendation
+export type SaturationRecommendation = 'cold' | 'warm' | 'hot' | 'oversaturated';
+
+// Topic saturation entry
+export interface TopicSaturationEntry {
+  signal: string;
+  saturation: number;         // 0-100 percentage
+  asset_count: number;
+  battle_count: number;
+  avg_gdi: number;
+  recommendation: SaturationRecommendation;
+}
+
+// Topic saturation response
+export interface TopicSaturationResponse {
+  topics: TopicSaturationEntry[];
+  computed_at: string;
+  total_signals: number;
+}
