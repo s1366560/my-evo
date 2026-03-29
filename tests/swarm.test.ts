@@ -26,6 +26,7 @@ import {
   updateSession,
   areAllSubtasksComplete,
   getSwarmStats,
+  tryTransitionToAggregating,
   resetStores,
 } from '../src/swarm/engine';
 import {
@@ -577,6 +578,153 @@ describe('Swarm Engine', () => {
       expect(stats.total).toBe(2);
       expect(stats.by_state['idle']).toBe(1);
       expect(stats.by_state['solving']).toBe(1);
+    });
+  });
+
+  describe('State Machine Transitions', () => {
+    it('should transition swarm to decomposition when decomposition is submitted', () => {
+      createSwarm({
+        swarm_id: 'swarm_state_1',
+        title: 'State Transition Test',
+        description: 'Test state transitions',
+        bounty: 100,
+        created_by: 'node_001',
+        root_task_id: 'task_001',
+      });
+
+      expect(getSwarm('swarm_state_1')?.state).toBe('idle');
+
+      submitDecomposition({
+        swarm_id: 'swarm_state_1',
+        proposer: 'node_002',
+        subtasks: [{ id: 'st_1', description: 'Task 1', weight: 1.0 }],
+      });
+
+      expect(getSwarm('swarm_state_1')?.state).toBe('decomposition');
+    });
+
+    it('should reset swarm to idle when proposal is rejected', () => {
+      createSwarm({
+        swarm_id: 'swarm_state_2',
+        title: 'Reject Test',
+        description: 'Test rejection',
+        bounty: 50,
+        created_by: 'node_001',
+        root_task_id: 'task_001',
+      });
+
+      submitDecomposition({
+        swarm_id: 'swarm_state_2',
+        proposer: 'node_002',
+        subtasks: [{ id: 'st_r1', description: 'Task', weight: 1.0 }],
+      });
+      expect(getSwarm('swarm_state_2')?.state).toBe('decomposition');
+
+      rejectProposal('swarm_state_2');
+      expect(getSwarm('swarm_state_2')?.state).toBe('idle');
+    });
+
+    it('should transition swarm through aggregating to completed when result is submitted', () => {
+      createSwarm({
+        swarm_id: 'swarm_state_3',
+        title: 'Aggregate Test',
+        description: 'Test aggregation state',
+        bounty: 100,
+        created_by: 'node_001',
+        root_task_id: 'task_001',
+      });
+
+      updateSwarmState('swarm_state_3', 'solving');
+
+      submitAggregatedResult({
+        swarm_id: 'swarm_state_3',
+        aggregator: 'node_agg',
+        output: { answer: 42 },
+        confidence: 0.95,
+        summary: 'Final',
+      });
+
+      // State transitions through aggregating → completed
+      expect(getSwarm('swarm_state_3')?.state).toBe('completed');
+    });
+
+    it('should auto-transition to aggregating when all subtasks complete', () => {
+      createSwarm({
+        swarm_id: 'swarm_state_4',
+        title: 'Auto Aggregate Test',
+        description: 'Test auto transition',
+        bounty: 100,
+        created_by: 'node_001',
+        root_task_id: 'task_001',
+      });
+
+      updateSwarmState('swarm_state_4', 'solving');
+
+      createSubtask({
+        subtask_id: 'st_auto_1',
+        swarm_id: 'swarm_state_4',
+        description: 'Auto 1',
+        weight: 1.0,
+      });
+
+      createSubtask({
+        subtask_id: 'st_auto_2',
+        swarm_id: 'swarm_state_4',
+        description: 'Auto 2',
+        weight: 1.0,
+      });
+
+      assignSubtask('st_auto_1', 'node_solver');
+      assignSubtask('st_auto_2', 'node_solver');
+
+      // First subtask complete — not all done yet
+      updateSubtaskState('st_auto_1', 'completed', { result: 'ok' });
+      expect(getSwarm('swarm_state_4')?.state).toBe('solving');
+
+      // Second subtask complete — all done, should auto-transition
+      updateSubtaskState('st_auto_2', 'completed', { result: 'ok' });
+      expect(getSwarm('swarm_state_4')?.state).toBe('aggregating');
+    });
+
+    it('should not transition to aggregating if swarm is not in solving state', () => {
+      createSwarm({
+        swarm_id: 'swarm_state_5',
+        title: 'No Transition Test',
+        description: 'Should not transition',
+        bounty: 50,
+        created_by: 'node_001',
+        root_task_id: 'task_001',
+      });
+
+      // Idle state — tryTransitionToAggregating should return undefined
+      const result = tryTransitionToAggregating('swarm_state_5');
+      expect(result).toBeUndefined();
+      expect(getSwarm('swarm_state_5')?.state).toBe('idle');
+    });
+
+    it('should not transition to aggregating if not all subtasks are complete', () => {
+      createSwarm({
+        swarm_id: 'swarm_state_6',
+        title: 'Partial Complete Test',
+        description: 'Not all complete',
+        bounty: 50,
+        created_by: 'node_001',
+        root_task_id: 'task_001',
+      });
+
+      updateSwarmState('swarm_state_6', 'solving');
+
+      createSubtask({
+        subtask_id: 'st_partial',
+        swarm_id: 'swarm_state_6',
+        description: 'Partial',
+        weight: 1.0,
+      });
+
+      // Only one of two subtasks done — should not transition
+      const result = tryTransitionToAggregating('swarm_state_6');
+      expect(result).toBeUndefined();
+      expect(getSwarm('swarm_state_6')?.state).toBe('solving');
     });
   });
 });
