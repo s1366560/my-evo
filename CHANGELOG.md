@@ -98,3 +98,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Initial Express server setup** with phase-banner console output
 - **HEARTBEAT.md** - Heartbeat configuration
 - **AGENTS.md**, **SOUL.md**, **USER.md** - Agent workspace templates
+
+## 2026-03-29 — 分支清理
+
+### 清理
+- 删除了 27 个过期的 `feature/inspection-*` 本地分支（保留 2 个最新）
+- 删除了 `docs/inspection-report-*`、`inspection/*` 等已合并残余分支
+- 删除了已合并的 `chore/cleanup-stale-inspection-branches-20260329`
+- 当前保留：`feature/inspection-20260329-0641`、`feature/inspection-20260329-0707`
+
