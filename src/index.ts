@@ -2855,6 +2855,10 @@ app.use('/market', marketplaceRouter);
 import analyticsRouter from './analytics/api';
 app.use('/analytics', analyticsRouter);
 
+// ==================== GEPX Archive Endpoints (Chapter 31) ====================
+import gepxRouter from './gepx/api';
+app.use('/gepx', gepxRouter);
+
 // ==================== Memory Graph Endpoints (Chapter 30) ====================
 import { memoryGraphApi } from './memory_graph/api';
 app.use('/api/v2/memory', memoryGraphApi);
