@@ -14,7 +14,17 @@ import {
   ARENA_INITIAL_ELO,
   ARENA_K_FACTOR,
   ARENA_SEASON_DURATION_DAYS,
+  TopicSaturationEntry,
+  TopicSaturationResponse,
+  TOPIC_SATURATION_COLD,
+  TOPIC_SATURATION_WARM,
+  TOPIC_SATURATION_HOT,
+  TOPIC_SATURATION_OVER,
+  SaturationRecommendation,
 } from './types';
+import { getActiveAssets } from '../assets/store';
+import { calculateGDI } from '../assets/gdi';
+import { Asset, Gene, Capsule } from '../assets/types';
 
 // In-memory stores
 const battles = new Map<string, ArenaBattle>();
@@ -307,3 +317,140 @@ export function getNodeArenaStats(nodeId: string): { elo: number; wins: number; 
 }
 
 export { getElo };
+
+// ============ Topic Saturation ============
+
+// Well-known EvoMap signals for saturation analysis
+const KNOWN_SIGNALS = [
+  'retry',
+  'timeout',
+  'concurrency',
+  'memory',
+  'cache',
+  'websocket',
+  'http',
+  'error',
+  'async',
+  'streaming',
+  'rate-limit',
+  'circuit-breaker',
+  'backoff',
+  'pool',
+  'queue',
+  'batch',
+  'pagination',
+  'validation',
+  'auth',
+  'encryption',
+  'compression',
+  'logging',
+  'monitoring',
+  'sandbox',
+  'swarm',
+  'council',
+  'reputation',
+  'gdi',
+  'evolution',
+  'gene',
+  'capsule',
+  'recipe',
+  'organism',
+  'arena',
+  'bounty',
+];
+
+/** Get recommendation based on saturation percentage */
+function getRecommendation(saturation: number): SaturationRecommendation {
+  if (saturation >= TOPIC_SATURATION_OVER) return 'oversaturated';
+  if (saturation >= TOPIC_SATURATION_HOT) return 'hot';
+  if (saturation >= TOPIC_SATURATION_WARM) return 'warm';
+  return 'cold';
+}
+
+/**
+ * Get topic saturation analysis.
+ * Analyzes how saturated each topic/signal area is based on:
+ * - Number of active assets per signal
+ * - Number of battles per topic
+ * - Average GDI per signal
+ */
+export function getTopicSaturation(): TopicSaturationResponse {
+  const activeAssets = getActiveAssets();
+  const totalAssets = activeAssets.length;
+
+  // Count assets per signal
+  const signalAssetCounts = new Map<string, number>();
+  const signalGdiSum = new Map<string, number>();
+  const signalGdiCount = new Map<string, number>();
+
+  for (const record of activeAssets) {
+    const asset = record.asset as Asset;
+    const signals: string[] = [];
+
+    if (asset.type === 'Gene') {
+      signals.push(...(asset as Gene).signals_match);
+    } else if (asset.type === 'Capsule') {
+      const trigger = (asset as Capsule).trigger;
+      if (typeof trigger === 'string') {
+        signals.push(trigger);
+      } else if (Array.isArray(trigger)) {
+        signals.push(...trigger);
+      }
+    }
+
+    for (const sig of signals) {
+      const normalized = sig.toLowerCase().trim();
+      signalAssetCounts.set(normalized, (signalAssetCounts.get(normalized) || 0) + 1);
+
+      // Accumulate GDI total score
+      const gdi = calculateGDI(asset);
+      signalGdiSum.set(normalized, (signalGdiSum.get(normalized) || 0) + gdi.total);
+      signalGdiCount.set(normalized, (signalGdiCount.get(normalized) || 0) + 1);
+    }
+  }
+
+  // Count battles per topic
+  const signalBattleCounts = new Map<string, number>();
+  for (const battle of battles.values()) {
+    const normalized = battle.topic.toLowerCase().trim();
+    signalBattleCounts.set(normalized, (signalBattleCounts.get(normalized) || 0) + 1);
+  }
+
+  // Build topic entries
+  const allSignals = new Set([...KNOWN_SIGNALS, ...signalAssetCounts.keys()]);
+  const entries: TopicSaturationEntry[] = [];
+
+  for (const signal of allSignals) {
+    const assetCount = signalAssetCounts.get(signal) || 0;
+    const battleCount = signalBattleCounts.get(signal) || 0;
+
+    // Saturation = percentage of assets in this signal relative to total
+    const saturation = totalAssets > 0
+      ? Math.round((assetCount / totalAssets) * 100)
+      : 0;
+
+    // Average GDI for this signal
+    const gdiCount = signalGdiCount.get(signal) || 0;
+    const avgGdi = gdiCount > 0
+      ? Math.round((signalGdiSum.get(signal)! / gdiCount) * 100) / 100
+      : 0;
+
+    entries.push({
+      signal,
+      saturation,
+      asset_count: assetCount,
+      battle_count: battleCount,
+      avg_gdi: avgGdi,
+      recommendation: getRecommendation(saturation),
+    });
+  }
+
+  // Sort by saturation descending
+  entries.sort((a, b) => b.saturation - a.saturation);
+
+  return {
+    topics: entries,
+    computed_at: new Date().toISOString(),
+    total_signals: entries.length,
+  };
+}
