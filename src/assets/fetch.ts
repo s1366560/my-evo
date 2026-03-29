@@ -136,20 +136,40 @@ function signalMatch(pattern: string, signal: string): boolean {
 
 /**
  * Get trending assets (most fetched recently)
+ * Supports period filtering: day, week, month
  */
 export function getTrendingAssets(options?: {
   type?: string;
-  period?: 'day' | 'week' | 'month';
+  period?: 'day' | 'week' | 'month' | 'all';
   limit?: number;
 }): AssetWithScore[] {
   const records = listAssets({
     type: options?.type,
     status: 'active',
-    limit: 100,
+    limit: 200,
   });
 
-  // Sort by fetch_count
-  const sorted = records
+  // Filter by period based on last_fetched_at
+  let filtered = records;
+  const period = options?.period ?? 'week';
+  if (period !== 'all') {
+    const now = Date.now();
+    const periodMs: Record<string, number> = {
+      day: 24 * 60 * 60 * 1000,
+      week: 7 * 24 * 60 * 60 * 1000,
+      month: 30 * 24 * 60 * 60 * 1000,
+    };
+    const cutoff = now - (periodMs[period] ?? periodMs['week']);
+
+    filtered = records.filter(r => {
+      // If never fetched, use published_at as fallback
+      const fetchTime = r.last_fetched_at ? new Date(r.last_fetched_at).getTime() : new Date(r.published_at).getTime();
+      return fetchTime >= cutoff;
+    });
+  }
+
+  // Sort by fetch_count (descending)
+  const sorted = filtered
     .map(record => ({
       ...record.asset,
       status: record.status,
