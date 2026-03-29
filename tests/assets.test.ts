@@ -639,7 +639,7 @@ describe('revokeAsset', () => {
   });
 
   it('should return failure for non-existent asset', () => {
-    const result = revokeAsset('sha256:nonexistent_revoke', 'node_test');
+    const result = revokeAsset('sha256:nonexistent_revoke', 'node_test_001');
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
   });
@@ -720,7 +720,11 @@ describe('submitValidationReport', () => {
     const gene = makeGene({ id: 'gene_report_submit_1' });
     publishAsset({ assets: [gene] }, 'node_report', 'secret_report');
 
-    const result = submitValidationReport(gene.asset_id, { status: 'success', score: 0.9 }, 'node_report');
+    const result = submitValidationReport(
+      gene.asset_id,
+      { status: 'success', score: 0.9 },
+      'node_report'
+    );
 
     expect(result).toBeDefined();
     expect(result.accepted).toBe(true);
