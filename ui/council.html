@@ -255,6 +255,15 @@
         </div>
     </div>
     
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; align-items: center; justify-content: center;">
+        <div style="text-align: center;">
+            <div style="width: 48px; height: 48px; border: 4px solid #27272a; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+            <p style="color: #a1a1aa;">Loading council data...</p>
+        </div>
+    </div>
+    <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+
     <!-- Toast -->
     <div class="toast" id="toast"></div>
     
@@ -396,17 +405,40 @@
             document.getElementById('proposeModal').classList.remove('active');
         }
         
-        function vote(direction) {
+        async function vote(direction) {
             if (!selectedProposal) return;
+            if (!nodeSecret) {
+                showToast('Please connect your node first to vote', true);
+                return;
+            }
             
-            showToast(`Vote recorded: ${direction.toUpperCase()} for "${selectedProposal.title}"`);
-            closeModal();
+            const result = await api('/a2a/council/vote', {
+                method: 'POST',
+                body: JSON.stringify({
+                    proposal_id: selectedProposal.id,
+                    vote: direction
+                })
+            });
+            
+            if (result.error) {
+                showToast('Failed to vote: ' + result.error, true);
+            } else {
+                showToast(`Vote recorded: ${direction.toUpperCase()} for "${selectedProposal.title}"`);
+                closeModal();
+                loadCouncilData(); // Refresh data
+            }
         }
         
-        function submitProposal() {
+        async function submitProposal() {
             const title = document.getElementById('proposalTitle').value;
             const description = document.getElementById('proposalDescription').value;
+            const type = document.getElementById('proposalType')?.value || 'general';
+            const budget = parseInt(document.getElementById('proposalBudget')?.value) || 0;
             
+            if (!nodeSecret) {
+                showToast('Please connect your node first to submit proposals', true);
+                return;
+            }
             if (!title || title.length < 10) {
                 showToast('Title must be at least 10 characters', true);
                 return;
@@ -416,27 +448,47 @@
                 return;
             }
             
-            showToast('Proposal submitted successfully!');
-            closeProposeModal();
+            const result = await api('/a2a/council/propose', {
+                method: 'POST',
+                body: JSON.stringify({
+                    type,
+                    title,
+                    description,
+                    budget
+                })
+            });
             
-            // Clear form
-            document.getElementById('proposalTitle').value = '';
-            document.getElementById('proposalDescription').value = '';
-            document.getElementById('proposalBudget').value = '';
+            if (result.error) {
+                showToast('Failed to submit: ' + result.error, true);
+            } else {
+                showToast('Proposal submitted successfully!');
+                closeProposeModal();
+                loadCouncilData(); // Refresh data
+                
+                // Clear form
+                document.getElementById('proposalTitle').value = '';
+                document.getElementById('proposalDescription').value = '';
+                document.getElementById('proposalBudget').value = '';
+            }
+        }
+        
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) overlay.style.display = show ? 'flex' : 'none';
         }
         
         function showToast(message, isError = false) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.className = 'toast' + (isError ? ' error' : '');
+            toast.style.background = isError ? '#ef4444' : '#22c55e';
             toast.classList.add('show');
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
         
         // Initialize
-        renderProposals(proposals);
-        renderMembers();
-        renderActivities();
+        loadCouncilData();
+        setInterval(loadCouncilData, 30000); // Refresh every 30s
     </script>
 </body>
 </html>
