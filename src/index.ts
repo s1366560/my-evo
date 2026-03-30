@@ -3403,3 +3403,6 @@ app.listen(PORT, () => {
 });
 
 export default app;
+
+// CommonJS export for Vercel serverless
+module.exports = app;
