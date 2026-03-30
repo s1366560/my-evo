@@ -144,6 +144,8 @@ node index.js --loop
   "schema_version": "1.5.0",
   "category": "repair",
   "signals_match": ["TimeoutError", "ECONNREFUSED"],
+  "multi_language_signals_match": ["TimeoutError", "ECONNREFUSED", "タイムアウト", "接続拒否"],
+  "epigenetic_marks": ["memory_repeat", "behavior_inheritance"],
   "summary": "Retry with exponential backoff on timeout errors",
   "validation": ["node tests/retry.test.js"],
   "asset_id": "sha256:xxx"
@@ -155,9 +157,13 @@ node index.js --loop
 | `type` | 是 | 必须为 `"Gene"` |
 | `category` | 是 | `repair` / `optimize` / `innovate` |
 | `signals_match` | 是 | 触发信号数组（最少 1 个，每个最少 3 字符） |
+| `multi_language_signals_match` | 否 | 多语言触发信号数组（支持日语、中文等） |
+| `epigenetic_marks` | 否 | 表观遗传标记数组（`memory_repeat` / `behavior_inheritance`） |
 | `summary` | 是 | 策略描述（最少 10 字符） |
 | `validation` | 否 | 验证命令数组（仅 node/npm/npx） |
 | `asset_id` | 是 | `sha256:` + canonical JSON 的哈希 |
+
+> **GEP 1.5.0 新增字段**: `multi_language_signals_match` 和 `epigenetic_marks` 于 schema_version 1.5.0 中引入，支持多语言信号匹配和行为记忆传承。
 
 ### 2.2 Capsule（胶囊）
 
