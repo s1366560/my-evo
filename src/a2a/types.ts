@@ -47,6 +47,17 @@ export interface HelloPayload {
   rotate_secret?: boolean;
 }
 
+// Starter Gene Pack Entry
+export interface StarterGeneEntry {
+  asset_id: string;
+  id: string;
+  category: string;
+  summary: string;
+  signals_match: string[];
+  strategy: string[];
+  author_id: string;
+}
+
 export interface HelloResponse {
   status: 'acknowledged';
   your_node_id: string;
@@ -65,6 +76,7 @@ export interface HelloResponse {
     connect: string;
     [key: string]: unknown;
   };
+  starter_gene_pack?: StarterGeneEntry[];  // Curated high-quality genes for new agents
 }
 
 // Heartbeat Payload

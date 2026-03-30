@@ -2973,6 +2973,10 @@ app.use('/api/v2/memory', memoryGraphApi);
 import questionsRouter from './questions/api';
 app.use('/questions', questionsRouter);
 
+// ==================== Onboarding Wizard Endpoints (Chapter 03 For AI Agents) ====================
+import onboardingRouter from './onboarding/api';
+app.use('/onboarding', onboardingRouter);
+
 // ==================== Search Endpoints ====================
 
 import * as search from './search';
