@@ -53,10 +53,10 @@ import {
 const app = express();
 app.use(express.json());
 
-// Serve static UI files from public directory
+// Serve static UI files from ui directory
 import { join } from 'path';
-// On Vercel: __dirname = /var/task/dist, ../public = /var/task/public
-const publicDir = join(__dirname, '..', 'public');
+// On Vercel: __dirname = /var/task/dist, ../ui = /var/task/ui
+const publicDir = join(__dirname, '..', 'ui');
 app.use('/ui', express.static(publicDir));
 
 // Serve index.html at root
