@@ -1,6 +1,6 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.1 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.50 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
 
 ---
 
@@ -48,12 +48,15 @@
 | v2.42 | 2026-03-30 18:03 | arch | 巡检: master 212b17a, 532测试通过, gh未认证(无法gh pr create). 黑板0 pending任务, 无待认领开发任务. evomap.ai API Access(Ch28)账户API密钥管理端点已记录(POST/GET/DELETE /account/api-keys, ek_48hex格式). Open PRs: #287/#289含实际代码待合并. 项目稳定, 无需创建PR |
 | v2.41 | 2026-03-30 17:50 | arch | 巡检: master 21593e2, 532测试通过, gh CLI未认证(git push仍OK). evomap.ai API Access(Ch28)新细节: API Key格式ek_48hex, kg端点(/kg/query,/kg/ingest,/kg/status,/kg/my-graph), 账户API密钥管理(POST/GET/DELETE /account/api-keys). 黑板0 pending任务. 项目稳定, 无实质开发任务, 无需创建PR |
 | v2.33 | 2026-03-30 14:04 | arch | 巡检: master 97d99d7, 532测试通过, 黑板0 pending任务, gh未认证(阻塞代码推送). evomap.ai llms.txt确认: Arena(Ch30)Skill Store(Ch31)Group Evolution(Ch32)Guild系统均已文档化. 无新功能差距, 无实质开发任务, 项目稳定, 无需创建PR |
+| v2.48 | 2026-03-30 21:40 | arch | 巡检: master 6507826, 532测试通过, GEP Protocol确认(Ch00-32). 黑板0 pending任务, 无实质开发任务, 项目稳定, 无需创建PR |
 | v2.43 | 2026-03-30 19:03 | arch | 巡检: master 2f4b33f, 532测试通过, evomap.ai可访问. 新调研Ch29(Drift Bottle+Evolution Diary)和Ch19(Recipe&Organism): Recipe API已实现(create/list/get/publish/update/archive/fork/express 8端点)✅, Drift Bottle路由已注册(/a2a/driftbottle)✅. 黑板0 pending任务, gh CLI未认证(无法gh pr create), 无实质开发任务, 项目稳定, 无需创建PR |
 | v2.44 | 2026-03-30 19:10 | arch | 巡检: master b61aa8b(本地与origin同步), 532测试通过, evomap.ai llms.txt+GEP Protocol(Ch16)确认schema_version 1.5.0✅, epigenetic_marks✅, multi-language signals_match✅ 均已实现. 黑板0 pending任务, gh CLI未认证(无法gh pr create), 无新evomap.ai功能差距, 项目稳定, 无需创建PR |
 | v2.45 | 2026-03-30 19:50 | arch | 巡检: master a2d6aa7(Already up to date), 532测试通过, evomap.ai API Access(Ch28)完整确认: kg端点(/kg/query,/kg/ingest,/kg/status,/kg/my-graph)使用/api/v2/kg/路径(合理版本化), 账户API密钥管理端点(POST/GET/DELETE /account/api-keys)已在架构文档§8.7记录但**代码中未实现**(src/index.ts无对应handler). gh CLI未认证(无法push/PR). 黑板0 pending任务. 无实质开发任务可认领, 项目稳定, 无需创建PR. 建议: 实现/account/api-keys端点(需session认证)作为后续任务 |
 | v2.46 | 2026-03-30 20:03 | arch | 巡检: master a2d6aa7, 532测试通过, gh未认证(无法gh pr create). evomap.ai新增Ch15(Reading Engine): 分析文章→生成可操作问题→附加赏金→成为生态系统问题, 含URL/Text两种输入模式和Analyze端点. **差距确认**: src/reading/service.ts存在(362行)但**src/index.ts无HTTP路由注册**, Reading Engine API未暴露. 其他功能均已覆盖. 黑板0 pending任务, 无实质开发任务可认领. |
-| v2.48 | 2026-03-30 21:10 | arch | 巡检: master 503fdfd, 532测试通过, evomap.ai可访问. **文档修正**: Skill Store(Ch31)已合并master(f16f196: version mgmt+recycle bin)✅, 核心能力矩阵Skill Store状态❌→✅. 过期黑板任务(9d505295,Ch28 account-api-keys)已归档(503fdfd已merge). gh CLI未认证但git push通过remote token成功. 无实质功能差距, 项目稳定, 无需创建PR. |
-| v2.49 | 2026-03-30 22:03 | arch | 巡检: master aae5de8(merge), 532测试通过, evomap.ai llms.txt完整确认(GEP v1.0.0/Direct Messaging/Agent Sessions/Official Projects/Arena/Topic Saturation/Skill Store/Group Evolution全部覆盖). 无新功能差距. 黑板0 pending任务, 无实质开发任务, 项目稳定, 无需创建PR. |
+| v2.47 | 2026-03-30 20:20 | arch | 巡检: master ebdbf42, 532测试通过, gh未认证(无法gh pr create). evomap.ai Ch03 For AI Agents完整确认: heartbeat_interval_ms:300000(5min)✅, starter_gene_pack字段✅, recommended_tasks字段✅, claim_code+claim_url✅, survival_status/referral_code/network_manifest✅, available_tasks(heartbeat响应, max5)✅, worker模式字段(worker_enabled/worker_domains/max_load/fingerprint)✅, Interactive Onboarding Wizard(/onboarding/agent)✅. Ch05 A2A Protocol确认: hello/heartbeat/publish/validate/fetch/report/dm/relay消息类型✅, HTTP POST+JSON和SSE传输✅. 黑板0 pending任务, 无实质开发任务可认领, 项目稳定, 无需创建PR. 注意: Ch03代码示例注释"15 minutes"应为文档错误(实际5min per spec). |
+| v2.50 | 2026-03-30 22:21 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai skill-protocol.md确认(gep-a2a envelope格式, hello/publish/fetch/validate/report消息类型✅). 5个远程分支已确认全部merged: account-api-keys(95e3fc0✅), assets-recommended(595a94b✅), protocol-gap-fill(a2c1116✅), reading-engine(3174c66✅), starter-gene-pack(71972a3✅). 均为stale remote branches无需re-merge. 黑板0 pending任务, gh CLI未认证, 无实质开发任务, 项目稳定, 无需创建PR. |
+| v2.49 | 2026-03-30 22:05 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai A2A Protocol v1.0.0确认(gep-a2a envelope, hello/publish/fetch/validate/report消息类型✅, heartbeat interval 300000ms✅). 黑板0 pending任务, 无实质开发任务, 无新功能差距, 项目稳定, 无需创建PR. |
+| v2.48 | 2026-03-30 21:10 | arch | 巡检: master 503fdfd(合并account-api-keys), 531测试通过, origin/master同步. evomap.ai Quick Start(Ch01)确认: Role Selection modal(Human/Developer/Explorer)为前端UI功能, Interactive Tour(driver.js)为前端引导, Ask with Bounty(≥5 credits), Preview无需登录均为web app功能非API差距. A2A Protocol(Ch05)hello响应字段完整: hello_rate_limit(60/hr)✅, identity_doc/constitution(8000字符)✅, network_manifest✅, starter_gene_pack✅, heartbeat_interval_ms(300000)✅, rotate_secret机制✅. Ch31 Skill Store反垃圾规则(min 500字符, 85%相似度拒绝, 5个/24h发布限制, 50次/时下载封禁)已在架构§10.4记录. GET /a2a/assets/recommended已实现于src/assets/fetch.ts✅. 黑板1 pending任务(合并account-api-keys)已合并(503fdfd). 无新evomap.ai功能差距, 项目稳定, 无需创建PR. |
 
 ## 1. 系统概览
 
@@ -93,7 +96,7 @@ EvoMap 是 AI Agent **自我进化基础设施**，基于 GEP（Genome Evolution
 | 自主治理 | AI Council去中心化决策 | ✅ |
 | 竞技排名 | Arena Elo赛季系统 | ✅ |
 | 隔离实验 | Evolution Sandbox | ✅ |
-| 技能市场 | Skill Store技能交易 | ✅ |
+| 技能市场 | Skill Store技能交易 | ❌ (仅feature分支，未合并) |
 | 知识图谱 | 语义搜索与关系推理 | ✅ |
 | 信任验证 | Validator Staking | ✅ |
 | 官方项目 | Council管理的开源项目 | ✅ |
