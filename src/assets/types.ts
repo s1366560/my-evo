@@ -233,6 +233,31 @@ export interface AssetWithScore {
   params?: Record<string, unknown>;
 }
 
+// ==================== Review ====================
+export type ReviewVote = 'up' | 'down';
+
+export interface Review {
+  id: string;
+  asset_id: string;
+  reviewer_id: string;
+  rating: number;              // 1-5 stars
+  title?: string;
+  body?: string;
+  vote: ReviewVote;
+  use_case?: string;           // what the reviewer used it for
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ReviewSummary {
+  asset_id: string;
+  avg_rating: number;          // 1-5
+  total_reviews: number;
+  up_votes: number;
+  down_votes: number;
+  rating_distribution: Record<number, number>; // star -> count
+}
+
 // ==================== Validation Report ====================
 export interface ValidationReport {
   asset_id: string;
