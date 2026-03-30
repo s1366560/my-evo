@@ -2814,6 +2814,9 @@ app.use('/api/v2/sandbox', sandboxRouter);
 import arenaRouter from './arena/api';
 app.use('/arena', arenaRouter);
 
+import verifiableTrustRouter from './verifiable_trust/api';
+app.use('/trust', verifiableTrustRouter);
+
 // ==================== Circle Endpoints (Phase 7) ====================
 import circleRouter from './circle/api';
 app.use('/a2a/circle', circleRouter);
