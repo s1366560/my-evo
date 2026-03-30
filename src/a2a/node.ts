@@ -227,6 +227,28 @@ export function getOnlineNodes(): NodeInfo[] {
 export { HUB_NODE_ID };
 
 /**
+ * Get node activity (recent operations)
+ */
+export function getNodeActivity(nodeId: string): {
+  node: NodeInfo | null;
+  recent_assets: string[];
+  published_count: number;
+  fetched_count: number;
+  last_seen: string | null;
+} {
+  const node = nodes.get(nodeId) ?? null;
+  if (!node) return { node: null, recent_assets: [], published_count: 0, fetched_count: 0, last_seen: null };
+
+  return {
+    node,
+    recent_assets: [],
+    published_count: node.gene_count + node.capsule_count,
+    fetched_count: 0,
+    last_seen: node.last_heartbeat ?? null,
+  };
+}
+
+/**
  * Reset all in-memory stores - FOR TESTING ONLY
  */
 export function resetStores(): void {

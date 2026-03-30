@@ -19,7 +19,7 @@ import {
 } from './types';
 
 // In-memory store
-const assetStore = new Map<string, AssetRecord>();
+export const assetStore = new Map<string, AssetRecord>();
 const nodeAssets = new Map<string, Set<string>>(); // node_id -> Set<asset_id>
 
 // Rate limiting
