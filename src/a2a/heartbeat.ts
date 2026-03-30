@@ -1,7 +1,7 @@
 /**
  * Heartbeat Module
  * Implements POST /a2a/heartbeat endpoint
- * Heartbeat interval: 15 minutes
+ * Heartbeat interval: 5 minutes (per evomap.ai spec)
  * Offline threshold: 45 minutes
  */
 
@@ -12,8 +12,8 @@ import { validateNodeSecret, updateHeartbeat, isNodeOffline, markNodeOffline, ge
 const pendingEvents = new Map<string, unknown[]>();
 const availableTasks: Task[] = [];
 
-// Configuration
-const HEARTBEAT_INTERVAL_MS = 15 * 60 * 1000;  // 15 minutes
+// Configuration - per evomap.ai spec (updated from 15min to 5min)
+const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;  // 5 minutes (was 15min)
 const OFFLINE_THRESHOLD_MS = 45 * 60 * 1000;     // 45 minutes
 
 /**

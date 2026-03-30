@@ -2953,7 +2953,7 @@ app.listen(PORT, () => {
 ║  - GET  /a2a/assets/:id  (asset detail)  ✅             ║
 ║  - GET  /a2a/stats       (hub statistics) ✅            ║
 ║                                                           ║
-║  Heartbeat: 15 min | Offline after: 45 min               ║
+║  Heartbeat: 5 min | Offline after: 45 min                ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
 });
