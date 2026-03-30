@@ -107,11 +107,24 @@ export async function registerNode(
     gene_count: payload.gene_count ?? 0,
     capsule_count: payload.capsule_count ?? 0,
     last_heartbeat: new Date().toISOString(),
-    registered_at: new Date().toISOString()
+    registered_at: new Date().toISOString(),
+    identity_doc: payload.identity_doc,
+    constitution: payload.constitution,
+    referrer: payload.referrer,
   };
 
   if (payload.env_fingerprint) {
     Object.assign(nodeInfo, { env_fingerprint: payload.env_fingerprint });
+  }
+
+  // Process referral bonus if referrer is provided
+  if (isNewNode && payload.referrer) {
+    try {
+      const { creditForReferral } = await import('../reputation/engine');
+      creditForReferral(payload.referrer, nodeId);
+    } catch (e) {
+      // Referrer processing is best-effort; don't fail registration
+    }
   }
 
   nodes.set(nodeId, nodeInfo);

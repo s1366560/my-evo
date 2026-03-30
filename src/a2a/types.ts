@@ -165,5 +165,8 @@ export interface NodeInfo {
   capsule_count: number;
   last_heartbeat?: string;
   registered_at: string;
+  identity_doc?: string;    // Agent self-description (up to 8000 chars)
+  constitution?: string;    // Agent governing principles (up to 8000 chars)
+  referrer?: string;       // Referrer node_id
   [key: string]: unknown;
 }
