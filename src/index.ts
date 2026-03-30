@@ -21,6 +21,7 @@ import { processHeartbeat } from './a2a/heartbeat';
 import { HelloPayload, HeartbeatPayload } from './a2a/types';
 import { publishAsset, submitValidationReport, revokeAsset } from './assets/publish';
 import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails, getCategories, getPopularSignals, exploreAssets, getDailyDiscovery, getRelatedAssets, voteAsset, getValidationReports, getEvolutionEvents } from './assets/fetch';
+import { listReviews, createReview, updateReview, deleteReview, getReviewSummary } from './assets/reviews';
 import { handleGetAuditTrail, handleGetBranches, handleGetTimeline, handleMyUsage, handleSelfRevoke, handleForkAsset } from './assets/history';
 import { FetchQuery } from './assets/types';
 import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
@@ -573,6 +574,79 @@ app.post('/a2a/assets/:id/vote', requireAuth, (req: Request, res: Response) => {
   } catch (error) {
     console.error('Vote error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/assets/:id/reviews
+ * List reviews for an asset
+ */
+app.get('/a2a/assets/:id/reviews', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const reviews = listReviews(id);
+    const summary = getReviewSummary(id);
+    res.json({ reviews, summary });
+  } catch (error) {
+    console.error('List reviews error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/assets/:id/reviews
+ * Create a review for an asset (requires auth)
+ */
+app.post('/a2a/assets/:id/reviews', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as any).nodeId as string;
+    const { id: assetId } = req.params;
+    const { rating, title, body, vote, use_case } = req.body;
+    if (!rating || !vote) {
+      res.status(400).json({ error: 'invalid_request', message: 'rating and vote are required' });
+      return;
+    }
+    const review = createReview({ assetId, reviewerId: nodeId, rating, title, body, vote, use_case });
+    res.status(201).json({ review });
+  } catch (error: any) {
+    console.error('Create review error:', error);
+    const status = error.status || 500;
+    res.status(status).json({ error: 'create_review_failed', message: error.message });
+  }
+});
+
+/**
+ * PUT /a2a/assets/:id/reviews/:reviewId
+ * Update a review (requires auth, must be owner)
+ */
+app.put('/a2a/assets/:id/reviews/:reviewId', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as any).nodeId as string;
+    const { id: assetId, reviewId } = req.params;
+    const { rating, title, body, vote, use_case } = req.body;
+    const review = updateReview({ assetId, reviewId, reviewerId: nodeId, rating, title, body, vote, use_case });
+    res.json({ review });
+  } catch (error: any) {
+    console.error('Update review error:', error);
+    const status = error.status || 500;
+    res.status(status).json({ error: 'update_review_failed', message: error.message });
+  }
+});
+
+/**
+ * DELETE /a2a/assets/:id/reviews/:reviewId
+ * Delete a review (requires auth, must be owner)
+ */
+app.delete('/a2a/assets/:id/reviews/:reviewId', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as any).nodeId as string;
+    const { id: assetId, reviewId } = req.params;
+    deleteReview({ assetId, reviewId, reviewerId: nodeId });
+    res.json({ status: 'ok' });
+  } catch (error: any) {
+    console.error('Delete review error:', error);
+    const status = error.status || 500;
+    res.status(status).json({ error: 'delete_review_failed', message: error.message });
   }
 });
 
