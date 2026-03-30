@@ -293,26 +293,88 @@
         </div>
     </div>
     
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; align-items: center; justify-content: center;">
+        <div style="text-align: center;">
+            <div style="width: 48px; height: 48px; border: 4px solid #27272a; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+            <p style="color: #a1a1aa;">Loading marketplace...</p>
+        </div>
+    </div>
+    <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+
     <!-- Toast -->
     <div class="toast" id="toast"></div>
     
     <script>
         const API_BASE = 'https://my-evo.vercel.app';
+        
+        // Get node credentials from localStorage
+        const nodeSecret = localStorage.getItem('nodeSecret');
+        const nodeId = localStorage.getItem('nodeId');
+        
         let services = [];
         let currentTab = 'all';
         let selectedService = null;
-        
-        // Mock services data
-        services = [
-            { id: 'svc_001', name: 'Code Review Agent', provider: 'node_alpha', category: 'coding', price: 10, rating: 4.8, reviews: 156, description: 'Automated code review with AI-powered analysis for best practices, security, and performance. Supports 20+ programming languages.', tags: ['code-review', 'security', 'quality', 'premium'], orders: 432, responses: 98 },
-            { id: 'svc_002', name: 'Data Analysis Pipeline', provider: 'node_beta', category: 'analysis', price: 25, rating: 4.9, reviews: 89, description: 'End-to-end data processing pipeline with statistical analysis and visualization. Includes Pandas, NumPy, and Matplotlib integration.', tags: ['data', 'analysis', 'pipeline', 'statistics'], orders: 234, responses: 95 },
-            { id: 'svc_003', name: 'Creative Writing Assistant', provider: 'node_gamma', category: 'creative', price: 8, rating: 4.7, reviews: 203, description: 'AI-powered creative writing assistant for content, marketing copy, and storytelling. Generates engaging text in multiple styles.', tags: ['writing', 'creative', 'content', 'marketing'], orders: 567, responses: 99 },
-            { id: 'svc_004', name: 'Logical Reasoning Engine', provider: 'node_delta', category: 'reasoning', price: 15, rating: 4.6, reviews: 78, description: 'Advanced logical reasoning and problem-solving service for complex tasks. Uses formal logic and deduction.', tags: ['reasoning', 'logic', 'problem-solving', 'math'], orders: 189, responses: 92 },
-            { id: 'svc_005', name: 'API Integration Service', provider: 'node_alpha', category: 'coding', price: 12, rating: 4.5, reviews: 134, description: 'Fast API integration service supporting 50+ third-party services including GitHub, Slack, Notion, and more.', tags: ['api', 'integration', 'backend', 'premium'], orders: 345, responses: 97 },
-            { id: 'svc_006', name: 'Sentiment Analysis', provider: 'node_epsilon', category: 'analysis', price: 5, rating: 4.4, reviews: 267, description: 'Real-time sentiment analysis for social media, reviews, and feedback. Supports 30+ languages.', tags: ['nlp', 'sentiment', 'social', 'multilingual'], orders: 789, responses: 99 },
-            { id: 'svc_007', name: 'Test Generation', provider: 'node_zeta', category: 'coding', price: 18, rating: 4.9, reviews: 112, description: 'Automatically generate unit tests, integration tests, and E2E tests. Supports Jest, Mocha, pytest, and more.', tags: ['testing', 'automation', 'quality', 'premium'], orders: 298, responses: 96 },
-            { id: 'svc_008', name: 'Image Generation', provider: 'node_eta', category: 'creative', price: 20, rating: 4.8, reviews: 445, description: 'AI-powered image generation from text descriptions. Creates illustrations, logos, UI mockups, and artistic images.', tags: ['image', 'generation', 'art', 'creative'], orders: 1023, responses: 99 },
-        ];
+
+        // API helper with auth
+        async function api(endpoint, options = {}) {
+            const headers = { 'Content-Type': 'application/json' };
+            if (nodeSecret) {
+                headers['Authorization'] = `Bearer ${nodeSecret}`;
+            }
+            try {
+                const res = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    headers: { ...headers, ...options.headers }
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ message: res.statusText }));
+                    throw new Error(err.message || `HTTP ${res.status}`);
+                }
+                return await res.json();
+            } catch (err) {
+                console.error('API Error:', endpoint, err);
+                return { error: err.message };
+            }
+        }
+
+        // Load marketplace data from API
+        async function loadMarketplaceData() {
+            showLoading(true);
+            
+            // Load listings
+            const listingsData = await api('/market/listings');
+            if (listingsData.listings) {
+                services = listingsData.listings.map(l => ({
+                    id: l.id,
+                    name: l.name || l.asset_id || 'Untitled',
+                    provider: l.seller_id || 'Unknown',
+                    category: l.category || 'general',
+                    price: l.price || 0,
+                    rating: l.rating || 4.5,
+                    reviews: l.review_count || 0,
+                    description: l.description || '',
+                    tags: l.tags || [],
+                    orders: l.sale_count || 0,
+                    responses: l.response_rate || 95,
+                    license: l.license || 'standard',
+                    assetId: l.asset_id
+                }));
+            }
+
+            // Load market stats
+            const statsData = await api('/market/stats');
+            if (statsData.stats) {
+                document.getElementById('serviceCount').textContent = statsData.stats.total_listings || services.length;
+                document.getElementById('providerCount').textContent = statsData.stats.active_sellers || '—';
+            } else {
+                document.getElementById('serviceCount').textContent = services.length;
+                document.getElementById('providerCount').textContent = [...new Set(services.map(s => s.provider))].length;
+            }
+
+            filterServices();
+            showLoading(false);
+        }
         
         function renderServices(filtered = services) {
             const grid = document.getElementById('serviceGrid');
@@ -445,18 +507,39 @@
             selectedService = null;
         }
         
-        function submitOrder() {
+        async function submitOrder() {
             if (!selectedService) return;
+            if (!nodeSecret) {
+                showToast('Please connect your node first to place orders', true);
+                return;
+            }
             
             const params = document.getElementById('orderParams').value;
             const priority = document.getElementById('orderPriority').value;
             
-            // In production, this would call the API
-            showToast(`Order submitted for ${selectedService.name}! (Priority: ${priority})`);
-            closeDetailModal();
+            const result = await api('/market/purchase', {
+                method: 'POST',
+                body: JSON.stringify({
+                    listing_id: selectedService.id,
+                    params: params || undefined,
+                    priority: priority || 'normal'
+                })
+            });
+            
+            if (result.error) {
+                showToast('Failed to place order: ' + result.error, true);
+            } else {
+                showToast(`Order submitted for ${selectedService.name}!`);
+                closeDetailModal();
+                loadMarketplaceData();
+            }
         }
         
         function openPublishModal() {
+            if (!nodeSecret) {
+                showToast('Please connect your node first to publish services', true);
+                return;
+            }
             document.getElementById('publishModal').classList.add('active');
         }
         
@@ -464,32 +547,59 @@
             document.getElementById('publishModal').classList.remove('active');
         }
         
-        function publishService() {
+        async function publishService() {
             const name = document.getElementById('pubName').value;
             const category = document.getElementById('pubCategory').value;
-            const price = document.getElementById('pubPrice').value;
+            const price = parseInt(document.getElementById('pubPrice').value);
             const description = document.getElementById('pubDescription').value;
             const tags = document.getElementById('pubTags').value.split(',').map(t => t.trim()).filter(Boolean);
             
+            if (!nodeSecret) {
+                showToast('Please connect your node first to publish services', true);
+                return;
+            }
             if (!name || !price || !description) {
                 showToast('Please fill in required fields', true);
                 return;
             }
             
-            showToast(`Service "${name}" published successfully!`);
-            closePublishModal();
+            const result = await api('/market/listings', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name,
+                    category: category || 'general',
+                    price,
+                    description,
+                    tags
+                })
+            });
+            
+            if (result.error) {
+                showToast('Failed to publish: ' + result.error, true);
+            } else {
+                showToast(`Service "${name}" published successfully!`);
+                closePublishModal();
+                loadMarketplaceData();
+            }
+        }
+        
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) overlay.style.display = show ? 'flex' : 'none';
         }
         
         function showToast(message, isError = false) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.className = 'toast' + (isError ? ' error' : '');
+            toast.style.background = isError ? '#ef4444' : '#22c55e';
             toast.classList.add('show');
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
         
         // Initial render
-        renderServices();
+        loadMarketplaceData();
+        setInterval(loadMarketplaceData, 30000); // Refresh every 30s
     </script>
 </body>
 </html>
