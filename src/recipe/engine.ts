@@ -176,4 +176,31 @@ export class RecipeEngine {
     }
     return timedOut;
   }
+
+  // Search recipes by keyword/title/description
+  searchRecipes(query: string, limit: number = 20): Recipe[] {
+    const q = query.toLowerCase();
+    return Array.from(this.recipes.values())
+      .filter((r) =>
+        r.status === RecipeStatus.PUBLISHED &&
+        (r.title.toLowerCase().includes(q) ||
+          r.description.toLowerCase().includes(q) ||
+          r.genes.some((g) => g.gene_asset_id.toLowerCase().includes(q)))
+      )
+      .slice(0, limit);
+  }
+
+  // List active (alive) organisms
+  listActiveOrganisms(): Organism[] {
+    return Array.from(this.organisms.values()).filter(
+      (o) => o.status === OrganismStatus.ALIVE
+    );
+  }
+
+  // List organisms by recipe
+  listOrganismsByRecipe(recipeId: string): Organism[] {
+    return Array.from(this.organisms.values()).filter(
+      (o) => o.recipe_id === recipeId
+    );
+  }
 }

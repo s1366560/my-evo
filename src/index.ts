@@ -17,7 +17,7 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import { registerNode, validateNodeSecret, getNodeInfo, getNodeActivity, HUB_NODE_ID } from './a2a/node';
-import { processHeartbeat } from './a2a/heartbeat';
+import { processHeartbeat, getPendingEvents, clearPendingEvents } from './a2a/heartbeat';
 import { HelloPayload, HeartbeatPayload } from './a2a/types';
 import { publishAsset, submitValidationReport, revokeAsset } from './assets/publish';
 import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails, getCategories, getPopularSignals, exploreAssets, getDailyDiscovery, getRelatedAssets, voteAsset, getValidationReports, getEvolutionEvents } from './assets/fetch';
@@ -158,6 +158,43 @@ app.post('/a2a/heartbeat', async (req: Request, res: Response) => {
     
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
+});
+
+/**
+ * GET /a2a/events/poll
+ * Long-poll for events (waits up to 30s if no events available)
+ */
+app.get('/a2a/events/poll', requireAuth, (req: Request, res: Response) => {
+  const nodeId = (req as Request & { nodeId: string }).nodeId;
+  const { timeout = '30000' } = req.query;
+  const timeoutMs = Math.min(parseInt(timeout as string) || 30000, 30000);
+
+  // Check for immediate events
+  let events = getPendingEvents(nodeId);
+  if (events.length > 0) {
+    clearPendingEvents(nodeId);
+    res.json({ events, count: events.length });
+    return;
+  }
+
+  // Long-poll: wait up to timeoutMs for events
+  const pollInterval = 1000; // Check every second
+  let waited = 0;
+
+  const interval = setInterval(() => {
+    events = getPendingEvents(nodeId);
+    if (events.length > 0 || waited >= timeoutMs) {
+      clearInterval(interval);
+      clearPendingEvents(nodeId);
+      res.json({ events, count: events.length, waited_ms: waited });
+    }
+    waited += pollInterval;
+  }, pollInterval);
+
+  // Cleanup on disconnect
+  req.on('close', () => {
+    clearInterval(interval);
+  });
 });
 
 /**
@@ -1494,6 +1531,326 @@ app.post('/a2a/dialog', requireAuth, (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /a2a/session/join
+ * Join an existing collaboration session
+ */
+app.post('/a2a/session/join', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { session_id } = req.body;
+
+    if (!session_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing session_id' });
+      return;
+    }
+
+    // Import dynamically to avoid circular deps
+    import('./session/service').then(({ getSession, updateSession, addMember, activateSession, createEvent }) => {
+      const session = getSession(session_id);
+      if (!session) {
+        res.status(404).json({ error: 'session_not_found', message: `Session ${session_id} not found` });
+        return;
+      }
+
+      if (session.members.some(m => m.node_id === nodeId)) {
+        res.status(400).json({ error: 'already_member', message: 'Already a member of this session' });
+        return;
+      }
+
+      const updated = addMember(session, nodeId, 'participant');
+      const activated = updated.status === 'creating' ? activateSession(updated) : updated;
+      updateSession(session_id, activated);
+
+      res.json({ 
+        status: 'joined', 
+        session_id,
+        session: activated,
+        event: createEvent({ type: 'member_joined', session_id, actor_id: nodeId }),
+      });
+    });
+  } catch (error) {
+    console.error('Session join error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/session/context
+ * Get shared session context
+ */
+app.get('/a2a/session/context', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { session_id, node_id } = req.query;
+    if (!session_id || typeof session_id !== 'string') {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing session_id' });
+      return;
+    }
+
+    import('./session/service').then(({ getSession }) => {
+      const session = getSession(session_id);
+      if (!session) {
+        res.status(404).json({ error: 'session_not_found', message: `Session ${session_id} not found` });
+        return;
+      }
+
+      const member = session.members.find(m => m.node_id === (node_id || ''));
+      res.json({
+        session_id,
+        context: session.context,
+        participants: session.members,
+        vector_clock: session.vector_clock,
+        status: session.status,
+        purpose: session.context?.purpose || '',
+        is_member: node_id ? session.members.some(m => m.node_id === node_id) : true,
+        member_role: member?.role || null,
+      });
+    });
+  } catch (error) {
+    console.error('Session context error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/session/submit
+ * Submit subtask result to session
+ */
+app.post('/a2a/session/submit', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { session_id, task_id, result_asset_id, content } = req.body;
+
+    if (!session_id || !task_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing session_id or task_id' });
+      return;
+    }
+
+    import('./session/service').then(({ getSession, updateSession, addMessage }) => {
+      const session = getSession(session_id);
+      if (!session) {
+        res.status(404).json({ error: 'session_not_found', message: `Session ${session_id} not found` });
+        return;
+      }
+
+      if (!session.members.some(m => m.node_id === nodeId)) {
+        res.status(403).json({ error: 'not_a_member', message: 'Must be a session member to submit results' });
+        return;
+      }
+
+      const updated = addMessage(session, {
+        type: 'subtask_result',
+        from: nodeId,
+        content: { task_id, result_asset_id, content },
+        causal_dependencies: [],
+      });
+
+      updateSession(session_id, updated);
+
+      res.json({ 
+        status: 'submitted', 
+        session_id, 
+        task_id,
+        message_id: updated.messages[updated.messages.length - 1]?.id,
+      });
+    });
+  } catch (error) {
+    console.error('Session submit error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/session/list
+ * List active sessions
+ */
+app.get('/a2a/session/list', (req: Request, res: Response) => {
+  try {
+    const { limit = '20', node_id } = req.query;
+    const limitNum = Math.min(parseInt(limit as string) || 20, 100);
+
+    import('./session/service').then(({ listActiveSessions, listSessionsByNode }) => {
+      let sessions = node_id ? listSessionsByNode(node_id as string) : listActiveSessions();
+      sessions = sessions.slice(0, limitNum);
+
+      res.json({ 
+        sessions: sessions.map(s => ({
+          id: s.id,
+          title: s.title,
+          status: s.status,
+          creator_id: s.creator_id,
+          members: s.members.map(m => ({ node_id: m.node_id, role: m.role })),
+          purpose: s.context?.purpose || '',
+          created_at: s.created_at,
+          expires_at: s.expires_at,
+        })),
+        total: sessions.length,
+      });
+    });
+  } catch (error) {
+    console.error('Session list error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/session/board
+ * Get task board for a session
+ */
+app.get('/a2a/session/board', (req: Request, res: Response) => {
+  try {
+    const { session_id } = req.query;
+    if (!session_id || typeof session_id !== 'string') {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing session_id' });
+      return;
+    }
+
+    import('./session/service').then(({ getSession }) => {
+      const session = getSession(session_id);
+      if (!session) {
+        res.status(404).json({ error: 'session_not_found', message: `Session ${session_id} not found` });
+        return;
+      }
+
+      // Extract task board from context or return empty
+      const board = (session.context as any)?.task_board || { tasks: [], columns: ['todo', 'in_progress', 'done'] };
+
+      res.json({ session_id, board, participants: session.members.map(m => m.node_id) });
+    });
+  } catch (error) {
+    console.error('Session board error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/session/board/update
+ * Update task board for a session
+ */
+app.post('/a2a/session/board/update', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { session_id, task_board } = req.body;
+
+    if (!session_id || !task_board) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing session_id or task_board' });
+      return;
+    }
+
+    import('./session/service').then(({ getSession, updateSession }) => {
+      const session = getSession(session_id);
+      if (!session) {
+        res.status(404).json({ error: 'session_not_found', message: `Session ${session_id} not found` });
+        return;
+      }
+
+      if (!session.members.some(m => m.node_id === nodeId && (m.role === 'organizer' || m.role === 'participant'))) {
+        res.status(403).json({ error: 'insufficient_permissions', message: 'Must be an organizer or participant' });
+        return;
+      }
+
+      updateSession(session_id, { context: { ...session.context, task_board } });
+      res.json({ status: 'board_updated', session_id });
+    });
+  } catch (error) {
+    console.error('Session board update error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/session/orchestrate
+ * Orchestrate session flow
+ */
+app.post('/a2a/session/orchestrate', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { session_id, action, params } = req.body;
+
+    if (!session_id || !action) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing session_id or action' });
+      return;
+    }
+
+    import('./session/service').then(({ getSession, updateSession, pauseSession, resumeSession, completeSession }) => {
+      const session = getSession(session_id);
+      if (!session) {
+        res.status(404).json({ error: 'session_not_found', message: `Session ${session_id} not found` });
+        return;
+      }
+
+      const organizer = session.members.find(m => m.role === 'organizer');
+      if (organizer?.node_id !== nodeId) {
+        res.status(403).json({ error: 'insufficient_permissions', message: 'Only the organizer can orchestrate' });
+        return;
+      }
+
+      let updated = session;
+      switch (action) {
+        case 'pause':
+          updated = pauseSession(session);
+          break;
+        case 'resume':
+          updated = resumeSession(session);
+          break;
+        case 'complete':
+          updated = completeSession(session);
+          break;
+        default:
+          res.status(400).json({ error: 'invalid_action', message: `Unknown action: ${action}` });
+          return;
+      }
+
+      updateSession(session_id, updated);
+      res.json({ status: 'orchestrated', session_id, action, new_status: updated.status });
+    });
+  } catch (error) {
+    console.error('Session orchestrate error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/session/discover
+ * Discover collaboration opportunities
+ */
+app.get('/a2a/session/discover', (req: Request, res: Response) => {
+  try {
+    const { limit = '10', topic } = req.query;
+    const limitNum = Math.min(parseInt(limit as string) || 10, 50);
+
+    import('./session/service').then(({ listActiveSessions }) => {
+      let sessions = listActiveSessions();
+
+      if (topic) {
+        const topicLower = (topic as string).toLowerCase();
+        sessions = sessions.filter(s => 
+          s.title.toLowerCase().includes(topicLower) ||
+          (s.context?.purpose as string || '').toLowerCase().includes(topicLower)
+        );
+      }
+
+      sessions = sessions.slice(0, limitNum);
+
+      res.json({
+        opportunities: sessions.map(s => ({
+          session_id: s.id,
+          title: s.title,
+          purpose: s.context?.purpose || '',
+          creator_id: s.creator_id,
+          member_count: s.members.length,
+          max_participants: s.max_participants,
+          slots_available: s.max_participants - s.members.length,
+        })),
+        total: sessions.length,
+      });
+    });
+  } catch (error) {
+    console.error('Session discover error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
 // ==================== Recipe & Organism Endpoints ====================
 
 /**
@@ -1582,6 +1939,22 @@ app.patch('/a2a/organism/:id', (req: Request, res: Response) => {
  */
 app.get('/a2a/recipe/stats', (req: Request, res: Response) => {
   recipeApi.stats(req, res);
+});
+
+/**
+ * GET /a2a/recipe/search
+ * Search recipes by keyword
+ */
+app.get('/a2a/recipe/search', (req: Request, res: Response) => {
+  recipeApi.search(req, res);
+});
+
+/**
+ * GET /a2a/organism/active
+ * Get active organisms (alive)
+ */
+app.get('/a2a/organism/active', (req: Request, res: Response) => {
+  recipeApi.getActiveOrganisms(req, res);
 });
 
 // ==================== Chapter 31: Skill Store ====================
@@ -1767,6 +2140,58 @@ app.post('/api/v2/bounties/create', requireAuth, (req: Request, res: Response) =
     res.json({ status: 'created', bounty });
   } catch (error) {
     console.error('Bounty create error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/ask
+ * Create an agent-initiated bounty (alternative path to /api/v2/bounties/create)
+ * Agent-initiated: any agent can post a bounty on behalf of itself
+ */
+app.post('/a2a/ask', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { title, description, tags, reward, deadline, acceptance_criteria } = req.body;
+
+    if (!title || !description || !reward) {
+      res.status(400).json({
+        error: 'invalid_request',
+        message: 'Missing required fields: title, description, reward',
+      });
+      return;
+    }
+
+    if (reward < BOUNTY_MIN_REWARD) {
+      res.status(400).json({
+        error: 'reward_too_low',
+        message: `Bounty reward must be at least ${BOUNTY_MIN_REWARD} credits`,
+      });
+      return;
+    }
+
+    const bountyId = `ask_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const bounty = createBounty({
+      bounty_id: bountyId,
+      title,
+      description,
+      tags: tags ?? [],
+      reward,
+      deadline,
+      acceptance_criteria,
+      visibility: 'public',
+      max_bids: 3,
+    });
+
+    bounty.created_by = nodeId;
+
+    res.json({
+      status: 'created',
+      bounty_id: bountyId,
+      bounty,
+    });
+  } catch (error) {
+    console.error('Ask (agent-bounty) error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
