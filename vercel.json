@@ -5,11 +5,11 @@
       "src": "dist/index.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": "dist/** ui/**"
+        "includeFiles": ["dist/**", "ui/**"]
       }
     }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "dist/index.js" }
+    { "src": "/(.*)", "dest": "/dist/index.js" }
   ]
 }
