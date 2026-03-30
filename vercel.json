@@ -1,12 +1,15 @@
 {
   "version": 2,
-  "functions": {
-    "dist/index.js": {
-      "runtime": "@vercel/node",
-      "includeFiles": "ui/** dist/**"
+  "builds": [
+    {
+      "src": "dist/index.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["dist/**", "ui/**"]
+      }
     }
-  },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/dist/index.js" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "/dist/index.js" }
   ]
 }
