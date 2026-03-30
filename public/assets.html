@@ -173,19 +173,19 @@
         let allAssets = { genes: [], capsules: [] };
         
         // Asset type change handler
-        document.getElementById('assetType').addEventListener('change', function() {
+        document.getElementttById('assetType').addEventListener('change', function() {
             const isCapsule = this.value === 'Capsule';
-            document.getElementById('constraintsGroup').style.display = isCapsule ? 'none' : 'block';
-            document.getElementById('strategyGroup').style.display = isCapsule ? 'none' : 'block';
-            document.getElementById('sourceGeneGroup').style.display = isCapsule ? 'block' : 'none';
-            document.getElementById('triggerGroup').style.display = isCapsule ? 'block' : 'none';
-            document.getElementById('diffGroup').style.display = isCapsule ? 'block' : 'none';
-            document.getElementById('summaryGroup').style.display = isCapsule ? 'block' : 'none';
-            document.getElementById('confidenceGroup').style.display = isCapsule ? 'block' : 'none';
+            document.getElementttById('constraintsGroup').style.display = isCapsule ? 'none' : 'block';
+            document.getElementttById('strategyGroup').style.display = isCapsule ? 'none' : 'block';
+            document.getElementttById('sourceGeneGroup').style.display = isCapsule ? 'block' : 'none';
+            document.getElementttById('triggerGroup').style.display = isCapsule ? 'block' : 'none';
+            document.getElementttById('diffGroup').style.display = isCapsule ? 'block' : 'none';
+            document.getElementttById('summaryGroup').style.display = isCapsule ? 'block' : 'none';
+            document.getElementttById('confidenceGroup').style.display = isCapsule ? 'block' : 'none';
         });
         
         async function loadAssets() {
-            const grid = document.getElementById('assetGrid');
+            const grid = document.getElementttById('assetGrid');
             grid.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
             
             try {
@@ -207,8 +207,8 @@
         }
         
         function renderAssets() {
-            const grid = document.getElementById('assetGrid');
-            const sortBy = document.getElementById('sortSelect').value;
+            const grid = document.getElementttById('assetGrid');
+            const sortBy = document.getElementttById('sortSelect').value;
             
             let genes = [...(allAssets.genes || [])];
             let capsules = [...(allAssets.capsules || [])];
@@ -268,7 +268,7 @@
         
         function handleSearch(event) {
             if (event.key === 'Enter') {
-                const query = document.getElementById('searchInput').value.toLowerCase();
+                const query = document.getElementttById('searchInput').value.toLowerCase();
                 if (!query) { loadAssets(); return; }
                 
                 const filteredGenes = (allAssets.genes || []).filter(a => 
@@ -286,17 +286,17 @@
         }
         
         function openPublishModal() {
-            document.getElementById('publishModal').classList.add('active');
+            document.getElementttById('publishModal').classList.add('active');
         }
         
         function closePublishModal() {
-            document.getElementById('publishModal').classList.remove('active');
+            document.getElementttById('publishModal').classList.remove('active');
         }
         
         async function publishAsset() {
-            const type = document.getElementById('assetType').value;
-            const name = document.getElementById('assetName').value;
-            const signals = document.getElementById('assetSignals').value.split(',').map(s => s.trim()).filter(Boolean);
+            const type = document.getElementttById('assetType').value;
+            const name = document.getElementttById('assetName').value;
+            const signals = document.getElementttById('assetSignals').value.split(',').map(s => s.trim()).filter(Boolean);
             
             if (!name || signals.length === 0) {
                 alert('Please fill in required fields');
@@ -307,16 +307,16 @@
                 type,
                 id: name,
                 signals_match: signals,
-                strategy: type === 'Gene' ? document.getElementById('assetStrategy').value.split(',').map(s => s.trim()).filter(Boolean) : undefined,
-                constraints: type === 'Gene' ? document.getElementById('assetConstraints').value : undefined
+                strategy: type === 'Gene' ? document.getElementttById('assetStrategy').value.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+                constraints: type === 'Gene' ? document.getElementttById('assetConstraints').value : undefined
             };
             
             if (type === 'Capsule') {
-                asset.gene = document.getElementById('sourceGene').value;
-                asset.trigger = document.getElementById('triggerSignals').value.split(',').map(s => s.trim()).filter(Boolean);
-                asset.content = document.getElementById('codeDiff').value;
-                asset.summary = document.getElementById('assetSummary').value;
-                asset.confidence = parseFloat(document.getElementById('confidence').value);
+                asset.gene = document.getElementttById('sourceGene').value;
+                asset.trigger = document.getElementttById('triggerSignals').value.split(',').map(s => s.trim()).filter(Boolean);
+                asset.content = document.getElementttById('codeDiff').value;
+                asset.summary = document.getElementttById('assetSummary').value;
+                asset.confidence = parseFloat(document.getElementttById('confidence').value);
             }
             
             try {

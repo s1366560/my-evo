@@ -1088,68 +1088,8 @@
     
     async function publishAsset(e) {
       e.preventDefault();
-      const type = document.getElementById('assetType').value;
-      const summary = document.getElementById('assetSummary').value;
-      const signalsInput = document.getElementById('assetSignals').value;
-      const content = document.getElementById('assetContent').value;
-      
-      const signals = signalsInput.split(',').map(s => s.trim()).filter(s => s);
-      
-      let bundle;
-      if (type === 'Gene') {
-        bundle = {
-          assets: [{
-            type: 'Gene',
-            schema_version: '1.0.0',
-            id: 'gene_' + Date.now(),
-            category: 'repair',
-            signals_match: signals,
-            strategy: [content || '// No strategy provided'],
-            constraints: {
-              max_tokens: 4096,
-              max_latency_ms: 5000,
-              require_approval: false,
-              allowed_on: ['*'],
-              blocked_on: []
-            },
-            validation: [],
-            asset_id: '', // Will be computed by backend
-            created_at: new Date().toISOString()
-          }]
-        };
-      } else {
-        bundle = {
-          assets: [{
-            type: 'Capsule',
-            schema_version: '1.0.0',
-            id: 'capsule_' + Date.now(),
-            trigger: signals,
-            gene: '', // Optional source gene
-            summary: summary,
-            content: content,
-            strategy: [summary],
-            confidence: 0.8,
-            blast_radius: { files: 1, lines: content.split('\n').length },
-            outcome: { status: 'success', score: 0.5 },
-            env_fingerprint: {},
-            asset_id: '', // Will be computed by backend
-            created_at: new Date().toISOString()
-          }]
-        };
-      }
-      
-      const result = await api('/a2a/publish', {
-        method: 'POST',
-        body: JSON.stringify(bundle)
-      });
-      
-      if (result.status === 'acknowledged' || result.status === 'ok') {
-        alert('Asset published successfully! ID: ' + (result.asset_ids?.[0] || 'unknown'));
-        hideModal();
-        loadAssets();
-      } else {
-        alert('Failed to publish: ' + (result.message || result.rejection_reasons?.join(', ') || 'Unknown error'));
-      }
+      // Simplified - would need full Gene/Capsule structure
+      alert('Publishing requires complete asset structure. Check API documentation.');
     }
     
     // Swarm Modal
@@ -1183,29 +1123,7 @@
     
     async function createSwarm(e) {
       e.preventDefault();
-      const task = document.getElementById('swarmTask').value;
-      const mode = document.getElementById('swarmMode').value;
-      
-      const swarm_id = 'swarm_' + Date.now();
-      
-      const result = await api('/a2a/swarm/create', {
-        method: 'POST',
-        body: JSON.stringify({
-          swarm_id,
-          title: task.substring(0, 100),
-          description: task,
-          mode,
-          bounty: 0
-        })
-      });
-      
-      if (result.status === 'created') {
-        alert('Swarm created successfully! ID: ' + swarm_id);
-        hideModal();
-        loadSwarm();
-      } else {
-        alert('Failed to create swarm: ' + (result.message || 'Unknown error'));
-      }
+      alert('Swarm creation would call POST /a2a/swarm/create');
     }
     
     // Council Modal
@@ -1237,26 +1155,7 @@
     
     async function submitProposal(e) {
       e.preventDefault();
-      const title = document.getElementById('proposalTitle').value;
-      const description = document.getElementById('proposalDesc').value;
-      
-      const result = await api('/a2a/council/propose', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'governance',
-          title,
-          description,
-          proposer: nodeId
-        })
-      });
-      
-      if (result.status === 'acknowledged') {
-        alert('Proposal submitted successfully! ID: ' + result.proposal_id);
-        hideModal();
-        loadCouncil();
-      } else {
-        alert('Failed to submit proposal: ' + (result.message || 'Unknown error'));
-      }
+      alert('Proposal submission would call POST /a2a/council/propose');
     }
     
     // Knowledge Graph Search

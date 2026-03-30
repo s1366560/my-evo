@@ -166,33 +166,88 @@
         </div>
     </div>
     
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; align-items: center; justify-content: center;">
+        <div style="text-align: center;">
+            <div style="width: 48px; height: 48px; border: 4px solid #27272a; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+            <p style="color: #a1a1aa;">Loading swarm data...</p>
+        </div>
+    </div>
+    
     <script>
         const API_BASE = 'https://my-evo.vercel.app';
+        
+        // Get node credentials from localStorage
+        const nodeSecret = localStorage.getItem('nodeSecret');
+        const nodeId = localStorage.getItem('nodeId');
+        
         let swarms = [];
         
-        async function loadSwarms() {
-            try {
-                const res = await fetch(`${API_BASE}/a2a/swarm/list`).catch(() => ({ ok: false }));
-                if (!res.ok) throw new Error('API not available');
-                
-                // Mock data since /swarm/list may not exist
-                swarms = [
-                    { swarm_id: 'swarm_001', title: 'Parallel Task Processing', state: 'active', progress: 75, tasks: 8, completed: 6, members: 3 },
-                    { swarm_id: 'swarm_002', title: 'Data Aggregation Pipeline', state: 'active', progress: 45, tasks: 12, completed: 5, members: 4 },
-                    { swarm_id: 'swarm_003', title: 'Model Training Orchestration', state: 'idle', progress: 0, tasks: 5, completed: 0, members: 2 },
-                ];
-                
-                updateStats();
-                renderSwarms();
-            } catch (error) {
-                console.error('Load error:', error);
-                // Use demo data
-                swarms = [
-                    { swarm_id: 'demo_001', title: 'Demo Swarm Task', state: 'active', progress: 60, tasks: 10, completed: 6, members: 3 },
-                ];
-                updateStats();
-                renderSwarms();
+        // API helper with auth
+        async function api(endpoint, options = {}) {
+            const headers = { 'Content-Type': 'application/json' };
+            if (nodeSecret) {
+                headers['Authorization'] = `Bearer ${nodeSecret}`;
             }
+            try {
+                const res = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    headers: { ...headers, ...options.headers }
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ message: res.statusText }));
+                    throw new Error(err.message || `HTTP ${res.status}`);
+                }
+                return await res.json();
+            } catch (err) {
+                console.error('API Error:', endpoint, err);
+                return { error: err.message };
+            }
+        }
+        
+        async function loadSwarms() {
+            showLoading(true);
+            
+            // Load swarm stats
+            const statsData = await api('/a2a/swarm/stats');
+            if (statsData.stats) {
+                updateStatsFromStats(statsData.stats);
+            }
+            
+            // If authenticated, load user's swarms
+            if (nodeId) {
+                // Note: Individual swarm details require auth and specific swarm ID
+                // For now, show stats from the public endpoint
+            }
+            
+            showLoading(false);
+        }
+        
+        function updateStatsFromStats(stats) {
+            const active = stats.active_swarms || 0;
+            const totalTasks = stats.total_tasks || 0;
+            const completedTasks = stats.completed_tasks || 0;
+            const totalMembers = stats.total_agents || 0;
+            const avgProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+            
+            document.getElementById('activeCount').textContent = active;
+            document.getElementById('totalTasks').textContent = totalTasks;
+            document.getElementById('completedCount').textContent = completedTasks;
+            document.getElementById('avgProgress').textContent = avgProgress + '%';
+            
+            // Update member count if available
+            const memberCountEl = document.getElementById('memberCount');
+            if (memberCountEl && totalMembers) {
+                memberCountEl.textContent = totalMembers;
+            }
+        }
+        
+        async function loadMySwarms() {
+            if (!nodeId) return { swarms: [], tasks: [] };
+            
+            // Load tasks to derive swarm participation
+            // This would need authenticated endpoints
+            return { swarms: [], tasks: [] };
         }
         
         function updateStats() {
@@ -210,12 +265,12 @@
         function renderSwarms() {
             const container = document.getElementById('swarmList');
             
-            if (swarms.length === 0) {
+            if (!swarms || swarms.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
                         <div class="icon">🐝</div>
                         <h3>No Active Swarms</h3>
-                        <p>Create a swarm to start collaborating</p>
+                        <p>${nodeId ? 'Create a swarm to start collaborating' : 'Connect your node to view swarms'}</p>
                     </div>
                 `;
                 return;
@@ -227,19 +282,19 @@
                         <div style="display: flex; gap: 16px; align-items: flex-start;">
                             <div class="swarm-icon">🐝</div>
                             <div class="swarm-info">
-                                <h3>${swarm.title}</h3>
+                                <h3>${swarm.title || swarm.swarm_id}</h3>
                                 <p>${swarm.swarm_id}</p>
                             </div>
                         </div>
-                        <span class="swarm-status ${swarm.state}">${swarm.state.toUpperCase()}</span>
+                        <span class="swarm-status ${swarm.state || 'idle'}">${(swarm.state || 'idle').toUpperCase()}</span>
                     </div>
                     <div class="swarm-meta">
-                        <span>📋 ${swarm.tasks} tasks</span>
-                        <span>✅ ${swarm.completed} done</span>
-                        <span>👥 ${swarm.members} members</span>
+                        <span>📋 ${swarm.tasks || 0} tasks</span>
+                        <span>✅ ${swarm.completed || 0} done</span>
+                        <span>👥 ${swarm.members || 0} members</span>
                     </div>
                     <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${swarm.progress}%"></div>
+                        <div class="progress-fill" style="width: ${swarm.progress || 0}%"></div>
                     </div>
                 </div>
             `).join('');
@@ -249,62 +304,97 @@
         
         function renderMembers() {
             const container = document.getElementById('memberList');
-            const members = [
-                { name: 'node_alpha', contribution: 245 },
-                { name: 'node_beta', contribution: 189 },
-                { name: 'node_gamma', contribution: 156 },
-                { name: 'node_delta', contribution: 98 },
-            ];
-            
-            container.innerHTML = members.map(m => `
+            // Members would come from API in a real implementation
+            container.innerHTML = `
                 <div class="member-item">
-                    <div class="member-avatar">${m.name.charAt(5).toUpperCase()}</div>
+                    <div class="member-avatar">?</div>
                     <div class="member-info">
-                        <h4>${m.name}</h4>
-                        <p>Active contributor</p>
+                        <h4>Connect node</h4>
+                        <p>to see swarm members</p>
                     </div>
-                    <div class="member-contrib">+${m.contribution}</div>
+                    <div class="member-contrib">—</div>
                 </div>
-            `).join('');
+            `;
         }
         
-        function selectSwarm(swarmId) {
-            const swarm = swarms.find(s => s.swarm_id === swarmId);
-            if (!swarm) return;
+        async function selectSwarm(swarmId) {
+            if (!nodeId) {
+                alert('Please connect your node to view swarm details');
+                return;
+            }
             
+            const swarmData = await api(`/a2a/task/swarm/${swarmId}`);
+            if (swarmData.error) {
+                alert('Failed to load swarm: ' + swarmData.error);
+                return;
+            }
+            
+            const swarm = swarmData.swarm || swarmData;
             document.getElementById('taskDetailCard').style.display = 'block';
-            document.getElementById('selectedSwarmTitle').textContent = swarm.title + ' - Tasks';
+            document.getElementById('selectedSwarmTitle').textContent = (swarm.title || swarmId) + ' - Tasks';
             
-            // Mock tasks
-            const tasks = [
-                { title: 'Initialize workers', status: 'done', assignee: 'node_alpha' },
-                { title: 'Fetch data sources', status: 'done', assignee: 'node_beta' },
-                { title: 'Process batch A', status: 'progress', assignee: 'node_gamma' },
-                { title: 'Aggregate results', status: 'pending', assignee: null },
-                { title: 'Validate output', status: 'pending', assignee: null },
-            ];
-            
+            const tasks = swarm.subtasks || [];
             const taskTree = document.getElementById('taskTree');
+            
+            if (tasks.length === 0) {
+                taskTree.innerHTML = '<p style="color:#71717a;text-align:center;padding:20px;">No tasks in this swarm</p>';
+                return;
+            }
+            
             taskTree.innerHTML = tasks.map(task => `
                 <div class="task-item">
                     <div class="task-status ${task.status}">
-                        ${task.status === 'done' ? '✓' : task.status === 'progress' ? '◐' : '○'}
+                        ${task.status === 'completed' ? '✓' : task.status === 'in_progress' ? '◐' : '○'}
                     </div>
                     <div class="task-info">
-                        <h4>${task.title}</h4>
-                        <p>${task.assignee || 'Unassigned'}</p>
+                        <h4>${task.title || task.subtask_id}</h4>
+                        <p>${task.assignee_id || 'Unassigned'}</p>
                     </div>
-                    ${task.assignee ? `<div class="task-assignee">${task.assignee.charAt(5).toUpperCase()}</div>` : ''}
+                    ${task.assignee_id ? `<div class="task-assignee">${task.assignee_id.charAt(5).toUpperCase()}</div>` : ''}
                 </div>
             `).join('');
         }
         
-        function createSwarm() {
-            alert('Swarm creation requires authentication.\n\nUse POST /a2a/swarm/create API with your node_secret.');
+        async function createSwarm() {
+            if (!nodeId) {
+                alert('Please connect your node first to create swarms');
+                return;
+            }
+            
+            const title = prompt('Enter swarm title:');
+            if (!title) return;
+            
+            const description = prompt('Enter swarm description:');
+            if (!description) return;
+            
+            const result = await api('/a2a/swarm/create', {
+                method: 'POST',
+                body: JSON.stringify({ title, description })
+            });
+            
+            if (result.error) {
+                alert('Failed to create swarm: ' + result.error);
+            } else {
+                alert('Swarm created successfully!');
+                loadSwarms();
+            }
         }
         
         function joinSwarm() {
-            alert('To join a swarm, use POST /a2a/swarm/{id}/join API.');
+            if (!nodeId) {
+                alert('Please connect your node first to join swarms');
+                return;
+            }
+            
+            const swarmId = prompt('Enter swarm ID to join:');
+            if (!swarmId) return;
+            
+            alert('Use POST /a2a/swarm/${swarmId}/join API to join');
+        }
+        
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) overlay.style.display = show ? 'flex' : 'none';
         }
         
         // Initial load
