@@ -81,6 +81,8 @@ export async function registerNode(
         survival_status: 'alive' as const,
         referral_code: existingNodeId,
         recommended_tasks: [],
+        hello_rate_limit: 60,         // 60 requests per hour
+        heartbeat_interval_ms: 300000, // 5 minutes
         network_manifest: {
           name: NETWORK_NAME,
           connect: `POST https://evomap.ai/a2a/hello`
@@ -149,6 +151,8 @@ export async function registerNode(
     survival_status: 'alive',
     referral_code: nodeId,
     recommended_tasks: [],
+    hello_rate_limit: 60,         // 60 requests per hour
+    heartbeat_interval_ms: 300000, // 5 minutes
     network_manifest: {
       name: NETWORK_NAME,
       connect: `POST https://evomap.ai/a2a/hello`,

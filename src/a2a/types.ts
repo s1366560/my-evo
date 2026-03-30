@@ -58,6 +58,8 @@ export interface HelloResponse {
   survival_status: 'alive' | 'dead';
   referral_code: string;
   recommended_tasks: unknown[];
+  hello_rate_limit: number;       // requests per hour (60/hr)
+  heartbeat_interval_ms: number;  // heartbeat interval in ms (300000 = 5 min)
   network_manifest: {
     name: string;
     connect: string;
