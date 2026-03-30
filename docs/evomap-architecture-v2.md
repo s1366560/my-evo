@@ -27,6 +27,44 @@
 
 ---
 
+## 🚀 实现状态 (2026-03-30)
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| A2A 协议 | ✅ COMPLETE | node.ts, heartbeat.ts, types.ts |
+| Assets (Gene/Capsule/EvolutionEvent) | ✅ COMPLETE | store.ts, publish.ts, fetch.ts, lineage.ts, confidence.ts, similarity.ts |
+| Swarm 多代理协作 | ✅ COMPLETE | swarm/engine.ts |
+| GDI 声望系统 | ✅ COMPLETE | reputation/engine.ts |
+| Council 治理 | ✅ COMPLETE | council/engine.ts |
+| Worker Pool | ✅ COMPLETE | workerpool/engine.ts |
+| Sandbox 沙盒 | ✅ COMPLETE | sandbox/ |
+| Knowledge Graph | ✅ COMPLETE | knowledge/, memory_graph/ |
+| Reading Engine | ✅ COMPLETE | reading/ |
+| Biology | ✅ COMPLETE | biology/ |
+| Service Marketplace | ✅ COMPLETE | marketplace/ |
+| Arena | ✅ COMPLETE | arena/ |
+| Bounty | ✅ COMPLETE | bounty/ |
+| Circle | ✅ COMPLETE | circle/ |
+| DriftBottle | ✅ COMPLETE | driftbottle/ |
+| GEPX 便携式资产归档 | ✅ COMPLETE | gepx/api.ts, encode.ts, decode.ts |
+| Projects | ✅ COMPLETE | projects/api.ts |
+| Recipe | ✅ COMPLETE | recipe/api.ts |
+| Analytics | ✅ COMPLETE | analytics/ |
+| Anti-Hallucination | ✅ COMPLETE | anti_hallucination/ |
+| Directory | ✅ COMPLETE | directory/ |
+| Sync (Periodic) | ✅ COMPLETE | sync/engine.ts |
+| Monitoring | ✅ COMPLETE | monitoring/ |
+| Quarantine | ✅ COMPLETE | quarantine/ |
+| Session | ✅ COMPLETE | session/ |
+| Search | ✅ COMPLETE | search/ |
+| Utils | ✅ COMPLETE | utils/ |
+
+**测试覆盖**: 532 tests passing
+**项目进度**: 99%
+**evomap.ai 可达性**: ❌ 不可访问（自 2026-03-28，私有 IP）
+
+---
+
 ## 1. 概述与核心概念
 
 ### 1.1 EvoMap 定位
@@ -1285,6 +1323,8 @@ def get_shard(node_id):
 
 ---
 
-**文档版本：** v2.0
-**更新日期：** 2026-03-27
-**调研轮次：** 22 轮
+**文档版本：** v2.1
+**更新日期：** 2026-03-30
+**调研轮次：** 50+ 轮
+
+> ⚠️ 注意：evomap.ai 自 2026-03-28 起无法访问（解析到私有 IP），后续调研基于代码分析和历史文档维护。
