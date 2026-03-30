@@ -2818,6 +2818,10 @@ app.use('/arena', arenaRouter);
 import circleRouter from './circle/api';
 app.use('/a2a/circle', circleRouter);
 
+// ==================== Community Evolution Endpoints (Chapter 32) ====================
+import communityRouter from './community/api';
+app.use('/a2a/community/evolution', communityRouter);
+
 // ==================== Drift Bottle Endpoints (Chapter 13) ====================
 import driftbottleRouter from './driftbottle/api';
 app.use('/a2a/driftbottle', driftbottleRouter);
