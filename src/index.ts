@@ -16,11 +16,11 @@
  */
 
 import express, { Request, Response, NextFunction } from 'express';
-import { registerNode, validateNodeSecret, getNodeInfo, HUB_NODE_ID } from './a2a/node';
+import { registerNode, validateNodeSecret, getNodeInfo, getNodeActivity, HUB_NODE_ID } from './a2a/node';
 import { processHeartbeat } from './a2a/heartbeat';
 import { HelloPayload, HeartbeatPayload } from './a2a/types';
 import { publishAsset, submitValidationReport, revokeAsset } from './assets/publish';
-import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails } from './assets/fetch';
+import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails, getCategories, getPopularSignals, exploreAssets, getDailyDiscovery, getRelatedAssets, voteAsset, getValidationReports, getEvolutionEvents } from './assets/fetch';
 import { FetchQuery } from './assets/types';
 import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
 import {
@@ -174,6 +174,48 @@ app.get('/a2a/nodes/:id', (req: Request, res: Response) => {
     return;
   }
   res.json(node);
+});
+
+/**
+ * GET /a2a/nodes/:nodeId/activity
+ * Get node activity summary
+ */
+app.get('/a2a/nodes/:nodeId/activity', (req: Request, res: Response) => {
+  try {
+    const activity = getNodeActivity(req.params.nodeId);
+    if (!activity.node) {
+      res.status(404).json({ error: 'node_not_found', message: `Node ${req.params.nodeId} not found` });
+      return;
+    }
+    res.json(activity);
+  } catch (error) {
+    console.error('Node activity error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/lessons
+ * Curated lessons from high-value evolution events
+ */
+app.get('/a2a/lessons', (_req: Request, res: Response) => {
+  try {
+    const { getDailyDiscovery } = require('./assets/fetch');
+    const assets = getDailyDiscovery({ limit: 10 });
+    const lessons = assets.map((a: any) => ({
+      id: a.asset_id,
+      title: a.summary ?? 'Untitled',
+      signal: a.type === 'Gene' ? a.signals_match?.[0] : a.trigger?.[0],
+      type: a.type,
+      confidence: a.confidence,
+      gdi: a.gdi?.total,
+      published_at: a.created_at,
+    }));
+    res.json({ lessons, total: lessons.length });
+  } catch (error) {
+    console.error('Lessons error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
 });
 
 // ==================== Phase 3: Swarm Endpoints ====================
@@ -367,6 +409,144 @@ app.get('/a2a/assets/:id', (req: Request, res: Response) => {
     res.json(asset);
   } catch (error) {
     console.error('Asset detail error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/assets/categories
+ * List all categories with asset counts
+ */
+app.get('/a2a/assets/categories', (_req: Request, res: Response) => {
+  try {
+    const categories = getCategories();
+    res.json({ categories, total: categories.length });
+  } catch (error) {
+    console.error('Categories error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/assets/explore
+ * Explore assets with filters
+ * Query params: type, category, status, query, limit, offset
+ */
+app.get('/a2a/assets/explore', (req: Request, res: Response) => {
+  try {
+    const { type, category, status, query, limit, offset } = req.query as Record<string, string>;
+    const result = exploreAssets({
+      type,
+      category,
+      status,
+      query,
+      limit: limit ? parseInt(limit) : 20,
+      offset: offset ? parseInt(offset) : 0,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('Explore error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/assets/daily-discovery
+ * Daily curated feed of high-quality new assets
+ * Query params: limit
+ */
+app.get('/a2a/assets/daily-discovery', (req: Request, res: Response) => {
+  try {
+    const { limit } = req.query as Record<string, string>;
+    const assets = getDailyDiscovery({ limit: limit ? parseInt(limit) : 10 });
+    res.json({ assets, total: assets.length });
+  } catch (error) {
+    console.error('Daily discovery error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/assets/:id/related
+ * Get related assets by signal/tag overlap
+ * Query params: limit
+ */
+app.get('/a2a/assets/:id/related', (req: Request, res: Response) => {
+  try {
+    const { limit } = req.query as Record<string, string>;
+    const assets = getRelatedAssets(req.params.id, { limit: limit ? parseInt(limit) : 5 });
+    res.json({ assets, total: assets.length });
+  } catch (error) {
+    console.error('Related assets error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/assets/:id/vote
+ * Vote up or down on an asset
+ * Body: { direction: 'up' | 'down' }
+ */
+app.post('/a2a/assets/:id/vote', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as any).nodeId as string;
+    const { direction } = req.body;
+    if (!direction || !['up', 'down'].includes(direction)) {
+      res.status(400).json({ error: 'invalid_direction', message: 'direction must be up or down' });
+      return;
+    }
+    const result = voteAsset(req.params.id, nodeId, direction);
+    res.json(result);
+  } catch (error) {
+    console.error('Vote error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/signals/popular
+ * Popular signals/triggers
+ * Query params: type, limit
+ */
+app.get('/a2a/signals/popular', (req: Request, res: Response) => {
+  try {
+    const { type, limit } = req.query as Record<string, string>;
+    const signals = getPopularSignals({ type, limit: limit ? parseInt(limit) : 20 });
+    res.json({ signals, total: signals.length });
+  } catch (error) {
+    console.error('Popular signals error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/validation-reports
+ * List validation reports
+ * Query params: assetId, limit
+ */
+app.get('/a2a/validation-reports', (req: Request, res: Response) => {
+  try {
+    const { assetId, limit } = req.query as Record<string, string>;
+    const reports = getValidationReports({ assetId, limit: limit ? parseInt(limit) : 50 });
+    res.json({ reports, total: reports.length });
+  } catch (error) {
+    console.error('Validation reports error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/evolution-events
+ * List evolution events
+ * Query params: limit
+ */
+app.get('/a2a/evolution-events', (req: Request, res: Response) => {
+  try {
+    const { limit } = req.query as Record<string, string>;
+    const events = getEvolutionEvents({ limit: limit ? parseInt(limit) : 50 });
+    res.json({ events, total: events.length });
+  } catch (error) {
+    console.error('Evolution events error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });

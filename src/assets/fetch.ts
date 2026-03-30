@@ -15,6 +15,7 @@ import {
   listAssets,
   incrementFetchCount,
   getAsset,
+  assetStore,
 } from './store';
 import { calculateGDI } from './gdi';
 
@@ -239,6 +240,247 @@ export function getAssetDetails(assetId: string): AssetWithScore | null {
     fetch_count: record.fetch_count,
     report_count: record.report_count,
   };
+}
+
+/**
+ * Get all categories with asset counts
+ */
+export function getCategories(): { category: string; count: number; type: string }[] {
+  const records = [...assetStore.values()].filter(r => r.status === 'active');
+  const result: Record<string, { count: number; type: string }> = {};
+
+  for (const record of records) {
+    const asset = record.asset;
+    if (asset.type === 'Gene') {
+      const gene = asset as unknown as Gene;
+      const key = gene.category;
+      if (!result[key]) result[key] = { count: 0, type: 'Gene' };
+      result[key].count++;
+    }
+  }
+
+  return Object.entries(result)
+    .map(([category, info]) => ({ category, ...info }))
+    .sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Get popular signals (most used trigger/signal keywords)
+ */
+export function getPopularSignals(options?: { limit?: number; type?: string }): { signal: string; count: number; type: string }[] {
+  const records = listAssets({ type: options?.type, status: 'active', limit: 200 });
+  const signalCounts: Record<string, number> = {};
+
+  for (const record of records) {
+    const asset = record.asset;
+    const signals: string[] = asset.type === 'Gene'
+      ? (asset as unknown as Gene).signals_match
+      : (asset as unknown as Capsule).trigger;
+    for (const s of signals) {
+      signalCounts[s] = (signalCounts[s] ?? 0) + 1;
+    }
+  }
+
+  return Object.entries(signalCounts)
+    .map(([signal, count]) => ({ signal, count, type: options?.type ?? 'all' }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, options?.limit ?? 20);
+}
+
+/**
+ * Explore assets with filters
+ */
+export function exploreAssets(options?: {
+  type?: string;
+  category?: string;
+  status?: string;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}): { assets: AssetWithScore[]; total: number } {
+  const all = listAssets({
+    type: options?.type,
+    status: options?.status as 'active' | 'candidate' | 'rejected' | 'archived' | undefined,
+    limit: 500,
+  });
+
+  let filtered = all;
+  if (options?.category) {
+    filtered = filtered.filter(r => {
+      const asset = r.asset;
+      return asset.type === 'Gene' && (asset as unknown as Gene).category === options.category;
+    });
+  }
+  if (options?.query) {
+    const q = options.query.toLowerCase();
+    filtered = filtered.filter(r => {
+      const a = r.asset;
+      if (a.type === 'Gene') {
+        const gene = a as unknown as Gene;
+        return gene.signals_match.some(s => s.toLowerCase().includes(q)) ||
+          gene.strategy.some(s => s.toLowerCase().includes(q));
+      }
+      const capsule = a as unknown as Capsule;
+      return capsule.trigger.some(t => t.toLowerCase().includes(q)) ||
+        capsule.summary?.toLowerCase().includes(q);
+    });
+  }
+
+  const total = filtered.length;
+  const assets = filtered
+    .slice(options?.offset ?? 0, (options?.offset ?? 0) + (options?.limit ?? 20))
+    .map(record => ({
+      ...record.asset,
+      status: record.status,
+      owner_id: record.owner_id,
+      gdi: record.gdi,
+      fetch_count: record.fetch_count,
+      report_count: record.report_count,
+    }));
+
+  return { assets, total };
+}
+
+/**
+ * Get daily discovery — curated feed of high-quality new assets
+ */
+export function getDailyDiscovery(options?: { limit?: number }): AssetWithScore[] {
+  const records = listAssets({ status: 'active', limit: 200 });
+  const now = Date.now();
+  const oneDay = 24 * 60 * 60 * 1000;
+  const cutoff = now - oneDay;
+
+  return records
+    .filter(r => {
+      const publishedAt = new Date(r.published_at).getTime();
+      return publishedAt >= cutoff;
+    })
+    .sort((a, b) => (b.gdi?.total ?? 0) - (a.gdi?.total ?? 0))
+    .slice(0, options?.limit ?? 10)
+    .map(record => ({
+      ...record.asset,
+      status: record.status,
+      owner_id: record.owner_id,
+      gdi: record.gdi,
+      fetch_count: record.fetch_count,
+      report_count: record.report_count,
+    }));
+}
+
+/**
+ * Get related assets (using signal/tag overlap)
+ */
+export function getRelatedAssets(assetId: string, options?: { limit?: number }): AssetWithScore[] {
+  const record = getAsset(assetId);
+  if (!record) return [];
+
+  const targetSignals: string[] = record.asset.type === 'Gene'
+    ? (record.asset as unknown as Gene).signals_match
+    : (record.asset as unknown as Capsule).trigger;
+  const targetTags: string[] = (record.asset as any).tags ?? [];
+
+  const candidates = listAssets({ status: 'active', limit: 200 })
+    .filter(r => r.asset.asset_id !== assetId);
+
+  const scored = candidates.map(r => {
+    const signals: string[] = r.asset.type === 'Gene'
+      ? (r.asset as unknown as Gene).signals_match
+      : (r.asset as unknown as Capsule).trigger;
+    const tags: string[] = (r.asset as any).tags ?? [];
+
+    const signalOverlap = signals.filter(s => targetSignals.includes(s)).length;
+    const tagOverlap = tags.filter(t => targetTags.includes(t)).length;
+    const score = signalOverlap * 2 + tagOverlap;
+
+    return { record, score };
+  })
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, options?.limit ?? 5)
+    .map(s => ({
+      ...s.record.asset,
+      status: s.record.status,
+      owner_id: s.record.owner_id,
+      gdi: s.record.gdi,
+      fetch_count: s.record.fetch_count,
+      report_count: s.record.report_count,
+    }));
+
+  return scored;
+}
+
+/**
+ * Vote on an asset (up/down)
+ */
+export function voteAsset(assetId: string, nodeId: string, direction: 'up' | 'down'): { status: string; newVoteCount: number } {
+  const record = getAsset(assetId);
+  if (!record) throw new Error('Asset not found');
+
+  // Initialize gdi if not present
+  if (!record.gdi) record.gdi = calculateGDI(record.asset, { fetchCount: record.fetch_count, reportCount: record.report_count });
+
+  // Vote changes the social score component (0-100 scale)
+  const voteDelta = direction === 'up' ? 10 : -10;
+  const newSocial = Math.max(0, Math.min(100, (record.gdi.social ?? 50) + voteDelta));
+  record.gdi.social = newSocial;
+
+  // Recalculate total GDI
+  record.gdi.total = record.gdi.intrinsic * 0.35 +
+    record.gdi.usage * 0.30 +
+    record.gdi.social * 0.20 +
+    record.gdi.freshness * 0.15;
+
+  return { status: 'ok', newVoteCount: newSocial };
+}
+
+/**
+ * Get validation reports
+ */
+export function getValidationReports(options?: { assetId?: string; limit?: number }) {
+  const records = listAssets({ status: 'active', limit: 200 });
+  const reports: unknown[] = [];
+
+  for (const record of records) {
+    if (options?.assetId && record.asset.asset_id !== options.assetId) continue;
+    const confidence = (record.asset as any).confidence;
+    if (confidence !== undefined) {
+      reports.push({
+        asset_id: record.asset.asset_id,
+        confidence,
+        status: record.status,
+        validated_at: record.published_at,
+        validator: record.owner_id,
+      });
+    }
+  }
+
+  return reports.slice(0, options?.limit ?? 50);
+}
+
+/**
+ * Get evolution events
+ */
+export function getEvolutionEvents(options?: { limit?: number }): unknown[] {
+  const records = listAssets({ status: 'active', limit: 200 });
+  const events: unknown[] = [];
+
+  for (const record of records) {
+    const asset = record.asset;
+    if (asset.type === 'Capsule' && (asset as unknown as Capsule).gene) {
+      events.push({
+        id: `evt_${record.asset.asset_id.slice(0, 12)}`,
+        asset_id: record.asset.asset_id,
+        gene: (asset as unknown as Capsule).gene,
+        parent: undefined,
+        intent: (asset as unknown as Capsule).summary,
+        signals: (asset as unknown as Capsule).trigger,
+        outcome: (asset as unknown as Capsule).outcome,
+        created_at: asset.created_at,
+      });
+    }
+  }
+
+  return events.slice(0, options?.limit ?? 50);
 }
 
 /**
