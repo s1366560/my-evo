@@ -355,3 +355,206 @@ export function findSimilar(assetId: string, limit: number = 5): SearchableAsset
     .slice(0, limit)
     .map(r => r.asset);
 }
+
+// ============ TF-IDF Vector Storage for Semantic Search ============
+
+interface TFIDFVector {
+  [term: string]: number;
+}
+
+// Document frequency map
+const docFrequency: Map<string, number> = new Map();
+const totalDocs = () => searchIndex.size;
+
+// Build TF-IDF vector for an asset
+function buildTFIDFVector(asset: SearchableAsset): TFIDFVector {
+  const text = [
+    asset.name,
+    asset.description,
+    ...asset.signals,
+    ...asset.tags,
+  ].join(' ').toLowerCase();
+  
+  const terms = text.split(/\s+/).filter(t => t.length > 1);
+  const termFreq: Map<string, number> = new Map();
+  
+  for (const term of terms) {
+    termFreq.set(term, (termFreq.get(term) || 0) + 1);
+  }
+  
+  const tfidf: TFIDFVector = {};
+  const n = totalDocs();
+  
+  for (const [term, tf] of termFreq) {
+    const df = docFrequency.get(term) || 0;
+    if (df === 0) continue;
+    // TF-IDF: tf * log(n / df)
+    tfidf[term] = tf * Math.log(n / df);
+  }
+  
+  return tfidf;
+}
+
+// Compute cosine similarity between two vectors
+function cosineSimilarity(vecA: TFIDFVector, vecB: TFIDFVector): number {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  
+  const allTerms = new Set([...Object.keys(vecA), ...Object.keys(vecB)]);
+  
+  for (const term of allTerms) {
+    const a = vecA[term] || 0;
+    const b = vecB[term] || 0;
+    dotProduct += a * b;
+    normA += a * a;
+    normB += b * b;
+  }
+  
+  if (normA === 0 || normB === 0) return 0;
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+// Update document frequency when indexing
+function updateDocFrequency(asset: SearchableAsset): void {
+  const text = [
+    asset.name,
+    asset.description,
+    ...asset.signals,
+    ...asset.tags,
+  ].join(' ').toLowerCase();
+  
+  const terms = new Set(text.split(/\s+/).filter(t => t.length > 1));
+  
+  for (const term of terms) {
+    docFrequency.set(term, (docFrequency.get(term) || 0) + 1);
+  }
+}
+
+// Semantic Search Result
+export interface SemanticSearchResult {
+  assets: Array<SearchableAsset & { similarity_score: number }>;
+  total: number;
+  query_time_ms: number;
+  method: 'tfidf_cosine';
+}
+
+// Semantic search using TF-IDF vectors and cosine similarity
+export function semanticSearch(
+  query: string,
+  options?: {
+    type?: AssetType;
+    min_gdi?: number;
+    limit?: number;
+    min_similarity?: number;
+  }
+): SemanticSearchResult {
+  const startTime = Date.now();
+  
+  if (searchIndex.size === 0) {
+    return {
+      assets: [],
+      total: 0,
+      query_time_ms: Date.now() - startTime,
+      method: 'tfidf_cosine',
+    };
+  }
+  
+  // Build query vector from search terms
+  const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+  const queryTF: TFIDFVector = {};
+  
+  for (const term of queryTerms) {
+    queryTF[term] = (queryTF[term] || 0) + 1;
+  }
+  
+  // Normalize query vector
+  const queryNorm = Math.sqrt(Object.values(queryTF).reduce((sum, v) => sum + v * v, 0));
+  if (queryNorm > 0) {
+    for (const term in queryTF) {
+      queryTF[term] /= queryNorm;
+    }
+  }
+  
+  // Get all candidates
+  let candidates = [...searchIndex.values()];
+  
+  // Filter by type
+  if (options?.type) {
+    candidates = candidates.filter(a => a.type === options.type);
+  }
+  
+  // Filter by minimum GDI
+  if (options?.min_gdi !== undefined) {
+    candidates = candidates.filter(a => a.gdi_score >= options.min_gdi!);
+  }
+  
+  // Compute similarity for each candidate
+  const results: Array<SearchableAsset & { similarity_score: number }> = [];
+  
+  for (const asset of candidates) {
+    // Build asset TF-IDF vector
+    const assetVector = buildTFIDFVector(asset);
+    
+    // Normalize asset vector
+    const assetNorm = Math.sqrt(Object.values(assetVector).reduce((sum, v) => sum + v * v, 0));
+    if (assetNorm > 0) {
+      for (const term in assetVector) {
+        assetVector[term] /= assetNorm;
+      }
+    }
+    
+    // Compute cosine similarity
+    let dotProduct = 0;
+    for (const term of Object.keys(queryTF)) {
+      dotProduct += queryTF[term] * (assetVector[term] || 0);
+    }
+    
+    const similarity = dotProduct;
+    
+    // Skip low similarity
+    const minSim = options?.min_similarity ?? 0.1;
+    if (similarity < minSim) continue;
+    
+    results.push({
+      ...asset,
+      similarity_score: Math.round(similarity * 1000) / 1000,
+    });
+  }
+  
+  // Sort by similarity descending
+  results.sort((a, b) => b.similarity_score - a.similarity_score);
+  
+  const limit = options?.limit || 20;
+  const total = results.length;
+  const topResults = results.slice(0, limit);
+  
+  return {
+    assets: topResults,
+    total,
+    query_time_ms: Date.now() - startTime,
+    method: 'tfidf_cosine',
+  };
+}
+
+// ============ Semantic Similarity Between Assets ============
+
+export function findSimilarByText(assetId: string, limit: number = 5): SearchableAsset[] {
+  const asset = searchIndex.get(assetId);
+  if (!asset) return [];
+  
+  const query = [asset.name, asset.description, ...asset.signals, ...asset.tags].join(' ');
+  const result = semanticSearch(query, { limit: limit + 1 });
+  
+  return result.assets
+    .filter(a => a.id !== assetId)
+    .slice(0, limit);
+}
+
+// ============ Asset Indexing with TF-IDF Update ============
+
+// Enhanced indexAsset that updates document frequency
+export function indexAssetWithTFIDF(asset: SearchableAsset): void {
+  indexAsset(asset);
+  updateDocFrequency(asset);
+}
