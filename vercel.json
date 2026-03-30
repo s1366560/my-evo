@@ -1,20 +1,12 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "dist/index.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["ui/**"]
-      }
+  "functions": {
+    "dist/index.js": {
+      "runtime": "@vercel/node",
+      "includeFiles": ["ui/**", "dist/**"]
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/dist/index.js"
-    }
-  ],
-  "installCommand": "npm install",
-  "buildCommand": "npm run build"
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/dist/index.js" }
+  ]
 }
