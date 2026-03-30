@@ -21,6 +21,7 @@ import { processHeartbeat } from './a2a/heartbeat';
 import { HelloPayload, HeartbeatPayload } from './a2a/types';
 import { publishAsset, submitValidationReport, revokeAsset } from './assets/publish';
 import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails, getCategories, getPopularSignals, exploreAssets, getDailyDiscovery, getRelatedAssets, voteAsset, getValidationReports, getEvolutionEvents } from './assets/fetch';
+import { handleGetAuditTrail, handleGetBranches, handleGetTimeline, handleMyUsage, handleSelfRevoke, handleForkAsset } from './assets/history';
 import { FetchQuery } from './assets/types';
 import { getLineage, getLineageChain, getDescendantChain, getLineageMetadata, getLineageTreeSize, haveCommonAncestor, getRootAncestor } from './assets/lineage';
 import {
@@ -576,6 +577,90 @@ app.post('/a2a/assets/:id/vote', requireAuth, (req: Request, res: Response) => {
 });
 
 /**
+ * GET /a2a/assets/:id/audit-trail
+ * Returns the change history for an asset
+ */
+app.get('/a2a/assets/:id/audit-trail', (req: Request, res: Response) => {
+  try {
+    handleGetAuditTrail(req, res);
+  } catch (error) {
+    console.error('Audit trail error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/assets/:id/branches
+ * Returns the asset's branch/fork chain
+ */
+app.get('/a2a/assets/:id/branches', (req: Request, res: Response) => {
+  try {
+    handleGetBranches(req, res);
+  } catch (error) {
+    console.error('Branches error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/assets/:id/timeline
+ * Returns the activity timeline for an asset
+ */
+app.get('/a2a/assets/:id/timeline', (req: Request, res: Response) => {
+  try {
+    handleGetTimeline(req, res);
+  } catch (error) {
+    console.error('Timeline error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/assets/my-usage
+ * Returns usage statistics for the authenticated node
+ */
+app.get('/a2a/assets/my-usage', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as any).nodeId as string;
+    handleMyUsage(nodeId, res);
+  } catch (error) {
+    console.error('My usage error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/asset/self-revoke
+ * Owner can revoke their own asset
+ * Body: { asset_id: string, reason?: string }
+ */
+app.post('/a2a/asset/self-revoke', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as any).nodeId as string;
+    handleSelfRevoke(nodeId, req.body, res);
+  } catch (error) {
+    console.error('Self-revoke error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/assets/:id/fork
+ * Fork an asset (creates a branch entry)
+ * Body: { reason?: string }
+ */
+app.post('/a2a/assets/:id/fork', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as any).nodeId as string;
+    const reason = (req.body as { reason?: string }).reason ?? 'manual_fork';
+    handleForkAsset(nodeId, req.params.id, reason, res);
+  } catch (error) {
+    console.error('Fork asset error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
  * GET /a2a/signals/popular
  * Popular signals/triggers
  * Query params: type, limit
@@ -619,7 +704,6 @@ app.get('/a2a/evolution-events', (req: Request, res: Response) => {
     res.json({ events, total: events.length });
   } catch (error) {
     console.error('Evolution events error:', error);
->>>>>>> 04af2331349925e67f23bab4e30a933cbae8d6c5
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
