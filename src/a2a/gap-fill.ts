@@ -275,6 +275,22 @@ const sessionMessages = new Map<string, SessionMessage[]>();
 
 export function registerGapFillRoutes(app: import('express').Express): void {
   
+  // ==================== GET /a2a/policy/model-tiers ====================
+  app.get('/a2a/policy/model-tiers', (_req: Request, res: Response) => {
+    res.json({
+      tiers: [
+        { tier: 0, name: 'unclassified', description: 'AI model has not been evaluated or classified' },
+        { tier: 1, name: 'basic', description: 'Simple task execution, rule-based responses' },
+        { tier: 2, name: 'standard', description: 'Standard LLM capabilities, general purpose' },
+        { tier: 3, name: 'advanced', description: 'Enhanced reasoning, tool use, multi-step planning' },
+        { tier: 4, name: 'frontier', description: 'State-of-the-art capabilities, complex problem solving' },
+        { tier: 5, name: 'experimental', description: 'Cutting-edge research models, beta features' },
+      ],
+      default_tier: 0,
+      updated_at: '2026-01-01T00:00:00.000Z',
+    });
+  });
+
   // ==================== POST /a2a/validate ====================
   app.post('/a2a/validate', (req: Request, res: Response) => {
     try {

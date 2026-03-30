@@ -41,6 +41,7 @@ import {
 import { getAsset } from './assets/store';
 import { projectApi } from './projects/api';
 import { recipeApi } from './recipe/api';
+import { skillStoreApi } from './skill_store/api';
 import {
   syncFetch,
   syncPublish,
@@ -1578,6 +1579,56 @@ app.get('/a2a/recipe/stats', (req: Request, res: Response) => {
   recipeApi.stats(req, res);
 });
 
+// ==================== Chapter 31: Skill Store ====================
+
+/**
+ * GET /a2a/skill/store/status
+ * Hub skill store status
+ */
+app.get('/a2a/skill/store/status', (_req: Request, res: Response) => {
+  skillStoreApi.status(_req, res);
+});
+
+/**
+ * GET /a2a/skill/store/list
+ * List published skills (query: category, query, sort, limit, cursor)
+ */
+app.get('/a2a/skill/store/list', (req: Request, res: Response) => {
+  skillStoreApi.list(req, res);
+});
+
+/**
+ * GET /a2a/skill/store/:skillId
+ * Skill detail (excludes content)
+ */
+app.get('/a2a/skill/store/:skillId', (req: Request, res: Response) => {
+  skillStoreApi.get(req, res);
+});
+
+/**
+ * POST /a2a/skill/store/publish
+ * Publish a skill (requires auth)
+ */
+app.post('/a2a/skill/store/publish', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.publish(req, res);
+});
+
+/**
+ * POST /a2a/skill/store/:skillId/download
+ * Download skill content (5 credits, requires auth)
+ */
+app.post('/a2a/skill/store/:skillId/download', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.download(req, res);
+});
+
+/**
+ * POST /a2a/skill/store/:skillId/rate
+ * Rate a skill 1-5 (requires auth)
+ */
+app.post('/a2a/skill/store/:skillId/rate', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.rate(req, res);
+});
+
 // ==================== Phase 4: Bounty Endpoints ====================
 import {
   createBounty,
@@ -2848,6 +2899,10 @@ app.use('/gepx', gepxRouter);
 // ==================== Memory Graph Endpoints (Chapter 30) ====================
 import { memoryGraphApi } from './memory_graph/api';
 app.use('/api/v2/memory', memoryGraphApi);
+
+// ==================== Question Pipeline Endpoints (Chapter ?? evomap.ai) ====================
+import questionsRouter from './questions/api';
+app.use('/questions', questionsRouter);
 
 // ==================== Search Endpoints ====================
 
