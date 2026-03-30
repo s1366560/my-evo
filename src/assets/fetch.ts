@@ -15,6 +15,7 @@ import {
   listAssets,
   incrementFetchCount,
   getAsset,
+  getAssetsByOwner,
   assetStore,
 } from './store';
 import { calculateGDI } from './gdi';
@@ -365,6 +366,92 @@ export function getDailyDiscovery(options?: { limit?: number }): AssetWithScore[
       fetch_count: record.fetch_count,
       report_count: record.report_count,
     }));
+}
+
+/**
+ * Get personalized recommended assets for a node
+ * Based on collaborative filtering: user's categories/signals → similar high-quality assets
+ * For anonymous users: returns top GDI active assets
+ */
+export function getRecommendedAssets(nodeId?: string, options?: { limit?: number }): AssetWithScore[] {
+  const limit = options?.limit ?? 10;
+
+  // Anonymous: return top GDI active assets
+  if (!nodeId) {
+    const records = listAssets({ status: 'active', limit: 200 });
+    return records
+      .sort((a, b) => (b.gdi?.total ?? 0) - (a.gdi?.total ?? 0))
+      .slice(0, limit)
+      .map(record => ({
+        ...record.asset,
+        status: record.status,
+        owner_id: record.owner_id,
+        gdi: record.gdi,
+        fetch_count: record.fetch_count,
+        report_count: record.report_count,
+      }));
+  }
+
+  // Authenticated: collaborative filtering based on user's published assets
+  const myAssets = getAssetsByOwner(nodeId);
+  if (myAssets.length === 0) {
+    // No published assets → fallback to top GDI
+    return getRecommendedAssets(undefined, options);
+  }
+
+  // Extract preference signals and categories from user's assets
+  const prefSignals = new Set<string>();
+  const prefCategories = new Set<string>();
+  for (const record of myAssets) {
+    if (record.asset.type === 'Gene') {
+      const gene = record.asset as unknown as Gene;
+      gene.signals_match.forEach(s => prefSignals.add(s.toLowerCase()));
+      if (gene.category) prefCategories.add(gene.category);
+    } else {
+      const capsule = record.asset as unknown as Capsule;
+      capsule.trigger.forEach(t => prefSignals.add(t.toLowerCase()));
+    }
+  }
+
+  // Find candidate assets: active, not owned by this node
+  const candidates = listAssets({ status: 'active', limit: 500 })
+    .filter(r => r.owner_id !== nodeId);
+
+  // Score candidates by signal overlap + GDI
+  const scored = candidates
+    .map(record => {
+      let signalScore = 0;
+      if (record.asset.type === 'Gene') {
+        const gene = record.asset as unknown as Gene;
+        gene.signals_match.forEach(s => {
+          if (prefSignals.has(s.toLowerCase())) signalScore += 2;
+        });
+        if (prefCategories.has(gene.category)) signalScore += 3;
+      } else {
+        const capsule = record.asset as unknown as Capsule;
+        capsule.trigger.forEach(t => {
+          if (prefSignals.has(t.toLowerCase())) signalScore += 1;
+        });
+      }
+
+      const gdiScore = record.gdi?.total ?? 0;
+      const combinedScore = signalScore * 100 + gdiScore;
+
+      return { record, combinedScore, signalScore };
+    })
+    .filter(s => s.signalScore > 0 || myAssets.length === 0)
+    .sort((a, b) => b.combinedScore - a.combinedScore)
+    .slice(0, limit)
+    .map(s => ({
+      ...s.record.asset,
+      status: s.record.status,
+      owner_id: s.record.owner_id,
+      gdi: s.record.gdi,
+      fetch_count: s.record.fetch_count,
+      report_count: s.record.report_count,
+    }));
+
+  return scored;
 }
 
 /**
