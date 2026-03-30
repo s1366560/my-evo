@@ -57,12 +57,50 @@ export function isConcurrent(clock1: VectorClock, clock2: VectorClock): boolean 
   return !happensBefore(clock1, clock2) && !happensBefore(clock2, clock1);
 }
 
+// ============ Session Store (in-memory) ============
+
+const sessions = new Map<string, Session>();
+
+export function storeSession(session: Session): void {
+  sessions.set(session.id, session);
+}
+
+export function getSession(sessionId: string): Session | null {
+  return sessions.get(sessionId) || null;
+}
+
+export function updateSession(sessionId: string, updates: Partial<Session>): Session | null {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+  const updated = { ...session, ...updates, updated_at: Date.now() };
+  sessions.set(sessionId, updated);
+  return updated;
+}
+
+export function deleteSession(sessionId: string): boolean {
+  return sessions.delete(sessionId);
+}
+
+export function listActiveSessions(): Session[] {
+  const now = Date.now();
+  return Array.from(sessions.values()).filter(s => s.status === 'active' && now < s.expires_at);
+}
+
+export function listSessionsByNode(nodeId: string): Session[] {
+  return Array.from(sessions.values()).filter(
+    s => s.members.some(m => m.node_id === nodeId)
+  );
+}
+
 // ============ Session Management ============
 
 export function createSession(params: {
   id?: string;
   title: string;
   creator_id: string;
+  swarm_id?: string;
+  participants?: string[];
+  purpose?: string;
   context?: Record<string, any>;
   max_participants?: number;
   consensus_config?: Partial<ConsensusConfig>;
@@ -70,21 +108,24 @@ export function createSession(params: {
 }): Session {
   const now = Date.now();
   const ttl = (params.ttl_seconds || 7200) * 1000;
+  const allParticipants = [...new Set([params.creator_id, ...(params.participants || [])])];
   
-  return {
+  const session: Session = {
     id: params.id || `sess_${randomUUID().slice(0, 8)}`,
     title: params.title,
     status: 'creating',
     creator_id: params.creator_id,
-    members: [
-      {
-        node_id: params.creator_id,
-        role: 'organizer',
-        joined_at: now,
-        last_heartbeat: now,
-      }
-    ],
-    context: params.context || {},
+    members: allParticipants.map((node_id, i) => ({
+      node_id,
+      role: i === 0 ? 'organizer' : 'participant',
+      joined_at: now,
+      last_heartbeat: now,
+    })),
+    context: {
+      ...(params.context || {}),
+      swarm_id: params.swarm_id,
+      purpose: params.purpose || '',
+    },
     max_participants: params.max_participants || 5,
     consensus_config: {
       algorithm: params.consensus_config?.algorithm || 'raft_like',
@@ -97,6 +138,9 @@ export function createSession(params: {
     updated_at: now,
     expires_at: now + ttl,
   };
+  
+  storeSession(session);
+  return session;
 }
 
 export function activateSession(session: Session): Session {

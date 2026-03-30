@@ -187,4 +187,34 @@ export const recipeApi = {
       res.status(500).json({ error: (error as Error).message });
     }
   },
+
+  // GET /a2a/recipe/search
+  search: async (req: Request, res: Response) => {
+    try {
+      const { q, limit = '20' } = req.query;
+      if (!q || typeof q !== 'string') {
+        res.status(400).json({ error: 'invalid_request', message: 'Missing search query "q"' });
+        return;
+      }
+      const limitNum = Math.min(parseInt(limit as string) || 20, 100);
+      const recipes = engine.searchRecipes(q, limitNum);
+      res.json({ recipes, total: recipes.length });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
+
+  // GET /a2a/organism/active
+  getActiveOrganisms: async (req: Request, res: Response) => {
+    try {
+      const { recipe_id } = req.query;
+      let organisms = engine.listActiveOrganisms();
+      if (recipe_id && typeof recipe_id === 'string') {
+        organisms = organisms.filter((o) => o.recipe_id === recipe_id);
+      }
+      res.json({ organisms, total: organisms.length });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
 };

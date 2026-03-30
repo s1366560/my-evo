@@ -77,8 +77,15 @@ export async function processHeartbeat(
 /**
  * Get pending events for a node
  */
-function getPendingEvents(nodeId: string): unknown[] {
+export function getPendingEvents(nodeId: string): unknown[] {
   return pendingEvents.get(nodeId) || [];
+}
+
+/**
+ * Clear pending events for a node (after delivery)
+ */
+export function clearPendingEvents(nodeId: string): void {
+  pendingEvents.set(nodeId, []);
 }
 
 /**
