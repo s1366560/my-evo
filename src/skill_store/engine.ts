@@ -11,6 +11,7 @@ import {
   SkillListOptions,
   ModerationLayer,
   ModerationResult,
+  SkillVersion,
 } from './types';
 
 const FORBIDDEN_KEYWORDS = [
@@ -167,6 +168,7 @@ export class SkillStoreEngine {
       rating_count: 0,
       price_credits: DOWNLOAD_CREDITS,
       moderation: [],
+      versions: [],
       created_at: now,
       updated_at: now,
     };
@@ -301,5 +303,142 @@ export class SkillStoreEngine {
     skill.rating_count = newCount;
     skill.updated_at = new Date().toISOString();
     return true;
+  }
+
+  // ============ Version Management ============
+
+  /** Get version history for a skill */
+  getVersions(skillId: string): SkillVersion[] | null {
+    const skill = this.skills.get(skillId);
+    if (!skill) return null;
+    return skill.versions.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  /** Update skill to a new version */
+  async updateSkill(skillId: string, authorId: string, updates: { title?: string; description?: string; content?: string; version?: string }): Promise<{ success: boolean; skill?: Skill; error?: string }> {
+    const skill = this.skills.get(skillId);
+    if (!skill) return { success: false, error: 'Skill not found' };
+    if (skill.author_id !== authorId) return { success: false, error: 'Only author can update' };
+
+    const now = new Date().toISOString();
+
+    // Save current version to history before updating
+    skill.versions.push({
+      version: skill.version,
+      content: skill.content,
+      created_at: skill.updated_at,
+      created_by: skill.author_id,
+    });
+
+    // Apply updates
+    if (updates.title) skill.title = updates.title;
+    if (updates.description) skill.description = updates.description;
+    if (updates.content) skill.content = updates.content;
+    if (updates.version) skill.version = updates.version;
+    skill.updated_at = now;
+
+    // Re-run moderation for content changes
+    if (updates.content) {
+      skill.moderation = await this.moderateSkill(skill);
+      if (this.overallModerationPass(skill.moderation)) {
+        skill.status = SkillStatus.APPROVED;
+      } else {
+        skill.status = SkillStatus.REJECTED;
+      }
+    }
+
+    return { success: true, skill };
+  }
+
+  /** Rollback to a previous version */
+  async rollbackSkill(skillId: string, authorId: string, targetVersion: string): Promise<{ success: boolean; skill?: Skill; error?: string }> {
+    const skill = this.skills.get(skillId);
+    if (!skill) return { success: false, error: 'Skill not found' };
+    if (skill.author_id !== authorId) return { success: false, error: 'Only author can rollback' };
+
+    const target = skill.versions.find((v) => v.version === targetVersion);
+    if (!target) return { success: false, error: 'Version not found' };
+
+    const now = new Date().toISOString();
+
+    // Save current to history
+    skill.versions.push({
+      version: skill.version,
+      content: skill.content,
+      created_at: skill.updated_at,
+      created_by: skill.author_id,
+    });
+
+    // Restore target version
+    skill.content = target.content;
+    skill.version = targetVersion;
+    skill.updated_at = now;
+
+    // Re-run moderation
+    skill.moderation = await this.moderateSkill(skill);
+    if (this.overallModerationPass(skill.moderation)) {
+      skill.status = SkillStatus.APPROVED;
+    } else {
+      skill.status = SkillStatus.REJECTED;
+    }
+
+    return { success: true, skill };
+  }
+
+  /** Delete a specific version (not current) */
+  deleteVersion(skillId: string, authorId: string, targetVersion: string): { success: boolean; error?: string } {
+    const skill = this.skills.get(skillId);
+    if (!skill) return { success: false, error: 'Skill not found' };
+    if (skill.author_id !== authorId) return { success: false, error: 'Only author can delete versions' };
+    if (skill.version === targetVersion) return { success: false, error: 'Cannot delete current version' };
+
+    const idx = skill.versions.findIndex((v) => v.version === targetVersion);
+    if (idx < 0) return { success: false, error: 'Version not found' };
+
+    skill.versions.splice(idx, 1);
+    return { success: true };
+  }
+
+  // ============ Recycle Bin (Soft Delete) ============
+
+  /** Soft delete a skill (move to recycle bin) */
+  softDelete(skillId: string, authorId: string): { success: boolean; error?: string } {
+    const skill = this.skills.get(skillId);
+    if (!skill) return { success: false, error: 'Skill not found' };
+    if (skill.author_id !== authorId) return { success: false, error: 'Only author can delete' };
+
+    skill.status = SkillStatus.DELETED;
+    skill.deleted_at = new Date().toISOString();
+    return { success: true };
+  }
+
+  /** Restore a skill from recycle bin */
+  restore(skillId: string, authorId: string): { success: boolean; skill?: Skill; error?: string } {
+    const skill = this.skills.get(skillId);
+    if (!skill) return { success: false, error: 'Skill not found' };
+    if (skill.author_id !== authorId) return { success: false, error: 'Only author can restore' };
+    if (skill.status !== SkillStatus.DELETED) return { success: false, error: 'Skill is not in recycle bin' };
+
+    skill.status = SkillStatus.APPROVED;
+    skill.deleted_at = undefined;
+    return { success: true, skill };
+  }
+
+  /** List skills in recycle bin for an author */
+  listRecycleBin(authorId: string): Skill[] {
+    return Array.from(this.skills.values())
+      .filter((s) => s.author_id === authorId && s.status === SkillStatus.DELETED)
+      .sort((a, b) => new Date(b.deleted_at!).getTime() - new Date(a.deleted_at!).getTime());
+  }
+
+  /** Permanently delete a skill */
+  permanentDelete(skillId: string, authorId: string): { success: boolean; error?: string } {
+    const skill = this.skills.get(skillId);
+    if (!skill) return { success: false, error: 'Skill not found' };
+    if (skill.author_id !== authorId) return { success: false, error: 'Only author can permanently delete' };
+    if (skill.status !== SkillStatus.DELETED) return { success: false, error: 'Skill must be in recycle bin first' };
+
+    this.skills.delete(skillId);
+    return { success: true };
   }
 }

@@ -1629,6 +1629,70 @@ app.post('/a2a/skill/store/:skillId/rate', requireAuth, (req: Request, res: Resp
   skillStoreApi.rate(req, res);
 });
 
+/**
+ * GET /a2a/skill/store/:skillId/versions
+ * Version history
+ */
+app.get('/a2a/skill/store/:skillId/versions', (req: Request, res: Response) => {
+  skillStoreApi.versions(req, res);
+});
+
+/**
+ * PUT /a2a/skill/store/update
+ * Update skill to new version (requires auth)
+ */
+app.put('/a2a/skill/store/update', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.update(req, res);
+});
+
+/**
+ * POST /a2a/skill/store/rollback
+ * Rollback to version (requires auth)
+ */
+app.post('/a2a/skill/store/rollback', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.rollback(req, res);
+});
+
+/**
+ * POST /a2a/skill/store/delete-version
+ * Delete non-current version (requires auth)
+ */
+app.post('/a2a/skill/store/delete-version', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.deleteVersion(req, res);
+});
+
+/**
+ * POST /a2a/skill/store/delete
+ * Soft delete skill (requires auth)
+ */
+app.post('/a2a/skill/store/delete', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.delete(req, res);
+});
+
+/**
+ * POST /a2a/skill/store/restore
+ * Restore from recycle bin (requires auth)
+ */
+app.post('/a2a/skill/store/restore', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.restore(req, res);
+});
+
+/**
+ * POST /a2a/skill/store/recycle-bin
+ * List recycle bin (requires auth)
+ */
+app.post('/a2a/skill/store/recycle-bin', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.recycleBin(req, res);
+});
+
+/**
+ * POST /a2a/skill/store/permanent-delete
+ * Permanently delete skill (requires auth)
+ */
+app.post('/a2a/skill/store/permanent-delete', requireAuth, (req: Request, res: Response) => {
+  skillStoreApi.permanentDelete(req, res);
+});
+
 // ==================== Phase 4: Bounty Endpoints ====================
 import {
   createBounty,

@@ -6,6 +6,7 @@ export enum SkillStatus {
   APPROVED = 'approved',   // Passed all checks
   REJECTED = 'rejected',   // Failed moderation
   SUSPENDED = 'suspended', // Was approved but later flagged
+  DELETED = 'deleted',    // Soft deleted (in recycle bin)
 }
 
 export enum ModerationResult {
@@ -28,6 +29,13 @@ export interface SkillModerationReport {
   checked_at?: string; // Set by engine after all layers complete
 }
 
+export interface SkillVersion {
+  version: string;
+  content: string;
+  created_at: string;
+  created_by: string;
+}
+
 export interface Skill {
   id: string;
   title: string;
@@ -43,9 +51,11 @@ export interface Skill {
   rating_count: number;
   price_credits: number; // Always 5 per download per spec
   moderation: SkillModerationReport[];
+  versions: SkillVersion[]; // Version history
   created_at: string;
   updated_at: string;
   published_at?: string;
+  deleted_at?: string;   // Soft delete timestamp
 }
 
 export interface SkillCreate {

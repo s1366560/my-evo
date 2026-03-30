@@ -142,4 +142,177 @@ export const skillStoreApi = {
       res.status(500).json({ error: (error as Error).message });
     }
   },
+
+  // GET /a2a/skill/store/:skillId/versions — Version history
+  versions: async (req: Request, res: Response) => {
+    try {
+      const versions = engine.getVersions(req.params.skillId);
+      if (!versions) {
+        res.status(404).json({ error: 'Skill not found' });
+        return;
+      }
+      res.json({ versions });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
+
+  // PUT /a2a/skill/store/update — Update skill to new version
+  update: async (req: Request, res: Response) => {
+    try {
+      const nodeId = (req as any).nodeId;
+      if (!nodeId) {
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+      }
+      const { skill_id, title, description, content, version } = req.body;
+      if (!skill_id) {
+        res.status(400).json({ error: 'skill_id is required' });
+        return;
+      }
+      const result = await engine.updateSkill(skill_id, nodeId, { title, description, content, version });
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ success: true, skill: result.skill });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
+
+  // POST /a2a/skill/store/rollback — Rollback to version
+  rollback: async (req: Request, res: Response) => {
+    try {
+      const nodeId = (req as any).nodeId;
+      if (!nodeId) {
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+      }
+      const { skill_id, target_version } = req.body;
+      if (!skill_id || !target_version) {
+        res.status(400).json({ error: 'skill_id and target_version are required' });
+        return;
+      }
+      const result = await engine.rollbackSkill(skill_id, nodeId, target_version);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ success: true, skill: result.skill });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
+
+  // POST /a2a/skill/store/delete-version — Delete non-current version
+  deleteVersion: async (req: Request, res: Response) => {
+    try {
+      const nodeId = (req as any).nodeId;
+      if (!nodeId) {
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+      }
+      const { skill_id, target_version } = req.body;
+      if (!skill_id || !target_version) {
+        res.status(400).json({ error: 'skill_id and target_version are required' });
+        return;
+      }
+      const result = engine.deleteVersion(skill_id, nodeId, target_version);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
+
+  // POST /a2a/skill/store/delete — Soft delete
+  delete: async (req: Request, res: Response) => {
+    try {
+      const nodeId = (req as any).nodeId;
+      if (!nodeId) {
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+      }
+      const { skill_id } = req.body;
+      if (!skill_id) {
+        res.status(400).json({ error: 'skill_id is required' });
+        return;
+      }
+      const result = engine.softDelete(skill_id, nodeId);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ success: true, message: 'Skill moved to recycle bin' });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
+
+  // POST /a2a/skill/store/restore — Restore from recycle bin
+  restore: async (req: Request, res: Response) => {
+    try {
+      const nodeId = (req as any).nodeId;
+      if (!nodeId) {
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+      }
+      const { skill_id } = req.body;
+      if (!skill_id) {
+        res.status(400).json({ error: 'skill_id is required' });
+        return;
+      }
+      const result = engine.restore(skill_id, nodeId);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ success: true, skill: result.skill });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
+
+  // POST /a2a/skill/store/recycle-bin — List recycle bin
+  recycleBin: async (req: Request, res: Response) => {
+    try {
+      const nodeId = (req as any).nodeId;
+      if (!nodeId) {
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+      }
+      const skills = engine.listRecycleBin(nodeId);
+      res.json({ skills, total: skills.length });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
+
+  // POST /a2a/skill/store/permanent-delete — Permanently delete
+  permanentDelete: async (req: Request, res: Response) => {
+    try {
+      const nodeId = (req as any).nodeId;
+      if (!nodeId) {
+        res.status(401).json({ error: 'unauthorized' });
+        return;
+      }
+      const { skill_id } = req.body;
+      if (!skill_id) {
+        res.status(400).json({ error: 'skill_id is required' });
+        return;
+      }
+      const result = engine.permanentDelete(skill_id, nodeId);
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ success: true, message: 'Skill permanently deleted' });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  },
 };
