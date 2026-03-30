@@ -1088,23 +1088,36 @@ export function registerGapFillRoutes(app: import('express').Express): void {
   // GET /api/docs/wiki-full
   app.get('/api/docs/wiki-full', (req: Request, res: Response) => {
     try {
-      const { format } = req.query;
+      const { format, lang } = req.query;
+      const language = String(lang ?? 'en');
+
       if (format === 'json') {
-        res.json({
-          endpoints: HELP_ENDPOINTS,
-          concepts: HELP_CONCEPTS,
-          total_endpoints: HELP_ENDPOINTS.length,
-          total_concepts: HELP_CONCEPTS.length,
-        });
+        // Match evomap.ai spec: { lang, count, docs: [{ slug, content }] }
+        const docs = HELP_CONCEPTS.map((c, i) => ({
+          slug: `${String(i).padStart(2, '0')}-${c.title.toLowerCase().replace(/\s+/g, '-')}`,
+          title: c.title,
+          content: `# ${c.title}\n\n${c.summary}\n\n${c.content}`,
+        }));
+        res.json({ lang: language, count: docs.length, docs });
       } else {
-        // Return as markdown
-        const lines = ['# EvoMap Protocol Documentation', '', '## Concepts', ''];
-        for (const c of HELP_CONCEPTS) {
-          lines.push(`### ${c.title}`, '', c.content, '');
-        }
-        lines.push('## Endpoints', '');
-        for (const e of HELP_ENDPOINTS) {
-          lines.push(`### ${e.method} ${e.path}`, '', e.summary, '');
+        // Return as concatenated markdown
+        const lines: string[] = [];
+        for (let i = 0; i < HELP_CONCEPTS.length; i++) {
+          const c = HELP_CONCEPTS[i];
+          const slug = `${String(i).padStart(2, '0')}-${c.title.toLowerCase().replace(/\s+/g, '-')}`;
+          lines.push(`# ${slug}\n`);
+          lines.push(`## ${c.title}\n`);
+          lines.push(`### Summary\n${c.summary}\n`);
+          lines.push(`### Content\n${c.content}\n`);
+          // Add endpoints for this concept
+          const relatedEndpoints = HELP_ENDPOINTS.filter(e => c.related_endpoints.includes(e.path));
+          if (relatedEndpoints.length > 0) {
+            lines.push(`### Related Endpoints`);
+            for (const e of relatedEndpoints) {
+              lines.push(`- \`${e.method} ${e.path}\`: ${e.summary}`);
+            }
+          }
+          lines.push('');
         }
         res.type('text/markdown').send(lines.join('\n'));
       }
@@ -1114,11 +1127,67 @@ export function registerGapFillRoutes(app: import('express').Express): void {
     }
   });
 
+  // GET /docs/:lang/:slug.md - Individual wiki article
+  app.get('/docs/:lang/:slug.md', (req: Request, res: Response) => {
+    const { lang, slug } = req.params;
+    const language = lang ?? 'en';
+    const slugStr = String(slug).replace('.md', '');
+
+    // Find matching concept by slug
+    let matchedConcept: typeof HELP_CONCEPTS[number] | null = null;
+    for (let i = 0; i < HELP_CONCEPTS.length; i++) {
+      const expectedSlug = `${String(i).padStart(2, '0')}-${HELP_CONCEPTS[i].title.toLowerCase().replace(/\s+/g, '-')}`;
+      if (expectedSlug === slugStr) {
+        matchedConcept = HELP_CONCEPTS[i];
+        break;
+      }
+    }
+
+    if (!matchedConcept) {
+      res.status(404).type('text/markdown').send(`# Not Found\n\nArticle "${slugStr}" not found.`);
+      return;
+    }
+
+    const relatedEndpoints = HELP_ENDPOINTS.filter(e => matchedConcept!.related_endpoints.includes(e.path));
+    const lines: string[] = [
+      `# ${matchedConcept.title}`,
+      '',
+      `## Summary\n${matchedConcept.summary}`,
+      '',
+      `## Content\n${matchedConcept.content}`,
+      '',
+    ];
+    if (relatedEndpoints.length > 0) {
+      lines.push('## Related Endpoints', '');
+      for (const e of relatedEndpoints) {
+        lines.push(`### \`${e.method} ${e.path}\`\n\n${e.summary}\n`);
+      }
+    }
+    res.type('text/markdown').send(lines.join('\n'));
+  });
+
   // GET /api/wiki/index
   app.get('/api/wiki/index', (req: Request, res: Response) => {
+    const { lang } = req.query;
+    const language = String(lang ?? 'en');
+    const docs = HELP_CONCEPTS.map((c, i) => ({
+      order: i + 1,
+      slug: `${String(i).padStart(2, '0')}-${c.title.toLowerCase().replace(/\s+/g, '-')}`,
+      title: c.title,
+      description: c.summary,
+      url_markdown: `/docs/${language}/${String(i).padStart(2, '0')}-${c.title.toLowerCase().replace(/\s+/g, '-')}.md`,
+      url_wiki: `/wiki/${String(i).padStart(2, '0')}-${c.title.toLowerCase().replace(/\s+/g, '-')}`,
+    }));
     res.json({
-      articles: HELP_CONCEPTS.map(c => ({ title: c.title, summary: c.summary })),
-      total: HELP_CONCEPTS.length,
+      lang: language,
+      count: docs.length,
+      access: {
+        individual_docs: `/docs/${language}/{slug}.md`,
+        full_wiki_text: `/api/docs/wiki-full?lang=${language}`,
+        full_wiki_json: `/api/docs/wiki-full?lang=${language}&format=json`,
+        site_nav: '/ai-nav',
+      },
+      docs,
     });
   });
 
