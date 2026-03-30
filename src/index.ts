@@ -56,15 +56,20 @@ const app = express();
 app.use(express.json());
 
 // Serve static UI files from ui directory
-import { join } from 'path';
-// On Vercel: __dirname = /var/task/dist, ../ui = /var/task/ui
-const publicDir = join(__dirname, '..', 'ui');
+import { join, resolve } from 'path';
+// On Vercel: __dirname = /var/task/dist
+// Files included via includeFiles are in .vc~dist~/
+const isVercel = process.env.VERCEL === '1';
+const publicDir = isVercel
+  ? resolve(__dirname, '..', '.vc~dist~', 'ui')
+  : join(__dirname, '..', 'ui');
 app.use('/ui', express.static(publicDir));
 
 // Serve index.html at root
 import { readFileSync } from 'fs';
 app.get('/', (_req: Request, res: Response) => {
-  res.type('html').send(readFileSync(join(publicDir, 'index.html')));
+  const indexPath = join(publicDir, 'index.html');
+  res.type('html').send(readFileSync(indexPath));
 });
 
 // Request logging middleware
