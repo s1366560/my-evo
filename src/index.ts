@@ -2846,6 +2846,10 @@ app.use('/gepx', gepxRouter);
 import { memoryGraphApi } from './memory_graph/api';
 app.use('/api/v2/memory', memoryGraphApi);
 
+// ==================== Question Pipeline Endpoints (Chapter ?? evomap.ai) ====================
+import questionsRouter from './questions/api';
+app.use('/questions', questionsRouter);
+
 // ==================== Search Endpoints ====================
 
 import * as search from './search';
