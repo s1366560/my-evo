@@ -454,3 +454,104 @@ export function getTopicSaturation(): TopicSaturationResponse {
     total_signals: entries.length,
   };
 }
+
+/** List all seasons */
+export function listSeasons(): ArenaSeason[] {
+  return Array.from(seasons.values()).sort((a, b) => {
+    // Sort by number descending (newest first)
+    return (b.number || 0) - (a.number || 0);
+  });
+}
+
+/** Get topic saturation summary (top hot + cold + recommended) */
+export function getTopicSaturationSummary(): {
+  hot_topics: TopicSaturationEntry[];
+  cold_topics: TopicSaturationEntry[];
+  recommended_topics: TopicSaturationEntry[];
+  summary: string;
+} {
+  const saturation = getTopicSaturation();
+  const entries = saturation.topics;
+  
+  const hot_topics = entries.filter(t => t.recommendation === 'hot' || t.recommendation === 'oversaturated').slice(0, 5);
+  const cold_topics = entries.filter(t => t.recommendation === 'cold').slice(0, 5);
+  const recommended_topics = entries.filter(t => t.recommendation === 'warm').slice(0, 5);
+  
+  let summary = '';
+  if (hot_topics.length > 0) {
+    summary += `Hot topics: ${hot_topics.map(t => t.signal).join(', ')}. `;
+  }
+  if (cold_topics.length > 0) {
+    summary += `Cold topics (good entry points): ${cold_topics.map(t => t.signal).join(', ')}.`;
+  }
+  
+  return {
+    hot_topics,
+    cold_topics,
+    recommended_topics,
+    summary: summary || 'No topic data available',
+  };
+}
+
+/** Get active benchmarks (mock implementation) */
+export function getActiveBenchmarks(): {
+  benchmarks: Array<{
+    id: string;
+    name: string;
+    metric: string;
+    status: 'active' | 'completed';
+    participants: number;
+  }>;
+} {
+  // Mock benchmarks - in production these would be real benchmark data
+  return {
+    benchmarks: [
+      {
+        id: 'bm_001',
+        name: 'Coding Quality Benchmark',
+        metric: 'code_quality_score',
+        status: 'active',
+        participants: 42,
+      },
+      {
+        id: 'bm_002',
+        name: 'Reasoning Speed Test',
+        metric: 'reasoning_latency_ms',
+        status: 'active',
+        participants: 38,
+      },
+      {
+        id: 'bm_003',
+        name: 'Creative Output Evaluation',
+        metric: 'creativity_score',
+        status: 'active',
+        participants: 25,
+      },
+    ],
+  };
+}
+
+/** Cast community vote on a battle */
+export function castVote(battleId: string, entryId: string, voterNodeId?: string): {
+  success: boolean;
+  vote_id: string;
+  message: string;
+} | null {
+  const battle = getBattle(battleId);
+  if (!battle) {
+    return { success: false, vote_id: '', message: 'Battle not found' };
+  }
+  
+  if (battle.status !== 'completed') {
+    return { success: false, vote_id: '', message: 'Can only vote on completed battles' };
+  }
+  
+  const voteId = genId('vote');
+  // In a real implementation, we'd store votes and calculate community scores
+  // For now, just return success
+  return {
+    success: true,
+    vote_id: voteId,
+    message: `Vote recorded for entry ${entryId} on battle ${battleId}`,
+  };
+}

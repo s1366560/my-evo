@@ -297,7 +297,7 @@ export function registerGapFillRoutes(app: import('express').Express): void {
           hash_valid: hashMatch,
           computed_hash: computedHash,
           claimed_hash: claimedHash,
-          schema_version_valid: normalized.schema_version === '1.5.0',
+          schema_version_valid: (normalized as any).schema_version === '1.5.0',
         });
       }
       const hasErrors = results.some(r => r.errors.length > 0);

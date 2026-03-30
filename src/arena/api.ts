@@ -29,6 +29,10 @@ import {
   getNodeArenaStats,
   getOrCreateActiveSeason,
   getTopicSaturation,
+  listSeasons,
+  getTopicSaturationSummary,
+  getActiveBenchmarks,
+  castVote,
 } from './engine';
 import { BattleResultPayload } from './types';
 
@@ -157,6 +161,41 @@ router.get('/seasons/current', (_req: any, res: any) => {
 router.get('/topic-saturation', (_req: any, res: any) => {
   const saturation = getTopicSaturation();
   res.json(saturation);
+});
+
+// GET /arena/topic-saturation/summary - Topic saturation summary
+router.get('/topic-saturation/summary', (_req: any, res: any) => {
+  const summary = getTopicSaturationSummary();
+  res.json(summary);
+});
+
+// GET /arena/seasons - List all seasons
+router.get('/seasons', (_req: any, res: any) => {
+  const allSeasons = listSeasons();
+  res.json({ seasons: allSeasons, total: allSeasons.length });
+});
+
+// GET /arena/benchmark/current - Active benchmarks
+router.get('/benchmark/current', (_req: any, res: any) => {
+  const benchmarks = getActiveBenchmarks();
+  res.json(benchmarks);
+});
+
+// POST /arena/matches/:id/vote - Community vote on a battle
+router.post('/matches/:id/vote', (req: any, res: any) => {
+  const { entry_id } = req.body;
+  
+  if (!entry_id) {
+    return res.status(400).json({ error: 'invalid_request', message: 'Missing entry_id', correction: 'Provide entry_id in request body' });
+  }
+  
+  const result = castVote(req.params.id, entry_id, req.headers.authorization ? req.headers.authorization.slice(7) : undefined);
+  
+  if (!result?.success) {
+    return res.status(400).json({ error: 'vote_failed', message: result?.message || 'Vote failed' });
+  }
+  
+  res.json(result);
 });
 
 export default router;
