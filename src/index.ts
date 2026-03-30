@@ -51,6 +51,7 @@ import {
   getGlobalSyncStats,
 } from './sync/engine';
 import { registerGapFillRoutes } from './a2a/gap-fill';
+import { registerReadingRoutes } from './reading/api';
 
 const app = express();
 app.use(express.json());
@@ -3951,6 +3952,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 // Register gap-fill endpoints (missing endpoints from evomap.ai platform)
 registerGapFillRoutes(app);
+
+// Register Reading Engine API (Ch15 - analyze articles to generate bounty-eligible questions)
+registerReadingRoutes(app);
 
 const PORT = process.env.PORT || 3000;
 
