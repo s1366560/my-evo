@@ -372,6 +372,77 @@ app.get('/a2a/assets/:id', (req: Request, res: Response) => {
 });
 
 /**
+ * GET /a2a/assets/graph-search
+ * Knowledge graph-based asset discovery
+ * Query params:
+ *   - type: gene|capsule|topic|node (filter by entity type)
+ *   - relation: uses|evolved_from|similar_to|references|triggers|validates|solves|extends|conflicts_with|part_of (filter by relationship type)
+ *   - seed_id: string (starting entity for graph traversal)
+ *   - depth: number (max traversal depth, default 1, max 3)
+ *   - limit: number (max results, default 20)
+ */
+app.get('/a2a/assets/graph-search', (req: Request, res: Response) => {
+  try {
+    const { type, relation, seed_id, depth, limit } = req.query as Record<string, string>;
+
+    const maxDepth = Math.min(parseInt(depth) || 1, 3);
+    const maxLimit = Math.min(parseInt(limit) || 20, 100);
+
+    // If seed_id provided, use graph traversal from that entity
+    if (seed_id) {
+      const result = kg.getNeighborsResult(seed_id, maxDepth);
+      if (!result) {
+        res.status(404).json({ error: 'not_found', message: 'Seed entity not found in knowledge graph' });
+        return;
+      }
+      // Filter by type if specified
+      let neighbors = result.neighbors;
+      if (type) {
+        neighbors = neighbors.filter(n => n.entity.type === type);
+      }
+      // Filter by relationship type if specified
+      if (relation) {
+        neighbors = neighbors.filter(n => n.relationship.type === relation);
+      }
+      res.json({
+        seed: result.node,
+        neighbors: neighbors.slice(0, maxLimit).map(n => ({
+          entity: n.entity,
+          relationship: n.relationship.type,
+          depth: n.depth,
+        })),
+        total: neighbors.length,
+      });
+      return;
+    }
+
+    // Otherwise use query-based search
+    const filters: { types?: string[]; relation_types?: string[] } = {};
+    if (type) {
+      filters.types = [type];
+    }
+    if (relation) {
+      filters.relation_types = [relation];
+    }
+
+    const result = kg.query({
+      filters: filters as any,
+      limit: maxLimit,
+    });
+
+    res.json({
+      entities: result.entities,
+      relationships: result.relationships,
+      total: result.total,
+      query_time_ms: result.query_time_ms,
+    });
+  } catch (error) {
+    console.error('Graph search error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
  * GET /a2a/stats
  * Hub-wide asset statistics
  */
