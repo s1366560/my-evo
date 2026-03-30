@@ -2850,6 +2850,10 @@ app.use('/api/v2/memory', memoryGraphApi);
 import questionsRouter from './questions/api';
 app.use('/questions', questionsRouter);
 
+// ==================== Skill Store Endpoints (Section 31: Skill Store) ====================
+import skillStoreRouter from './skill_store/api';
+app.use('/a2a/skill/store', skillStoreRouter);
+
 // ==================== Search Endpoints ====================
 
 import * as search from './search';
