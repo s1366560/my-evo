@@ -3937,6 +3937,90 @@ app.get('/api/v2/biology/stats', (_req: Request, res: Response) => {
   res.json(biology.getBiologyStats());
 });
 
+// ==================== Account API Keys (Ch28) ====================
+import * as apiKeys from './account/api-keys';
+
+/**
+ * Session auth middleware for account endpoints.
+ * Uses Bearer token (session token, not node_secret).
+ * Prevents key inception — API keys cannot create other keys.
+ */
+function requireSessionAuth(req: Request, res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'unauthorized', message: 'Missing or invalid Authorization header' });
+    return;
+  }
+  const token = authHeader.slice(7);
+  const userId = apiKeys.validateSession(token);
+  if (!userId) {
+    res.status(401).json({ error: 'unauthorized', message: 'Invalid or expired session token' });
+    return;
+  }
+  (req as Request & { userId: string }).userId = userId;
+  next();
+}
+
+// POST /account/api-keys - Create a new API key
+app.post('/account/api-keys', requireSessionAuth, (req: Request, res: Response) => {
+  const userId = (req as Request & { userId: string }).userId;
+  const { name, scopes, expires_in_days } = req.body;
+
+  if (!name || typeof name !== 'string') {
+    res.status(400).json({ error: 'validation_error', message: 'name is required and must be a string', docs: '/account/api-keys' });
+    return;
+  }
+
+  // Enforce max 5 active keys per user
+  const stats = apiKeys.getAccountStats(userId);
+  if (stats.active_keys >= stats.max_keys) {
+    res.status(403).json({
+      error: 'limit_exceeded',
+      message: `Maximum of ${stats.max_keys} active API keys exceeded. Revoke an existing key before creating a new one.`,
+    });
+    return;
+  }
+
+  const key = apiKeys.createApiKey({
+    name,
+    scopes: scopes ?? ['kg'],
+    expires_in_days,
+    user_id: userId,
+  });
+
+  // Return full key only on creation — it cannot be retrieved again
+  res.status(201).json({
+    id: key.id,
+    key: key.key,      // Full key — shown ONLY here
+    prefix: key.prefix,
+    name: key.name,
+    scopes: key.scopes,
+    expires_at: key.expires_at,
+    created_at: key.created_at,
+  });
+});
+
+// GET /account/api-keys - List active API keys
+app.get('/account/api-keys', requireSessionAuth, (req: Request, res: Response) => {
+  const userId = (req as Request & { userId: string }).userId;
+  const keys = apiKeys.listApiKeys(userId);
+  res.json({ keys, count: keys.length });
+});
+
+// DELETE /account/api-keys/:id - Revoke an API key
+app.delete('/account/api-keys/:id', requireSessionAuth, (req: Request, res: Response) => {
+  const userId = (req as Request & { userId: string }).userId;
+  const { id } = req.params;
+
+  const revoked = apiKeys.revokeApiKey(id, userId);
+  if (!revoked) {
+    res.status(404).json({ error: 'not_found', message: 'API key not found or not owned by you' });
+    return;
+  }
+
+  res.json({ success: true });
+});
+
 // ==================== Error Handling ====================
 
 app.use((_req: Request, res: Response) => {
