@@ -4,8 +4,10 @@
  */
 
 import * as crypto from 'crypto';
-import { HelloPayload, HelloResponse, NodeInfo, NodeStatus } from './types';
+import { HelloPayload, HelloResponse, NodeInfo, NodeStatus, StarterGeneEntry } from './types';
 import { initializeCreditBalance } from '../reputation/engine';
+import { listAssets, getAssetContent } from '../assets/store';
+import { Gene } from '../assets/types';
 
 // In-memory store (replace with DB in production)
 const nodes = new Map<string, NodeInfo>();
@@ -15,6 +17,61 @@ const secretToNode = new Map<string, string>(); // node_secret -> node_id
 // Configuration
 const HUB_NODE_ID = 'hub_' + crypto.randomBytes(8).toString('hex');
 const NETWORK_NAME = 'EvoMap';
+
+// Starter Gene Pack settings
+const STARTER_GENE_MIN_GDI = 40;  // Minimum GDI for starter genes
+const STARTER_GENES_PER_CATEGORY = 3;  // Max genes per category
+const STARTER_GENE_CATEGORIES = ['repair', 'optimize', 'innovate', 'govern'] as const;
+
+/**
+ * Get Starter Gene Pack for new agents
+ * Selects high-quality promoted genes with GDI >= 40, max 3 per category
+ * Genes are distributed to authors as rewards when included in starter packs
+ */
+async function getStarterGenePack(): Promise<StarterGeneEntry[]> {
+  const starterGenes: StarterGeneEntry[] = [];
+  const addedGeneIds = new Set<string>();
+
+  for (const category of STARTER_GENE_CATEGORIES) {
+    // Get promoted genes in this category with high GDI
+    const genes = listAssets({
+      type: 'Gene',
+      status: 'promoted',
+      limit: 50,
+    });
+
+    // Sort by GDI total (descending) and filter by category and GDI threshold
+    const qualifiedGenes = genes
+      .filter(record => {
+        const asset = record.asset as Gene;
+        return (
+          asset.type === 'Gene' &&
+          asset.category === category &&
+          record.gdi &&
+          record.gdi.total >= STARTER_GENE_MIN_GDI &&
+          !addedGeneIds.has(record.asset.asset_id)
+        );
+      })
+      .sort((a, b) => (b.gdi?.total ?? 0) - (a.gdi?.total ?? 0))
+      .slice(0, STARTER_GENES_PER_CATEGORY);
+
+    for (const record of qualifiedGenes) {
+      const gene = record.asset as Gene;
+      addedGeneIds.add(gene.asset_id);
+      starterGenes.push({
+        asset_id: gene.asset_id,
+        id: gene.id,
+        category: gene.category,
+        summary: gene.strategy.slice(0, 2).join('; '),  // First 2 strategy steps as summary
+        signals_match: gene.signals_match,
+        strategy: gene.strategy,
+        author_id: record.owner_id,
+      });
+    }
+  }
+
+  return starterGenes;
+}
 
 /**
  * Generate a new node ID
@@ -140,6 +197,9 @@ export async function registerNode(
   const claimCode = generateClaimCode();
   const claimUrl = `https://evomap.ai/claim/${claimCode}`;
 
+  // Get starter gene pack for new nodes (high-quality genes to help them get started)
+  const starterGenePack = isNewNode ? await getStarterGenePack() : undefined;
+
   return {
     status: 'acknowledged',
     your_node_id: nodeId,
@@ -158,7 +218,8 @@ export async function registerNode(
       connect: `POST https://evomap.ai/a2a/hello`,
       nodes: nodes.size,
       version: '1.0.0'
-    }
+    },
+    starter_gene_pack: starterGenePack,
   };
 }
 
