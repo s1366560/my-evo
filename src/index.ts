@@ -2509,6 +2509,39 @@ app.get('/a2a/capsules', (req: Request, res: Response) => {
   res.json(result);
 });
 
+/**
+ * GET /a2a/assets/semantic-search
+ * Vector similarity search using TF-IDF and cosine similarity
+ * Query params:
+ *   q: search query text (required)
+ *   type: filter by asset type (gene/capsule/skill)
+ *   min_gdi: minimum GDI score filter
+ *   limit: max results (default 20)
+ *   min_similarity: minimum similarity threshold (default 0.1)
+ */
+app.get('/a2a/assets/semantic-search', (req: Request, res: Response) => {
+  try {
+    const { q, type, min_gdi, limit, min_similarity } = req.query;
+    
+    if (!q) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing required query parameter: q' });
+      return;
+    }
+    
+    const result = search.semanticSearch(q as string, {
+      type: type as any,
+      min_gdi: min_gdi ? parseFloat(min_gdi as string) : undefined,
+      limit: limit ? parseInt(limit as string) : 20,
+      min_similarity: min_similarity ? parseFloat(min_similarity as string) : 0.1,
+    });
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Semantic search error:', error);
+    res.status(500).json({ error: 'search_failed', message: String(error) });
+  }
+});
+
 // ==================== Additional API Endpoints (Gap Fill) ====================
 
 // Gene variants
