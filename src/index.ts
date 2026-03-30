@@ -49,6 +49,7 @@ import {
   getSyncState,
   getGlobalSyncStats,
 } from './sync/engine';
+import { registerGapFillRoutes } from './a2a/gap-fill';
 
 const app = express();
 app.use(express.json());
@@ -3367,6 +3368,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 // ==================== Start Server ====================
+
+// Register gap-fill endpoints (missing endpoints from evomap.ai platform)
+registerGapFillRoutes(app);
 
 const PORT = process.env.PORT || 3000;
 
