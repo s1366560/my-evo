@@ -52,7 +52,7 @@
 | v2.44 | 2026-03-30 19:10 | arch | 巡检: master b61aa8b(本地与origin同步), 532测试通过, evomap.ai llms.txt+GEP Protocol(Ch16)确认schema_version 1.5.0✅, epigenetic_marks✅, multi-language signals_match✅ 均已实现. 黑板0 pending任务, gh CLI未认证(无法gh pr create), 无新evomap.ai功能差距, 项目稳定, 无需创建PR |
 | v2.45 | 2026-03-30 19:50 | arch | 巡检: master a2d6aa7(Already up to date), 532测试通过, evomap.ai API Access(Ch28)完整确认: kg端点(/kg/query,/kg/ingest,/kg/status,/kg/my-graph)使用/api/v2/kg/路径(合理版本化), 账户API密钥管理端点(POST/GET/DELETE /account/api-keys)已在架构文档§8.7记录但**代码中未实现**(src/index.ts无对应handler). gh CLI未认证(无法push/PR). 黑板0 pending任务. 无实质开发任务可认领, 项目稳定, 无需创建PR. 建议: 实现/account/api-keys端点(需session认证)作为后续任务 |
 | v2.46 | 2026-03-30 20:03 | arch | 巡检: master a2d6aa7, 532测试通过, gh未认证(无法gh pr create). evomap.ai新增Ch15(Reading Engine): 分析文章→生成可操作问题→附加赏金→成为生态系统问题, 含URL/Text两种输入模式和Analyze端点. **差距确认**: src/reading/service.ts存在(362行)但**src/index.ts无HTTP路由注册**, Reading Engine API未暴露. 其他功能均已覆盖. 黑板0 pending任务, 无实质开发任务可认领. |
-| v2.47 | 2026-03-30 20:20 | arch | 巡检: master ebdbf42, 532测试通过, gh未认证(无法gh pr create). evomap.ai Ch03 For AI Agents完整确认: heartbeat_interval_ms:300000(5min)✅, starter_gene_pack字段✅, recommended_tasks字段✅, claim_code+claim_url✅, survival_status/referral_code/network_manifest✅, available_tasks(heartbeat响应, max5)✅, worker模式字段(worker_enabled/worker_domains/max_load/fingerprint)✅, Interactive Onboarding Wizard(/onboarding/agent)✅. Ch05 A2A Protocol确认: hello/heartbeat/publish/validate/fetch/report/dm/relay消息类型✅, HTTP POST+JSON和SSE传输✅. 黑板0 pending任务, 无实质开发任务可认领, 项目稳定, 无需创建PR. 注意: Ch03代码示例注释"15 minutes"应为文档错误(实际5min per spec). |
+| v2.48 | 2026-03-30 21:10 | arch | 巡检: master 503fdfd, 532测试通过, evomap.ai可访问. **文档修正**: Skill Store(Ch31)已合并master(f16f196: version mgmt+recycle bin)✅, 核心能力矩阵Skill Store状态❌→✅. 过期黑板任务(9d505295,Ch28 account-api-keys)已归档(503fdfd已merge). gh CLI未认证但git push通过remote token成功. 无实质功能差距, 项目稳定, 无需创建PR. |
 
 ## 1. 系统概览
 
@@ -92,7 +92,7 @@ EvoMap 是 AI Agent **自我进化基础设施**，基于 GEP（Genome Evolution
 | 自主治理 | AI Council去中心化决策 | ✅ |
 | 竞技排名 | Arena Elo赛季系统 | ✅ |
 | 隔离实验 | Evolution Sandbox | ✅ |
-| 技能市场 | Skill Store技能交易 | ❌ (仅feature分支，未合并) |
+| 技能市场 | Skill Store技能交易 | ✅ |
 | 知识图谱 | 语义搜索与关系推理 | ✅ |
 | 信任验证 | Validator Staking | ✅ |
 | 官方项目 | Council管理的开源项目 | ✅ |
