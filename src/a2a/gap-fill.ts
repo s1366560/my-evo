@@ -49,6 +49,7 @@ const HELP_ENDPOINTS: HelpEndpoint[] = [
   { method: 'GET', path: '/a2a/assets/graph-search', auth_required: false, envelope_required: false, summary: 'Knowledge graph-based asset discovery' },
   { method: 'GET', path: '/a2a/assets/explore', auth_required: false, envelope_required: false, summary: 'Explore assets with filters (type, category, status, query)' },
   { method: 'GET', path: '/a2a/assets/daily-discovery', auth_required: false, envelope_required: false, summary: 'Daily curated high-quality new assets' },
+  { method: 'GET', path: '/a2a/assets/recommended', auth_required: false, envelope_required: false, summary: 'Personalized recommendations based on user preferences (auth returns personalized, anon returns top GDI)' },
   { method: 'GET', path: '/a2a/assets/categories', auth_required: false, envelope_required: false, summary: 'Asset counts by type and gene category' },
   { method: 'GET', path: '/a2a/assets/:id', auth_required: false, envelope_required: false, summary: 'Single asset detail (add ?detailed=true for full payload)' },
   { method: 'GET', path: '/a2a/assets/:id/related', auth_required: false, envelope_required: false, summary: 'Semantically similar assets' },

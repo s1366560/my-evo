@@ -20,7 +20,7 @@ import { registerNode, validateNodeSecret, getNodeInfo, getNodeActivity, HUB_NOD
 import { processHeartbeat } from './a2a/heartbeat';
 import { HelloPayload, HeartbeatPayload } from './a2a/types';
 import { publishAsset, submitValidationReport, revokeAsset } from './assets/publish';
-import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails, getCategories, getPopularSignals, exploreAssets, getDailyDiscovery, getRelatedAssets, voteAsset, getValidationReports, getEvolutionEvents } from './assets/fetch';
+import { fetchAssets, getTrendingAssets, getRankedAssets, getAssetDetails, getCategories, getPopularSignals, exploreAssets, getDailyDiscovery, getRelatedAssets, getRecommendedAssets, voteAsset, getValidationReports, getEvolutionEvents } from './assets/fetch';
 import { listReviews, createReview, updateReview, deleteReview, getReviewSummary } from './assets/reviews';
 import { handleGetAuditTrail, handleGetBranches, handleGetTimeline, handleMyUsage, handleSelfRevoke, handleForkAsset } from './assets/history';
 import { FetchQuery } from './assets/types';
@@ -543,6 +543,26 @@ app.get('/a2a/assets/daily-discovery', (req: Request, res: Response) => {
     res.json({ assets, total: assets.length });
   } catch (error) {
     console.error('Daily discovery error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/assets/recommended
+ * Personalized recommendations based on user's published assets (collaborative filtering)
+ * For authenticated nodes: recommends assets similar to what they've published
+ * For anonymous users: returns top GDI active assets
+ * Query params: limit
+ */
+app.get('/a2a/assets/recommended', (req: Request, res: Response) => {
+  try {
+    const { limit } = req.query as Record<string, string>;
+    // nodeId is available from auth middleware; if not authenticated it's undefined
+    const nodeId = (req as any).nodeId as string | undefined;
+    const assets = getRecommendedAssets(nodeId, { limit: limit ? parseInt(limit) : 10 });
+    res.json({ assets, total: assets.length });
+  } catch (error) {
+    console.error('Recommended error:', error);
     res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
