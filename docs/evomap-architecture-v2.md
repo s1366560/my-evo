@@ -1,6 +1,6 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.80 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.88 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
 
 ---
 
@@ -68,6 +68,7 @@
 | v2.84 | 2026-03-31 21:20 | arch | 巡检: master e4c51fd, 532测试通过, gh CLI未认证(无法gh pr create, git push via token有效). evomap.ai GEP/A2A/Arena/Skill Store/Group Evolution Ch00-32全面确认无新增功能差距. 黑板0 pending任务. 项目稳定, 无实质开发任务, 无需创建PR |
 | v2.85 | 2026-03-31 21:32 | arch | 巡检: master e4c51fd(与origin同步), 532测试通过, gh CLI未认证(git push via token有效). evomap.ai GEP/A2A/Arena/Skill Store/Group Evolution Ch00-32全面确认无新增功能差距. 黑板0 pending任务, 目标进度85%-100%完成. 项目稳定, 无实质开发任务, 无需创建PR |
 | v2.87 | 2026-03-31 22:20 | arch | 巡检: master e4c51fd(与origin同步), 532测试通过, gh CLI未认证(git push via token有效). evomap.ai A2A Protocol v1.0.0确认(gep-a2a, hello/heartbeat/publish/validate/fetch/report/dialog/session_*, Node Secret Bearer 64hex认证✅, heartbeat_interval_ms 300000✅). Ch00-32全覆盖无新增功能差距. 黑板0 pending任务, 24个未合并分支(origin含feature/guild-join-leave, reading-engine-api, starter-gene-pack-onboarding等)待@evo审查合并. 项目稳定, 无实质开发任务, 无需创建PR |
+| v2.88 | 2026-03-31 22:40 | arch | 巡检: master ee8f645(与origin同步), 532测试通过, evomap.ai GEP/A2A/Arena/Skill Store/Group Evolution Ch00-32全面确认无新增功能差距. 新增章节确认: Group Evolution(Ch33)✅, AI Council & Projects(Ch26)✅, AI Navigation Guide(Ch27)✅, API Access(Ch28)✅, Drift Bottle(Ch29)✅. 黑板0 pending任务, 7个未合并代码分支待@evo审查合并. 项目稳定, 无实质开发任务, 无需创建PR |
 | v2.86 | 2026-03-31 22:02 | arch | 巡检: master e4c51fd(与origin同步), 532测试通过, gh CLI未认证(git push via token有效). evomap.ai GEP/A2A/Arena/Skill Store/Group Evolution Ch00-32全面确认无新增功能差距. GEP Protocol Ch16确认: schema_version 1.5.0✅ epigenetic_marks✅ multi-language signals_match✅均已实现. 黑板0 pending任务, 无实质开发任务, 项目稳定, 无需创建PR |
 | v2.79 | 2026-03-31 20:02 | arch | 巡检: master fbd4f66(已与origin同步), 532测试通过, gh CLI未认证(无法gh pr create). evomap.ai GEP/A2A/Arena/Skill Store/Group Evolution Ch00-32全面确认无新增功能差距. 黑板0 pending开发任务. 项目稳定, 无实质开发任务, 无需创建PR |
 | v2.69 | 2026-03-31 15:03 | arch | 巡检: master 7cee0c8, 532测试通过, gh未认证(git push OK). GEP Protocol(Ch16)深度确认: schema_version 1.5.0✅, 6种资产类型字段完整(Gene/Capsule/EvolutionEvent/Mutation/ValidationReport/MemoryGraphEvent)✅, signals_match三种格式(substr/regex/multi-language)✅, epigenetic_marks✅, trigger_context✅. A2A Protocol确认: gep-a2a v1.0.0, hello/heartbeat/publish/validate/fetch/report/dm/session_*消息类型✅. 无新功能差距. 黑板0 pending开发任务. 项目稳定, 无需创建PR |
