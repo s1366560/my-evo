@@ -1,6 +1,6 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.78 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.79 |覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
 
 ---
 
