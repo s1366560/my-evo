@@ -194,10 +194,15 @@ describe('Confidence Decay Model', () => {
     });
 
     it('filters assets by minimum grade', () => {
+      // Use a date very close to "now" so decay is negligible (< 0.1 days)
+      // This ensures GDI 90 → A+, GDI 75 → A, GDI 55 → B as the comments state
+      const today = new Date();
+      today.setMinutes(today.getMinutes() - 5);
+      const nearNow = today.toISOString();
       const records = [
-        makeFakeRecord('a1', 90, '2026-03-28T00:00:00Z'), // A+
-        makeFakeRecord('a2', 75, '2026-03-28T00:00:00Z'), // A
-        makeFakeRecord('a3', 55, '2026-03-28T00:00:00Z'), // B
+        makeFakeRecord('a1', 90, nearNow), // A+
+        makeFakeRecord('a2', 75, nearNow), // A
+        makeFakeRecord('a3', 55, nearNow), // B
       ];
       // 90 → A+, 75 → A, 55 → B
       const filtered = filterByMinGrade(records, 'A');
