@@ -2,8 +2,8 @@
 // 4-layer security moderation, 5 credits per download, authors earn 100% revenue
 
 import { Request, Response } from 'express';
-import { SkillStoreEngine } from './engine.js';
-import { SkillStatus, SkillCreate } from './types.js';
+import { SkillStoreEngine } from './engine';
+import type { SkillStatus, SkillCreate } from './types';
 
 const engine = new SkillStoreEngine();
 

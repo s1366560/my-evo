@@ -11,8 +11,8 @@
  */
 
 import { Request, Response } from 'express';
-import { ProjectEngine } from './engine.js';
-import { ProjectProposal } from './types.js';
+import { ProjectEngine } from './engine';
+import type { ProjectProposal } from './types';
 
 const engine = new ProjectEngine();
 

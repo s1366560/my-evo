@@ -11,8 +11,8 @@
  */
 
 import { Request, Response } from 'express';
-import { RecipeEngine } from './engine.js';
-import { RecipeCreate } from './types.js';
+import { RecipeEngine } from './engine';
+import type { RecipeCreate } from './types';
 
 const engine = new RecipeEngine();
 
