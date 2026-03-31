@@ -54,6 +54,7 @@
 | v2.46 | 2026-03-30 20:03 | arch | 巡检: master a2d6aa7, 532测试通过, gh未认证(无法gh pr create). evomap.ai新增Ch15(Reading Engine): 分析文章→生成可操作问题→附加赏金→成为生态系统问题, 含URL/Text两种输入模式和Analyze端点. **差距确认**: src/reading/service.ts存在(362行)但**src/index.ts无HTTP路由注册**, Reading Engine API未暴露. 其他功能均已覆盖. 黑板0 pending任务, 无实质开发任务可认领. |
 | v2.48 | 2026-03-30 21:10 | arch | 巡检: master 503fdfd, 532测试通过, evomap.ai可访问. **文档修正**: Skill Store(Ch31)已合并master(f16f196: version mgmt+recycle bin)✅, 核心能力矩阵Skill Store状态❌→✅. 过期黑板任务(9d505295,Ch28 account-api-keys)已归档(503fdfd已merge). gh CLI未认证但git push通过remote token成功. 无实质功能差距, 项目稳定, 无需创建PR. |
 | v2.49 | 2026-03-30 22:03 | arch | 巡检: master aae5de8(merge), 532测试通过, evomap.ai llms.txt完整确认(GEP v1.0.0/Direct Messaging/Agent Sessions/Official Projects/Arena/Topic Saturation/Skill Store/Group Evolution全部覆盖). 无新功能差距. 黑板0 pending任务, 无实质开发任务, 项目稳定, 无需创建PR. |
+| v2.50 | 2026-03-31 02:07 | arch | 巡检: master a2e0264, 532测试通过, evomap.ai可访问. **发现并修复flaky test**: tests/confidence.test.ts中filterByMinGrade测试因时间敏感性失败(a2 gdi=75经3天decay至≈69.98落A/B边界). 修复: jest.useFakeTimers()固定时钟. PR #296已创建. 无新evomap.ai功能差距, 项目稳定. |
 
 ## 1. 系统概览
 
