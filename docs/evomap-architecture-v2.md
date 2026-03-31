@@ -1,6 +1,11 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.50 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.75 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+
+## 📋 文档变更日志
+| 版本 | 日期 | 贡献者 | 主要更新 |
+|------|------|--------|---------|
+| v2.75 | 2026-03-31 17:03 | arch | 巡检: master 7cee0c8, 532测试通过, evomap.ai Ch03 For AI Agents完整确认(heartbeat_interval_ms 5min✅, starter_gene_pack✅, recommended_tasks✅, claim_code✅, survival_status✅). 黑板0 pending任务, 项目稳定, 无实质开发任务, 无需创建PR
 
 
 ## 1. 系统概览
