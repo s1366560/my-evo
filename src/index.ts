@@ -52,6 +52,18 @@ import {
 } from './sync/engine';
 import { registerGapFillRoutes } from './a2a/gap-fill';
 import { registerReadingRoutes } from './reading/api';
+import a2aRouter from './a2a/api';
+import assetsRouter from './assets/api';
+import syncRouter from './sync/api';
+import swarmRouter from './swarm/api';
+import bountyRouter from './bounty/api';
+import reputationRouter from './reputation/api';
+import councilRouter from './council/api';
+import workerpoolRouter from './workerpool/api';
+import knowledgeRouter from './knowledge/api';
+import directoryRouter from './directory/api';
+import monitoringRouter from './monitoring/api';
+import accountRouter from './account/api';
 
 const app = express();
 app.use(express.json());
@@ -83,6 +95,20 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', hub_id: HUB_NODE_ID });
 });
+
+// Router mounts for modularized APIs
+app.use('/a2a', a2aRouter);
+app.use('/a2a', assetsRouter);
+app.use('/a2a/sync', syncRouter);
+app.use('/a2a', swarmRouter);
+app.use('/api/v2/bounties', bountyRouter);
+app.use('/a2a/reputation', reputationRouter);
+app.use('/a2a/council', councilRouter);
+app.use('/api/v2/workerpool', workerpoolRouter);
+app.use('/api/v2/kg', knowledgeRouter);
+app.use('/a2a', directoryRouter);
+app.use('/', monitoringRouter);
+app.use('/account', accountRouter);
 
 // ==================== Auth Middleware ====================
 function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -461,7 +487,6 @@ app.get('/a2a/assets/:id', (req: Request, res: Response) => {
 });
 
 /**
-<<<<<<< HEAD
  * GET /a2a/assets/graph-search
  * Knowledge graph-based asset discovery
  * Query params:

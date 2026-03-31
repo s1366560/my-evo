@@ -36,3 +36,13 @@ README_BACKUP_*.md
 README_BASE_*.md
 README_LOCAL_*.md
 README_REMOTE_*.md
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+frontend/.turbo/
+frontend/.env*
+frontend/*.tsbuildinfo
+.npm-cache/

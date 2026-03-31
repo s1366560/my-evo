@@ -1,7 +1,7 @@
 {
   "name": "my-evo",
   "version": "0.1.0",
-  "description": "EvoMap.ai clone - AI Agent self-evolution infrastructure",
+  "description": "AI Agent self-evolution infrastructure",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
