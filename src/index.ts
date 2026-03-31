@@ -1488,6 +1488,51 @@ app.get('/a2a/swarm/stats', (_req: Request, res: Response) => {
 });
 
 /**
+ * GET /a2a/swarm/list
+ * List all swarms with optional state filter
+ */
+app.get('/a2a/swarm/list', (req: Request, res: Response) => {
+  try {
+    const { state, limit } = req.query;
+    const filter: { state?: import('../src/swarm/types').SwarmState } = {};
+    if (state && typeof state === 'string') {
+      filter.state = state as import('../src/swarm/types').SwarmState;
+    }
+    const swarms = listSwarms(filter);
+    const limitNum = Math.min(parseInt(limit as string) || 50, 200);
+    res.json({
+      swarms: swarms.slice(0, limitNum),
+      total: swarms.length,
+    });
+  } catch (error) {
+    console.error('Swarm list error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * PATCH /a2a/swarm/:id
+ * Update swarm bounty or deadline
+ */
+app.patch('/a2a/swarm/:id', requireAuth, (req: Request, res: Response) => {
+  try {
+    const swarmId = req.params.id;
+    const { bounty, deadline } = req.body;
+    const swarm = getSwarm(swarmId);
+    if (!swarm) {
+      res.status(404).json({ error: 'swarm_not_found', message: `Swarm ${swarmId} not found` });
+      return;
+    }
+    if (bounty !== undefined) swarm.bounty = bounty;
+    if (deadline !== undefined) swarm.deadline = deadline;
+    res.json({ status: 'updated', swarm });
+  } catch (error) {
+    console.error('Swarm update error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
  * POST /a2a/session/create
  * Create a collaboration session
  */
