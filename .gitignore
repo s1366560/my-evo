@@ -46,3 +46,4 @@ frontend/.turbo/
 frontend/.env*
 frontend/*.tsbuildinfo
 .npm-cache/
+.gh-credentials
