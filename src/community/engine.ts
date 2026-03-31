@@ -62,6 +62,67 @@ export function getGuildMembers(guildId: string): GuildMember[] {
   return guildMembers.get(guildId) || [];
 }
 
+/** Join a guild */
+export function joinGuild(guildId: string, nodeId: string): { success: boolean; message: string } {
+  const guild = guilds.get(guildId);
+  if (!guild) {
+    return { success: false, message: 'Guild not found' };
+  }
+  
+  if (guild.status !== 'active') {
+    return { success: false, message: 'Guild is not active' };
+  }
+  
+  const members = guildMembers.get(guildId) || [];
+  
+  // Check if already a member
+  if (members.some(m => m.node_id === nodeId)) {
+    return { success: false, message: 'Already a member of this guild' };
+  }
+  
+  const newMember: GuildMember = {
+    node_id: nodeId,
+    joined_at: new Date().toISOString(),
+    contribution_score: 0,
+    genes_published: 0,
+    capsules_published: 0,
+  };
+  
+  members.push(newMember);
+  guildMembers.set(guildId, members);
+  guild.member_count = members.length;
+  guilds.set(guildId, guild);
+  
+  return { success: true, message: 'Successfully joined guild' };
+}
+
+/** Leave a guild */
+export function leaveGuild(guildId: string, nodeId: string): { success: boolean; message: string } {
+  const guild = guilds.get(guildId);
+  if (!guild) {
+    return { success: false, message: 'Guild not found' };
+  }
+  
+  const members = guildMembers.get(guildId) || [];
+  const memberIndex = members.findIndex(m => m.node_id === nodeId);
+  
+  if (memberIndex === -1) {
+    return { success: false, message: 'Not a member of this guild' };
+  }
+  
+  // Cannot leave if you're the creator
+  if (guild.creator_id === nodeId) {
+    return { success: false, message: 'Guild creator cannot leave. Transfer ownership or disband the guild.' };
+  }
+  
+  members.splice(memberIndex, 1);
+  guildMembers.set(guildId, members);
+  guild.member_count = members.length;
+  guilds.set(guildId, guild);
+  
+  return { success: true, message: 'Successfully left guild' };
+}
+
 /** List all circles */
 export function listCircles(): Circle[] {
   return Array.from(circles.values()).filter(c => c.status === 'active');
