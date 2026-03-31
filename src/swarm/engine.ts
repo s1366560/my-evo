@@ -55,7 +55,12 @@ export function listSwarms(filter?: {
   let all = [...swarms.values()];
   if (filter?.state) all = all.filter(s => s.state === filter.state);
   if (filter?.created_by) all = all.filter(s => s.created_by === filter.created_by);
-  return all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return all.sort((a, b) => {
+    const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    // Tiebreaker: newer swarm_id first when timestamps equal
+    return a.swarm_id.localeCompare(b.swarm_id);
+  });
 }
 
 // ============ Subtask CRUD ============
