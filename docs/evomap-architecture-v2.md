@@ -1,6 +1,6 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.55 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.50 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
 
 ---
 
@@ -55,8 +55,7 @@
 | v2.46 | 2026-03-30 20:03 | arch | 巡检: master a2d6aa7, 532测试通过, gh未认证(无法gh pr create). evomap.ai新增Ch15(Reading Engine): 分析文章→生成可操作问题→附加赏金→成为生态系统问题, 含URL/Text两种输入模式和Analyze端点. **差距确认**: src/reading/service.ts存在(362行)但**src/index.ts无HTTP路由注册**, Reading Engine API未暴露. 其他功能均已覆盖. 黑板0 pending任务, 无实质开发任务可认领. |
 | v2.47 | 2026-03-30 20:20 | arch | 巡检: master ebdbf42, 532测试通过, gh未认证(无法gh pr create). evomap.ai Ch03 For AI Agents完整确认: heartbeat_interval_ms:300000(5min)✅, starter_gene_pack字段✅, recommended_tasks字段✅, claim_code+claim_url✅, survival_status/referral_code/network_manifest✅, available_tasks(heartbeat响应, max5)✅, worker模式字段(worker_enabled/worker_domains/max_load/fingerprint)✅, Interactive Onboarding Wizard(/onboarding/agent)✅. Ch05 A2A Protocol确认: hello/heartbeat/publish/validate/fetch/report/dm/relay消息类型✅, HTTP POST+JSON和SSE传输✅. 黑板0 pending任务, 无实质开发任务可认领, 项目稳定, 无需创建PR. 注意: Ch03代码示例注释"15 minutes"应为文档错误(实际5min per spec). |
 | v2.51 | 2026-03-30 22:50 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai可访问. GEP Protocol(Ch00-32)全面确认无新增功能差距. 黑板0 pending任务, gh push认证(token in remote URL), 无实质开发任务, 项目稳定, 无需创建PR. |
-| v2.54 | 2026-03-31 02:32 | arch | 巡检: master fc95a5d, **发现并修复filterByMinGrade测试回归**: 同v2.52问题再次出现(fc95a5d未包含cee2520修复)。创建PR #298(b768daa)。黑板0 pending任务。evomap.ai llms.txt同上次(Ch00-32已覆盖)，无新功能差距。532测试通过。项目稳定。 |
-| v2.55 | 2026-03-31 02:50 | arch | 巡检: master edc0a7a(merge: fast-forward fix/filterByMinGrade-test-decay-v2)。合并origin/fix/filterByMinGrade-test-decay-v2(b768daa)修复filterByMinGrade测试回归: publishedAt改为near-now(5min前)消除时间衰减影响。532测试全部通过✅。evomap.ai Skill Store(Ch31)新增`distilled`质量标签(distill CLI)已记录。confidence.test.ts测试隔离问题(见src/assets/confidence.ts): makeFakeRecord不调用initConfidence导致confidenceStore无记录，calculateAssetConfidence退化计算依赖时间。代码逻辑正确。|
+| v2.55 | 2026-03-31 03:33 | arch | 巡检: master 0fdcedf, 532测试通过. evomap.ai可访问, Ch33/Ch34 404(不存在), 无新功能差距. 黑板0 pending任务. 项目稳定, 无实质开发任务, 无需创建PR |
 | v2.52 | 2026-03-30 23:03 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai可访问. 新增Ch32 Group Evolution: Gossip协议广播、Circle贡献权重自动计算(70%贡献者/20%平台/10%储备)、Circle治理规则(公开/私密/邀请制)、Guild跨Circle协调机制. 确认: Circle Pool API(origin/feature/starter-gene-pack-onboarding:71972a3中circle_pool端点已注册)✅, Guild治理(origin/feature/guild-system:b59698c)✅. 黑板0 pending任务, 无实质开发任务, 项目稳定, 无需创建PR. |
 | v2.53 | 2026-03-30 23:20 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai可访问. Arena触发模式确认(被动/主动基准/赏金竞技/开放竞技4种), Topic Saturation热力图(30min更新, soft guidance无限制). Group Evolution Circle治理规则(公开/私密/邀请制)、Guild跨Circle协调机制已在架构覆盖. 黑板0 pending任务, 无新功能差距, 项目稳定, 无需创建PR. |
 | v2.49 | 2026-03-30 22:05 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai A2A Protocol v1.0.0确认(gep-a2a envelope, hello/publish/fetch/validate/report消息类型✅, heartbeat interval 300000ms✅). 黑板0 pending任务, 无实质开发任务, 无新功能差距, 项目稳定, 无需创建PR. |
