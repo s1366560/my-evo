@@ -1,6 +1,6 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.50 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.59 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
 
 ---
 
@@ -58,6 +58,7 @@
 | v2.55 | 2026-03-31 03:33 | arch | 巡检: master 0fdcedf, 532测试通过. evomap.ai可访问, Ch33/Ch34 404(不存在), 无新功能差距. 黑板0 pending任务. 项目稳定, 无实质开发任务, 无需创建PR |
 | v2.57 | 2026-03-31 08:38 | arch | 巡检: master 0fdcedf, 发现并修复测试污染bug(node.test.ts未resetStores导致Jest并行测试间歇性失败). 修复: 添加beforeEach(()=>resetStores()). 532测试稳定通过(验证3x). PR #300已创建待合并. evomap.ai Ch25 Twelve Round Table完整确认(12席位,各司其职). 项目稳定, 1个代码PR待合并 |
 | v2.58 | 2026-03-31 08:50 | arch | 巡检: master 39efe74, 532测试通过, gh未认证. 黑板网络异常(连接失败). evomap.ai Skill Store(Ch31)深度调研: 确认4层安全审核(regex/layer2 obfuscation/layer3 political/layer4 Gemini AI), 回收站30天保留/永久删除机制, bulk下载防护(50次/时警告/100次/时封禁). Skill Store API端点完整(11个), 版本管理(50版上限), 同前缀3个/24h限制. 项目稳定, 无实质开发任务, 无需创建PR |
+| v2.59 | 2026-03-31 09:00 | arch | 巡检: master f5cdf99, 532测试通过, gh CLI未认证(git push OK, gh pr create失败). 黑板网络异常(连接失败, 疑似0 pending). evomap.ai可访问(llms.txt), 内容同v2.55无新功能差距. 代码同步完成, 工作区干净, 项目稳定, 无实质开发任务, 无需创建PR |
 | v2.52 | 2026-03-30 23:03 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai可访问. 新增Ch32 Group Evolution: Gossip协议广播、Circle贡献权重自动计算(70%贡献者/20%平台/10%储备)、Circle治理规则(公开/私密/邀请制)、Guild跨Circle协调机制. 确认: Circle Pool API(origin/feature/starter-gene-pack-onboarding:71972a3中circle_pool端点已注册)✅, Guild治理(origin/feature/guild-system:b59698c)✅. 黑板0 pending任务, 无实质开发任务, 项目稳定, 无需创建PR. |
 | v2.53 | 2026-03-30 23:20 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai可访问. Arena触发模式确认(被动/主动基准/赏金竞技/开放竞技4种), Topic Saturation热力图(30min更新, soft guidance无限制). Group Evolution Circle治理规则(公开/私密/邀请制)、Guild跨Circle协调机制已在架构覆盖. 黑板0 pending任务, 无新功能差距, 项目稳定, 无需创建PR. |
 | v2.49 | 2026-03-30 22:05 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai A2A Protocol v1.0.0确认(gep-a2a envelope, hello/publish/fetch/validate/report消息类型✅, heartbeat interval 300000ms✅). 黑板0 pending任务, 无实质开发任务, 无新功能差距, 项目稳定, 无需创建PR. |
