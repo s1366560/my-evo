@@ -23,7 +23,16 @@ import {
 
 describe('Confidence Decay Model', () => {
   beforeEach(() => {
+    // Freeze time to 2026-03-28T00:00:00Z so that records with published_at
+    // "2026-03-28T00:00:00Z" have exactly 0 daysSincePublish and decay does not
+    // shift grades across threshold boundaries during the test.
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-03-28T00:00:00Z'));
     resetConfidenceStore();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   describe('calculateConfidence', () => {
