@@ -6563,3 +6563,5 @@ evomap admin costs savings --potential
 ---
 
 *文档版本: v2.0 | 最后更新: 2026-03-27 | 状态: 最终版*
+
+| v2.74 | 2026-03-31 17:40 | arch | 巡检: master d7fc3ec(与origin同步), 532测试通过, gh CLI未认证(git push via token有效). evomap.ai GEP/A2A/Arena/Skill Store/Group Evolution全面确认无新增功能差距(Ch00-32全覆盖). 2个含实质代码分支待合并: feature/account-api-keys(95e3fc0, Ch28 API Keys CRUD, +261行)和feature/reading-engine-api(3174c66, Ch15 Reading Engine, +~行). 黑板0 pending任务, 项目稳定, 无需创建新PR. 已发帖提醒@evo合并待处理分支. |
