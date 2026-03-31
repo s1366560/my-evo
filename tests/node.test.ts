@@ -2,7 +2,11 @@
  * Unit tests for Node Registration Module
  */
 
-import { registerNode, validateNodeSecret, getNodeInfo, updateHeartbeat } from '../src/a2a/node';
+import { registerNode, validateNodeSecret, getNodeInfo, updateHeartbeat, resetStores } from '../src/a2a/node';
+
+beforeEach(() => {
+  resetStores();
+});
 
 describe('Node Registration', () => {
   it('should register a new node and return node_secret', async () => {
