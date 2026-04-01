@@ -12,6 +12,8 @@ import type {
   BountyDisputeDecision,
   CouncilConfig,
   ProposalStatus,
+  CouncilTerm,
+  CouncilSession,
 } from './types';
 
 // Default council configuration
@@ -351,4 +353,119 @@ export function resolveBountyDispute(
   disputeProposal.executed_at = new Date().toISOString();
 
   return decision;
+}
+
+// In-memory term and session stores
+const councilTerms = new Map<string, CouncilTerm>();
+const councilSessions = new Map<string, CouncilSession>();
+
+/**
+ * Initialize mock council data for testing
+ */
+export function initializeCouncilData(): void {
+  const now = new Date();
+  const weekOfYear = getWeekOfYear(now);
+  const termId = `term_2026w${weekOfYear}`;
+
+  // Create current term
+  const termStart = new Date(now);
+  termStart.setDate(termStart.getDate() - termStart.getDay()); // Start of week
+  const termEnd = new Date(termStart);
+  termEnd.setDate(termEnd.getDate() + 7);
+
+  const currentTerm: CouncilTerm = {
+    term_id: termId,
+    start_at: termStart.toISOString(),
+    end_at: termEnd.toISOString(),
+    status: 'active',
+    members: Array.from(councilMembers.values()),
+    proposal_count: listProposals().filter(p => {
+      const created = new Date(p.created_at);
+      return created >= termStart && created < termEnd;
+    }).length,
+    resolved_count: listProposals({ status: 'executed' }).filter(p => {
+      const executed = p.executed_at ? new Date(p.executed_at) : null;
+      return executed && executed >= termStart && executed < termEnd;
+    }).length,
+  };
+  councilTerms.set(termId, currentTerm);
+
+  // Create sample sessions for current term
+  for (let i = 1; i <= 3; i++) {
+    const sessionId = `council_session_${termId}_${String(i).padStart(2, '0')}`;
+    const session: CouncilSession = {
+      session_id: sessionId,
+      term_id: termId,
+      sequence: i,
+      phase: i < 3 ? 'completed' : 'challenge',
+      topic: i === 1 ? 'Initial proposal review' : i === 2 ? 'Budget allocation discussion' : 'Parameter change vote',
+      proposal_id: i === 3 ? listProposals()[0]?.proposal_id : undefined,
+      participants: Array.from(councilMembers.keys()),
+      started_at: new Date(termStart.getTime() + i * 24 * 60 * 60 * 1000).toISOString(),
+      ended_at: i < 3 ? new Date(termStart.getTime() + i * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000).toISOString() : undefined,
+      outcome: i < 3 ? (i === 1 ? 'approved' : 'rejected') : undefined,
+      summary: i < 3 ? `Council session ${i} completed with outcome: ${i === 1 ? 'approved' : 'rejected'}` : undefined,
+    };
+    councilSessions.set(sessionId, session);
+  }
+}
+
+/**
+ * Get current active term
+ */
+export function getCurrentTerm(): CouncilTerm | undefined {
+  const now = new Date();
+  for (const term of councilTerms.values()) {
+    const start = new Date(term.start_at);
+    const end = new Date(term.end_at);
+    if (now >= start && now < end) {
+      return term;
+    }
+  }
+  // Return most recent term if no active term found
+  const terms = Array.from(councilTerms.values()).sort(
+    (a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()
+  );
+  return terms[0];
+}
+
+/**
+ * Get term history
+ */
+export function getTermHistory(limit: number = 10): CouncilTerm[] {
+  return Array.from(councilTerms.values())
+    .sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime())
+    .slice(0, limit);
+}
+
+/**
+ * Get session by ID
+ */
+export function getSession(sessionId: string): CouncilSession | undefined {
+  return councilSessions.get(sessionId);
+}
+
+/**
+ * Get sessions by term
+ */
+export function getSessionsByTerm(termId: string): CouncilSession[] {
+  return Array.from(councilSessions.values())
+    .filter(s => s.term_id === termId)
+    .sort((a, b) => a.sequence - b.sequence);
+}
+
+/**
+ * Get all council history (sessions)
+ */
+export function getCouncilHistory(limit: number = 20): CouncilSession[] {
+  return Array.from(councilSessions.values())
+    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+    .slice(0, limit);
+}
+
+function getWeekOfYear(date: Date): number {
+  const start = new Date(date.getFullYear(), 0, 1);
+  const diff = date.getTime() - start.getTime();
+  const oneWeek = 7 * 24 * 60 * 60 * 1000;
+  return Math.ceil((diff + start.getDay() * 24 * 60 * 60 * 1000) / oneWeek);
 }

@@ -141,4 +141,64 @@ router.post('/resolve-dispute', (req: Request, res: Response) => {
   }
 });
 
+// GET /a2a/council/term/current - current active term info
+router.get('/term/current', (_req: Request, res: Response) => {
+  try {
+    const term = council.getCurrentTerm();
+    if (!term) {
+      res.status(404).json({ error: 'not_found', message: 'No active term found' });
+      return;
+    }
+    res.json(term);
+  } catch (error) {
+    console.error('Get current term error:', error);
+    res.status(500).json({ error: 'query_failed', message: String(error) });
+  }
+});
+
+// GET /a2a/council/term/history - term history
+router.get('/term/history', (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+    const terms = council.getTermHistory(limit);
+    res.json({ terms });
+  } catch (error) {
+    console.error('Get term history error:', error);
+    res.status(500).json({ error: 'query_failed', message: String(error) });
+  }
+});
+
+// GET /a2a/council/:id - council session details
+router.get('/:id', (req: Request, res: Response) => {
+  try {
+    const session = council.getSession(req.params.id);
+    if (!session) {
+      // Fallback: try to find as proposal
+      const proposal = council.getProposal(req.params.id);
+      if (proposal) {
+        res.json(proposal);
+        return;
+      }
+      res.status(404).json({ error: 'not_found', message: 'Council session or proposal not found' });
+      return;
+    }
+    res.json(session);
+  } catch (error) {
+    console.error('Get council session error:', error);
+    res.status(500).json({ error: 'query_failed', message: String(error) });
+  }
+});
+
+// GET /a2a/council/history - list past council sessions
+router.get('/history', (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+    const sessions = council.getCouncilHistory(limit);
+    res.json({ sessions });
+  } catch (error) {
+    console.error('Get council history error:', error);
+    res.status(500).json({ error: 'query_failed', message: String(error) });
+  }
+});
+
 export default router;
