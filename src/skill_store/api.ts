@@ -3,7 +3,8 @@
 
 import { Request, Response } from 'express';
 import { SkillStoreEngine } from './engine';
-import type { SkillStatus, SkillCreate } from './types';
+import { SkillStatus } from './types';
+import type { SkillCreate } from './types';
 
 const engine = new SkillStoreEngine();
 
