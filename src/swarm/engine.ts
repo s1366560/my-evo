@@ -58,8 +58,8 @@ export function listSwarms(filter?: {
   return all.sort((a, b) => {
     const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     if (timeDiff !== 0) return timeDiff;
-    // Tiebreaker: newer swarm_id first when timestamps equal
-    return a.swarm_id.localeCompare(b.swarm_id);
+    // Tiebreaker: sort by swarm_id descending for stable ordering
+    return b.swarm_id.localeCompare(a.swarm_id);
   });
 }
 
