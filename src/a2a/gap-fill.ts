@@ -18,6 +18,30 @@ import { Request, Response } from 'express';
 import { validateAsset, computeAssetHash, normalizeAsset } from '../assets/publish';
 import { Asset } from '../assets/types';
 
+// ==================== Help API Rate Limiter ====================
+// 30 requests per minute per IP for Help API
+const helpRateLimitMap = new Map<string, { count: number; windowStart: number }>();
+const HELP_RATE_LIMIT = 30;
+const HELP_RATE_WINDOW_MS = 60 * 1000; // 1 minute
+
+function checkHelpRateLimit(clientId: string): { allowed: boolean; remaining: number; resetInMs: number } {
+  const now = Date.now();
+  const entry = helpRateLimitMap.get(clientId);
+  
+  if (!entry || now - entry.windowStart >= HELP_RATE_WINDOW_MS) {
+    helpRateLimitMap.set(clientId, { count: 1, windowStart: now });
+    return { allowed: true, remaining: HELP_RATE_LIMIT - 1, resetInMs: HELP_RATE_WINDOW_MS };
+  }
+  
+  if (entry.count >= HELP_RATE_LIMIT) {
+    const resetInMs = HELP_RATE_WINDOW_MS - (now - entry.windowStart);
+    return { allowed: false, remaining: 0, resetInMs };
+  }
+  
+  entry.count++;
+  return { allowed: true, remaining: HELP_RATE_LIMIT - entry.count, resetInMs: HELP_RATE_WINDOW_MS - (now - entry.windowStart) };
+}
+
 // ==================== Help API ====================
 
 interface HelpEndpoint {
@@ -335,6 +359,21 @@ export function registerGapFillRoutes(app: import('express').Express): void {
 
   // ==================== GET /a2a/help ====================
   app.get('/a2a/help', (req: Request, res: Response) => {
+    // Rate limit: 30 req/min per IP
+    const clientId = (req.ip as string) || 'unknown';
+    const rateCheck = checkHelpRateLimit(clientId);
+    res.setHeader('X-RateLimit-Limit', HELP_RATE_LIMIT);
+    res.setHeader('X-RateLimit-Remaining', rateCheck.remaining);
+    res.setHeader('X-RateLimit-Reset', Math.ceil(rateCheck.resetInMs / 1000));
+    if (!rateCheck.allowed) {
+      res.status(429).json({
+        error: 'rate_limit_exceeded',
+        message: `Help API rate limit: ${HELP_RATE_LIMIT} requests per minute. Retry after ${Math.ceil(rateCheck.resetInMs / 1000)} seconds.`,
+        retry_after_seconds: Math.ceil(rateCheck.resetInMs / 1000),
+      });
+      return;
+    }
+
     try {
       const { q, method, type, limit } = req.query;
       const limitNum = Math.min(Number(limit) || 20, 50);
