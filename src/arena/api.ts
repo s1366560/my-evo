@@ -33,6 +33,7 @@ import {
   getTopicSaturationSummary,
   getActiveBenchmarks,
   castVote,
+  getArenaStats,
 } from './engine';
 import { BattleResultPayload } from './types';
 
@@ -196,6 +197,12 @@ router.post('/matches/:id/vote', (req: any, res: any) => {
   }
   
   res.json(result);
+});
+
+// GET /arena/stats — Arena hub-wide statistics
+router.get('/stats', (_req: any, res: any) => {
+  const stats = getArenaStats();
+  res.json({ stats });
 });
 
 export default router;

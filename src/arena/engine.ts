@@ -555,3 +555,58 @@ export function castVote(battleId: string, entryId: string, voterNodeId?: string
     message: `Vote recorded for entry ${entryId} on battle ${battleId}`,
   };
 }
+
+// ============ Arena Stats ============
+
+export interface ArenaHubStats {
+  total_battles: number;
+  completed_battles: number;
+  active_battles: number;
+  total_seasons: number;
+  active_season_id: string | null;
+  total_participants: number;
+  avg_elo: number;
+  top_signals: string[];
+}
+
+export function getArenaStats(): ArenaHubStats {
+  const allBattles = Array.from(battles.values());
+  const completed = allBattles.filter(b => b.status === 'completed');
+  const active = allBattles.filter(b => b.status === 'in_progress' || b.status === 'pending');
+
+  const activeSeason = Array.from(seasons.values()).find(s => s.status === 'active');
+
+  // Count unique participants
+  const participants = new Set<string>();
+  for (const b of completed) {
+    participants.add(b.node_a);
+    participants.add(b.node_b);
+  }
+
+  // Average Elo
+  const elos = Array.from(eloRatings.values());
+  const avgElo = elos.length > 0 ? Math.round(elos.reduce((a, b) => a + b, 0) / elos.length) : ARENA_INITIAL_ELO;
+
+  // Top signals from battle topics
+  const signalCounts = new Map<string, number>();
+  for (const b of completed) {
+    if (b.topic) {
+      signalCounts.set(b.topic, (signalCounts.get(b.topic) ?? 0) + 1);
+    }
+  }
+  const topSignals = Array.from(signalCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([signal]) => signal);
+
+  return {
+    total_battles: allBattles.length,
+    completed_battles: completed.length,
+    active_battles: active.length,
+    total_seasons: seasons.size,
+    active_season_id: activeSeason?.season_id ?? null,
+    total_participants: participants.size,
+    avg_elo: avgElo,
+    top_signals: topSignals,
+  };
+}
