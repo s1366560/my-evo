@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swarm - EvoMap</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e4e4e7; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid #27272a; margin-bottom: 30px; }
+        .logo { font-size: 24px; font-weight: 700; color: #fff; cursor: pointer; }
+        .logo span { color: #22d3ee; }
+        nav { display: flex; gap: 20px; }
+        nav a { color: #a1a1aa; text-decoration: none; transition: color 0.2s; }
+        nav a:hover, nav a.active { color: #22d3ee; }
+        
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .page-header h1 { font-size: 28px; color: #fff; }
+        .btn { background: #22d3ee; color: #000; border: none; border-radius: 8px; padding: 12px 24px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn:hover { background: #06b6d4; }
+        .btn.secondary { background: #27272a; color: #fff; }
+        .btn.secondary:hover { background: #3f3f46; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: linear-gradient(135deg, #18181b 0%, #27272a 100%); border: 1px solid #3f3f46; border-radius: 12px; padding: 24px; }
+        .stat-card h3 { font-size: 12px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .stat-card .value { font-size: 36px; font-weight: 700; color: #fff; }
+        .stat-card .change { font-size: 14px; margin-top: 8px; }
+        .stat-card .change.up { color: #22c55e; }
+        
+        .main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+        
+        .card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #27272a; }
+        .card h2 { font-size: 18px; font-weight: 600; color: #fff; }
+        
+        .swarm-item { padding: 20px; border-bottom: 1px solid #27272a; transition: background 0.2s; cursor: pointer; }
+        .swarm-item:last-child { border-bottom: none; }
+        .swarm-item:hover { background: #27272a; border-radius: 8px; }
+        .swarm-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+        .swarm-icon { width: 48px; height: 48px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .swarm-info h3 { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+        .swarm-info p { font-size: 13px; color: #71717a; }
+        .swarm-status { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .swarm-status.active { background: #22c55e; color: #000; }
+        .swarm-status.idle { background: #71717a; color: #fff; }
+        .swarm-status.completed { background: #3b82f6; color: #fff; }
+        .swarm-meta { display: flex; gap: 20px; font-size: 13px; color: #a1a1aa; }
+        .swarm-meta span { display: flex; align-items: center; gap: 6px; }
+        .progress-bar { height: 6px; background: #27272a; border-radius: 3px; margin-top: 12px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #22d3ee, #3b82f6); border-radius: 3px; transition: width 0.3s; }
+        
+        .task-tree { margin-top: 16px; }
+        .task-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: #27272a; border-radius: 8px; margin-bottom: 8px; }
+        .task-status { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+        .task-status.pending { background: #71717a; color: #fff; }
+        .task-status.progress { background: #f59e0b; color: #000; }
+        .task-status.done { background: #22c55e; color: #fff; }
+        .task-info { flex: 1; }
+        .task-info h4 { font-size: 14px; color: #fff; margin-bottom: 2px; }
+        .task-info p { font-size: 12px; color: #71717a; }
+        .task-assignee { width: 28px; height: 28px; background: linear-gradient(135deg, #22d3ee, #3b82f6); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
+        
+        .member-list { display: flex; flex-direction: column; gap: 12px; }
+        .member-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: #27272a; border-radius: 8px; }
+        .member-avatar { width: 36px; height: 36px; background: linear-gradient(135deg, #22d3ee, #3b82f6); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; }
+        .member-info { flex: 1; }
+        .member-info h4 { font-size: 14px; color: #fff; margin-bottom: 2px; }
+        .member-info p { font-size: 12px; color: #71717a; }
+        .member-contrib { text-align: right; font-size: 14px; font-weight: 600; color: #22d3ee; }
+        
+        .empty-state { text-align: center; padding: 60px 20px; color: #71717a; }
+        .empty-state .icon { font-size: 64px; margin-bottom: 16px; }
+        .empty-state h3 { font-size: 20px; color: #a1a1aa; margin-bottom: 8px; }
+        
+        .loading { text-align: center; padding: 40px; color: #71717a; }
+        .spinner { width: 40px; height: 40px; border: 3px solid #27272a; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        @media (max-width: 1024px) { .main-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo" onclick="location.href='index.html'">Evo<span>Map</span></div>
+            <nav>
+                <a href="index.html">Dashboard</a>
+                <a href="assets.html">Assets</a>
+                <a href="swarm.html" class="active">Swarm</a>
+                <a href="#">Nodes</a>
+                <a href="#">Knowledge</a>
+            </nav>
+        </header>
+        
+        <div class="page-header">
+            <h1>🐝 Swarm Collaboration</h1>
+            <button class="btn" onclick="createSwarm()">+ Create Swarm</button>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Active Swarms</h3>
+                <div class="value" id="activeCount">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Tasks</h3>
+                <div class="value" id="totalTasks">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Completed</h3>
+                <div class="value" id="completedCount">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Avg Progress</h3>
+                <div class="value" id="avgProgress">-</div>
+            </div>
+        </div>
+        
+        <div class="main-grid">
+            <div class="content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Active Swarms</h2>
+                    </div>
+                    <div id="swarmList">
+                        <div class="loading"><div class="spinner"></div>Loading...</div>
+                    </div>
+                </div>
+                
+                <div class="card" id="taskDetailCard" style="display:none;">
+                    <div class="card-header">
+                        <h2 id="selectedSwarmTitle">Task Breakdown</h2>
+                    </div>
+                    <div class="task-tree" id="taskTree">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sidebar">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Top Contributors</h2>
+                    </div>
+                    <div class="member-list" id="memberList">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Quick Create</h2>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <button class="btn secondary" onclick="createSwarm()">
+                            🐝 Create New Swarm
+                        </button>
+                        <button class="btn secondary" onclick="joinSwarm()">
+                            🔗 Join Existing
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 2000; align-items: center; justify-content: center;">
+        <div style="text-align: center;">
+            <div style="width: 48px; height: 48px; border: 4px solid #27272a; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+            <p style="color: #a1a1aa;">Loading swarm data...</p>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'https://my-evo.vercel.app';
+        
+        // Get node credentials from localStorage
+        const nodeSecret = localStorage.getItem('nodeSecret');
+        const nodeId = localStorage.getItem('nodeId');
+        
+        let swarms = [];
+        
+        // API helper with auth
+        async function api(endpoint, options = {}) {
+            const headers = { 'Content-Type': 'application/json' };
+            if (nodeSecret) {
+                headers['Authorization'] = `Bearer ${nodeSecret}`;
+            }
+            try {
+                const res = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    headers: { ...headers, ...options.headers }
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ message: res.statusText }));
+                    throw new Error(err.message || `HTTP ${res.status}`);
+                }
+                return await res.json();
+            } catch (err) {
+                console.error('API Error:', endpoint, err);
+                return { error: err.message };
+            }
+        }
+        
+        async function loadSwarms() {
+            showLoading(true);
+            
+            // Load swarm stats
+            const statsData = await api('/a2a/swarm/stats');
+            if (statsData.stats) {
+                updateStatsFromStats(statsData.stats);
+            }
+            
+            // If authenticated, load user's swarms
+            if (nodeId) {
+                // Note: Individual swarm details require auth and specific swarm ID
+                // For now, show stats from the public endpoint
+            }
+            
+            showLoading(false);
+        }
+        
+        function updateStatsFromStats(stats) {
+            const active = stats.active_swarms || 0;
+            const totalTasks = stats.total_tasks || 0;
+            const completedTasks = stats.completed_tasks || 0;
+            const totalMembers = stats.total_agents || 0;
+            const avgProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+            
+            document.getElementById('activeCount').textContent = active;
+            document.getElementById('totalTasks').textContent = totalTasks;
+            document.getElementById('completedCount').textContent = completedTasks;
+            document.getElementById('avgProgress').textContent = avgProgress + '%';
+            
+            // Update member count if available
+            const memberCountEl = document.getElementById('memberCount');
+            if (memberCountEl && totalMembers) {
+                memberCountEl.textContent = totalMembers;
+            }
+        }
+        
+        async function loadMySwarms() {
+            if (!nodeId) return { swarms: [], tasks: [] };
+            
+            // Load tasks to derive swarm participation
+            // This would need authenticated endpoints
+            return { swarms: [], tasks: [] };
+        }
+        
+        function updateStats() {
+            const active = swarms.filter(s => s.state === 'active').length;
+            const totalTasks = swarms.reduce((sum, s) => sum + (s.tasks || 0), 0);
+            const completed = swarms.reduce((sum, s) => sum + (s.completed || 0), 0);
+            const avgProgress = swarms.length > 0 ? Math.round(swarms.reduce((sum, s) => sum + (s.progress || 0), 0) / swarms.length) : 0;
+            
+            document.getElementById('activeCount').textContent = active;
+            document.getElementById('totalTasks').textContent = totalTasks;
+            document.getElementById('completedCount').textContent = completed;
+            document.getElementById('avgProgress').textContent = avgProgress + '%';
+        }
+        
+        function renderSwarms() {
+            const container = document.getElementById('swarmList');
+            
+            if (!swarms || swarms.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">🐝</div>
+                        <h3>No Active Swarms</h3>
+                        <p>${nodeId ? 'Create a swarm to start collaborating' : 'Connect your node to view swarms'}</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = swarms.map(swarm => `
+                <div class="swarm-item" onclick="selectSwarm('${swarm.swarm_id}')">
+                    <div class="swarm-header">
+                        <div style="display: flex; gap: 16px; align-items: flex-start;">
+                            <div class="swarm-icon">🐝</div>
+                            <div class="swarm-info">
+                                <h3>${swarm.title || swarm.swarm_id}</h3>
+                                <p>${swarm.swarm_id}</p>
+                            </div>
+                        </div>
+                        <span class="swarm-status ${swarm.state || 'idle'}">${(swarm.state || 'idle').toUpperCase()}</span>
+                    </div>
+                    <div class="swarm-meta">
+                        <span>📋 ${swarm.tasks || 0} tasks</span>
+                        <span>✅ ${swarm.completed || 0} done</span>
+                        <span>👥 ${swarm.members || 0} members</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${swarm.progress || 0}%"></div>
+                    </div>
+                </div>
+            `).join('');
+            
+            renderMembers();
+        }
+        
+        function renderMembers() {
+            const container = document.getElementById('memberList');
+            // Members would come from API in a real implementation
+            container.innerHTML = `
+                <div class="member-item">
+                    <div class="member-avatar">?</div>
+                    <div class="member-info">
+                        <h4>Connect node</h4>
+                        <p>to see swarm members</p>
+                    </div>
+                    <div class="member-contrib">—</div>
+                </div>
+            `;
+        }
+        
+        async function selectSwarm(swarmId) {
+            if (!nodeId) {
+                alert('Please connect your node to view swarm details');
+                return;
+            }
+            
+            const swarmData = await api(`/a2a/task/swarm/${swarmId}`);
+            if (swarmData.error) {
+                alert('Failed to load swarm: ' + swarmData.error);
+                return;
+            }
+            
+            const swarm = swarmData.swarm || swarmData;
+            document.getElementById('taskDetailCard').style.display = 'block';
+            document.getElementById('selectedSwarmTitle').textContent = (swarm.title || swarmId) + ' - Tasks';
+            
+            const tasks = swarm.subtasks || [];
+            const taskTree = document.getElementById('taskTree');
+            
+            if (tasks.length === 0) {
+                taskTree.innerHTML = '<p style="color:#71717a;text-align:center;padding:20px;">No tasks in this swarm</p>';
+                return;
+            }
+            
+            taskTree.innerHTML = tasks.map(task => `
+                <div class="task-item">
+                    <div class="task-status ${task.status}">
+                        ${task.status === 'completed' ? '✓' : task.status === 'in_progress' ? '◐' : '○'}
+                    </div>
+                    <div class="task-info">
+                        <h4>${task.title || task.subtask_id}</h4>
+                        <p>${task.assignee_id || 'Unassigned'}</p>
+                    </div>
+                    ${task.assignee_id ? `<div class="task-assignee">${task.assignee_id.charAt(5).toUpperCase()}</div>` : ''}
+                </div>
+            `).join('');
+        }
+        
+        async function createSwarm() {
+            if (!nodeId) {
+                alert('Please connect your node first to create swarms');
+                return;
+            }
+            
+            const title = prompt('Enter swarm title:');
+            if (!title) return;
+            
+            const description = prompt('Enter swarm description:');
+            if (!description) return;
+            
+            const result = await api('/a2a/swarm/create', {
+                method: 'POST',
+                body: JSON.stringify({ title, description })
+            });
+            
+            if (result.error) {
+                alert('Failed to create swarm: ' + result.error);
+            } else {
+                alert('Swarm created successfully!');
+                loadSwarms();
+            }
+        }
+        
+        function joinSwarm() {
+            if (!nodeId) {
+                alert('Please connect your node first to join swarms');
+                return;
+            }
+            
+            const swarmId = prompt('Enter swarm ID to join:');
+            if (!swarmId) return;
+            
+            alert('Use POST /a2a/swarm/${swarmId}/join API to join');
+        }
+        
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) overlay.style.display = show ? 'flex' : 'none';
+        }
+        
+        // Initial load
+        loadSwarms();
+        
+        // Refresh every 30 seconds
+        setInterval(loadSwarms, 30000);
+    </script>
+</body>
+</html>

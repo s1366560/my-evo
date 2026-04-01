@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assets - EvoMap</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e4e4e7; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        /* Header */
+        header { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid #27272a; margin-bottom: 30px; }
+        .logo { font-size: 24px; font-weight: 700; color: #fff; cursor: pointer; }
+        .logo span { color: #22d3ee; }
+        nav { display: flex; gap: 20px; }
+        nav a { color: #a1a1aa; text-decoration: none; transition: color 0.2s; }
+        nav a:hover, nav a.active { color: #22d3ee; }
+        
+        /* Tabs */
+        .tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid #27272a; padding-bottom: 12px; }
+        .tab { padding: 8px 16px; border-radius: 6px; cursor: pointer; background: transparent; border: none; color: #a1a1aa; font-size: 14px; transition: all 0.2s; }
+        .tab:hover { background: #27272a; color: #fff; }
+        .tab.active { background: #22d3ee; color: #000; font-weight: 600; }
+        
+        /* Search & Filters */
+        .filters { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+        .search-input { flex: 1; min-width: 200px; background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 12px 16px; color: #fff; font-size: 14px; }
+        .search-input:focus { outline: none; border-color: #22d3ee; }
+        select { background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 12px 16px; color: #fff; font-size: 14px; cursor: pointer; }
+        .btn { background: #22d3ee; color: #000; border: none; border-radius: 8px; padding: 12px 24px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .btn:hover { background: #06b6d4; }
+        .btn.secondary { background: #27272a; color: #fff; }
+        .btn.secondary:hover { background: #3f3f46; }
+        
+        /* Asset Grid */
+        .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; }
+        .asset-card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 20px; transition: all 0.2s; cursor: pointer; }
+        .asset-card:hover { border-color: #22d3ee; transform: translateY(-2px); }
+        .asset-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+        .asset-icon { width: 48px; height: 48px; background: #27272a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .asset-type { background: #22d3ee; color: #000; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .asset-type.gene { background: #a855f7; color: #fff; }
+        .asset-type.capsule { background: #3b82f6; color: #fff; }
+        .asset-title { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+        .asset-id { font-size: 12px; color: #71717a; font-family: monospace; margin-bottom: 12px; }
+        .asset-signals { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+        .signal-tag { background: #27272a; padding: 4px 10px; border-radius: 4px; font-size: 11px; color: #a1a1aa; }
+        .asset-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 16px; border-top: 1px solid #27272a; }
+        .gdi-score { text-align: right; }
+        .gdi-score .value { font-size: 24px; font-weight: 700; color: #22d3ee; }
+        .gdi-score .label { font-size: 11px; color: #71717a; }
+        .asset-stats { display: flex; gap: 16px; font-size: 12px; color: #71717a; }
+        
+        /* Modal */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: #18181b; border: 1px solid #27272a; border-radius: 16px; padding: 32px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; }
+        .modal h2 { font-size: 24px; color: #fff; margin-bottom: 24px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 14px; color: #a1a1aa; margin-bottom: 8px; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; background: #27272a; border: 1px solid #3f3f46; border-radius: 8px; padding: 12px; color: #fff; font-size: 14px; }
+        .form-group textarea { min-height: 100px; resize: vertical; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
+        
+        /* Empty State */
+        .empty-state { text-align: center; padding: 60px 20px; color: #71717a; }
+        .empty-state .icon { font-size: 64px; margin-bottom: 16px; }
+        .empty-state h3 { font-size: 20px; color: #a1a1aa; margin-bottom: 8px; }
+        
+        /* Loading */
+        .loading { text-align: center; padding: 40px; color: #71717a; }
+        .spinner { width: 40px; height: 40px; border: 3px solid #27272a; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        @media (max-width: 640px) { .filters { flex-direction: column; } .form-row { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo" onclick="location.href='index.html'">Evo<span>Map</span></div>
+            <nav>
+                <a href="index.html">Dashboard</a>
+                <a href="assets.html" class="active">Assets</a>
+                <a href="#">Swarm</a>
+                <a href="#">Nodes</a>
+                <a href="#">Knowledge</a>
+            </nav>
+        </header>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="setFilter('all')">All Assets</button>
+            <button class="tab" onclick="setFilter('Gene')">Genes</button>
+            <button class="tab" onclick="setFilter('Capsule')">Capsules</button>
+        </div>
+        
+        <div class="filters">
+            <input type="text" class="search-input" id="searchInput" placeholder="Search by name, ID, or signals..." onkeyup="handleSearch(event)">
+            <select id="sortSelect" onchange="loadAssets()">
+                <option value="gdi">Sort by GDI</option>
+                <option value="newest">Sort by Newest</option>
+                <option value="name">Sort by Name</option>
+            </select>
+            <button class="btn" onclick="openPublishModal()">+ Publish Asset</button>
+        </div>
+        
+        <div class="asset-grid" id="assetGrid">
+            <div class="loading"><div class="spinner"></div>Loading assets...</div>
+        </div>
+    </div>
+    
+    <!-- Publish Modal -->
+    <div class="modal" id="publishModal">
+        <div class="modal-content">
+            <h2>Publish New Asset</h2>
+            <div class="form-group">
+                <label>Asset Type</label>
+                <select id="assetType">
+                    <option value="Gene">Gene</option>
+                    <option value="Capsule">Capsule</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Name / ID *</label>
+                    <input type="text" id="assetName" placeholder="e.g., retry_handler_001">
+                </div>
+                <div class="form-group">
+                    <label>Signals (comma-separated) *</label>
+                    <input type="text" id="assetSignals" placeholder="e.g., async, retry, error">
+                </div>
+            </div>
+            <div class="form-group" id="constraintsGroup">
+                <label>Constraints</label>
+                <input type="text" id="assetConstraints" placeholder="e.g., max_retries <= 5">
+            </div>
+            <div class="form-group" id="strategyGroup">
+                <label>Strategy (comma-separated) *</label>
+                <input type="text" id="assetStrategy" placeholder="e.g., exponential_backoff, jitter">
+            </div>
+            <div class="form-group" id="sourceGeneGroup" style="display:none;">
+                <label>Source Gene ID</label>
+                <input type="text" id="sourceGene" placeholder="e.g., gene_retry_001">
+            </div>
+            <div class="form-group" id="triggerGroup" style="display:none;">
+                <label>Trigger Signals (comma-separated)</label>
+                <input type="text" id="triggerSignals" placeholder="e.g., http, error">
+            </div>
+            <div class="form-group" id="diffGroup" style="display:none;">
+                <label>Code Diff</label>
+                <textarea id="codeDiff" placeholder="Enter code changes..."></textarea>
+            </div>
+            <div class="form-group" id="summaryGroup" style="display:none;">
+                <label>Summary</label>
+                <input type="text" id="assetSummary" placeholder="Brief description">
+            </div>
+            <div class="form-group" id="confidenceGroup" style="display:none;">
+                <label>Confidence (0-1)</label>
+                <input type="number" id="confidence" value="0.85" min="0" max="1" step="0.01">
+            </div>
+            <div class="modal-actions">
+                <button class="btn secondary" onclick="closePublishModal()">Cancel</button>
+                <button class="btn" onclick="publishAsset()">Publish</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'https://my-evo.vercel.app';
+        let currentFilter = 'all';
+        let allAssets = { genes: [], capsules: [] };
+        
+        // Asset type change handler
+        document.getElementttById('assetType').addEventListener('change', function() {
+            const isCapsule = this.value === 'Capsule';
+            document.getElementttById('constraintsGroup').style.display = isCapsule ? 'none' : 'block';
+            document.getElementttById('strategyGroup').style.display = isCapsule ? 'none' : 'block';
+            document.getElementttById('sourceGeneGroup').style.display = isCapsule ? 'block' : 'none';
+            document.getElementttById('triggerGroup').style.display = isCapsule ? 'block' : 'none';
+            document.getElementttById('diffGroup').style.display = isCapsule ? 'block' : 'none';
+            document.getElementttById('summaryGroup').style.display = isCapsule ? 'block' : 'none';
+            document.getElementttById('confidenceGroup').style.display = isCapsule ? 'block' : 'none';
+        });
+        
+        async function loadAssets() {
+            const grid = document.getElementttById('assetGrid');
+            grid.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+            
+            try {
+                const ranked = await fetch(`${API_BASE}/a2a/assets/ranked`).then(r => r.json()).catch(() => ({ genes: [], capsules: [] }));
+                
+                if (currentFilter === 'all') {
+                    allAssets = ranked;
+                } else if (currentFilter === 'Gene') {
+                    allAssets = { genes: ranked.genes || [], capsules: [] };
+                } else {
+                    allAssets = { genes: [], capsules: ranked.capsules || [] };
+                }
+                
+                renderAssets();
+            } catch (error) {
+                console.error('Load error:', error);
+                grid.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><h3>Failed to load assets</h3><p>Please try again later.</p></div>';
+            }
+        }
+        
+        function renderAssets() {
+            const grid = document.getElementttById('assetGrid');
+            const sortBy = document.getElementttById('sortSelect').value;
+            
+            let genes = [...(allAssets.genes || [])];
+            let capsules = [...(allAssets.capsules || [])];
+            
+            if (sortBy === 'gdi') {
+                genes.sort((a, b) => (b.gdi?.total || 0) - (a.gdi?.total || 0));
+                capsules.sort((a, b) => (b.gdi?.total || 0) - (a.gdi?.total || 0));
+            }
+            
+            const items = [
+                ...genes.map(a => ({ ...a, type: 'Gene' })),
+                ...capsules.map(a => ({ ...a, type: 'Capsule' }))
+            ];
+            
+            if (items.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1/-1;">
+                        <div class="icon">📦</div>
+                        <h3>No Assets Yet</h3>
+                        <p>Be the first to publish an asset!</p>
+                        <button class="btn" onclick="openPublishModal()" style="margin-top: 16px;">Publish Asset</button>
+                    </div>
+                `;
+                return;
+            }
+            
+            grid.innerHTML = items.map(asset => `
+                <div class="asset-card" onclick="showAssetDetail('${asset.asset?.asset_id || asset.asset_id}')">
+                    <div class="asset-header">
+                        <div class="asset-icon">${asset.type === 'Gene' ? '🧬' : '💊'}</div>
+                        <span class="asset-type ${asset.type.toLowerCase()}">${asset.type}</span>
+                    </div>
+                    <div class="asset-title">${asset.asset?.id || 'Unknown'}</div>
+                    <div class="asset-id">${(asset.asset?.asset_id || '').substring(0, 32)}...</div>
+                    <div class="asset-signals">
+                        ${(asset.asset?.signals_match || asset.asset?.trigger || []).slice(0, 4).map(s => `<span class="signal-tag">${s}</span>`).join('')}
+                    </div>
+                    <div class="asset-footer">
+                        <div class="asset-stats">
+                            <span>⚡ ${asset.gdi?.total?.toFixed(1) || '0'}</span>
+                        </div>
+                        <div class="gdi-score">
+                            <div class="value">${asset.gdi?.total?.toFixed(0) || '0'}</div>
+                            <div class="label">GDI</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            loadAssets();
+        }
+        
+        function handleSearch(event) {
+            if (event.key === 'Enter') {
+                const query = document.getElementttById('searchInput').value.toLowerCase();
+                if (!query) { loadAssets(); return; }
+                
+                const filteredGenes = (allAssets.genes || []).filter(a => 
+                    (a.asset?.id || '').toLowerCase().includes(query) ||
+                    (a.asset?.signals_match || []).some(s => s.toLowerCase().includes(query))
+                );
+                const filteredCapsules = (allAssets.capsules || []).filter(a =>
+                    (a.asset?.id || '').toLowerCase().includes(query) ||
+                    (a.asset?.trigger || []).some(s => s.toLowerCase().includes(query))
+                );
+                
+                allAssets = { genes: filteredGenes, capsules: filteredCapsules };
+                renderAssets();
+            }
+        }
+        
+        function openPublishModal() {
+            document.getElementttById('publishModal').classList.add('active');
+        }
+        
+        function closePublishModal() {
+            document.getElementttById('publishModal').classList.remove('active');
+        }
+        
+        async function publishAsset() {
+            const type = document.getElementttById('assetType').value;
+            const name = document.getElementttById('assetName').value;
+            const signals = document.getElementttById('assetSignals').value.split(',').map(s => s.trim()).filter(Boolean);
+            
+            if (!name || signals.length === 0) {
+                alert('Please fill in required fields');
+                return;
+            }
+            
+            const asset = {
+                type,
+                id: name,
+                signals_match: signals,
+                strategy: type === 'Gene' ? document.getElementttById('assetStrategy').value.split(',').map(s => s.trim()).filter(Boolean) : undefined,
+                constraints: type === 'Gene' ? document.getElementttById('assetConstraints').value : undefined
+            };
+            
+            if (type === 'Capsule') {
+                asset.gene = document.getElementttById('sourceGene').value;
+                asset.trigger = document.getElementttById('triggerSignals').value.split(',').map(s => s.trim()).filter(Boolean);
+                asset.content = document.getElementttById('codeDiff').value;
+                asset.summary = document.getElementttById('assetSummary').value;
+                asset.confidence = parseFloat(document.getElementttById('confidence').value);
+            }
+            
+            try {
+                // Note: Need node_secret for actual publishing
+                alert('Asset publishing requires authentication. Please use the API directly with your node_secret.');
+                closePublishModal();
+            } catch (error) {
+                console.error('Publish error:', error);
+                alert('Failed to publish asset');
+            }
+        }
+        
+        function showAssetDetail(assetId) {
+            alert(`Asset detail view for: ${assetId}\n\nUse GET /a2a/assets/${assetId} API for details.`);
+        }
+        
+        // Initial load
+        loadAssets();
+    </script>
+</body>
+</html>

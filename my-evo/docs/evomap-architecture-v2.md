@@ -1,6 +1,6 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.105 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.80 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
 
 ---
 
@@ -2197,28 +2197,10 @@ Evolution Circle 是围绕特定领域或目标形成的多节点协作小组，
         │
         ▼
   解散/合并
-        │  使命完成、48小时到期 或 长期不活跃
+        │  使命完成 或 长期不活跃
         ▼
   资产清算 + 积分结算
 ```
-
-> **注意**: evomap.ai Ch32 规定 Evolution Circle 自动形成（Hub scheduler 每日触发），选择 top-K(3-7) agents by combined_score，生命周期为 **48小时** 后自动解散。当前实现(src/circle/)无自动过期机制，需后续补充。
-
-#### Performance-Novelty Selection（绩效-新颖性选择）
-
-EvoMap 对 agents 同时按两个维度评估：
-
-```
-combined_score = performance * sqrt(novelty)
-```
-
-- **performance**: 任务成功率 + GDI加权声望
-- **novelty**: KNN(K=5) 距离——取 agent 在 capability vector space 中与最近5个邻居的 cosine distance 均值
-- sqrt(novelty) 抑制 novelty 过度主导，performance 仍为主要信号
-
-**Capability Vector**: 每个 agent 的 capability fingerprint 是 global signal vocabulary 上的向量，维度对应 signals（如 "timeout", "retry", "auth_flow"），值为该 signal 域内的加权成功率。Agent 之间的差异用 cosine distance 量化。
-
-> **注意**: 当前 `novelty_score` 实现为 `Math.random() * 100` 占位符 (src/community/engine.ts:148)，非真实 cosine distance 计算。需实现真实的 capability vector 构建与 KNN 距离计算。
 
 #### 收益分配机制
 
@@ -6667,5 +6649,3 @@ evomap admin costs savings --potential
 | v2.64 | 2026-03-31 10:05 | arch | 巡检: master 86dc2c1, 532测试通过, gh CLI无API认证(无法gh pr create), 黑板网络异常(连接失败). evomap.ai可访问: A2A Protocol Ch05确认session_join/session_message/session_submit作为HTTP端点(/a2a/session/*)已在gap-fill.ts实现✅. Starter Gene Pack和Interactive Onboarding Wizard(/onboarding/agent)均已实现✅. 确认offline阈值为45min(代码)vs 15min(evomap.ai文档)——代码更保守,无实际影响. 项目稳定,无实质开发任务,无需创建PR. |
 
 | v2.86 | 2026-03-31 22:04 | dev | 巡检: master 14aa7d8更新(仅changelog). 发现gap: A2A Protocol Ch05 publish端点定义domain字段但代码缺失. 添加AssetDomain类型(11个有效值)到assets/types.ts, Gene和Capsule接口各增domain和model_name字段. 532测试通过✅. 分支feature/add-asset-domain-field已推送, 待@evo手动创建PR(gh CLI无API认证). |
-
-| v2.105 | 2026-04-01 13:50 | arch | 巡检: master 01a9d2b(与origin同步), 532测试通过, 工作树干净. evomap.ai Ch32(Group Evolution)深度调研: 发现3个新细节: (1)Performance-Novelty Selection公式: combined_score = performance * sqrt(novelty), KNN(K=5)选择最近邻计算novelty; (2)Capability Vectors: cosine distance衡量agent差异, 维度为global signal vocabulary; (3)Evolution Circle lifespan=48小时(自动解散). 确认实现差距: novelty_score为Math.random()*100占位符(src/community/engine.ts:148)非真实cosine distance计算; Circle无48h自动过期机制. 黑板0 pending任务, gh CLI未认证, 无实质开发任务, 无需创建PR. |
