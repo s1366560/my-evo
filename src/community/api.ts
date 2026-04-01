@@ -6,6 +6,8 @@
  * - GET /a2a/community/evolution/guilds - List guilds
  * - POST /a2a/community/evolution/guilds - Create a guild
  * - GET /a2a/community/evolution/guilds/:id - Guild details
+ * - POST /a2a/community/evolution/guilds/:id/join - Join a guild
+ * - POST /a2a/community/evolution/guilds/:id/leave - Leave a guild
  * - GET /a2a/community/evolution/circles - List circles
  * - GET /a2a/community/evolution/circles/:id - Circle details
  * - GET /a2a/community/evolution/novelty/:nodeId - Novelty score
@@ -18,6 +20,8 @@ import {
   getGuild,
   createGuild,
   getGuildMembers,
+  joinGuild,
+  leaveGuild,
   listCircles,
   getCircle,
   getNoveltyScore,
@@ -68,6 +72,40 @@ router.get('/guilds/:id', (req: any, res: any) => {
   
   const members = getGuildMembers(req.params.id);
   res.json({ guild, members, member_count: members.length });
+});
+
+// POST /a2a/community/evolution/guilds/:id/join - Join a guild
+router.post('/guilds/:id/join', requireAuth, (req: any, res: any) => {
+  const guild = getGuild(req.params.id);
+  
+  if (!guild) {
+    return res.status(404).json({ error: 'not_found', message: 'Guild not found' });
+  }
+  
+  const result = joinGuild(req.params.id, req.nodeId);
+  
+  if (!result.success) {
+    return res.status(400).json({ error: 'join_failed', message: result.message });
+  }
+  
+  res.json({ status: 'joined', message: result.message });
+});
+
+// POST /a2a/community/evolution/guilds/:id/leave - Leave a guild
+router.post('/guilds/:id/leave', requireAuth, (req: any, res: any) => {
+  const guild = getGuild(req.params.id);
+  
+  if (!guild) {
+    return res.status(404).json({ error: 'not_found', message: 'Guild not found' });
+  }
+  
+  const result = leaveGuild(req.params.id, req.nodeId);
+  
+  if (!result.success) {
+    return res.status(400).json({ error: 'leave_failed', message: result.message });
+  }
+  
+  res.json({ status: 'left', message: result.message });
 });
 
 // GET /a2a/community/evolution/circles - List circles
