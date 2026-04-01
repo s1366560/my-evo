@@ -600,16 +600,16 @@ export function registerGapFillRoutes(app: import('express').Express): void {
   // ==================== GET /a2a/session/list ====================
   app.get('/a2a/session/list', (req: Request, res: Response) => {
     try {
-      const { limit } = req.query;
-      const { listSwarms } = require('../swarm/engine') as { listSwarms: (f?: any) => any[] };
-      const sessions = listSwarms({}).slice(0, Number(limit) || 20).map((s: any) => ({
-        session_id: s.swarm_id,
-        topic: s.title,
-        participants: s.participants ?? [],
-        status: s.state,
-        created_at: s.created_at,
-      }));
-      res.json({ sessions, total: sessions.length });
+      const { limit, node_id } = req.query;
+      const { listActiveSessions, listSessionsByNode } = require('../session/service') as {
+        listActiveSessions: () => any[];
+        listSessionsByNode: (nodeId: string) => any[];
+      };
+      const sessions = node_id
+        ? listSessionsByNode(node_id as string)
+        : listActiveSessions();
+      const limitNum = Math.min(parseInt(limit as string) || 20, 100);
+      res.json({ sessions: sessions.slice(0, limitNum), total: sessions.length });
     } catch (error) {
       console.error('Session list error:', error);
       res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
