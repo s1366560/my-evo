@@ -2663,7 +2663,10 @@ app.get('/a2a/credit/economics', (_req: Request, res: Response) => {
 // ==================== Phase 5: Governance Endpoints ====================
 
 import * as council from './council/engine';
-import type { CouncilConfig, CouncilProposal } from './council/types';
+import type { CouncilConfig, CouncilProposal, CouncilTerm, CouncilSession } from './council/types';
+
+// Initialize council mock data
+council.initializeCouncilData();
 
 // POST /a2a/council/propose - Submit a proposal to the council
 app.post('/a2a/council/propose', (req: Request, res: Response) => {

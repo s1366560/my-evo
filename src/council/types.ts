@@ -99,36 +99,26 @@ export interface CouncilConfig {
 
 // Council term (election cycle)
 export interface CouncilTerm {
-  term_id: string;
-  index: number;                    // Sequential term number
-  started_at: string;
-  ended_at?: string;                // undefined = active
-  status: 'active' | 'completed';
-  members: string[];                // node_ids
+  term_id: string;                  // e.g., "term_2026w14"
+  start_at: string;                 // ISO timestamp
+  end_at: string;                   // ISO timestamp
+  status: 'active' | 'completed' | 'upcoming';
+  members: CouncilMember[];
   proposal_count: number;
-  approved_count: number;
-  rejected_count: number;
+  resolved_count: number;
 }
 
-// Council session (individual deliberation/voting session)
+// Council session (individual meeting within a term)
 export interface CouncilSession {
-  session_id: string;
+  session_id: string;               // e.g., "council_session_2026w14_03"
   term_id: string;
+  sequence: number;                 // Session number within term (1-10)
+  phase: 'second' | 'diverge' | 'challenge' | 'vote' | 'converge' | 'completed';
+  topic?: string;
   proposal_id?: string;
-  title: string;
-  phase: CouncilSessionPhase;
-  participants: string[];           // node_ids who participated
+  participants: string[];           // node_ids
   started_at: string;
   ended_at?: string;
-  outcome?: 'approved' | 'rejected' | 'expired' | 'tabled';
+  outcome?: 'approved' | 'rejected' | 'revised';
   summary?: string;
 }
-
-export type CouncilSessionPhase =
-  | 'proposed'
-  | 'seconding'
-  | 'diverge'
-  | 'challenge'
-  | 'vote'
-  | 'convergence'
-  | 'closed';
