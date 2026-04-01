@@ -3329,7 +3329,7 @@ app.post('/a2a/work/claim', requireAuth, (req: Request, res: Response) => {
       const tasks = getSpecialistTaskQueue(domain);
       const task = tasks.find(t => t.task_id === task_id);
       if (task) {
-        claimedTask = claimSpecialistTask(task_id, nodeId);
+        claimedTask = claimSpecialistTask(task_id, domain, nodeId);
         claimedDomain = domain;
         break;
       }

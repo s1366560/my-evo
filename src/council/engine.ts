@@ -12,6 +12,8 @@ import type {
   BountyDisputeDecision,
   CouncilConfig,
   ProposalStatus,
+  CouncilTerm,
+  CouncilSession,
 } from './types';
 
 // Default council configuration
@@ -352,3 +354,85 @@ export function resolveBountyDispute(
 
   return decision;
 }
+
+// ─── Term & Session Management ─────────────────────────────────────────────────
+
+const terms = new Map<string, CouncilTerm>();
+const sessions = new Map<string, CouncilSession>();
+let currentTermId: string | null = null;
+
+/** Get the current active term */
+export function getCurrentTerm(): CouncilTerm | undefined {
+  if (!currentTermId) return undefined;
+  return terms.get(currentTermId);
+}
+
+/** List term history (newest first) */
+export function getTermHistory(limit = 10): CouncilTerm[] {
+  return Array.from(terms.values())
+    .sort((a, b) => b.index - a.index)
+    .slice(0, limit);
+}
+
+/** Get a council session by ID */
+export function getSession(sessionId: string): CouncilSession | undefined {
+  return sessions.get(sessionId);
+}
+
+/** List all past council sessions */
+export function getCouncilHistory(options: { term_id?: string; limit?: number } = {}): CouncilSession[] {
+  let result = Array.from(sessions.values());
+  if (options.term_id) {
+    result = result.filter(s => s.term_id === options.term_id);
+  }
+  result.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+  if (options.limit) {
+    result = result.slice(0, options.limit);
+  }
+  return result;
+}
+
+// Initialize with sample data
+function initTermsAndSessions() {
+  const term: CouncilTerm = {
+    term_id: 'term_0001',
+    index: 1,
+    started_at: new Date(Date.now() - 7 * 86400000).toISOString(),
+    status: 'active',
+    members: ['node_alpha', 'node_beta', 'node_gamma', 'node_delta', 'node_epsilon'],
+    proposal_count: 12,
+    approved_count: 8,
+    rejected_count: 3,
+  };
+  terms.set(term.term_id, term);
+  currentTermId = term.term_id;
+
+  const past: CouncilTerm = {
+    term_id: 'term_0000',
+    index: 0,
+    started_at: new Date(Date.now() - 30 * 86400000).toISOString(),
+    ended_at: new Date(Date.now() - 7 * 86400000).toISOString(),
+    status: 'completed',
+    members: ['node_pioneer', 'node_builder', 'node_tester'],
+    proposal_count: 5,
+    approved_count: 3,
+    rejected_count: 2,
+  };
+  terms.set(past.term_id, past);
+
+  const session: CouncilSession = {
+    session_id: 'session_001',
+    term_id: 'term_0001',
+    proposal_id: 'council_sample001',
+    title: 'Parameter Change: Increase GDI weight for advanced tier agents',
+    phase: 'closed',
+    participants: ['node_alpha', 'node_beta', 'node_gamma'],
+    started_at: new Date(Date.now() - 2 * 86400000).toISOString(),
+    ended_at: new Date(Date.now() - 86400000).toISOString(),
+    outcome: 'approved',
+    summary: 'Passed with 3 approve, 0 reject. GDI advanced tier weight increased from 1.5x to 2.0x.',
+  };
+  sessions.set(session.session_id, session);
+}
+
+initTermsAndSessions();

@@ -96,3 +96,39 @@ export interface CouncilConfig {
   max_council_members: number;      // Max active voters
   min_gdi_to_vote: number;         // Minimum GDI threshold
 }
+
+// Council term (election cycle)
+export interface CouncilTerm {
+  term_id: string;
+  index: number;                    // Sequential term number
+  started_at: string;
+  ended_at?: string;                // undefined = active
+  status: 'active' | 'completed';
+  members: string[];                // node_ids
+  proposal_count: number;
+  approved_count: number;
+  rejected_count: number;
+}
+
+// Council session (individual deliberation/voting session)
+export interface CouncilSession {
+  session_id: string;
+  term_id: string;
+  proposal_id?: string;
+  title: string;
+  phase: CouncilSessionPhase;
+  participants: string[];           // node_ids who participated
+  started_at: string;
+  ended_at?: string;
+  outcome?: 'approved' | 'rejected' | 'expired' | 'tabled';
+  summary?: string;
+}
+
+export type CouncilSessionPhase =
+  | 'proposed'
+  | 'seconding'
+  | 'diverge'
+  | 'challenge'
+  | 'vote'
+  | 'convergence'
+  | 'closed';
