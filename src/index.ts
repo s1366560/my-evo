@@ -3183,6 +3183,228 @@ app.get('/api/v2/workerpool/stats', (_req: Request, res: Response) => {
 });
 
 
+// ==================== A2A Work/Worker Endpoints (spec-compliant) ====================
+// Per skill-tasks.md spec - Worker Pool REST endpoints
+
+/**
+ * POST /a2a/worker/register
+ * Register or update worker settings
+ * Body: { sender_id, enabled?, domains?, max_load? }
+ */
+app.post('/a2a/worker/register', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { enabled, domains, max_load } = req.body;
+
+    const worker = registerWorker({
+      worker_id: nodeId,
+      skills: domains ?? [],
+      max_concurrent_tasks: max_load,
+    });
+
+    // Update availability if specified
+    if (enabled !== undefined) {
+      updateWorkerAvailability(nodeId, !!enabled);
+    }
+
+    res.json({
+      status: 'registered',
+      worker_id: nodeId,
+      domains: domains ?? [],
+      max_load: max_load ?? 1,
+      enabled: enabled ?? true,
+    });
+  } catch (error) {
+    console.error('Worker register error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/work/available
+ * Check tasks matched to your worker profile
+ * Query: node_id (optional, defaults to authenticated user)
+ */
+app.get('/a2a/work/available', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const worker = getWorker(nodeId);
+
+    if (!worker) {
+      res.status(404).json({ error: 'worker_not_found', message: 'Worker not registered. Call POST /a2a/worker/register first.' });
+      return;
+    }
+
+    // Get available tasks from specialist pools based on worker domains
+    const availableTasks: SpecialistTask[] = [];
+    if (worker.skills && worker.skills.length > 0) {
+      for (const domain of worker.skills) {
+        const tasks = getSpecialistTaskQueue(domain);
+        availableTasks.push(...tasks.filter(t => t.status === 'queued'));
+      }
+    }
+
+    res.json({
+      node_id: nodeId,
+      available_tasks: availableTasks.slice(0, 20),
+      total: availableTasks.length,
+    });
+  } catch (error) {
+    console.error('Work available error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/work/claim
+ * Claim a task/assignment
+ * Body: { sender_id, task_id }
+ */
+app.post('/a2a/work/claim', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { task_id } = req.body;
+
+    if (!task_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing task_id' });
+      return;
+    }
+
+    // Try to claim as specialist task
+    const worker = getWorker(nodeId);
+    if (!worker) {
+      res.status(400).json({ error: 'worker_not_registered', message: 'Call POST /a2a/worker/register first' });
+      return;
+    }
+
+    // Find the task in specialist queues
+    let claimedTask: SpecialistTask | undefined;
+    let claimedDomain: string | undefined;
+    for (const domain of worker.skills ?? []) {
+      const tasks = getSpecialistTaskQueue(domain);
+      const task = tasks.find(t => t.task_id === task_id);
+      if (task) {
+        claimedTask = claimSpecialistTask(task_id, nodeId);
+        claimedDomain = domain;
+        break;
+      }
+    }
+
+    if (claimedTask) {
+      res.json({
+        status: 'claimed',
+        assignment_id: claimedTask.task_id,
+        task_id,
+        domain: claimedDomain,
+        claimed_at: new Date().toISOString(),
+      });
+    } else {
+      res.status(404).json({ error: 'task_not_found', message: `Task ${task_id} not found in any specialist queue` });
+    }
+  } catch (error) {
+    console.error('Work claim error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/work/accept
+ * Accept a work assignment
+ * Body: { sender_id, assignment_id }
+ */
+app.post('/a2a/work/accept', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { assignment_id } = req.body;
+
+    if (!assignment_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing assignment_id' });
+      return;
+    }
+
+    const assignment = getAssignment(assignment_id);
+    if (!assignment) {
+      res.status(404).json({ error: 'assignment_not_found', message: `Assignment ${assignment_id} not found` });
+      return;
+    }
+
+    if (assignment.worker_id !== nodeId) {
+      res.status(403).json({ error: 'forbidden', message: 'This assignment is not yours' });
+      return;
+    }
+
+    res.json({
+      status: 'accepted',
+      assignment_id,
+      accepted_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Work accept error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * POST /a2a/work/complete
+ * Complete a work assignment
+ * Body: { sender_id, assignment_id, result_asset_id }
+ */
+app.post('/a2a/work/complete', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const { assignment_id, result_asset_id } = req.body;
+
+    if (!assignment_id) {
+      res.status(400).json({ error: 'invalid_request', message: 'Missing assignment_id' });
+      return;
+    }
+
+    const assignment = getAssignment(assignment_id);
+    if (!assignment) {
+      res.status(404).json({ error: 'assignment_not_found', message: `Assignment ${assignment_id} not found` });
+      return;
+    }
+
+    if (assignment.worker_id !== nodeId) {
+      res.status(403).json({ error: 'forbidden', message: 'This assignment is not yours' });
+      return;
+    }
+
+    const completed = completeAssignment(assignment_id, result_asset_id);
+    res.json({
+      status: 'completed',
+      assignment_id,
+      result_asset_id: result_asset_id ?? null,
+      completed_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Work complete error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+/**
+ * GET /a2a/work/my
+ * List your work assignments
+ * Query: node_id (optional, defaults to authenticated user)
+ */
+app.get('/a2a/work/my', requireAuth, (req: Request, res: Response) => {
+  try {
+    const nodeId = (req as Request & { nodeId: string }).nodeId;
+    const assignments = getWorkerAssignments(nodeId);
+
+    res.json({
+      node_id: nodeId,
+      assignments,
+      total: assignments.length,
+    });
+  } catch (error) {
+    console.error('Work my error:', error);
+    res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+
 // ==================== Knowledge Graph Endpoints ====================
 
 import * as kg from './knowledge';
