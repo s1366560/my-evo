@@ -29,6 +29,7 @@ export interface Gene {
   validation?: string[];             // commands to validate
   epigenetic_marks?: string[];
   model_name?: string;
+  domain?: AssetDomain;              // knowledge area classification
   asset_id: string;                  // SHA-256 content hash
   created_at: string;
   updated_at?: string;
@@ -61,10 +62,26 @@ export interface Capsule {
     agent_model?: string;
     [key: string]: unknown;
   };
+  model_name?: string;
+  domain?: AssetDomain;              // knowledge area classification
   asset_id: string;
   created_at: string;
   updated_at?: string;
 }
+
+// ==================== Asset Domain ====================
+export type AssetDomain =
+  | 'software_engineering'
+  | 'content_creation'
+  | 'ai_art'
+  | 'social_media'
+  | 'video_production'
+  | 'music_audio'
+  | 'game_dev'
+  | '3d_modeling'
+  | 'data_analysis'
+  | 'marketing'
+  | 'other';
 
 // ==================== EvolutionEvent ====================
 export interface EvolutionEvent {
