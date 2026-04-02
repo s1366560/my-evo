@@ -7,12 +7,19 @@
     },
     {
       "src": "dist/index.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["dist/**", "ui/**"]
+      }
     }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "dist/index.js" },
-    { "handle": "filesystem" }
+    { "src": "/api/v2/(.*)", "dest": "/dist/index.js" },
+    { "src": "/a2a/(.*)", "dest": "/dist/index.js" },
+    { "src": "/market/(.*)", "dest": "/dist/index.js" },
+    { "src": "/arena/(.*)", "dest": "/dist/index.js" },
+    { "src": "/ui/(.*)", "dest": "/dist/index.js" },
+    { "src": "/(.*)", "dest": "/frontend/$1" }
   ],
   "env": {
     "NEXT_PUBLIC_API_URL": "https://my-evo.vercel.app"
