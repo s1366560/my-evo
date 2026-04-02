@@ -136,8 +136,8 @@ describe('Swarm Engine', () => {
         root_task_id: 'task_001',
       });
 
-      // Wait 1ms to ensure different timestamps
-      await new Promise(resolve => setTimeout(resolve, 1));
+      // Wait 10ms to ensure different timestamps (1ms may not be enough in fast environments)
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       createSwarm({
         swarm_id: 'swarm_new',
