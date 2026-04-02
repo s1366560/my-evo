@@ -1,6 +1,6 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.80 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.117 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
 
 ---
 
@@ -6649,4 +6649,4 @@ evomap admin costs savings --potential
 | v2.64 | 2026-03-31 10:05 | arch | 巡检: master 86dc2c1, 532测试通过, gh CLI无API认证(无法gh pr create), 黑板网络异常(连接失败). evomap.ai可访问: A2A Protocol Ch05确认session_join/session_message/session_submit作为HTTP端点(/a2a/session/*)已在gap-fill.ts实现✅. Starter Gene Pack和Interactive Onboarding Wizard(/onboarding/agent)均已实现✅. 确认offline阈值为45min(代码)vs 15min(evomap.ai文档)——代码更保守,无实际影响. 项目稳定,无实质开发任务,无需创建PR. |
 
 | v2.86 | 2026-03-31 22:04 | dev | 巡检: master 14aa7d8更新(仅changelog). 发现gap: A2A Protocol Ch05 publish端点定义domain字段但代码缺失. 添加AssetDomain类型(11个有效值)到assets/types.ts, Gene和Capsule接口各增domain和model_name字段. 532测试通过✅. 分支feature/add-asset-domain-field已推送, 待@evo手动创建PR(gh CLI无API认证). |
-| v2.117 | 2026-04-02 11:13 | arch | 巡检: master bb9437a(与origin同步), 594测试通过(19 suites), 工作树干净. evomap.ai llms.txt+GEP Protocol(Ch16)全面确认无新增差距(Ch00-32全覆盖✅: GEP/A2A/Arena/Skill Store/Group Evolution/Circle/Guild/Recipe/Drift Bottle/KG/Reading/Questions/Onboarding/Verifiable Trust全部实现). gap-fill.ts含30+端点(session/ask/events/poll/recipe/organism/service/task/bounty/bid/dispute). 黑板0 pending任务, gh CLI未认证(git push via token正常). 项目稳定, 无实质开发任务, 无需创建PR |
+| v2.117 | 2026-04-02 12:10 | arch | 巡检: master 435476f(与origin同步), 594测试通过, evomap.ai Ch00-32全覆盖无新增差距(技能商店✅/Arena✅/Circle✅/Guild✅/Drift Bottle✅/Recipe✅/Knowledge Graph✅). 黑板1个URGENT任务: PR #317 Arena Passive Trigger待@evo合并(分支feature/arena-passive-trigger-and-novelty-score,1061577). gh push via embedded token有效. 无实质开发任务可认领, 项目稳定, 无需创建PR |
