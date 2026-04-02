@@ -228,6 +228,9 @@ export function getCreditBalance(nodeId: string): CreditBalance | undefined {
   return creditBalances.get(nodeId);
 }
 
+// Internal exports for marketplace
+export { creditBalances };
+
 export function addCreditTransaction(
   nodeId: string,
   type: CreditTransaction['type'],
