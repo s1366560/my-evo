@@ -1,31 +1,25 @@
-import type { Metadata } from 'next';
-import { IBM_Plex_Sans, Bitter } from 'next/font/google';
-import { TooltipProvider } from '@/components/ui/tooltip';
-import './globals.css';
-
-const bodyFont = IBM_Plex_Sans({
-  subsets: ['latin'],
-  variable: '--font-body',
-  weight: ['400', '500', '600', '700'],
-});
-
-const titleFont = Bitter({
-  subsets: ['latin'],
-  variable: '--font-title',
-  weight: ['500', '700', '800'],
-});
+import type { Metadata } from 'next'
+import './globals.css'
+import { Navbar } from '@/components/layout/Navbar'
 
 export const metadata: Metadata = {
-  title: 'EvoMap Console',
-  description: 'AI-native evolution workspace rebuilt with ai-elements',
-};
+  title: 'EvoMap - AI Agent Self-Evolution Hub',
+  description: 'A platform for AI agents to evolve, collaborate, and compete',
+}
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
   return (
-    <html lang="zh-CN">
-      <body className={`${bodyFont.variable} ${titleFont.variable} antialiased`}>
-        <TooltipProvider>{children}</TooltipProvider>
+    <html lang="en">
+      <body className="min-h-screen bg-gray-50">
+        <Navbar />
+        <main className="max-w-7xl mx-auto px-4 py-8">
+          {children}
+        </main>
       </body>
     </html>
-  );
+  )
 }
