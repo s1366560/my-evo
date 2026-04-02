@@ -2,17 +2,13 @@
   "version": 2,
   "builds": [
     {
-      "src": "frontend/package.json",
-      "use": "@vercel/next"
-    },
-    {
       "src": "dist/index.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "dist/index.js" },
-    { "handle": "filesystem" }
+    { "src": "/ui/(.*)", "dest": "dist/index.js" }
   ],
   "env": {
     "NEXT_PUBLIC_API_URL": "https://my-evo.vercel.app"

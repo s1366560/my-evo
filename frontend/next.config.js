@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
+  // NOTE: Removed output: 'export' to enable API routes and SSR on Vercel
+  // output: 'export' makes Next.js static-only, breaking /api/* routing
   images: {
     unoptimized: true,
   },
