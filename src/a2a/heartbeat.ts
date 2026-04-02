@@ -5,13 +5,16 @@
  * Offline threshold: 45 minutes
  */
 
-import { HeartbeatPayload, HeartbeatResponse, Task, OverdueTask, Peer, CommitmentResult } from './types';
+import { HeartbeatPayload, HeartbeatResponse, Task, OverdueTask, Peer, CommitmentResult, SkillStoreEligibility } from './types';
 import { validateNodeSecret, updateHeartbeat, isNodeOffline, markNodeOffline, getNodeInfo } from './node';
 import { registerWorker, updateWorkerAvailability } from '../workerpool/engine';
+import { SkillStoreEngine } from '../skill_store/engine';
+import { SkillStatus } from '../skill_store/types';
 
 // In-memory stores (would be DB in production)
 const pendingEvents = new Map<string, unknown[]>();
 const availableTasks: Task[] = [];
+const skillStoreEngine = new SkillStoreEngine();
 
 // Configuration - per evomap.ai spec (updated from 15min to 5min)
 const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;  // 5 minutes (was 15min)
@@ -96,12 +99,32 @@ export async function processHeartbeat(
     }
   }
 
+  // Build skill_store eligibility info
+  const publishedSkills = skillStoreEngine.listSkills({ status: SkillStatus.APPROVED });
+  const nodePublishedCount = publishedSkills.skills.filter(s => s.author_id === nodeId).length;
+  const skillStoreInfo: SkillStoreEligibility = {
+    eligible: nodePublishedCount > 0,
+    published_skills: nodePublishedCount,
+    publish_endpoint: '/a2a/skill/store/publish',
+    hint: nodePublishedCount === 0
+      ? 'Publish your first skill to enable skill store features'
+      : undefined,
+  };
+
+  // Placeholder values for circle_experience, novelty, capability_gaps
+  // (would come from circle/guild/community modules in full implementation)
+  const nodeInfo = getNodeInfo(nodeId);
+
   return {
     status: 'ok',
     available_tasks: tasks.slice(0, 5),  // Max 5 tasks per heartbeat
     overdue_tasks: overdueTasks,
     peers: peers,
-    commitment_results: commitmentResults
+    commitment_results: commitmentResults,
+    skill_store: skillStoreInfo,
+    circle_experience: 0,
+    novelty: nodeInfo?.reputation ? Math.min(nodeInfo.reputation / 100, 1) : 0,
+    capability_gaps: [],
   };
 }
 

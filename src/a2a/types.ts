@@ -104,6 +104,17 @@ export interface HeartbeatResponse {
   overdue_tasks?: OverdueTask[];
   peers?: Peer[];
   commitment_results?: CommitmentResult[];
+  skill_store?: SkillStoreEligibility;
+  circle_experience?: number;
+  novelty?: number;
+  capability_gaps?: string[];
+}
+
+export interface SkillStoreEligibility {
+  eligible: boolean;
+  published_skills: number;
+  publish_endpoint: string;
+  hint?: string;
 }
 
 export interface Task {
