@@ -494,6 +494,116 @@ export function registerGapFillRoutes(app: import('express').Express): void {
     }
   });
 
+  // ==================== GET /a2a/assets ====================
+  // Base asset listing - matches evomap.ai platform spec
+  app.get('/a2a/assets', (req: Request, res: Response) => {
+    try {
+      const { status, type, limit, sort, cursor, owner_id } = req.query as Record<string, string>;
+      const limitNum = Math.min(parseInt(limit ?? '50'), 200);
+      const offset = cursor ? parseInt(cursor) : 0;
+
+      // Use listAssets from store
+      const { listAssets } = require('../assets/store') as {
+        listAssets: (filter?: { type?: string; status?: string; ownerId?: string; limit?: number; offset?: number }) => any[];
+      };
+
+      const records = listAssets({
+        type: type ?? undefined,
+        status: (status ?? 'active') as any,
+        ownerId: owner_id ?? undefined,
+        limit: limitNum,
+        offset,
+      });
+
+      // Apply sorting
+      let assets = records.map((r: any) => ({
+        asset_id: r.asset.asset_id,
+        type: r.asset.type,
+        summary: r.asset.summary,
+        status: r.status,
+        owner_id: r.owner_id,
+        gdi: r.gdi,
+        published_at: r.published_at,
+      }));
+
+      if (sort === 'ranked') {
+        assets.sort((a: any, b: any) => (b.gdi?.total ?? 0) - (a.gdi?.total ?? 0));
+      } else if (sort === 'most_used') {
+        assets.sort((a: any, b: any) => (b.fetch_count ?? 0) - (a.fetch_count ?? 0));
+      }
+      // Default: newest first (already sorted by listAssets)
+
+      const nextCursor = assets.length === limitNum ? String(offset + limitNum) : null;
+      res.json({
+        assets,
+        total: assets.length,
+        has_more: !!nextCursor,
+        next_cursor: nextCursor,
+        sort: sort ?? 'newest',
+      });
+    } catch (error) {
+      console.error('Assets list error:', error);
+      res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
+  // ==================== GET /a2a/assets/search ====================
+  // Signal-based asset search - matches evomap.ai platform spec
+  app.get('/a2a/assets/search', (req: Request, res: Response) => {
+    try {
+      const { signals, status, type, limit } = req.query as Record<string, string>;
+      if (!signals) {
+        res.status(400).json({ error: 'invalid_request', message: 'Missing required query parameter: signals' });
+        return;
+      }
+
+      const signalList = signals.split(',').map((s: string) => s.trim()).filter(Boolean);
+      const limitNum = Math.min(parseInt(limit ?? '20'), 100);
+
+      const { listAssets } = require('../assets/store') as {
+        listAssets: (filter?: { type?: string; status?: string; limit?: number; offset?: number }) => any[];
+      };
+
+      const records = listAssets({
+        type: type ?? undefined,
+        status: (status ?? 'active') as any,
+        limit: 500, // fetch more to filter by signals
+        offset: 0,
+      });
+
+      // Filter by signal match (gene signals_match or capsule trigger)
+      const matched = records.filter((r: any) => {
+        const asset = r.asset;
+        const assetSignals: string[] = [];
+        if (asset.type === 'Gene' && (asset as any).signals_match) {
+          assetSignals.push(...(asset as any).signals_match);
+        }
+        if (asset.type === 'Capsule' && (asset as any).trigger) {
+          assetSignals.push(...(asset as any).trigger);
+        }
+        // Jaccard-like: at least one signal from query matches
+        return signalList.some((qs: string) =>
+          assetSignals.some((as: string) => as.toLowerCase().includes(qs.toLowerCase()))
+        );
+      }).slice(0, limitNum);
+
+      const assets = matched.map((r: any) => ({
+        asset_id: r.asset.asset_id,
+        type: r.asset.type,
+        summary: r.asset.summary,
+        status: r.status,
+        owner_id: r.owner_id,
+        gdi: r.gdi,
+        published_at: r.published_at,
+      }));
+
+      res.json({ assets, total: assets.length, query: signals });
+    } catch (error) {
+      console.error('Assets search error:', error);
+      res.status(500).json({ error: 'internal_error', message: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
   // ==================== POST /a2a/ask ====================
   app.post('/a2a/ask', (req: Request, res: Response) => {
     try {
