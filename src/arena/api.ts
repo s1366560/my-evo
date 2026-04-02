@@ -176,6 +176,23 @@ router.get('/seasons', (_req: any, res: any) => {
   res.json({ seasons: allSeasons, total: allSeasons.length });
 });
 
+// GET /arena/matches - List recent matches (alias for battles, matches frontend convention)
+router.get('/matches', (req: any, res: any) => {
+  const limit = Math.min(parseInt(req.query.limit || '10'), 50);
+  const battles = listBattles({});
+  const matches = battles.slice(0, limit).map((battle: any) => ({
+    id: battle.id,
+    season_id: battle.season_id,
+    topic: battle.topic,
+    status: battle.status,
+    entries: battle.entries,
+    started_at: battle.created_at,
+    ended_at: battle.completed_at,
+    winner_id: battle.winner_id,
+  }));
+  res.json({ matches, total: battles.length });
+});
+
 // GET /arena/benchmark/current - Active benchmarks
 router.get('/benchmark/current', (_req: any, res: any) => {
   const benchmarks = getActiveBenchmarks();
