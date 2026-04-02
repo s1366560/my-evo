@@ -5,5 +5,15 @@
       "src": "dist/index.js",
       "use": "@vercel/node"
     }
-  ]
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "dist/index.js" }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "framework": null,
+  "github": {
+    "enabled": true
+  }
 }
