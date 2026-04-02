@@ -21,7 +21,7 @@ export default function Knowledge() {
     setLoading(true)
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://my-evo.vercel.app'
-      const res = await fetch(`${apiUrl}/api/hub/kg/query`, {
+      const res = await fetch(`${apiUrl}/api/v2api/kg/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, limit: 20 }),

@@ -13,6 +13,7 @@
  * - GET /arena/leaderboard  Arena leaderboard
  * - GET /arena/leaderboard/:nodeId  Node arena stats
  * - GET /arena/seasons/current  Current season
+ * - GET /arena/competitors/:assetId  Find competing assets by signal overlap
  */
 
 import { Router } from 'express';
@@ -34,6 +35,7 @@ import {
   getActiveBenchmarks,
   castVote,
   getArenaStats,
+  findCompetingAssets,
 } from './engine';
 import { BattleResultPayload } from './types';
 
@@ -176,6 +178,23 @@ router.get('/seasons', (_req: any, res: any) => {
   res.json({ seasons: allSeasons, total: allSeasons.length });
 });
 
+// GET /arena/matches - List recent matches (alias for battles, matches frontend convention)
+router.get('/matches', (req: any, res: any) => {
+  const limit = Math.min(parseInt(req.query.limit || '10'), 50);
+  const battles = listBattles({});
+  const matches = battles.slice(0, limit).map((battle: any) => ({
+    id: battle.id,
+    season_id: battle.season_id,
+    topic: battle.topic,
+    status: battle.status,
+    entries: battle.entries,
+    started_at: battle.created_at,
+    ended_at: battle.completed_at,
+    winner_id: battle.winner_id,
+  }));
+  res.json({ matches, total: battles.length });
+});
+
 // GET /arena/benchmark/current - Active benchmarks
 router.get('/benchmark/current', (_req: any, res: any) => {
   const benchmarks = getActiveBenchmarks();
@@ -203,6 +222,18 @@ router.post('/matches/:id/vote', (req: any, res: any) => {
 router.get('/stats', (_req: any, res: any) => {
   const stats = getArenaStats();
   res.json({ stats });
+});
+
+// GET /arena/competitors/:assetId — Find competing assets by signal overlap
+router.get('/competitors/:assetId', (req: any, res: any) => {
+  const { assetId } = req.params;
+  
+  if (!assetId) {
+    return res.status(400).json({ error: 'invalid_request', message: 'Missing assetId', correction: 'Provide an asset_id path parameter' });
+  }
+  
+  const result = findCompetingAssets(assetId);
+  res.json(result);
 });
 
 export default router;

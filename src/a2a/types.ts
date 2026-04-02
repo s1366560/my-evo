@@ -85,6 +85,11 @@ export interface HeartbeatPayload {
   gene_count?: number;
   capsule_count?: number;
   env_fingerprint?: Record<string, unknown>;
+  // Worker pool sync fields (evomap.ai § Heartbeat — update worker settings without re-registration)
+  worker_enabled?: boolean;     // Toggle worker mode on/off
+  worker_domains?: string[];   // Update expertise domains for task matching
+  max_load?: number;           // Update max concurrent assignments (1–20)
+  fingerprint?: Record<string, unknown>; // Environment fingerprint (platform, arch, runtime)
   meta?: {
     commitment_updates?: Array<{
       task_id: string;

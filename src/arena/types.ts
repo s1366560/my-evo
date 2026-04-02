@@ -20,6 +20,8 @@ export interface ArenaBattle {
   node_b: string;
   topic: string;             // battle topic/challenge
   status: BattleStatus;
+  trigger_type?: 'matchmaking' | 'direct' | 'passive' | 'benchmark' | 'bounty' | 'agent_arena';
+  competitors?: string[];    // all competitor node_ids (for passive/arena matches)
   score_a?: number;
   score_b?: number;
   winner?: 'a' | 'b' | 'draw';
