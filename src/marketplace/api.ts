@@ -25,6 +25,14 @@ import {
   rejectBid,
   getCreditBalance,
 } from './engine';
+import {
+  createCreditListing,
+  listCreditListings,
+  buyCredits,
+  cancelCreditListing,
+  getCreditExchangeStats,
+  getCreditTransactionHistory,
+} from './credit_engine';
 import { PriceType, LicenseType } from './types';
 
 const router = Router();
@@ -274,6 +282,90 @@ router.post('/bounties/:id/bids/:bidId/reject', requireAuth, (req: any, res: any
 router.get('/stats', (_req: any, res: any) => {
   const stats = getMarketStats();
   res.json({ stats });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 21: CREDIT MARKETPLACE (CREDIT TRADING EXCHANGE)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// POST /market/credits/list - List credits for sale
+router.post('/credits/list', requireAuth, (req: any, res: any) => {
+  const { price_per_credit, amount, expires_in_hours } = req.body;
+  
+  if (!price_per_credit || !amount) {
+    return res.status(400).json({ error: 'invalid_request', message: 'price_per_credit and amount are required' });
+  }
+  
+  const result = createCreditListing(req.nodeId, parseFloat(price_per_credit), parseInt(amount), expires_in_hours);
+  
+  if (!result.success) {
+    return res.status(400).json({ error: 'listing_failed', message: result.error });
+  }
+  
+  res.status(201).json({ status: 'created', listing: result.listing });
+});
+
+// GET /market/credits - List available credit listings
+router.get('/credits', (req: any, res: any) => {
+  const limit = parseInt(req.query.limit) || 50;
+  const offset = parseInt(req.query.offset) || 0;
+  
+  const result = listCreditListings(limit, offset);
+  res.json({ listings: result.listings, total: result.total });
+});
+
+// POST /market/credits/buy - Buy credits from a listing
+router.post('/credits/buy', requireAuth, (req: any, res: any) => {
+  const { listing_id, amount } = req.body;
+  
+  if (!listing_id || !amount) {
+    return res.status(400).json({ error: 'invalid_request', message: 'listing_id and amount are required' });
+  }
+  
+  const result = buyCredits(req.nodeId, listing_id, parseInt(amount));
+  
+  if (!result.success) {
+    return res.status(400).json({ error: 'purchase_failed', message: result.error });
+  }
+  
+  res.status(201).json({ status: 'completed', order: result.order });
+});
+
+// POST /market/credits/cancel - Cancel a credit listing
+router.post('/credits/cancel', requireAuth, (req: any, res: any) => {
+  const { listing_id } = req.body;
+  
+  if (!listing_id) {
+    return res.status(400).json({ error: 'invalid_request', message: 'listing_id is required' });
+  }
+  
+  const result = cancelCreditListing(listing_id, req.nodeId);
+  
+  if (!result.success) {
+    return res.status(400).json({ error: 'cancel_failed', message: result.error });
+  }
+  
+  res.json({ status: 'cancelled' });
+});
+
+// GET /market/credits/stats - Credit exchange statistics
+router.get('/credits/stats', (_req: any, res: any) => {
+  const stats = getCreditExchangeStats();
+  res.json({ stats });
+});
+
+// GET /market/credits/balance - Get credit balance
+router.get('/credits/balance', requireAuth, (req: any, res: any) => {
+  const { getCreditBalance: getReputationCreditBalance } = require('./engine');
+  const balance = getReputationCreditBalance(req.nodeId);
+  res.json({ node_id: req.nodeId, ...balance });
+});
+
+// GET /market/credits/transactions - Get credit transaction history
+router.get('/credits/transactions', requireAuth, (req: any, res: any) => {
+  const limit = parseInt(req.query.limit) || 20;
+  const result = getCreditTransactionHistory(req.nodeId, limit);
+  res.json({ transactions: result.orders, total: result.total });
 });
 
 export default router;
