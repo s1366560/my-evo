@@ -81,6 +81,23 @@ export function validateAsset(asset: Asset): string[] {
     if (!capsule.outcome) {
       errors.push('Capsule must define outcome');
     }
+    // GEP v1.5: summary must be at least 20 characters
+    if (!capsule.summary || capsule.summary.length < 20) {
+      errors.push('Capsule summary must be at least 20 characters');
+    }
+    // GEP v1.5: At least one of content/diff/strategy/code_snippet must be >= 50 chars
+    const substanceFields = [
+      capsule.content,
+      capsule.diff,
+      ...(capsule.strategy || []),
+      capsule.code_snippet,
+    ].filter(Boolean) as string[];
+    const hasSubstance = substanceFields.some(f => f.length >= 50);
+    if (!hasSubstance) {
+      errors.push(
+        'Capsule must have at least one of content/diff/strategy/code_snippet with >= 50 characters'
+      );
+    }
   }
 
   return errors;
