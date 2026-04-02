@@ -106,11 +106,17 @@ export const skillStoreApi = {
         return;
       }
 
+      const skill = engine.getSkill(req.params.skillId)!;
       res.json({
+        skill_id: skill.id,
+        name: skill.title,
+        version: skill.version,
         content: result.content,
-        credits_charged: result.log.credits_charged,
-        download_id: result.log.id,
-        skill_id: result.log.skill_id,
+        bundled_files: result.bundled_files,
+        license: result.license,
+        credit_cost: result.credit_cost,
+        author_revenue: result.author_revenue,
+        already_purchased: result.already_purchased,
       });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });

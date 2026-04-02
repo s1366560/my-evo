@@ -169,6 +169,8 @@ export class SkillStoreEngine {
       price_credits: DOWNLOAD_CREDITS,
       moderation: [],
       versions: [],
+      bundled_files: create.bundled_files || [],
+      license: create.license || 'EvoMap Skill License (ESL-1.0)',
       created_at: now,
       updated_at: now,
     };
@@ -192,7 +194,15 @@ export class SkillStoreEngine {
   async downloadSkill(
     skillId: string,
     downloaderId: string
-  ): Promise<{ log: SkillDownloadLog; content: string } | null> {
+  ): Promise<{
+    log: SkillDownloadLog;
+    content: string;
+    already_purchased: boolean;
+    bundled_files: { name: string; content: string }[];
+    license: string;
+    author_revenue: number;
+    credit_cost: number;
+  } | null> {
     const skill = this.skills.get(skillId);
     if (!skill) return null;
 
@@ -201,22 +211,39 @@ export class SkillStoreEngine {
     }
 
     const now = new Date().toISOString();
+
+    // Check if downloader has already downloaded this skill (repeat = free)
+    const existingLogs = this.downloadLogs.get(skillId) || [];
+    const alreadyPurchased = existingLogs.some(
+      (log) => log.downloader_id === downloaderId
+    );
+    const creditCost = alreadyPurchased ? 0 : DOWNLOAD_CREDITS;
+
     const log: SkillDownloadLog = {
       id: `dl_${randomUUID().slice(0, 8)}`,
       skill_id: skillId,
       downloader_id: downloaderId,
-      credits_charged: DOWNLOAD_CREDITS,
+      credits_charged: creditCost,
       downloaded_at: now,
     };
 
-    // Record download
-    skill.downloads += 1;
+    // Record download (only increment count for first downloads)
+    if (!alreadyPurchased) {
+      skill.downloads += 1;
+    }
 
-    const logs = this.downloadLogs.get(skillId) || [];
-    logs.push(log);
-    this.downloadLogs.set(skillId, logs);
+    existingLogs.push(log);
+    this.downloadLogs.set(skillId, existingLogs);
 
-    return { log, content: skill.content };
+    return {
+      log,
+      content: skill.content,
+      already_purchased: alreadyPurchased,
+      bundled_files: skill.bundled_files,
+      license: skill.license,
+      author_revenue: creditCost, // 100% to author
+      credit_cost: creditCost,
+    };
   }
 
   // ============ Queries ============

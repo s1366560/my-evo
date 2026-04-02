@@ -36,6 +36,11 @@ export interface SkillVersion {
   created_by: string;
 }
 
+export interface BundledFile {
+  name: string;
+  content: string;
+}
+
 export interface Skill {
   id: string;
   title: string;
@@ -52,6 +57,8 @@ export interface Skill {
   price_credits: number; // Always 5 per download per spec
   moderation: SkillModerationReport[];
   versions: SkillVersion[]; // Version history
+  bundled_files: BundledFile[]; // Optional bundled assets
+  license: string; // Skill license text
   created_at: string;
   updated_at: string;
   published_at?: string;
@@ -66,6 +73,8 @@ export interface SkillCreate {
   category?: string;
   tags?: string[];
   version?: string;
+  bundled_files?: BundledFile[];
+  license?: string;
 }
 
 export interface SkillDownloadLog {
