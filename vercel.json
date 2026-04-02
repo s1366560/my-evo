@@ -2,17 +2,17 @@
   "version": 2,
   "builds": [
     {
-      "src": "dist/index.js",
-      "use": "@vercel/node"
+      "src": "frontend/package.json",
+      "use": "@vercel/next"
     }
   ],
   "routes": [
+    { "handle": "filesystem" },
     { "src": "/api/(.*)", "dest": "dist/index.js" }
   ],
   "env": {
     "NODE_ENV": "production"
   },
-  "framework": null,
   "github": {
     "enabled": true
   }
