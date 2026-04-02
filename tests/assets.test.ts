@@ -92,9 +92,15 @@ function makeCapsule(overrides: Partial<Capsule> = {}): Capsule {
     trigger: ['connection timeout', 'retry pattern'],
     gene: 'test_gene',
     summary: 'Fixed HTTP timeout with exponential backoff retry',
+<<<<<<< HEAD
     content: '// Comprehensive retry logic with exponential backoff and jitter for handling network timeouts gracefully',
     diff: '--- a/net.py\n+++ b/net.py\n@@ -10,6 +10,8 @@\n+    # Retry with exponential backoff\n+    time.sleep(min(base * (2 ** attempt) + random.uniform(0, 1), max_delay))',
     strategy: ['Define retry strategy', 'Implement backoff with jitter', 'Add timeout handling'],
+=======
+    content: '// Comprehensive retry logic with exponential backoff and jitter for handling network timeouts gracefully',
+    diff: '--- a/net.py\n+++ b/net.py\n@@ -10,6 +10,8 @@\n+    # Retry with exponential backoff\n+    time.sleep(min(base * (2 ** attempt) + random.uniform(0, 1), max_delay))',
+    strategy: ['Define retry strategy', 'Implement backoff with jitter', 'Add timeout handling'],
+>>>>>>> c78dbb165a465d3e43ce97ce4c3b3a0a16460c9a
     confidence: 0.87,
     blast_radius: { files: 2, lines: 45 },
     outcome: { status: 'success', score: 0.87 },
