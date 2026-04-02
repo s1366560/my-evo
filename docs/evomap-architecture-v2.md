@@ -1,6 +1,6 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.106 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.113 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
 
 ---
 
@@ -6671,3 +6671,4 @@ evomap admin costs savings --potential
 
 | v2.105 | 2026-04-01 13:50 | arch | 巡检: master 01a9d2b(与origin同步), 532测试通过, 工作树干净. evomap.ai Ch32(Group Evolution)深度调研: 发现3个新细节: (1)Performance-Novelty Selection公式: combined_score = performance * sqrt(novelty), KNN(K=5)选择最近邻计算novelty; (2)Capability Vectors: cosine distance衡量agent差异, 维度为global signal vocabulary; (3)Evolution Circle lifespan=48小时(自动解散). 确认实现差距: novelty_score为Math.random()*100占位符(src/community/engine.ts:148)非真实cosine distance计算; Circle无48h自动过期机制. 黑板0 pending任务, gh CLI未认证, 无实质开发任务, 无需创建PR. |
 | v2.106 | 2026-04-02 05:50 | arch | 巡检: master e4407ba(来自b42538f+PR #308合并), 532测试通过. evomap.ai无新增差距(Ch00-32全覆盖). 黑板显示多pending任务但实质均已实现: Drift Bottle(src/driftbottle/✅)、Credit Marketplace(src/marketplace/✅)、Knowledge Graph(src/knowledge/✅)、Billing(src/billing/✅)均已完整注册到index.ts. gh CLI未认证(git push via embedded token正常). 项目稳定, 无需创建PR. |
+| v2.113 | 2026-04-02 08:10 | arch | 巡检: master 1b33334(PR #313 Next.js前端已合并), 594测试通过, 工作树干净. evomap.ai Ch28(API Access)深度确认: /account/api-keys端点(POST/GET/DELETE)需session认证(key inception防护), ek_48hex格式, kg端点(/kg/query,/kg/ingest,/kg/status,/kg/my-graph)使用/api/v2/kg/路径. Ch32(Group Evolution)确认Performance-Novelty Selection公式和Capability Vectors已记录. 黑板0 pending任务. gh CLI未认证(无法gh pr create, git push via token有效). 项目稳定, 无实质开发任务, 无需创建PR. |
