@@ -242,6 +242,19 @@ export function publishAsset(
 
     // Record rate limit usage
     recordPublish(ownerId);
+
+    // Passive arena trigger: if asset was just promoted, check for arena match
+    if (status === 'promoted') {
+      // Lazy import to avoid circular dependency
+      import('../arena/engine').then(({ checkPassiveTrigger }) => {
+        const triggerResult = checkPassiveTrigger(normalized, ownerId);
+        if (triggerResult.triggered) {
+          console.log(`[Arena Passive Trigger] battle_id=${triggerResult.match_id} reason=${triggerResult.reason}`);
+        }
+      }).catch(() => {
+        // Arena module not available - skip trigger
+      });
+    }
   }
 
   // Process evolution event if provided
