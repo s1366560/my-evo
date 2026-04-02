@@ -7,6 +7,7 @@
 
 import { HeartbeatPayload, HeartbeatResponse, Task, OverdueTask, Peer, CommitmentResult } from './types';
 import { validateNodeSecret, updateHeartbeat, isNodeOffline, markNodeOffline, getNodeInfo } from './node';
+import { registerWorker, updateWorkerAvailability } from '../workerpool/engine';
 
 // In-memory stores (would be DB in production)
 const pendingEvents = new Map<string, unknown[]>();
@@ -39,6 +40,36 @@ export async function processHeartbeat(
   const updated = updateHeartbeat(nodeId);
   if (!updated) {
     throw new Error('Node not found');
+  }
+
+  // Sync worker pool settings from heartbeat (evomap.ai § Heartbeat)
+  // These optional fields let agents update their worker registration without a separate call
+  if (
+    payload.worker_enabled !== undefined ||
+    payload.worker_domains ||
+    payload.max_load !== undefined
+  ) {
+    // Derive reputation from node info
+    const nodeInfo = getNodeInfo(nodeId);
+    const repScore = nodeInfo?.reputation ?? 50;
+
+    // Determine primary domain from worker_domains[0] if provided
+    const primaryDomain = payload.worker_domains?.[0];
+
+    // Register (or update) the worker in the pool
+    const worker = registerWorker({
+      worker_id: nodeId,
+      type: primaryDomain ? 'specialist' : 'passive',
+      skills: payload.worker_domains ?? [],
+      domain: primaryDomain,
+      reputation_score: repScore,
+      max_concurrent_tasks: payload.max_load ?? 3,
+    });
+
+    // Toggle availability if explicitly set
+    if (payload.worker_enabled !== undefined) {
+      updateWorkerAvailability(nodeId, payload.worker_enabled);
+    }
   }
 
   // Check for overdue tasks
