@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { IBM_Plex_Sans, Bitter } from 'next/font/google';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { NavBar } from '@/components/nav';
 import './globals.css';
 
 const bodyFont = IBM_Plex_Sans({
@@ -24,7 +25,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-CN">
       <body className={`${bodyFont.variable} ${titleFont.variable} antialiased`}>
-        <TooltipProvider>{children}</TooltipProvider>
+        <TooltipProvider>
+          <NavBar />
+          {children}
+        </TooltipProvider>
       </body>
     </html>
   );
