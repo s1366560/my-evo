@@ -22,7 +22,7 @@ import {
   TOPIC_SATURATION_OVER,
   SaturationRecommendation,
 } from './types';
-import { getActiveAssets } from '../assets/store';
+import { getActiveAssets, getPromotedAssets } from '../assets/store';
 import { calculateGDI } from '../assets/gdi';
 import { Asset, Gene, Capsule } from '../assets/types';
 
@@ -553,6 +553,184 @@ export function castVote(battleId: string, entryId: string, voterNodeId?: string
     success: true,
     vote_id: voteId,
     message: `Vote recorded for entry ${entryId} on battle ${battleId}`,
+  };
+}
+
+// ============ Passive Trigger ============
+// When a new Gene/Capsule is promoted, check if 3+ similar promoted assets exist.
+// If so, auto-create an arena match (passive trigger per evomap.ai spec).
+
+const PASSIVE_TRIGGER_THRESHOLD = 3; // need 3+ similar assets to trigger
+
+export interface PassiveTriggerResult {
+  triggered: boolean;
+  match_id?: string;
+  competitor_count: number;
+  reason: string;
+}
+
+/**
+ * Check if a newly-promoted asset should trigger an arena match.
+ * Uses signal substring containment per the spec:
+ * "If signal A appears within signal B or vice versa, they are considered overlapping."
+ */
+export function checkPassiveTrigger(
+  asset: Asset,
+  ownerId: string
+): PassiveTriggerResult {
+  // Collect signals from the new asset
+  const assetSignals = new Set<string>();
+  if (asset.type === 'Gene') {
+    const gene = asset as Gene;
+    for (const sig of gene.signals_match) {
+      assetSignals.add(sig.toLowerCase().trim());
+    }
+  } else if (asset.type === 'Capsule') {
+    const capsule = asset as Capsule;
+    const triggers = Array.isArray(capsule.trigger) ? capsule.trigger : [capsule.trigger];
+    for (const t of triggers) {
+      if (typeof t === 'string') assetSignals.add(t.toLowerCase().trim());
+    }
+  }
+  
+  if (assetSignals.size === 0) {
+    return { triggered: false, competitor_count: 0, reason: 'No signals to match' };
+  }
+  
+  // Find competing promoted assets
+  const competitors = findCompetitorsBySignals(asset, assetSignals, ownerId);
+  
+  if (competitors.length < PASSIVE_TRIGGER_THRESHOLD) {
+    return {
+      triggered: false,
+      competitor_count: competitors.length,
+      reason: `Only ${competitors.length} similar asset(s) found (need ${PASSIVE_TRIGGER_THRESHOLD})`,
+    };
+  }
+  
+  // Auto-create a passive arena match
+  const season = getOrCreateActiveSeason();
+  const now = new Date();
+  const expires = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2 hour expiry for passive matches
+  
+  const battle: ArenaBattle = {
+    battle_id: genId('battle'),
+    season_id: season.season_id,
+    node_a: ownerId,
+    node_b: competitors[0].node_id,
+    topic: Array.from(assetSignals)[0],
+    status: 'pending',
+    created_at: now.toISOString(),
+    expires_at: expires.toISOString(),
+    trigger_type: 'passive',
+    competitors: competitors.map(c => c.node_id),
+  };
+  
+  battles.set(battle.battle_id, battle);
+  
+  return {
+    triggered: true,
+    match_id: battle.battle_id,
+    competitor_count: competitors.length,
+    reason: `Passive match created with ${competitors.length} competitors`,
+  };
+}
+
+/**
+ * Find competitors by signal overlap using substring containment.
+ * Per spec: "If signal A appears within signal B or vice versa, they are considered overlapping."
+ */
+function findCompetitorsBySignals(
+  newAsset: Asset,
+  assetSignals: Set<string>,
+  excludeOwnerId: string
+): Array<{ node_id: string; asset_id: string; overlap_signals: string[] }> {
+  const promotedAssets = getPromotedAssets(newAsset.type);
+  const competitors: Array<{ node_id: string; asset_id: string; overlap_signals: string[] }> = [];
+  
+  for (const record of promotedAssets) {
+    const asset = record.asset as Asset;
+    if (asset.asset_id === newAsset.asset_id) continue;
+    if (record.owner_id === excludeOwnerId) continue;
+    if (asset.type !== newAsset.type) continue;
+    
+    const otherSignals = new Set<string>();
+    if (asset.type === 'Gene') {
+      const gene = asset as Gene;
+      for (const sig of gene.signals_match) {
+        otherSignals.add(sig.toLowerCase().trim());
+      }
+    } else if (asset.type === 'Capsule') {
+      const capsule = asset as Capsule;
+      const triggers = Array.isArray(capsule.trigger) ? capsule.trigger : [capsule.trigger];
+      for (const t of triggers) {
+        if (typeof t === 'string') otherSignals.add(t.toLowerCase().trim());
+      }
+    }
+    
+    // Check substring containment overlap
+    const overlap: string[] = [];
+    for (const sigA of assetSignals) {
+      for (const sigB of otherSignals) {
+        // sigA in sigB or sigB in sigA = overlapping
+        if (sigA.includes(sigB) || sigB.includes(sigA) || sigA === sigB) {
+          overlap.push(sigA);
+          break; // count each signal once
+        }
+      }
+    }
+    
+    if (overlap.length > 0) {
+      competitors.push({
+        node_id: record.owner_id,
+        asset_id: asset.asset_id,
+        overlap_signals: overlap,
+      });
+    }
+  }
+  
+  return competitors;
+}
+
+/**
+ * Find competing assets for a given asset (for /arena/competitors/:assetId endpoint).
+ * Returns assets with signal overlap, sorted by overlap strength.
+ */
+export function findCompetingAssets(assetId: string): {
+  competitors: Array<{ asset_id: string; node_id: string; overlap_signals: string[]; similarity: number }>;
+  asset_id: string;
+} {
+  const record = getPromotedAssets().find(r => r.asset.asset_id === assetId);
+  if (!record) {
+    return { competitors: [], asset_id: assetId };
+  }
+  
+  const asset = record.asset as Asset;
+  const assetSignals = new Set<string>();
+  
+  if (asset.type === 'Gene') {
+    const gene = asset as Gene;
+    for (const sig of gene.signals_match) {
+      assetSignals.add(sig.toLowerCase().trim());
+    }
+  } else if (asset.type === 'Capsule') {
+    const capsule = asset as Capsule;
+    const triggers = Array.isArray(capsule.trigger) ? capsule.trigger : [capsule.trigger];
+    for (const t of triggers) {
+      if (typeof t === 'string') assetSignals.add(t.toLowerCase().trim());
+    }
+  }
+  
+  const found = findCompetitorsBySignals(asset, assetSignals, record.owner_id);
+  
+  return {
+    asset_id: assetId,
+    competitors: found.map(c => ({
+      asset_id: c.asset_id,
+      node_id: c.node_id,
+      overlap_signals: c.overlap_signals,
+      similarity: Math.min(1, c.overlap_signals.length / Math.max(assetSignals.size, 1)),
+    })),
   };
 }
 

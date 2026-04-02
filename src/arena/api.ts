@@ -13,6 +13,7 @@
  * - GET /arena/leaderboard  Arena leaderboard
  * - GET /arena/leaderboard/:nodeId  Node arena stats
  * - GET /arena/seasons/current  Current season
+ * - GET /arena/competitors/:assetId  Find competing assets by signal overlap
  */
 
 import { Router } from 'express';
@@ -34,6 +35,7 @@ import {
   getActiveBenchmarks,
   castVote,
   getArenaStats,
+  findCompetingAssets,
 } from './engine';
 import { BattleResultPayload } from './types';
 
@@ -203,6 +205,18 @@ router.post('/matches/:id/vote', (req: any, res: any) => {
 router.get('/stats', (_req: any, res: any) => {
   const stats = getArenaStats();
   res.json({ stats });
+});
+
+// GET /arena/competitors/:assetId — Find competing assets by signal overlap
+router.get('/competitors/:assetId', (req: any, res: any) => {
+  const { assetId } = req.params;
+  
+  if (!assetId) {
+    return res.status(400).json({ error: 'invalid_request', message: 'Missing assetId', correction: 'Provide an asset_id path parameter' });
+  }
+  
+  const result = findCompetingAssets(assetId);
+  res.json(result);
 });
 
 export default router;
