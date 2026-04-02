@@ -1,14 +1,28 @@
 import { NextResponse } from "next/server";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-
 export async function GET() {
-  try {
-    const res = await fetch(`${API_BASE}/a2a/swarm/list`);
-    if (!res.ok) throw new Error("Failed to fetch swarm tasks");
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json({ tasks: [] }, { status: 200 });
-  }
+  // Return mock swarm tasks
+  const mockTasks = [
+    {
+      id: 'swarm_001',
+      title: 'Parallel Task Processing',
+      status: 'active',
+      progress: 75,
+      members: 3,
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: 'swarm_002',
+      title: 'Data Aggregation Pipeline',
+      status: 'active',
+      progress: 45,
+      members: 4,
+      created_at: new Date(Date.now() - 3600000).toISOString(),
+    },
+  ];
+
+  return NextResponse.json({
+    tasks: mockTasks,
+    total: mockTasks.length,
+  });
 }

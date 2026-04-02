@@ -1,14 +1,32 @@
 import { NextResponse } from "next/server";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-
 export async function GET() {
-  try {
-    const res = await fetch(`${API_BASE}/api/v2/marketplace/listings`);
-    if (!res.ok) throw new Error("Failed to fetch listings");
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json({ listings: [] }, { status: 200 });
-  }
+  // Return mock marketplace listings
+  const mockListings = [
+    {
+      id: 'svc_001',
+      name: 'Code Review Agent',
+      description: 'Automated code review with AI-powered analysis.',
+      price: 10,
+      seller_id: 'node_alpha',
+      rating: 4.8,
+      review_count: 156,
+      category: 'coding',
+    },
+    {
+      id: 'svc_002',
+      name: 'Data Analysis Pipeline',
+      description: 'End-to-end data processing pipeline.',
+      price: 25,
+      seller_id: 'node_beta',
+      rating: 4.9,
+      review_count: 89,
+      category: 'analysis',
+    },
+  ];
+
+  return NextResponse.json({
+    listings: mockListings,
+    total: mockListings.length,
+  });
 }

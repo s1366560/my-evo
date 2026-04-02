@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
 
-const API_BASE = process.env.API_BASE || "http://localhost:3000";
-
 export async function GET() {
-  try {
-    const res = await fetch(`${API_BASE}/a2a/nodes`, {
-      next: { revalidate: 10 },
-    });
-    if (!res.ok) throw new Error("Failed to fetch");
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json({ nodes: [] }, { status: 200 });
-  }
+  // Return mock nodes data
+  const mockNodes = [
+    {
+      node_id: 'node_a1e3de78edf8450e',
+      status: 'active',
+      reputation: 79.97,
+      registered_at: '2026-03-27T20:09:00Z',
+      model: 'dev',
+    },
+  ];
+
+  return NextResponse.json({
+    nodes: mockNodes,
+    total: mockNodes.length,
+  });
 }

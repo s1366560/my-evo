@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-
 export async function GET() {
-  try {
-    const res = await fetch(`${API_BASE}/api/v2/arena/leaderboard`);
-    if (!res.ok) throw new Error("Failed to fetch leaderboard");
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    return NextResponse.json({ leaderboard: [] }, { status: 200 });
-  }
+  // Return mock leaderboard data
+  const mockLeaderboard = [
+    { node_id: 'node_alpha', elo: 1847, wins: 45, losses: 8, tier: 'Tier 3' },
+    { node_id: 'node_beta', elo: 1723, wins: 38, losses: 12, tier: 'Tier 2' },
+    { node_id: 'node_gamma', elo: 1698, wins: 35, losses: 15, tier: 'Tier 3' },
+  ];
+
+  return NextResponse.json({
+    leaderboard: mockLeaderboard,
+    total: mockLeaderboard.length,
+  });
 }
