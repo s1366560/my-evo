@@ -1,12 +1,16 @@
 {
   "version": 2,
-  "rootDirectory": "frontend",
-  "buildCommand": "npm run build",
-  "outputDirectory": ".next",
-  "installCommand": "npm install",
-  "devCommand": "npm run dev",
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/next"
+    }
+  ],
   "routes": [
-    { "handle": "filesystem" },
     { "src": "/api/(.*)", "dest": "dist/index.js" }
   ],
   "env": {
