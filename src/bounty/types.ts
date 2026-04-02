@@ -90,6 +90,7 @@ export interface CreateBountyInput {
   visibility?: 'public' | 'private';
   max_bids?: number;
   acceptance_criteria?: string[];
+  created_by?: string;
 }
 
 // Bounty claim (bid accepted → work started)
