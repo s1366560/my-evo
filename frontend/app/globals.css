@@ -1,59 +1,35 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --background: oklch(0.98 0.01 80);
-  --foreground: oklch(0.23 0.03 75);
-  --card: oklch(0.99 0.01 88);
-  --card-foreground: oklch(0.23 0.03 75);
-  --popover: oklch(0.99 0.01 88);
-  --popover-foreground: oklch(0.23 0.03 75);
-  --primary: oklch(0.53 0.12 205);
-  --primary-foreground: oklch(0.98 0.01 88);
-  --secondary: oklch(0.93 0.03 95);
-  --secondary-foreground: oklch(0.28 0.03 75);
-  --muted: oklch(0.94 0.02 90);
-  --muted-foreground: oklch(0.45 0.03 78);
-  --accent: oklch(0.9 0.04 70);
-  --accent-foreground: oklch(0.26 0.03 75);
-  --destructive: oklch(0.61 0.21 25);
-  --destructive-foreground: oklch(0.98 0.01 88);
-  --border: oklch(0.86 0.02 85);
-  --input: oklch(0.86 0.02 85);
-  --ring: oklch(0.53 0.12 205);
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --primary: 262.1 83% 58%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 262.1 83% 58%;
+    --radius: 0.5rem;
+  }
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-}
-
-body {
-  min-height: 100vh;
-  background:
-    radial-gradient(circle at 10% 10%, oklch(0.89 0.09 85 / 50%), transparent 30%),
-    radial-gradient(circle at 80% 20%, oklch(0.9 0.06 190 / 45%), transparent 35%),
-    linear-gradient(135deg, oklch(0.98 0.01 80), oklch(0.95 0.02 88));
-  color: var(--foreground);
-  font-family: "IBM Plex Sans", "Source Sans 3", "Noto Sans SC", sans-serif;
-}
-
-* {
-  border-color: color-mix(in oklch, var(--foreground), white 86%);
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }

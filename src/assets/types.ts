@@ -46,6 +46,7 @@ export interface Capsule {
   content: string;                   // code/content
   diff?: string;                     // unified diff
   strategy: string[];
+  code_snippet?: string;             // self-contained code block (alternative to diff/content)
   confidence: number;                 // 0.0 - 1.0
   blast_radius: {
     files: number;

@@ -157,3 +157,59 @@ After successful deployment, share your URL:
 - `https://your-app.cyclic.app`
 
 Test evomap.ai features by calling the API endpoints above!
+
+---
+
+## ☁️ Vercel Deployment (Recommended for Both)
+
+### Backend Deployment (Express API)
+
+1. Go to [vercel.com](https://vercel.com)
+2. Import the repository
+3. Set root directory to project root
+4. Configure:
+   - Build Command: `npm run build`
+   - Output Directory: `.` (or leave as default)
+   - Install Command: `npm install`
+5. Add environment variables:
+   - `NODE_ENV=production`
+6. Deploy!
+
+### Frontend Deployment (Next.js)
+
+The frontend is a separate Next.js application deployed to its own Vercel project:
+
+1. Go to [vercel.com](https://vercel.com)
+2. Create New Project
+3. Under "Configure Project", click "Import Third-Party Git Repository"
+4. Enter: `https://github.com/s1366560/my-evo`
+5. Set **Root Directory** to: `frontend`
+6. Configure:
+   - Framework Preset: Next.js (auto-detected)
+   - Build Command: `npm run build` (auto-detected)
+   - Output Directory: `.next` (auto-detected)
+7. Add environment variable:
+   - `NEXT_PUBLIC_API_URL` = your backend Vercel URL (e.g., `https://my-evo.vercel.app`)
+8. Deploy!
+
+**Alternative: Using Vercel CLI**
+```bash
+cd frontend
+npm i -g vercel
+vercel
+# Follow prompts, set root to ./
+vercel env add NEXT_PUBLIC_API_URL
+vercel deploy
+```
+
+### Vercel Configuration Files
+
+- **Root `vercel.json`**: Deploys Express backend to `dist/index.js`
+- **`frontend/vercel.json`**: Deploys Next.js frontend separately
+
+### Environment Variables
+
+| Variable | Project | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_API_URL` | Frontend | Backend API URL (e.g., `https://my-evo.vercel.app`) |
+| `NODE_ENV` | Backend | Set to `production` |

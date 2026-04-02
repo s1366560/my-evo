@@ -1,146 +1,124 @@
-"use client";
+'use client'
 
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Boxes, Search, Filter, Plus } from "lucide-react";
+import { useState, useEffect } from 'react'
+import { Button } from '@/components/ui/button'
 
-type Asset = {
-  asset_id: string;
-  name: string;
-  type: "gene" | "capsule";
-  grade: string;
-  gdi: number;
-  published_at: string;
-  publisher: string;
-};
+interface Asset {
+  id: string
+  name: string
+  type: 'gene' | 'capsule' | 'recipe'
+  grade: string
+  gdi: number
+  publishedAt: string
+  author: string
+}
 
-export default function AssetsPage() {
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "gene" | "capsule">("all");
+export default function Assets() {
+  const [assets, setAssets] = useState<Asset[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<string>('all')
 
   useEffect(() => {
     async function fetchAssets() {
       try {
-        const res = await fetch("/api/v2/assets");
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://my-evo.vercel.app'
+        const res = await fetch(`${apiUrl}/a2a/assets?limit=50`)
         if (res.ok) {
-          const data = await res.json();
-          setAssets(data.assets || []);
+          const data = await res.json()
+          setAssets(data.assets || [])
         }
       } catch (error) {
-        console.error("Failed to fetch assets:", error);
+        console.error('Failed to fetch assets:', error)
       } finally {
-        setLoading(false);
+        setLoading(false)
       }
     }
-    fetchAssets();
-  }, []);
+    fetchAssets()
+  }, [])
 
-  const filteredAssets = assets.filter((asset) => {
-    const matchesSearch = asset.name.toLowerCase().includes(search.toLowerCase());
-    const matchesFilter = filter === "all" || asset.type === filter;
-    return matchesSearch && matchesFilter;
-  });
+  const filteredAssets = filter === 'all' 
+    ? assets 
+    : assets.filter(a => a.type === filter)
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+      </div>
+    )
+  }
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <Boxes className="size-8" />
-            Assets
-          </h1>
-          <p className="text-muted-foreground">Browse and manage Gene & Capsule assets</p>
-        </div>
-        <Button className="gap-2">
-          <Plus className="size-4" />
-          Publish Asset
-        </Button>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold">Assets</h1>
+        <Button>Publish Asset</Button>
       </div>
 
       {/* Filters */}
-      <div className="mb-6 flex gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search assets..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant={filter === "all" ? "default" : "outline"}
-            onClick={() => setFilter("all")}
+      <div className="flex gap-4">
+        {['all', 'gene', 'capsule', 'recipe'].map((type) => (
+          <button
+            key={type}
+            onClick={() => setFilter(type)}
+            className={`px-4 py-2 rounded-lg font-medium transition ${
+              filter === type 
+                ? 'bg-purple-600 text-white' 
+                : 'bg-white text-gray-700 hover:bg-gray-100'
+            }`}
           >
-            All
-          </Button>
-          <Button
-            variant={filter === "gene" ? "default" : "outline"}
-            onClick={() => setFilter("gene")}
-          >
-            Genes
-          </Button>
-          <Button
-            variant={filter === "capsule" ? "default" : "outline"}
-            onClick={() => setFilter("capsule")}
-          >
-            Capsules
-          </Button>
-        </div>
+            {type.charAt(0).toUpperCase() + type.slice(1)}
+          </button>
+        ))}
       </div>
 
       {/* Assets Grid */}
-      {loading ? (
-        <div className="text-center py-12 text-muted-foreground">Loading...</div>
-      ) : filteredAssets.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No assets found
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredAssets.map((asset) => (
-            <Card key={asset.asset_id} className="hover:border-primary/50 cursor-pointer transition-colors">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">{asset.name}</CardTitle>
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    asset.type === "gene" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
-                  }`}>
-                    {asset.type}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Grade:</span>
-                    <span className="font-medium">{asset.grade}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">GDI:</span>
-                    <span className="font-medium">{asset.gdi.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Publisher:</span>
-                    <span className="font-medium truncate max-w-[120px]">{asset.publisher}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Published:</span>
-                    <span className="text-xs">{new Date(asset.published_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      <div className="grid md:grid-cols-3 gap-6">
+        {filteredAssets.map((asset) => (
+          <AssetCard key={asset.id} asset={asset} />
+        ))}
+      </div>
+
+      {filteredAssets.length === 0 && (
+        <div className="text-center py-12 text-gray-500">
+          No assets found
         </div>
       )}
-    </main>
-  );
+    </div>
+  )
+}
+
+function AssetCard({ asset }: { asset: Asset }) {
+  const gradeColors: Record<string, string> = {
+    'S': 'bg-yellow-100 text-yellow-800',
+    'A': 'bg-green-100 text-green-800',
+    'B': 'bg-blue-100 text-blue-800',
+    'C': 'bg-gray-100 text-gray-800',
+  }
+
+  return (
+    <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition hover:-translate-y-1">
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h3 className="font-semibold text-lg">{asset.name}</h3>
+          <p className="text-sm text-gray-500">by {asset.author}</p>
+        </div>
+        <span className={`px-2 py-1 rounded text-xs font-bold ${gradeColors[asset.grade] || 'bg-gray-100'}`}>
+          {asset.grade}
+        </span>
+      </div>
+      <div className="flex justify-between items-center mb-4">
+        <span className="text-sm bg-purple-100 text-purple-800 px-2 py-1 rounded">
+          {asset.type}
+        </span>
+        <span className="text-sm text-gray-500">
+          GDI: {asset.gdi.toFixed(2)}
+        </span>
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" className="flex-1">View</Button>
+        <Button variant="outline" size="sm" className="flex-1">Fetch</Button>
+      </div>
+    </div>
+  )
 }
