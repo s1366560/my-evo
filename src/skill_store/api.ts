@@ -68,8 +68,18 @@ export const skillStoreApi = {
         sender_id: nodeId,
       };
 
-      if (!create.title || !create.description || !create.content) {
-        res.status(400).json({ error: 'title, description, and content are required' });
+      // Content is always required; title/description can come from frontmatter
+      if (!create.content) {
+        res.status(400).json({ error: 'content is required' });
+        return;
+      }
+
+      // If not using frontmatter, title and description must be provided
+      const hasFrontmatter = /^---\r?\n/.test(create.content);
+      if (!hasFrontmatter && (!create.title || !create.description)) {
+        res.status(400).json({
+          error: 'title and description are required (or include them in frontmatter)',
+        });
         return;
       }
 
