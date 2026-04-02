@@ -1,6 +1,6 @@
 # EvoMap 技术架构设计文档 v2.1
 
-> 版本: 2.105 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
+> 版本: 2.106 | 覆盖: GEP + A2A + Swarm + Governance + Security + DevOps | 状态: 最终版
 
 ---
 
@@ -85,6 +85,7 @@
 | v2.56 | 2026-03-31 04:02 | arch | 巡检: master a74548a, 532测试通过, gh CLI未认证(无法gh pr create). evomap.ai llms.txt同v2.55无新功能差距(Ch33/Ch34 404). 黑板0 pending任务. 项目稳定, 无实质开发任务, 无需创建PR |
 | v2.52 | 2026-03-30 23:03 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai可访问. 新增Ch32 Group Evolution: Gossip协议广播、Circle贡献权重自动计算(70%贡献者/20%平台/10%储备)、Circle治理规则(公开/私密/邀请制)、Guild跨Circle协调机制. 确认: Circle Pool API(origin/feature/starter-gene-pack-onboarding:71972a3中circle_pool端点已注册)✅, Guild治理(origin/feature/guild-system:b59698c)✅. 黑板0 pending任务, 无实质开发任务, 项目稳定, 无需创建PR. |
 | v2.53 | 2026-03-30 23:20 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai可访问. Arena触发模式确认(被动/主动基准/赏金竞技/开放竞技4种), Topic Saturation热力图(30min更新, soft guidance无限制). Group Evolution Circle治理规则(公开/私密/邀请制)、Guild跨Circle协调机制已在架构覆盖. 黑板0 pending任务, 无新功能差距, 项目稳定, 无需创建PR. |
+| v2.106 | 2026-04-02 05:50 | arch | 巡检: master e4407ba(来自b42538f+PR #308合并), 532测试通过. evomap.ai无新增差距(Ch00-32全覆盖). 黑板pending任务实质均已实现: Drift Bottle/Credit Marketplace/KG/Billing均已注册到index.ts. gh CLI未认证(git push via token正常). 项目稳定, 无需创建PR. |
 | v2.49 | 2026-03-30 22:05 | arch | 巡检: master cfacc0c, 532测试通过, evomap.ai A2A Protocol v1.0.0确认(gep-a2a envelope, hello/publish/fetch/validate/report消息类型✅, heartbeat interval 300000ms✅). 黑板0 pending任务, 无实质开发任务, 无新功能差距, 项目稳定, 无需创建PR. |
 | v2.48 | 2026-03-30 21:10 | arch | 巡检: master 503fdfd(合并account-api-keys), 531测试通过, origin/master同步. evomap.ai Quick Start(Ch01)确认: Role Selection modal(Human/Developer/Explorer)为前端UI功能, Interactive Tour(driver.js)为前端引导, Ask with Bounty(≥5 credits), Preview无需登录均为web app功能非API差距. A2A Protocol(Ch05)hello响应字段完整: hello_rate_limit(60/hr)✅, identity_doc/constitution(8000字符)✅, network_manifest✅, starter_gene_pack✅, heartbeat_interval_ms(300000)✅, rotate_secret机制✅. Ch31 Skill Store反垃圾规则(min 500字符, 85%相似度拒绝, 5个/24h发布限制, 50次/时下载封禁)已在架构§10.4记录. GET /a2a/assets/recommended已实现于src/assets/fetch.ts✅. 黑板1 pending任务(合并account-api-keys)已合并(503fdfd). 无新evomap.ai功能差距, 项目稳定, 无需创建PR. |
 
@@ -6669,3 +6670,4 @@ evomap admin costs savings --potential
 | v2.86 | 2026-03-31 22:04 | dev | 巡检: master 14aa7d8更新(仅changelog). 发现gap: A2A Protocol Ch05 publish端点定义domain字段但代码缺失. 添加AssetDomain类型(11个有效值)到assets/types.ts, Gene和Capsule接口各增domain和model_name字段. 532测试通过✅. 分支feature/add-asset-domain-field已推送, 待@evo手动创建PR(gh CLI无API认证). |
 
 | v2.105 | 2026-04-01 13:50 | arch | 巡检: master 01a9d2b(与origin同步), 532测试通过, 工作树干净. evomap.ai Ch32(Group Evolution)深度调研: 发现3个新细节: (1)Performance-Novelty Selection公式: combined_score = performance * sqrt(novelty), KNN(K=5)选择最近邻计算novelty; (2)Capability Vectors: cosine distance衡量agent差异, 维度为global signal vocabulary; (3)Evolution Circle lifespan=48小时(自动解散). 确认实现差距: novelty_score为Math.random()*100占位符(src/community/engine.ts:148)非真实cosine distance计算; Circle无48h自动过期机制. 黑板0 pending任务, gh CLI未认证, 无实质开发任务, 无需创建PR. |
+| v2.106 | 2026-04-02 05:50 | arch | 巡检: master e4407ba(来自b42538f+PR #308合并), 532测试通过. evomap.ai无新增差距(Ch00-32全覆盖). 黑板显示多pending任务但实质均已实现: Drift Bottle(src/driftbottle/✅)、Credit Marketplace(src/marketplace/✅)、Knowledge Graph(src/knowledge/✅)、Billing(src/billing/✅)均已完整注册到index.ts. gh CLI未认证(git push via embedded token正常). 项目稳定, 无需创建PR. |
