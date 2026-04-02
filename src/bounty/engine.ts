@@ -44,7 +44,7 @@ export function createBounty(input: CreateBountyInput): Bounty {
     tags: input.tags ?? [],
     reward: input.reward,
     platform_fee_pct: BOUNTY_PLATFORM_FEE_PCT,
-    created_by: '', // will be set by caller
+    created_by: input.created_by ?? '',
     created_at: now,
     deadline: input.deadline,
     visibility: input.visibility ?? 'public',
@@ -401,3 +401,14 @@ export function getBountyStats(): {
 }
 
 export { BOUNTY_MIN_REWARD, BOUNTY_PLATFORM_FEE_PCT };
+
+// ============ Test Support ============
+
+export function resetBountyStores(): void {
+  bounties.clear();
+  bids.clear();
+  deliverables.clear();
+  payouts.clear();
+  bountyBidsIndex.clear();
+  workerBounties.clear();
+}

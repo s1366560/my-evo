@@ -490,3 +490,14 @@ export function pruneInactiveWorkers(): number {
 export function getWorkersByDomain(domain: string): WorkerPoolWorker[] {
   return [...workers.values()].filter(w => w.domain === domain && w.is_available);
 }
+
+// ============ Test Support ============
+
+export function resetWorkerPoolStores(): void {
+  workers.clear();
+  specialistPools.clear();
+  specialistTaskQueue.clear();
+  assignments.clear();
+  workerAssignments.clear();
+  domainWorkerIndex.clear();
+}
