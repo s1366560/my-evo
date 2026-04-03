@@ -5,6 +5,7 @@ import * as service from './service';
 
 export async function sessionRoutes(app: FastifyInstance) {
   app.post('/', {
+    schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
@@ -30,6 +31,7 @@ export async function sessionRoutes(app: FastifyInstance) {
   });
 
   app.post('/:sessionId/join', {
+    schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -40,6 +42,7 @@ export async function sessionRoutes(app: FastifyInstance) {
   });
 
   app.post('/:sessionId/leave', {
+    schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -50,6 +53,7 @@ export async function sessionRoutes(app: FastifyInstance) {
   });
 
   app.post('/:sessionId/message', {
+    schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -82,6 +86,7 @@ export async function sessionRoutes(app: FastifyInstance) {
   });
 
   app.post('/:sessionId/consensus', {
+    schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -106,6 +111,7 @@ export async function sessionRoutes(app: FastifyInstance) {
   });
 
   app.post('/:sessionId/consensus/:proposalId/vote', {
+    schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -129,6 +135,7 @@ export async function sessionRoutes(app: FastifyInstance) {
   });
 
   app.post('/:sessionId/heartbeat', {
+    schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -139,6 +146,7 @@ export async function sessionRoutes(app: FastifyInstance) {
   });
 
   app.get('/', {
+    schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const query = request.query as {
@@ -165,6 +173,7 @@ export async function sessionRoutes(app: FastifyInstance) {
   });
 
   app.get('/:sessionId', {
+    schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { sessionId: string };

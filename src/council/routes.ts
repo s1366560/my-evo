@@ -5,6 +5,7 @@ import * as service from './service';
 
 export async function councilRoutes(app: FastifyInstance) {
   app.post('/proposal', {
+    schema: { tags: ['Council'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
@@ -38,6 +39,7 @@ export async function councilRoutes(app: FastifyInstance) {
   });
 
   app.post('/proposal/:proposalId/second', {
+    schema: { tags: ['Council'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -48,6 +50,7 @@ export async function councilRoutes(app: FastifyInstance) {
   });
 
   app.post('/proposal/:proposalId/vote', {
+    schema: { tags: ['Council'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -72,6 +75,7 @@ export async function councilRoutes(app: FastifyInstance) {
   });
 
   app.post('/proposal/:proposalId/execute', {
+    schema: { tags: ['Council'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { proposalId: string };
@@ -80,6 +84,7 @@ export async function councilRoutes(app: FastifyInstance) {
   });
 
   app.get('/proposals', {
+    schema: { tags: ['Council'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const query = request.query as {
@@ -108,6 +113,7 @@ export async function councilRoutes(app: FastifyInstance) {
   });
 
   app.get('/proposal/:proposalId', {
+    schema: { tags: ['Council'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { proposalId: string };
@@ -116,6 +122,7 @@ export async function councilRoutes(app: FastifyInstance) {
   });
 
   app.get('/proposal/:proposalId/votes', {
+    schema: { tags: ['Council'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { proposalId: string };

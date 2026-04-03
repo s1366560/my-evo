@@ -3,7 +3,10 @@ import { requireAuth } from '../shared/auth';
 import * as circleService from './service';
 
 export async function circleRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.post('/', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as {
       name: string;
@@ -21,105 +24,101 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: result });
   });
 
-  app.post(
-    '/:circleId/join',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const auth = request.auth!;
-      const { circleId } = request.params as { circleId: string };
+  app.post('/:circleId/join', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { circleId } = request.params as { circleId: string };
 
-      const result = await circleService.joinCircle(
-        circleId,
-        auth.node_id,
-      );
+    const result = await circleService.joinCircle(
+      circleId,
+      auth.node_id,
+    );
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.post(
-    '/:circleId/start-round',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const { circleId } = request.params as { circleId: string };
+  app.post('/:circleId/start-round', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const { circleId } = request.params as { circleId: string };
 
-      const result = await circleService.startRound(circleId);
+    const result = await circleService.startRound(circleId);
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.post(
-    '/:circleId/submit',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const auth = request.auth!;
-      const { circleId } = request.params as { circleId: string };
-      const body = request.body as {
-        round_number: number;
-        asset_id: string;
-      };
+  app.post('/:circleId/submit', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { circleId } = request.params as { circleId: string };
+    const body = request.body as {
+      round_number: number;
+      asset_id: string;
+    };
 
-      const result = await circleService.submitAsset(
-        circleId,
-        body.round_number,
-        auth.node_id,
-        body.asset_id,
-      );
+    const result = await circleService.submitAsset(
+      circleId,
+      body.round_number,
+      auth.node_id,
+      body.asset_id,
+    );
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.post(
-    '/:circleId/vote',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const auth = request.auth!;
-      const { circleId } = request.params as { circleId: string };
-      const body = request.body as {
-        round_number: number;
-        target_id: string;
-        score: number;
-      };
+  app.post('/:circleId/vote', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { circleId } = request.params as { circleId: string };
+    const body = request.body as {
+      round_number: number;
+      target_id: string;
+      score: number;
+    };
 
-      const result = await circleService.vote(
-        circleId,
-        body.round_number,
-        auth.node_id,
-        body.target_id,
-        body.score,
-      );
+    const result = await circleService.vote(
+      circleId,
+      body.round_number,
+      auth.node_id,
+      body.target_id,
+      body.score,
+    );
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.post(
-    '/:circleId/advance',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const { circleId } = request.params as { circleId: string };
+  app.post('/:circleId/advance', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const { circleId } = request.params as { circleId: string };
 
-      const result = await circleService.advanceRound(circleId);
+    const result = await circleService.advanceRound(circleId);
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.post(
-    '/:circleId/complete',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const { circleId } = request.params as { circleId: string };
+  app.post('/:circleId/complete', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const { circleId } = request.params as { circleId: string };
 
-      const result = await circleService.completeCircle(circleId);
+    const result = await circleService.completeCircle(circleId);
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.get('/', async (request, reply) => {
+  app.get('/', {
+    schema: { tags: ['Circle'] },
+  }, async (request, reply) => {
     const { limit, offset } = request.query as Record<string, string | undefined>;
 
     const { PrismaClient } = await import('@prisma/client');
@@ -154,7 +153,9 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/:circleId', async (request, reply) => {
+  app.get('/:circleId', {
+    schema: { tags: ['Circle'] },
+  }, async (request, reply) => {
     const { circleId } = request.params as { circleId: string };
 
     const { PrismaClient } = await import('@prisma/client');

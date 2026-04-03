@@ -7,3 +7,4 @@ dist/
 coverage/
 .prisma/
 .DS_Store
+.omc/

@@ -4,7 +4,10 @@ import * as marketplaceService from './service';
 import type { AssetType } from '../shared/types';
 
 export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/list', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.post('/list', {
+    schema: { tags: ['Marketplace'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as {
       asset_id: string;
@@ -22,39 +25,39 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: result });
   });
 
-  app.post(
-    '/buy/:listingId',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const auth = request.auth!;
-      const { listingId } = request.params as { listingId: string };
+  app.post('/buy/:listingId', {
+    schema: { tags: ['Marketplace'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { listingId } = request.params as { listingId: string };
 
-      const result = await marketplaceService.buyListing(
-        auth.node_id,
-        listingId,
-      );
+    const result = await marketplaceService.buyListing(
+      auth.node_id,
+      listingId,
+    );
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.post(
-    '/cancel/:listingId',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const auth = request.auth!;
-      const { listingId } = request.params as { listingId: string };
+  app.post('/cancel/:listingId', {
+    schema: { tags: ['Marketplace'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { listingId } = request.params as { listingId: string };
 
-      const result = await marketplaceService.cancelListing(
-        auth.node_id,
-        listingId,
-      );
+    const result = await marketplaceService.cancelListing(
+      auth.node_id,
+      listingId,
+    );
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.get('/listings', async (request, reply) => {
+  app.get('/listings', {
+    schema: { tags: ['Marketplace'] },
+  }, async (request, reply) => {
     const { type, minPrice, maxPrice, sort, limit, offset } =
       request.query as Record<string, string | undefined>;
 
@@ -70,7 +73,9 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.get('/transactions/:nodeId', async (request, reply) => {
+  app.get('/transactions/:nodeId', {
+    schema: { tags: ['Marketplace'] },
+  }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
     const { limit, offset } = request.query as Record<string, string | undefined>;
 

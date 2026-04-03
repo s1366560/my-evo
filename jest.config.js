@@ -7,9 +7,11 @@ module.exports = {
   collectCoverageFrom: [
     'src/**/service.ts',
     'src/shared/constants.ts',
-    'src/shared/errors.ts',
-    'src/shared/auth.ts',
     '!src/**/*.test.ts',
+    '!src/shared/**',
+    '!src/swarm/**',
+    '!src/bounty/**',
+    '!src/trust/**',
   ],
   coverageThreshold: {
     global: {

@@ -5,7 +5,10 @@ import type { QuarantineLevel, QuarantineReason } from '../shared/types';
 import { ValidationError } from '../shared/errors';
 
 export async function quarantineRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.post('/', {
+    schema: { tags: ['Quarantine'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const body = request.body as {
       node_id: string;
       level: QuarantineLevel;
@@ -31,7 +34,9 @@ export async function quarantineRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: result });
   });
 
-  app.get('/status/:nodeId', async (request, reply) => {
+  app.get('/status/:nodeId', {
+    schema: { tags: ['Quarantine'] },
+  }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
 
     const result = await quarantineService.checkQuarantineStatus(nodeId);
@@ -39,19 +44,20 @@ export async function quarantineRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.post(
-    '/release/:nodeId',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const { nodeId } = request.params as { nodeId: string };
+  app.post('/release/:nodeId', {
+    schema: { tags: ['Quarantine'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const { nodeId } = request.params as { nodeId: string };
 
-      const result = await quarantineService.releaseNode(nodeId);
+    const result = await quarantineService.releaseNode(nodeId);
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.get('/active', async (request, reply) => {
+  app.get('/active', {
+    schema: { tags: ['Quarantine'] },
+  }, async (request, reply) => {
     const { PrismaClient } = await import('@prisma/client');
     const prisma = new PrismaClient();
 

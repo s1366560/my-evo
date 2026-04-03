@@ -3,7 +3,10 @@ import { requireAuth } from '../shared/auth';
 import * as kgService from './service';
 
 export async function kgRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/query', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.post('/query', {
+    schema: { tags: ['KnowledgeGraph'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const body = request.body as {
       query: string;
       depth?: number;
@@ -17,7 +20,10 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.post('/node', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.post('/node', {
+    schema: { tags: ['KnowledgeGraph'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const body = request.body as {
       type: string;
       properties: Record<string, unknown>;
@@ -31,29 +37,30 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: result });
   });
 
-  app.post(
-    '/relationship',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const body = request.body as {
-        from_id: string;
-        to_id: string;
-        type: string;
-        properties?: Record<string, unknown>;
-      };
+  app.post('/relationship', {
+    schema: { tags: ['KnowledgeGraph'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const body = request.body as {
+      from_id: string;
+      to_id: string;
+      type: string;
+      properties?: Record<string, unknown>;
+    };
 
-      const result = await kgService.createRelationship(
-        body.from_id,
-        body.to_id,
-        body.type,
-        body.properties,
-      );
+    const result = await kgService.createRelationship(
+      body.from_id,
+      body.to_id,
+      body.type,
+      body.properties,
+    );
 
-      return reply.status(201).send({ success: true, data: result });
-    },
-  );
+    return reply.status(201).send({ success: true, data: result });
+  });
 
-  app.get('/node/:nodeId/neighbors', async (request, reply) => {
+  app.get('/node/:nodeId/neighbors', {
+    schema: { tags: ['KnowledgeGraph'] },
+  }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
     const { type, direction } = request.query as Record<string, string | undefined>;
 
@@ -66,7 +73,9 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.get('/path', async (request, reply) => {
+  app.get('/path', {
+    schema: { tags: ['KnowledgeGraph'] },
+  }, async (request, reply) => {
     const { from, to } = request.query as Record<string, string | undefined>;
 
     if (!from || !to) {

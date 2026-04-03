@@ -3,7 +3,10 @@ import { requireAuth } from '../shared/auth';
 import * as readingService from './service';
 
 export async function readingRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/read', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.post('/read', {
+    schema: { tags: ['Reading'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const body = request.body as {
       url: string;
     };
@@ -13,7 +16,9 @@ export async function readingRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: result });
   });
 
-  app.get('/session/:sessionId', async (request, reply) => {
+  app.get('/session/:sessionId', {
+    schema: { tags: ['Reading'] },
+  }, async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
 
     const result = await readingService.getReadingSession(sessionId);
@@ -28,7 +33,10 @@ export async function readingRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.get('/sessions', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.get('/sessions', {
+    schema: { tags: ['Reading'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const auth = request.auth!;
     const { limit } = request.query as Record<string, string | undefined>;
 

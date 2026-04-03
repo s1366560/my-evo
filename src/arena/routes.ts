@@ -3,7 +3,10 @@ import { requireAuth } from '../shared/auth';
 import * as arenaService from './service';
 
 export async function arenaRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/season', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.post('/season', {
+    schema: { tags: ['Arena'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
     const body = request.body as {
       name: string;
       start_date: string;
@@ -19,47 +22,47 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: result });
   });
 
-  app.post(
-    '/challenge',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const auth = request.auth!;
-      const body = request.body as {
-        defender_id: string;
-        season_id: string;
-      };
+  app.post('/challenge', {
+    schema: { tags: ['Arena'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      defender_id: string;
+      season_id: string;
+    };
 
-      const result = await arenaService.challenge(
-        auth.node_id,
-        body.defender_id,
-        body.season_id,
-      );
+    const result = await arenaService.challenge(
+      auth.node_id,
+      body.defender_id,
+      body.season_id,
+    );
 
-      return reply.status(201).send({ success: true, data: result });
-    },
-  );
+    return reply.status(201).send({ success: true, data: result });
+  });
 
-  app.post(
-    '/match/:matchId/submit',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const { matchId } = request.params as { matchId: string };
-      const body = request.body as {
-        winner_id: string;
-        scores: Record<string, number>;
-      };
+  app.post('/match/:matchId/submit', {
+    schema: { tags: ['Arena'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const { matchId } = request.params as { matchId: string };
+    const body = request.body as {
+      winner_id: string;
+      scores: Record<string, number>;
+    };
 
-      const result = await arenaService.submitMatch(
-        matchId,
-        body.winner_id,
-        body.scores,
-      );
+    const result = await arenaService.submitMatch(
+      matchId,
+      body.winner_id,
+      body.scores,
+    );
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.get('/rankings/:seasonId', async (request, reply) => {
+  app.get('/rankings/:seasonId', {
+    schema: { tags: ['Arena'] },
+  }, async (request, reply) => {
     const { seasonId } = request.params as { seasonId: string };
 
     const result = await arenaService.getRankings(seasonId);
@@ -67,7 +70,9 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.get('/season/:seasonId', async (request, reply) => {
+  app.get('/season/:seasonId', {
+    schema: { tags: ['Arena'] },
+  }, async (request, reply) => {
     const { seasonId } = request.params as { seasonId: string };
 
     const result = await arenaService.getSeason(seasonId);
@@ -75,7 +80,9 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.get('/seasons', async (request, reply) => {
+  app.get('/seasons', {
+    schema: { tags: ['Arena'] },
+  }, async (request, reply) => {
     const { status, limit } = request.query as Record<string, string | undefined>;
 
     const result = await arenaService.listSeasons(

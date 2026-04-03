@@ -637,20 +637,485 @@ model MemoryNode {
 }
 
 model Skill {
-  id           String   @id @default(uuid())
-  skill_id     String   @unique
-  name         String
-  description  String
-  category     String
-  author_id    String
-  status       String   @default("draft")
-  content      String
-  gdi_score    Float    @default(0)
-  review_stage String   @default("L1")
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  skill_id        String   @unique
+  name            String
+  description     String
+  category        String
+  author_id       String
+  status          String   @default("pending")
+  price_credits   Int      @default(5)
+  download_count  Int      @default(0)
+  rating          Float    @default(0)
+  rating_count    Int      @default(0)
+  source_capsules String[]
+  code_template   String?
+  parameters      Json?
+  steps           String[]
+  examples        String[]
+  tags            String[]
+  version         String   @default("1.0.0")
+  versions        Json     @default("[]")
+  l1_passed       Boolean  @default(false)
+  l2_passed       Boolean  @default(false)
+  l3_passed       Boolean  @default(false)
+  l4_passed       Boolean  @default(false)
+  reviewed_at     DateTime?
+  reviewer        String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  deleted_at      DateTime?
 
   @@index([status])
   @@index([category])
   @@index([author_id])
+}
+
+model SkillRating {
+  id         String   @id @default(uuid())
+  skill_id   String
+  rater_id   String
+  rating     Int
+  created_at DateTime @default(now())
+
+  @@unique([skill_id, rater_id])
+  @@index([skill_id])
+}
+
+// ===== Sandbox (Chapter 13) =====
+
+model EvolutionSandbox {
+  id                String   @id @default(uuid())
+  sandbox_id        String   @unique
+  name              String
+  description       String
+  isolation_level   String   @default("soft")
+  env               String   @default("staging")
+  state             String   @default("active")
+  created_by        String
+  tags              String[]
+  member_count      Int      @default(0)
+  total_assets     Int      @default(0)
+  total_promoted   Int      @default(0)
+  avg_gdi           Float    @default(0)
+  metadata          Json?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  members    SandboxMember[]
+  assets     SandboxAsset[]
+  invites    SandboxInvite[]
+  promotions PromotionRequest[]
+
+  @@index([created_by])
+  @@index([state])
+}
+
+model SandboxMember {
+  id                String   @id @default(uuid())
+  sandbox_id        String
+  node_id           String
+  role              String   @default("participant")
+  assets_created    Int      @default(0)
+  assets_promoted   Int      @default(0)
+  last_activity_at  DateTime @default(now())
+  joined_at         DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  sandbox EvolutionSandbox @relation(fields: [sandbox_id], references: [sandbox_id])
+
+  @@unique([sandbox_id, node_id])
+  @@index([sandbox_id])
+}
+
+model SandboxAsset {
+  id            String    @id @default(uuid())
+  sandbox_id    String
+  asset_id      String
+  asset_type    String
+  name          String
+  content       String
+  signals_match String[]
+  strategy      String[]
+  diff          String?
+  gdi_score     Float?
+  tags          String[]
+  created_by    String
+  promoted      Boolean   @default(false)
+  promoted_at   DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  sandbox EvolutionSandbox @relation(fields: [sandbox_id], references: [sandbox_id])
+
+  @@index([sandbox_id])
+  @@index([asset_type])
+}
+
+model PromotionRequest {
+  id            String    @id @default(uuid())
+  request_id    String    @unique
+  sandbox_id    String
+  asset_id      String
+  requested_by  String
+  status        String    @default("pending")
+  review_note   String?
+  reviewed_by   String?
+  requested_at  DateTime  @default(now())
+  reviewed_at   DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  sandbox EvolutionSandbox @relation(fields: [sandbox_id], references: [sandbox_id])
+
+  @@index([sandbox_id])
+  @@index([status])
+}
+
+model SandboxInvite {
+  id         String   @id @default(uuid())
+  invite_id  String   @unique
+  sandbox_id String
+  inviter    String
+  invitee    String
+  role       String   @default("participant")
+  status     String   @default("pending")
+  created_at DateTime @default(now())
+
+  sandbox EvolutionSandbox @relation(fields: [sandbox_id], references: [sandbox_id])
+
+  @@index([sandbox_id])
+  @@index([status])
+}
+
+// ===== Recipe (Chapter 11) =====
+
+model Recipe {
+  id                  String   @id @default(uuid())
+  recipe_id           String   @unique
+  title               String
+  description         String
+  genes               Json     @default("[]")
+  price_per_execution Int      @default(1)
+  max_concurrent      Int      @default(1)
+  input_schema        Json?
+  output_schema       Json?
+  status              String   @default("draft")
+  author_id           String
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  organisms Organism[]
+
+  @@index([status])
+  @@index([author_id])
+}
+
+model Organism {
+  id                String   @id @default(uuid())
+  organism_id      String   @unique
+  recipe_id        String
+  status            String   @default("assembling")
+  genes_expressed   Int      @default(0)
+  genes_total_count Int      @default(0)
+  current_position  Int      @default(0)
+  ttl_seconds       Int      @default(3600)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  recipe Recipe @relation(fields: [recipe_id], references: [recipe_id])
+
+  @@index([recipe_id])
+  @@index([status])
+}
+
+// ===== Project (Chapter 33.8) =====
+
+model ProjectTask {
+  id           String   @id @default(uuid())
+  task_id      String   @unique
+  project_id   String
+  title        String
+  description  String
+  status       String   @default("open")
+  assignee_id  String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([project_id])
+  @@index([status])
+}
+
+model ProjectContribution {
+  id              String   @id @default(uuid())
+  contribution_id String   @unique
+  project_id      String
+  contributor_id  String
+  files           Json     @default("[]")
+  commit_message  String
+  status          String   @default("pending")
+  reviewed_by     String?
+  created_at      DateTime @default(now())
+  reviewed_at     DateTime?
+
+  @@index([project_id])
+  @@index([status])
+}
+
+// ===== Anti-Hallucination (Chapter 17) =====
+
+model HallucinationCheck {
+  id               String   @id @default(uuid())
+  check_id         String   @unique
+  node_id          String
+  asset_id         String?
+  code_content     String
+  result           Json
+  confidence       Float
+  alerts           Json     @default("[]")
+  validation_type  String
+  created_at       DateTime @default(now())
+
+  @@index([node_id])
+  @@index([asset_id])
+}
+
+model TrustAnchor {
+  id          String   @id @default(uuid())
+  type        String
+  source      String
+  confidence  Float
+  verified_at DateTime @default(now())
+  expires_at  DateTime
+
+  @@index([type])
+}
+
+model MemoryGraphNode {
+  id          String   @id @default(uuid())
+  node_id     String
+  type        String
+  label       String
+  positive    Int      @default(0)
+  negative    Int      @default(0)
+  usage_count Int      @default(0)
+  confidence  Float    @default(1.0)
+  gdi_score   Float    @default(50)
+  metadata    Json?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@unique([node_id])
+  @@index([type])
+  @@index([confidence])
+}
+
+model MemoryGraphEdge {
+  id         String   @id @default(uuid())
+  source_id  String
+  target_id  String
+  relation   String
+  weight     Float    @default(0.5)
+  created_at DateTime @default(now())
+
+  @@index([source_id])
+  @@index([target_id])
+}
+
+model CapabilityChain {
+  id                    String   @id @default(uuid())
+  chain_id              String   @unique
+  root_asset_id         String
+  chain                 String[]
+  total_evolution_steps Int      @default(0)
+  constructed_at        DateTime @default(now())
+
+  @@index([root_asset_id])
+}
+
+model GepxBundle {
+  id          String   @id @default(uuid())
+  bundle_id   String   @unique
+  bundle_type String
+  name        String
+  description String
+  tags        String[]
+  exported_by String
+  asset_count Int      @default(0)
+  checksum    String
+  size_bytes  Int      @default(0)
+  created_at  DateTime @default(now())
+
+  @@index([exported_by])
+  @@index([bundle_type])
+}
+
+model GepxExport {
+  id         String   @id @default(uuid())
+  export_id  String   @unique
+  bundle_id  String
+  node_id    String
+  format     String   @default("gepx")
+  created_at DateTime @default(now())
+
+  @@index([bundle_id])
+  @@index([node_id])
+}
+
+model QuestionSecurityScan {
+  id          String   @id @default(uuid())
+  question_id String
+  scan_id     String   @unique
+  layer       String
+  score       Float    @default(1.0)
+  flags       String[]
+  decision    String
+  details     Json?
+  scanned_at  DateTime @default(now())
+
+  @@index([question_id])
+  @@index([layer])
+}
+
+model QuestionModeration {
+  id           String   @id @default(uuid())
+  question_id  String
+  moderator_id String?
+  decision     String
+  reason      String?
+  created_at   DateTime @default(now())
+
+  @@index([question_id])
+}
+
+model TrustProfile {
+  id          String   @id @default(uuid())
+  node_id     String   @unique
+  trust_score Float    @default(0.5)
+  level       String   @default("unverified")
+  risk_flags  String[]
+  last_audit  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([node_id])
+}
+
+model GuildMember {
+  id        String   @id @default(uuid())
+  guild_id  String
+  node_id   String
+  role      String   @default("member")
+  joined_at DateTime @default(now())
+
+  @@unique([guild_id, node_id])
+  @@index([guild_id])
+}
+
+model GuildInvitation {
+  id         String   @id @default(uuid())
+  invite_id  String   @unique
+  guild_id   String
+  inviter_id String
+  invitee_id String
+  status     String   @default("pending")
+  created_at DateTime @default(now())
+
+  @@index([guild_id])
+  @@index([invitee_id])
+}
+
+model Subscription {
+  id                   String   @id @default(uuid())
+  subscription_id      String   @unique
+  node_id              String   @unique
+  plan                 String   @default("free")
+  billing_cycle        String   @default("monthly")
+  status               String   @default("active")
+  started_at           DateTime @default(now())
+  current_period_start DateTime @default(now())
+  current_period_end   DateTime
+  auto_renew           Boolean  @default(true)
+  total_paid           Int      @default(0)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  invoices SubscriptionInvoice[]
+
+  @@index([node_id])
+  @@index([status])
+}
+
+model SubscriptionInvoice {
+  id              String   @id @default(uuid())
+  invoice_id      String   @unique
+  subscription_id String
+  node_id         String
+  plan            String
+  amount          Int
+  billing_cycle   String
+  period_start    DateTime
+  period_end      DateTime
+  status          String   @default("paid")
+  paid_at         DateTime?
+  created_at      DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscription_id], references: [subscription_id])
+
+  @@index([subscription_id])
+  @@index([node_id])
+}
+
+model SyncState {
+  id            String   @id @default(uuid())
+  node_id       String   @unique
+  status        String   @default("SYNCED")
+  last_sync_at  DateTime @default(now())
+  sync_count    Int      @default(0)
+  error_count   Int      @default(0)
+  next_sync_at  DateTime @default(now())
+
+  @@index([node_id])
+}
+
+model SyncLog {
+  id         String   @id @default(uuid())
+  node_id    String
+  step       String
+  status     String
+  items_synced Int    @default(0)
+  error      String?
+  synced_at  DateTime @default(now())
+
+  @@index([node_id])
+  @@index([synced_at])
+}
+
+model AgentProfile {
+  id           String   @id @default(uuid())
+  node_id      String   @unique
+  model        String
+  capabilities String[]
+  reputation   Int      @default(50)
+  gdi_score    Float    @default(0)
+  status       String   @default("online")
+  bio          String?
+  metadata     Json?
+  registered_at DateTime @default(now())
+  last_seen    DateTime @default(now())
+
+  @@index([status])
+  @@index([reputation])
+}
+
+model DirectMessage {
+  id         String   @id @default(uuid())
+  dm_id      String   @unique
+  from_id    String
+  to_id      String
+  content    String
+  read       Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  @@index([to_id, read])
+  @@index([from_id])
 }

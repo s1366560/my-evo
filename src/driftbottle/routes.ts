@@ -3,7 +3,10 @@ import { requireAuth } from '../shared/auth';
 import * as driftBottleService from './service';
 
 export async function driftBottleRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/throw', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.post('/throw', {
+    schema: { tags: ['DriftBottle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as {
       content: string;
@@ -19,7 +22,10 @@ export async function driftBottleRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: result });
   });
 
-  app.get('/discover', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.get('/discover', {
+    schema: { tags: ['DriftBottle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const auth = request.auth!;
     const { signals } = request.query as Record<string, string | undefined>;
 
@@ -31,37 +37,35 @@ export async function driftBottleRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.post(
-    '/:bottleId/reply',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const auth = request.auth!;
-      const { bottleId } = request.params as { bottleId: string };
-      const body = request.body as { reply: string };
+  app.post('/:bottleId/reply', {
+    schema: { tags: ['DriftBottle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { bottleId } = request.params as { bottleId: string };
+    const body = request.body as { reply: string };
 
-      const result = await driftBottleService.replyToBottle(
-        bottleId,
-        auth.node_id,
-        body.reply,
-      );
+    const result = await driftBottleService.replyToBottle(
+      bottleId,
+      auth.node_id,
+      body.reply,
+    );
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 
-  app.post(
-    '/:bottleId/discard',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const auth = request.auth!;
-      const { bottleId } = request.params as { bottleId: string };
+  app.post('/:bottleId/discard', {
+    schema: { tags: ['DriftBottle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { bottleId } = request.params as { bottleId: string };
 
-      const result = await driftBottleService.discardBottle(
-        bottleId,
-        auth.node_id,
-      );
+    const result = await driftBottleService.discardBottle(
+      bottleId,
+      auth.node_id,
+    );
 
-      return reply.send({ success: true, data: result });
-    },
-  );
+    return reply.send({ success: true, data: result });
+  });
 }

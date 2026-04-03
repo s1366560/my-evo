@@ -5,6 +5,7 @@ import type { PublishPayload } from '../shared/types';
 
 export async function assetRoutes(app: FastifyInstance): Promise<void> {
   app.post('/publish', {
+    schema: { tags: ['Assets'] },
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
@@ -19,6 +20,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/fetch/:assetId', {
+    schema: { tags: ['Assets'] },
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
@@ -33,6 +35,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/revoke', {
+    schema: { tags: ['Assets'] },
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
@@ -54,7 +57,9 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/search', async (request, reply) => {
+  app.get('/search', {
+    schema: { tags: ['Assets'] },
+  }, async (request, reply) => {
     const { q } = request.query as { q?: string };
 
     if (!q || q.trim().length === 0) {
@@ -73,7 +78,9 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/gdi/:assetId', async (request, reply) => {
+  app.get('/gdi/:assetId', {
+    schema: { tags: ['Assets'] },
+  }, async (request, reply) => {
     const { assetId } = request.params as { assetId: string };
 
     const gdiScore = await assetService.calculateGDI(assetId);

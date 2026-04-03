@@ -5,6 +5,7 @@ import * as service from './service';
 
 export async function workerPoolRoutes(app: FastifyInstance) {
   app.post('/register', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
@@ -28,6 +29,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
   });
 
   app.post('/heartbeat', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -36,6 +38,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
   });
 
   app.post('/deregister', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -44,6 +47,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
   });
 
   app.get('/', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const query = request.query as {
@@ -72,6 +76,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
   });
 
   app.get('/:nodeId', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { nodeId: string };

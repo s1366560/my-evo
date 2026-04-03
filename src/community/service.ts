@@ -244,3 +244,27 @@ export async function getNoveltyScore(
     rare_signal_count: rareCount,
   };
 }
+
+export async function getGlobalLeaderboard(
+  limit = 20,
+  offset = 0,
+): Promise<{ items: Array<{ rank: number; node_id: string; reputation: number; contribution_score: number }>; total: number }> {
+  const [nodes, total] = await Promise.all([
+    prisma.node.findMany({
+      orderBy: { reputation: 'desc' },
+      take: limit,
+      skip: offset,
+      select: { node_id: true, reputation: true },
+    }),
+    prisma.node.count(),
+  ]);
+
+  const items = nodes.map((n, i) => ({
+    rank: offset + i + 1,
+    node_id: n.node_id,
+    reputation: n.reputation,
+    contribution_score: 0,
+  }));
+
+  return { items, total };
+}

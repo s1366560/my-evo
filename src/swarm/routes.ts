@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth, authenticate } from '../shared/auth';
+import { requireAuth } from '../shared/auth';
 import { EvoMapError } from '../shared/errors';
 import * as service from './service';
 
 export async function swarmRoutes(app: FastifyInstance) {
   app.post('/', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
@@ -31,6 +32,7 @@ export async function swarmRoutes(app: FastifyInstance) {
   });
 
   app.post('/:swarmId/decompose', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { swarmId: string };
@@ -47,6 +49,7 @@ export async function swarmRoutes(app: FastifyInstance) {
   });
 
   app.post('/:swarmId/assign', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { swarmId: string };
@@ -64,6 +67,7 @@ export async function swarmRoutes(app: FastifyInstance) {
   });
 
   app.post('/:swarmId/subtask/:subtaskId/submit', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { swarmId: string; subtaskId: string };
@@ -78,6 +82,7 @@ export async function swarmRoutes(app: FastifyInstance) {
   });
 
   app.post('/:swarmId/aggregate', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { swarmId: string };
@@ -86,6 +91,7 @@ export async function swarmRoutes(app: FastifyInstance) {
   });
 
   app.get('/:swarmId', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { swarmId: string };
@@ -94,6 +100,7 @@ export async function swarmRoutes(app: FastifyInstance) {
   });
 
   app.get('/', {
+    schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const query = request.query as {

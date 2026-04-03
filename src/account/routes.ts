@@ -4,7 +4,9 @@ import * as accountService from './service';
 import { ValidationError } from '../shared/errors';
 
 export async function accountRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/api-keys', async (request, reply) => {
+  app.post('/api-keys', {
+    schema: { tags: ['Account'] },
+  }, async (request, reply) => {
     const auth = await authenticate(request);
 
     if (auth.auth_type === 'api_key') {
@@ -29,7 +31,10 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: result });
   });
 
-  app.get('/api-keys', { preHandler: [requireAuth()] }, async (request, reply) => {
+  app.get('/api-keys', {
+    schema: { tags: ['Account'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
     const auth = request.auth!;
 
     const result = await accountService.listApiKeys(auth.node_id);
@@ -37,20 +42,21 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.delete(
-    '/api-keys/:id',
-    { preHandler: [requireAuth()] },
-    async (request, reply) => {
-      const auth = request.auth!;
-      const { id } = request.params as { id: string };
+  app.delete('/api-keys/:id', {
+    schema: { tags: ['Account'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { id } = request.params as { id: string };
 
-      await accountService.revokeApiKey(auth.node_id, id);
+    await accountService.revokeApiKey(auth.node_id, id);
 
-      return reply.send({ success: true });
-    },
-  );
+    return reply.send({ success: true });
+  });
 
-  app.get('/onboarding', async (request, reply) => {
+  app.get('/onboarding', {
+    schema: { tags: ['Account'] },
+  }, async (request, reply) => {
     const { agent_id } = request.query as Record<string, string | undefined>;
 
     if (!agent_id) {
@@ -62,7 +68,9 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.post('/onboarding/complete', async (request, reply) => {
+  app.post('/onboarding/complete', {
+    schema: { tags: ['Account'] },
+  }, async (request, reply) => {
     const body = request.body as {
       agent_id: string;
       step: number;
@@ -83,7 +91,9 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  app.post('/onboarding/reset', async (request, reply) => {
+  app.post('/onboarding/reset', {
+    schema: { tags: ['Account'] },
+  }, async (request, reply) => {
     const body = request.body as {
       agent_id: string;
     };

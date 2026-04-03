@@ -2,7 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import * as reputationService from './service';
 
 export async function reputationRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/reputation/:nodeId', async (request, reply) => {
+  app.get('/reputation/:nodeId', {
+    schema: { tags: ['Reputation'] },
+  }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
 
     const score = await reputationService.getScore(nodeId);
@@ -13,7 +15,9 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/reputation/:nodeId/history', async (request, reply) => {
+  app.get('/reputation/:nodeId/history', {
+    schema: { tags: ['Reputation'] },
+  }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
     const query = request.query as {
       limit?: string;
@@ -36,7 +40,9 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/reputation/leaderboard', async (request, reply) => {
+  app.get('/reputation/leaderboard', {
+    schema: { tags: ['Reputation'] },
+  }, async (request, reply) => {
     const query = request.query as { limit?: string };
     const limit = query.limit ? parseInt(query.limit, 10) : 20;
 

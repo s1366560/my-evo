@@ -8,7 +8,9 @@ import type { HelloPayload, HeartbeatPayload } from '../shared/types';
 const HUB_NODE_ID = 'evomap-hub-001';
 
 export async function a2aRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/hello', async (request, reply) => {
+  app.post('/hello', {
+    schema: { tags: ['A2A'] },
+  }, async (request, reply) => {
     const payload = request.body as HelloPayload;
 
     const result = await a2aService.registerNode(payload);
@@ -36,6 +38,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/heartbeat', {
+    schema: { tags: ['A2A'] },
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
@@ -56,7 +59,9 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/node/:nodeId', async (request, reply) => {
+  app.get('/node/:nodeId', {
+    schema: { tags: ['A2A'] },
+  }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
 
     const nodeInfo = await a2aService.getNodeInfo(nodeId);
@@ -67,7 +72,9 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get('/stats', async (_request, reply) => {
+  app.get('/stats', {
+    schema: { tags: ['A2A'] },
+  }, async (_request, reply) => {
     const stats = await a2aService.getNetworkStats();
 
     void reply.send({

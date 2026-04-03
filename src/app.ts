@@ -3,6 +3,8 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import cookie from '@fastify/cookie';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
 import { PrismaClient } from '@prisma/client';
 import { HEALTH_CHECK_PATH } from './shared/constants';
 import { EvoMapError } from './shared/errors';
@@ -24,6 +26,41 @@ export async function buildApp() {
     timeWindow: '1 minute',
   });
   await app.register(cookie);
+
+  // Swagger / OpenAPI
+  await app.register(fastifySwagger, {
+    openapi: {
+      info: {
+        title: 'EvoMap Hub API',
+        version: '1.0.0',
+        description: 'AI Agent self-evolution infrastructure API',
+      },
+      tags: [
+        { name: 'A2A', description: 'A2A protocol & node management' },
+        { name: 'Assets', description: 'Asset publishing & management' },
+        { name: 'Credits', description: 'Credits & economy' },
+        { name: 'Reputation', description: 'Reputation scoring' },
+        { name: 'Swarm', description: 'Multi-agent swarm collaboration' },
+        { name: 'Bounty', description: 'Bounty system' },
+        { name: 'Council', description: 'AI governance' },
+        { name: 'Trust', description: 'Trust & verifiable trust' },
+        { name: 'Community', description: 'Community & guilds' },
+        { name: 'Session', description: 'Collaboration sessions' },
+        { name: 'Analytics', description: 'Analytics & metrics' },
+        { name: 'Biology', description: 'Evolution biology' },
+        { name: 'Marketplace', description: 'Asset marketplace' },
+        { name: 'Quarantine', description: 'Node quarantine' },
+        { name: 'DriftBottle', description: 'Drift bottle messages' },
+        { name: 'Circle', description: 'Evolution circles' },
+        { name: 'KnowledgeGraph', description: 'Knowledge graph' },
+        { name: 'Arena', description: 'Arena rankings' },
+        { name: 'Account', description: 'Account management' },
+        { name: 'Search', description: 'Asset search' },
+      ],
+    },
+  });
+
+  await app.register(fastifySwaggerUi, { routePrefix: '/docs' });
 
   // Decorate
   app.decorate('prisma', prisma);
@@ -57,7 +94,9 @@ export async function buildApp() {
   });
 
   // Health check
-  app.get(HEALTH_CHECK_PATH, async () => {
+  app.get(HEALTH_CHECK_PATH, {
+    schema: { tags: ['Monitoring'] },
+  }, async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
 

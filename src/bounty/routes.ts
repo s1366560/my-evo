@@ -5,6 +5,7 @@ import * as service from './service';
 
 export async function bountyRoutes(app: FastifyInstance) {
   app.post('/', {
+    schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
@@ -34,6 +35,7 @@ export async function bountyRoutes(app: FastifyInstance) {
   });
 
   app.post('/:bountyId/bid', {
+    schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -60,6 +62,7 @@ export async function bountyRoutes(app: FastifyInstance) {
   });
 
   app.post('/:bountyId/accept-bid', {
+    schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { bountyId: string };
@@ -74,6 +77,7 @@ export async function bountyRoutes(app: FastifyInstance) {
   });
 
   app.post('/:bountyId/submit', {
+    schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -98,6 +102,7 @@ export async function bountyRoutes(app: FastifyInstance) {
   });
 
   app.post('/:bountyId/review', {
+    schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { bountyId: string };
@@ -120,6 +125,7 @@ export async function bountyRoutes(app: FastifyInstance) {
   });
 
   app.post('/:bountyId/cancel', {
+    schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
@@ -130,6 +136,7 @@ export async function bountyRoutes(app: FastifyInstance) {
   });
 
   app.get('/', {
+    schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const query = request.query as {
@@ -156,6 +163,7 @@ export async function bountyRoutes(app: FastifyInstance) {
   });
 
   app.get('/:bountyId', {
+    schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { bountyId: string };
