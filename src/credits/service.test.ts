@@ -1,0 +1,288 @@
+import { PrismaClient } from '@prisma/client';
+import * as service from './service';
+import {
+  NotFoundError,
+  ValidationError,
+  InsufficientCreditsError,
+} from '../shared/errors';
+import { INITIAL_CREDITS, CREDIT_DECAY } from '../shared/constants';
+
+const {
+  getBalance,
+  credit,
+  debit,
+  transfer,
+  applyDecay,
+  getHistory,
+} = service;
+
+const mockPrisma = {
+  node: {
+    findUnique: jest.fn(),
+    update: jest.fn(),
+  },
+  creditTransaction: {
+    create: jest.fn(),
+    findMany: jest.fn(),
+    aggregate: jest.fn(),
+    count: jest.fn(),
+  },
+} as any;
+
+describe('Credits Service', () => {
+  beforeAll(() => {
+    service.setPrisma(mockPrisma as unknown as PrismaClient);
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('getBalance', () => {
+    it('should return balance for existing node', async () => {
+      const mockNode = {
+        node_id: 'node-1',
+        credit_balance: 450,
+        creditTransactions: [],
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.creditTransaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 500 } })
+        .mockResolvedValueOnce({ _sum: { amount: -50 } });
+
+      const result = await getBalance('node-1');
+
+      expect(result.node_id).toBe('node-1');
+      expect(result.available).toBe(450);
+      expect(result.total).toBe(450);
+      expect(result.lifetime_earned).toBe(500);
+      expect(result.lifetime_spent).toBe(50);
+    });
+
+    it('should throw NotFoundError for unknown node', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue(null);
+
+      await expect(getBalance('unknown')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('credit', () => {
+    it('should add credits and create transaction', async () => {
+      const mockNode = { node_id: 'node-1', credit_balance: 500 };
+      const mockTx = { id: 'tx-1', timestamp: new Date() };
+
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue(mockTx);
+
+      const result = await credit('node-1', 100, 'heartbeat_reward', 'Daily heartbeat reward');
+
+      expect(result.amount).toBe(100);
+      expect(result.balance_after).toBe(600);
+      expect(mockPrisma.node.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { credit_balance: 600 },
+        }),
+      );
+    });
+
+    it('should throw ValidationError for zero or negative amount', async () => {
+      await expect(credit('node-1', 0, 'heartbeat_reward', 'test')).rejects.toThrow(ValidationError);
+      await expect(credit('node-1', -10, 'heartbeat_reward', 'test')).rejects.toThrow(ValidationError);
+    });
+
+    it('should throw NotFoundError for unknown node', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue(null);
+      await expect(credit('unknown', 100, 'heartbeat_reward', 'test')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('debit', () => {
+    it('should deduct credits and create negative transaction', async () => {
+      const mockNode = { node_id: 'node-1', credit_balance: 500 };
+      const mockTx = { id: 'tx-1', timestamp: new Date() };
+
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue(mockTx);
+
+      const result = await debit('node-1', 50, 'fetch_cost', 'Fetch asset');
+
+      expect(result.amount).toBe(-50);
+      expect(result.balance_after).toBe(450);
+    });
+
+    it('should throw InsufficientCreditsError when balance is too low', async () => {
+      const mockNode = { node_id: 'node-1', credit_balance: 10 };
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+
+      await expect(debit('node-1', 50, 'fetch_cost', 'test')).rejects.toThrow(InsufficientCreditsError);
+    });
+
+    it('should throw ValidationError for zero or negative amount', async () => {
+      await expect(debit('node-1', 0, 'fetch_cost', 'test')).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe('transfer', () => {
+    it('should transfer credits between two nodes', async () => {
+      const fromNode = { node_id: 'node-1', credit_balance: 500 };
+      const toNode = { node_id: 'node-2', credit_balance: 300 };
+
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce(fromNode)
+        .mockResolvedValueOnce(toNode);
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({ id: 'tx-1', timestamp: new Date() });
+
+      const result = await transfer('node-1', 'node-2', 100);
+
+      expect(result.from_transaction.amount).toBe(-100);
+      expect(result.from_transaction.balance_after).toBe(400);
+      expect(result.to_transaction.amount).toBe(100);
+      expect(result.to_transaction.balance_after).toBe(400);
+    });
+
+    it('should throw ValidationError for transfer to self', async () => {
+      await expect(transfer('node-1', 'node-1', 100)).rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ValidationError for zero or negative amount', async () => {
+      await expect(transfer('node-1', 'node-2', 0)).rejects.toThrow(ValidationError);
+    });
+
+    it('should throw NotFoundError when source node not found', async () => {
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ node_id: 'node-2', credit_balance: 100 });
+
+      await expect(transfer('unknown', 'node-2', 50)).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw NotFoundError when target node not found', async () => {
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 500 })
+        .mockResolvedValueOnce(null);
+
+      await expect(transfer('node-1', 'unknown', 50)).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw InsufficientCreditsError when source balance too low', async () => {
+      const fromNode = { node_id: 'node-1', credit_balance: 10 };
+      const toNode = { node_id: 'node-2', credit_balance: 300 };
+
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce(fromNode)
+        .mockResolvedValueOnce(toNode);
+
+      await expect(transfer('node-1', 'node-2', 100)).rejects.toThrow(InsufficientCreditsError);
+    });
+  });
+
+  describe('applyDecay', () => {
+    it('should not decay if node is active (less than 90 days)', async () => {
+      const mockNode = {
+        node_id: 'node-1',
+        credit_balance: 500,
+        last_seen: new Date(),
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.creditTransaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 500 } })
+        .mockResolvedValueOnce({ _sum: { amount: 0 } });
+
+      const result = await applyDecay('node-1');
+
+      expect(result.available).toBe(500);
+      expect(mockPrisma.node.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ credit_balance: expect.any(Number) }),
+        }),
+      );
+    });
+
+    it('should decay credits for inactive nodes (over 90 days)', async () => {
+      const ninetyOneDaysAgo = new Date(
+        Date.now() - 91 * 24 * 60 * 60 * 1000,
+      );
+      const mockNode = {
+        node_id: 'node-1',
+        credit_balance: 500,
+        last_seen: ninetyOneDaysAgo,
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.creditTransaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 500 } })
+        .mockResolvedValueOnce({ _sum: { amount: 25 } });
+
+      const result = await applyDecay('node-1');
+
+      expect(mockPrisma.node.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { credit_balance: 475 },
+        }),
+      );
+    });
+
+    it('should not decay below minimum balance', async () => {
+      const ninetyOneDaysAgo = new Date(
+        Date.now() - 91 * 24 * 60 * 60 * 1000,
+      );
+      const mockNode = {
+        node_id: 'node-1',
+        credit_balance: 100,
+        last_seen: ninetyOneDaysAgo,
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.creditTransaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 100 } })
+        .mockResolvedValueOnce({ _sum: { amount: 0 } });
+
+      const result = await applyDecay('node-1');
+
+      expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundError for unknown node', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue(null);
+      await expect(applyDecay('unknown')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('getHistory', () => {
+    it('should return paginated transaction history', async () => {
+      const mockTransactions = [
+        { id: 'tx-1', node_id: 'node-1', amount: 500, type: 'initial_grant', description: 'Initial grant', balance_after: 500, timestamp: new Date() },
+        { id: 'tx-2', node_id: 'node-1', amount: -5, type: 'publish_cost', description: 'Published gene', balance_after: 495, timestamp: new Date() },
+      ];
+
+      mockPrisma.creditTransaction.findMany.mockResolvedValue(mockTransactions);
+      mockPrisma.creditTransaction.count.mockResolvedValue(2);
+
+      const result = await getHistory('node-1', undefined, 20, 0);
+
+      expect(result.items).toHaveLength(2);
+      expect(result.total).toBe(2);
+    });
+
+    it('should filter by transaction type', async () => {
+      mockPrisma.creditTransaction.findMany.mockResolvedValue([]);
+      mockPrisma.creditTransaction.count.mockResolvedValue(0);
+
+      await getHistory('node-1', 'publish_cost', 10, 0);
+
+      expect(mockPrisma.creditTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ type: 'publish_cost' }),
+        }),
+      );
+    });
+  });
+});

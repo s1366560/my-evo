@@ -1,0 +1,656 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Node {
+  id             String   @id @default(uuid())
+  node_id        String   @unique
+  node_secret    String
+  model          String
+  status         String   @default("registered")
+  trust_level    String   @default("unverified")
+  reputation     Int      @default(50)
+  credit_balance Int      @default(500)
+  gene_count     Int      @default(0)
+  capsule_count  Int      @default(0)
+  last_seen      DateTime @default(now())
+  registered_at  DateTime @default(now())
+  claim_code     String?
+  referral_code  String?
+  identity_doc   String?
+
+  creditTransactions CreditTransaction[]
+  quarantineRecords  QuarantineRecord[]
+  validatorStakes    ValidatorStake[]
+  trustAttestations  TrustAttestation[]
+  apiKeys            ApiKey[]
+  sessions           UserSession[]
+  onboardingState    OnboardingState?
+
+  @@index([status])
+  @@index([trust_level])
+}
+
+model Asset {
+  id          String   @id @default(uuid())
+  asset_id    String   @unique
+  asset_type  String
+  name        String
+  description String
+  content     String?
+  signals     String[]
+  tags        String[]
+  author_id   String
+  status      String   @default("draft")
+  gdi_score   Float    @default(50)
+  downloads   Int      @default(0)
+  rating      Float    @default(0)
+  version     Int      @default(1)
+  carbon_cost Int      @default(0)
+  parent_id   String?
+  generation  Int      @default(0)
+  ancestors   String[]
+  fork_count  Int      @default(0)
+  config      Json?
+  gene_ids    String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  evolutionEvents EvolutionEvent[]
+  gdiScores       GDIScoreRecord[]
+  listings        MarketplaceListing[]
+
+  @@index([asset_type, status])
+  @@index([author_id])
+  @@index([gdi_score])
+}
+
+model EvolutionEvent {
+  id           String   @id @default(uuid())
+  asset_id     String
+  event_type   String
+  from_version Int      @default(0)
+  to_version   Int      @default(1)
+  changes      String?
+  actor_id     String
+  timestamp    DateTime @default(now())
+
+  asset Asset @relation(fields: [asset_id], references: [asset_id])
+
+  @@index([asset_id])
+  @@index([event_type])
+}
+
+model GDIScoreRecord {
+  id            String   @id @default(uuid())
+  asset_id      String
+  overall       Float
+  usefulness    Float    @default(0)
+  novelty       Float    @default(0)
+  rigor         Float    @default(0)
+  reuse         Float    @default(0)
+  calculated_at DateTime @default(now())
+
+  asset Asset @relation(fields: [asset_id], references: [asset_id])
+
+  @@index([asset_id])
+  @@index([calculated_at])
+}
+
+model SimilarityRecord {
+  id          String   @id @default(uuid())
+  asset_id    String
+  compared_to String
+  score       Float
+  severity    String
+  strategy    String
+  detected_at DateTime @default(now())
+
+  @@index([asset_id])
+  @@index([score])
+}
+
+model CreditTransaction {
+  id            String   @id @default(uuid())
+  node_id       String
+  amount        Int
+  type          String
+  description   String
+  balance_after Int
+  timestamp     DateTime @default(now())
+
+  node Node @relation(fields: [node_id], references: [node_id])
+
+  @@index([node_id])
+  @@index([type])
+  @@index([timestamp])
+}
+
+model ReputationEvent {
+  id         String   @id @default(uuid())
+  node_id    String
+  event_type String
+  delta      Int
+  reason     String
+  timestamp  DateTime @default(now())
+
+  @@index([node_id])
+  @@index([event_type])
+}
+
+model QuarantineRecord {
+  id                 String   @id @default(uuid())
+  node_id            String
+  level              String
+  reason             String
+  started_at         DateTime @default(now())
+  expires_at         DateTime
+  auto_release_at    DateTime
+  reputation_penalty Int      @default(0)
+  is_active          Boolean  @default(true)
+  violations         Json     @default("[]")
+
+  node Node @relation(fields: [node_id], references: [node_id])
+
+  @@index([node_id])
+  @@index([is_active])
+  @@index([expires_at])
+}
+
+model SwarmTask {
+  id           String   @id @default(uuid())
+  swarm_id     String   @unique
+  title        String
+  description  String
+  status       String   @default("pending")
+  creator_id   String
+  workers      String[]
+  cost         Int      @default(0)
+  timeout_ms   Int      @default(3600000)
+  result       Json?
+  created_at   DateTime @default(now())
+  completed_at DateTime?
+
+  subtasks SwarmSubtask[]
+
+  @@index([status])
+  @@index([creator_id])
+}
+
+model SwarmSubtask {
+  id           String   @id @default(uuid())
+  subtask_id   String   @unique
+  swarm_id     String
+  title        String
+  description  String
+  status       String   @default("pending")
+  assigned_to  String?
+  result       String?
+  assigned_at  DateTime?
+  completed_at DateTime?
+
+  task SwarmTask @relation(fields: [swarm_id], references: [swarm_id])
+
+  @@index([swarm_id])
+  @@index([status])
+  @@index([assigned_to])
+}
+
+model Worker {
+  id              String   @id @default(uuid())
+  node_id         String   @unique
+  specialties     String[]
+  max_concurrent  Int      @default(3)
+  current_tasks   Int      @default(0)
+  total_completed Int      @default(0)
+  success_rate    Float    @default(0)
+  is_available    Boolean  @default(true)
+  last_heartbeat  DateTime @default(now())
+
+  @@index([is_available])
+}
+
+model Proposal {
+  id                  String   @id @default(uuid())
+  proposal_id         String   @unique
+  title               String
+  description         String
+  proposer_id         String
+  status              String   @default("draft")
+  category            String
+  seconds             String[]
+  deposit             Int      @default(50)
+  discussion_deadline DateTime?
+  voting_deadline     DateTime?
+  execution_result    String?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  votes ProposalVote[]
+
+  @@index([status])
+  @@index([proposer_id])
+  @@index([category])
+}
+
+model ProposalVote {
+  id          String   @id @default(uuid())
+  voter_id    String
+  proposal_id String
+  decision    String
+  weight      Float    @default(1.0)
+  reason      String?
+  cast_at     DateTime @default(now())
+
+  proposal Proposal @relation(fields: [proposal_id], references: [proposal_id])
+
+  @@unique([voter_id, proposal_id])
+  @@index([proposal_id])
+}
+
+model Bounty {
+  id           String   @id @default(uuid())
+  bounty_id    String   @unique
+  title        String
+  description  String
+  requirements String[]
+  creator_id   String
+  status       String   @default("open")
+  amount       Int
+  deadline     DateTime
+  deliverable  Json?
+  created_at   DateTime @default(now())
+  completed_at DateTime?
+
+  bids BountyBid[]
+
+  @@index([status])
+  @@index([creator_id])
+  @@index([deadline])
+}
+
+model BountyBid {
+  id              String   @id @default(uuid())
+  bid_id          String   @unique
+  bounty_id       String
+  bidder_id       String
+  proposed_amount Int
+  estimated_time  String
+  approach        String
+  status          String   @default("pending")
+  submitted_at    DateTime @default(now())
+
+  bounty Bounty @relation(fields: [bounty_id], references: [bounty_id])
+
+  @@index([bounty_id])
+  @@index([bidder_id])
+}
+
+model Dispute {
+  id                     String   @id @default(uuid())
+  dispute_id             String   @unique
+  type                   String
+  severity               String   @default("medium")
+  status                 String   @default("filed")
+  plaintiff_id           String
+  defendant_id           String
+  title                  String
+  description            String
+  evidence               Json     @default("[]")
+  related_asset_id       String?
+  related_bounty_id      String?
+  related_transaction_id String?
+  arbitrators            String[]
+  council_session_id     String?
+  ruling                 Json?
+  filing_fee             Int
+  escrow_amount          Int      @default(0)
+  filed_at               DateTime @default(now())
+  review_started_at      DateTime?
+  hearing_started_at     DateTime?
+  resolved_at            DateTime?
+  deadline               DateTime
+
+  @@index([status])
+  @@index([plaintiff_id])
+  @@index([defendant_id])
+}
+
+model Appeal {
+  id                  String   @id @default(uuid())
+  appeal_id           String   @unique
+  original_dispute_id String
+  appellant_id        String
+  grounds             String
+  new_evidence        Json?
+  appeal_fee          Int
+  status              String   @default("filed")
+  filed_at            DateTime @default(now())
+
+  @@index([original_dispute_id])
+}
+
+model ValidatorStake {
+  id          String   @id @default(uuid())
+  stake_id    String   @unique
+  node_id     String
+  target_id   String
+  amount      Int
+  staked_at   DateTime @default(now())
+  locked_until DateTime
+  status      String   @default("active")
+
+  node Node @relation(fields: [node_id], references: [node_id])
+
+  @@index([node_id])
+  @@index([target_id])
+  @@index([status])
+}
+
+model TrustAttestation {
+  id             String   @id @default(uuid())
+  attestation_id String   @unique
+  validator_id   String
+  node_id        String
+  trust_level    String
+  stake_amount   Int
+  verified_at    DateTime @default(now())
+  expires_at     DateTime
+  signature      String
+
+  node Node @relation(fields: [node_id], references: [node_id])
+
+  @@index([validator_id])
+  @@index([node_id])
+  @@index([expires_at])
+}
+
+model ApiKey {
+  id         String    @id @default(uuid())
+  key_hash   String
+  prefix     String
+  name       String
+  scopes     String[]
+  expires_at DateTime?
+  created_at DateTime  @default(now())
+  user_id    String
+
+  node Node @relation(fields: [user_id], references: [node_id])
+
+  @@index([key_hash])
+  @@index([user_id])
+}
+
+model UserSession {
+  id         String   @id @default(uuid())
+  token      String   @unique
+  user_id    String
+  created_at DateTime @default(now())
+  expires_at DateTime
+
+  node Node @relation(fields: [user_id], references: [node_id])
+
+  @@index([token])
+  @@index([user_id])
+}
+
+model OnboardingState {
+  id              String   @id @default(uuid())
+  agent_id        String   @unique
+  started_at      DateTime @default(now())
+  completed_steps Int[]
+  current_step    Int      @default(1)
+
+  node Node @relation(fields: [agent_id], references: [node_id])
+}
+
+model CollaborationSession {
+  id               String   @id @default(uuid())
+  title            String
+  status           String   @default("creating")
+  creator_id       String
+  members          Json     @default("[]")
+  context          Json     @default("{}")
+  max_participants Int      @default(5)
+  consensus_config Json     @default("{}")
+  vector_clock     Json     @default("{}")
+  messages         Json     @default("[]")
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  expires_at       DateTime
+
+  @@index([status])
+  @@index([creator_id])
+  @@index([expires_at])
+}
+
+model Guild {
+  id             String   @id @default(uuid())
+  guild_id       String   @unique
+  name           String
+  description    String
+  creator_id     String
+  member_count   Int      @default(0)
+  total_genes    Int      @default(0)
+  total_capsules Int      @default(0)
+  novelty_score  Float    @default(0)
+  status         String   @default("active")
+  members        Json     @default("[]")
+  created_at     DateTime @default(now())
+
+  @@index([status])
+  @@index([creator_id])
+}
+
+model Circle {
+  id                String   @id @default(uuid())
+  circle_id         String   @unique
+  name              String
+  description       String
+  theme             String
+  status            String   @default("active")
+  creator_id        String
+  participant_count Int      @default(0)
+  rounds            Json     @default("[]")
+  rounds_completed  Int      @default(0)
+  outcomes          Json     @default("[]")
+  entry_fee         Int      @default(30)
+  prize_pool        Int      @default(0)
+  created_at        DateTime @default(now())
+
+  @@index([status])
+  @@index([creator_id])
+}
+
+model ArenaSeason {
+  id         String   @id @default(uuid())
+  season_id  String   @unique
+  name       String
+  status     String   @default("upcoming")
+  start_date DateTime
+  end_date   DateTime
+  rankings   Json     @default("[]")
+  created_at DateTime @default(now())
+
+  @@index([status])
+}
+
+model ArenaMatch {
+  id           String   @id @default(uuid())
+  match_id     String   @unique
+  season_id    String
+  challenger   String
+  defender     String
+  winner_id    String?
+  status       String   @default("pending")
+  scores       Json     @default("{}")
+  created_at   DateTime @default(now())
+  completed_at DateTime?
+
+  @@index([season_id])
+  @@index([status])
+}
+
+model DriftBottle {
+  id         String   @id @default(uuid())
+  bottle_id  String   @unique
+  content    String
+  sender_id  String
+  status     String   @default("drifting")
+  signals    String[]
+  hops       Int      @default(0)
+  max_hops   Int      @default(10)
+  path       String[]
+  finder_id  String?
+  reply      String?
+  thrown_at  DateTime @default(now())
+  found_at   DateTime?
+  expires_at DateTime
+
+  @@index([status])
+  @@index([expires_at])
+}
+
+model MarketplaceListing {
+  id         String   @id @default(uuid())
+  listing_id String   @unique
+  seller_id  String
+  asset_id   String
+  asset_type String
+  price      Int
+  status     String   @default("active")
+  buyer_id   String?
+  listed_at  DateTime @default(now())
+  sold_at    DateTime?
+  expires_at DateTime
+
+  asset        Asset                    @relation(fields: [asset_id], references: [asset_id])
+  transactions MarketplaceTransaction[]
+
+  @@index([status])
+  @@index([seller_id])
+  @@index([asset_id])
+}
+
+model MarketplaceTransaction {
+  id              String   @id @default(uuid())
+  transaction_id  String   @unique
+  listing_id      String
+  seller_id       String
+  buyer_id        String
+  asset_id        String
+  price           Int
+  fee             Int
+  seller_receives Int
+  completed_at    DateTime @default(now())
+
+  listing MarketplaceListing @relation(fields: [listing_id], references: [listing_id])
+
+  @@index([buyer_id])
+  @@index([seller_id])
+}
+
+model Question {
+  id           String   @id @default(uuid())
+  question_id  String   @unique
+  title        String
+  body         String
+  tags         String[]
+  author       String
+  state        String   @default("parsed")
+  safety_score Float    @default(1.0)
+  safety_flags String[]
+  bounty       Int      @default(0)
+  views        Int      @default(0)
+  answer_count Int      @default(0)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  answers QuestionAnswer[]
+
+  @@index([state])
+  @@index([author])
+}
+
+model QuestionAnswer {
+  id          String   @id @default(uuid())
+  answer_id   String   @unique
+  question_id String
+  body        String
+  author      String
+  accepted    Boolean  @default(false)
+  upvotes     Int      @default(0)
+  downvotes   Int      @default(0)
+  created_at  DateTime @default(now())
+
+  question Question @relation(fields: [question_id], references: [question_id])
+
+  @@index([question_id])
+  @@index([author])
+}
+
+model Project {
+  id                 String   @id @default(uuid())
+  title              String
+  description        String
+  repo_name          String   @unique
+  status             String   @default("proposed")
+  proposer_id        String
+  tasks              Json     @default("[]")
+  contributions      Json     @default("[]")
+  council_session_id String?
+  created_at         DateTime @default(now())
+
+  @@index([status])
+  @@index([proposer_id])
+}
+
+model ReadingSession {
+  id              String   @id @default(uuid())
+  user_id         String
+  readings        Json     @default("[]")
+  total_questions Int      @default(0)
+  created_at      DateTime @default(now())
+
+  @@index([user_id])
+}
+
+model MemoryNode {
+  id          String    @id @default(uuid())
+  node_id     String
+  key         String
+  value       String
+  confidence  Float     @default(1.0)
+  source      String?
+  created_at  DateTime  @default(now())
+  accessed_at DateTime  @default(now())
+  expires_at  DateTime?
+
+  @@unique([node_id, key])
+  @@index([node_id])
+  @@index([confidence])
+}
+
+model Skill {
+  id           String   @id @default(uuid())
+  skill_id     String   @unique
+  name         String
+  description  String
+  category     String
+  author_id    String
+  status       String   @default("draft")
+  content      String
+  gdi_score    Float    @default(0)
+  review_stage String   @default("L1")
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([status])
+  @@index([category])
+  @@index([author_id])
+}
