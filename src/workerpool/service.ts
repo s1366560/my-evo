@@ -303,3 +303,29 @@ export async function rateSpecialist(
   }
   // WorkerRating storage requires a WorkerRating model — validated above; no-op for MVP
 }
+
+// ---- Worker Task endpoints ----
+
+export async function getMyTasks(
+  workerId: string,
+  status?: string,
+  limit = 20,
+  offset = 0,
+) {
+  const where: Record<string, unknown> = { assigned_to: workerId };
+  if (status) {
+    where.status = status;
+  }
+
+  const [tasks, total] = await Promise.all([
+    prisma.workerTask.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.workerTask.count({ where }),
+  ]);
+
+  return { tasks, total };
+}

@@ -4,6 +4,42 @@ import { ValidationError } from '../shared/errors';
 import * as service from './service';
 
 export async function disputeRoutes(app: FastifyInstance) {
+  // Alias: POST /a2a/dispute/open  (same as POST /api/v2/disputes)
+  app.post('/open', {
+    schema: { tags: ['Disputes'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      type: string;
+      defendant_id: string;
+      title: string;
+      description: string;
+      evidence?: unknown[];
+      related_asset_id?: string;
+      related_bounty_id?: string;
+      filing_fee?: number;
+    };
+
+    if (!body.type || !body.defendant_id || !body.title || !body.description) {
+      throw new ValidationError('type, defendant_id, title, and description are required');
+    }
+
+    const dispute = await service.fileDispute(auth.node_id, {
+      type: body.type,
+      defendant_id: body.defendant_id,
+      title: body.title,
+      description: body.description,
+      evidence: body.evidence ?? [],
+      related_asset_id: body.related_asset_id,
+      related_bounty_id: body.related_bounty_id,
+      filing_fee: body.filing_fee ?? 50,
+    });
+
+    void reply.status(201);
+    return { success: true, data: dispute };
+  });
+
   app.get('/', {
     schema: { tags: ['Disputes'] },
   }, async (request) => {

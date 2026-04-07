@@ -229,6 +229,139 @@ describe('Council Service', () => {
       const result = await service.vote('prop-1', 'node-low', 'approve');
       expect(result.weight).toBe(0.5);
     });
+
+    it('should update proposal status from discussion to voting', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'discussion',
+      });
+      mockPrisma.proposalVote.findUnique.mockResolvedValue(null);
+      mockPrisma.node.findUnique.mockResolvedValue({
+        node_id: 'node-1',
+        reputation: 85,
+      });
+      mockPrisma.proposal.update.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'voting',
+      });
+      mockPrisma.proposalVote.create.mockResolvedValue({
+        voter_id: 'node-1',
+        decision: 'approve',
+        weight: 1.2,
+      });
+
+      await service.vote('prop-1', 'node-1', 'approve');
+
+      expect(mockPrisma.proposal.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { proposal_id: 'prop-1' },
+          data: expect.objectContaining({ status: 'voting' }),
+        }),
+      );
+    });
+
+    it('should throw NotFoundError if voter node does not exist', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'voting',
+      });
+      mockPrisma.proposalVote.findUnique.mockResolvedValue(null);
+      mockPrisma.node.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.vote('prop-1', 'nonexistent', 'approve'),
+      ).rejects.toThrow('Node not found');
+    });
+
+    it('should use multiplier 1.0 for reputation at max boundary of third tier (69)', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'voting',
+      });
+      mockPrisma.proposalVote.findUnique.mockResolvedValue(null);
+      mockPrisma.node.findUnique.mockResolvedValue({
+        node_id: 'node-boundary',
+        reputation: 69,
+      });
+      mockPrisma.proposalVote.create.mockResolvedValue({
+        weight: 1.0,
+      });
+
+      const result = await service.vote('prop-1', 'node-boundary', 'approve');
+      expect(result.weight).toBe(1.0);
+    });
+
+    it('should use multiplier 1.2 for reputation at min boundary of second tier (70)', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'voting',
+      });
+      mockPrisma.proposalVote.findUnique.mockResolvedValue(null);
+      mockPrisma.node.findUnique.mockResolvedValue({
+        node_id: 'node-boundary',
+        reputation: 70,
+      });
+      mockPrisma.proposalVote.create.mockResolvedValue({
+        weight: 1.2,
+      });
+
+      const result = await service.vote('prop-1', 'node-boundary', 'approve');
+      expect(result.weight).toBe(1.2);
+    });
+
+    it('should use multiplier 1.5 for reputation at max boundary of first tier (100)', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'voting',
+      });
+      mockPrisma.proposalVote.findUnique.mockResolvedValue(null);
+      mockPrisma.node.findUnique.mockResolvedValue({
+        node_id: 'node-boundary',
+        reputation: 100,
+      });
+      mockPrisma.proposalVote.create.mockResolvedValue({
+        weight: 1.5,
+      });
+
+      const result = await service.vote('prop-1', 'node-boundary', 'approve');
+      expect(result.weight).toBe(1.5);
+    });
+
+    it('should use multiplier 0.5 for reputation below all tiers (negative)', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'voting',
+      });
+      mockPrisma.proposalVote.findUnique.mockResolvedValue(null);
+      mockPrisma.node.findUnique.mockResolvedValue({
+        node_id: 'node-below',
+        reputation: -5,
+      });
+      mockPrisma.proposalVote.create.mockResolvedValue({
+        weight: 0.5,
+      });
+
+      const result = await service.vote('prop-1', 'node-below', 'approve');
+      expect(result.weight).toBe(0.5);
+    });
+
+    it('should use default multiplier 1.0 for reputation above all tiers', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'voting',
+      });
+      mockPrisma.proposalVote.findUnique.mockResolvedValue(null);
+      mockPrisma.node.findUnique.mockResolvedValue({
+        node_id: 'node-above',
+        reputation: 200,
+      });
+      mockPrisma.proposalVote.create.mockResolvedValue({
+        weight: 1.0,
+      });
+
+      const result = await service.vote('prop-1', 'node-above', 'approve');
+      expect(result.weight).toBe(1.0);
+    });
   });
 
   describe('executeDecision', () => {
@@ -284,6 +417,70 @@ describe('Council Service', () => {
       await expect(
         service.executeDecision('prop-1'),
       ).rejects.toThrow('must be in voting status');
+    });
+
+    it('should reject proposal when votes array is empty (quorum not met)', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'voting',
+        proposer_id: 'node-1',
+        deposit: 50,
+        votes: [],
+      });
+      mockPrisma.node.count.mockResolvedValue(5);
+      mockPrisma.proposal.update.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'rejected',
+      });
+
+      const result = await service.executeDecision('prop-1');
+      expect(result.status).toBe('rejected');
+      expect(mockPrisma.proposal.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            execution_result: expect.stringContaining('Quorum not met'),
+          }),
+        }),
+      );
+    });
+
+    it('should throw NotFoundError if proposal does not exist', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.executeDecision('nonexistent'),
+      ).rejects.toThrow('Proposal not found');
+    });
+
+    it('should return deposit to proposer when approved', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'voting',
+        proposer_id: 'node-1',
+        deposit: 50,
+        votes: [
+          { decision: 'approve', weight: 1.5 },
+        ],
+      });
+      mockPrisma.node.count.mockResolvedValue(2);
+      mockPrisma.proposal.update.mockResolvedValue({
+        proposal_id: 'prop-1',
+        status: 'approved',
+      });
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+
+      await service.executeDecision('prop-1');
+
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            node_id: 'node-1',
+            amount: 50,
+            type: 'proposal_deposit',
+            description: 'Proposal approved - deposit returned',
+          }),
+        }),
+      );
     });
   });
 

@@ -17,16 +17,37 @@ const {
   determineNodeStatus,
   generateClaimCode,
   generateNodeSecret,
+  validateBundle,
+  listAssets,
+  fetchAssets,
+  getHubInfo,
+  registerInDirectory,
+  sendDm,
+  submitReport,
 } = service;
 
 const mockPrisma = {
   node: {
     create: jest.fn(),
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
   },
   creditTransaction: {
+    create: jest.fn(),
+  },
+  asset: {
+    findMany: jest.fn(),
+    count: jest.fn(),
+  },
+  worker: {
+    upsert: jest.fn(),
+  },
+  directMessage: {
+    create: jest.fn(),
+  },
+  dispute: {
     create: jest.fn(),
   },
 } as any;
@@ -293,6 +314,235 @@ describe('A2A Service', () => {
     it('should generate 64 hex characters', () => {
       const secret = generateNodeSecret();
       expect(secret).toMatch(/^[0-9a-f]{64}$/);
+    });
+  });
+
+  // ─── validateBundle ───────────────────────────────────────────────────────
+
+  describe('validateBundle', () => {
+    it('should return valid for a complete bundle', async () => {
+      const result = await validateBundle({
+        assets: [
+          { type: 'Gene', asset_id: 'sha256:abc123' },
+          { type: 'Capsule', asset_id: 'sha256:def456' },
+          { type: 'EvolutionEvent', asset_id: 'sha256:evt789' },
+        ],
+      });
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should return errors when assets array is empty', async () => {
+      const result = await validateBundle({ assets: [] });
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes('empty'))).toBe(true);
+    });
+
+    it('should return errors when Gene is missing', async () => {
+      const result = await validateBundle({
+        assets: [{ type: 'Capsule', asset_id: 'sha256:def456' }],
+      });
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes('Gene'))).toBe(true);
+    });
+
+    it('should warn when EvolutionEvent is missing', async () => {
+      const result = await validateBundle({
+        assets: [
+          { type: 'Gene', asset_id: 'sha256:abc123' },
+          { type: 'Capsule', asset_id: 'sha256:def456' },
+        ],
+      });
+      expect(result.valid).toBe(true);
+      expect(result.warnings.some((w) => w.includes('EvolutionEvent'))).toBe(true);
+    });
+
+    it('should return error for non-sha256 asset_id', async () => {
+      const result = await validateBundle({
+        assets: [
+          { type: 'Gene', asset_id: 'invalid-id' },
+          { type: 'Capsule', asset_id: 'sha256:def456' },
+        ],
+      });
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes('sha256'))).toBe(true);
+    });
+  });
+
+  // ─── listAssets ──────────────────────────────────────────────────────────
+
+  describe('listAssets', () => {
+    it('should return paginated assets', async () => {
+      const mockAssets = [
+        {
+          asset_id: 'gene-1', asset_type: 'Gene', name: 'Retry Gene',
+          description: 'Retry on timeout', status: 'promoted', author_id: 'node-1',
+          gdi_score: 75, downloads: 10, rating: 4.5,
+          signals: ['TimeoutError'], tags: ['repair'],
+          created_at: new Date(), updated_at: new Date(),
+        },
+      ];
+      mockPrisma.asset.findMany.mockResolvedValue(mockAssets);
+      mockPrisma.asset.count.mockResolvedValue(1);
+
+      const result = await listAssets({ limit: 20, offset: 0 });
+      expect(result.total).toBe(1);
+      expect(result.assets).toHaveLength(1);
+      expect(result.assets[0]!.asset_id).toBe('gene-1');
+    });
+
+    it('should filter by status and type', async () => {
+      mockPrisma.asset.findMany.mockResolvedValue([]);
+      mockPrisma.asset.count.mockResolvedValue(0);
+
+      await listAssets({ status: 'promoted', type: 'Gene' });
+      expect(mockPrisma.asset.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: 'promoted', asset_type: 'Gene' }),
+        }),
+      );
+    });
+  });
+
+  // ─── fetchAssets ────────────────────────────────────────────────────────
+
+  describe('fetchAssets', () => {
+    it('should return free search-only results without charging credits', async () => {
+      mockPrisma.asset.findMany.mockResolvedValue([
+        {
+          asset_id: 'gene-1', asset_type: 'Gene', name: 'Test Gene',
+          description: 'Test', status: 'promoted', author_id: 'node-1',
+          gdi_score: 75, downloads: 0, rating: 0,
+          signals: [], tags: [], created_at: new Date(), updated_at: new Date(),
+          content: 'secret code', version: 1, parent_id: null, gene_ids: null, config: null,
+        },
+      ]);
+
+      const result = await fetchAssets('node-1', { asset_ids: ['gene-1'], search_only: true });
+      expect(result.total_cost).toBe(0);
+      const firstAsset = result.assets[0] as Record<string, unknown>;
+      expect(firstAsset?.['asset_id']).toBe('gene-1');
+      expect(firstAsset?.['content']).toBeUndefined(); // search_only strips content
+    });
+
+    it('should charge credits for asset_ids fetch', async () => {
+      mockPrisma.asset.findMany.mockResolvedValue([
+        {
+          asset_id: 'gene-1', asset_type: 'Gene', name: 'Test Gene',
+          description: 'Test', status: 'promoted', author_id: 'node-1',
+          gdi_score: 75, downloads: 0, rating: 0,
+          signals: [], tags: [], created_at: new Date(), updated_at: new Date(),
+          content: 'some content', version: 1, parent_id: null, gene_ids: null, config: null,
+        },
+      ]);
+      mockPrisma.node.findUnique.mockResolvedValue({ credit_balance: 100 });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+
+      const result = await fetchAssets('node-1', { asset_ids: ['gene-1'] });
+      expect(result.total_cost).toBe(1);
+      expect(mockPrisma.node.update).toHaveBeenCalled();
+    });
+
+    it('should throw when insufficient credits', async () => {
+      mockPrisma.asset.findMany.mockResolvedValue([
+        {
+          asset_id: 'gene-1', asset_type: 'Gene', name: 'Test',
+          description: 'Test', status: 'promoted', author_id: 'node-1',
+          gdi_score: 75, downloads: 0, rating: 0,
+          signals: [], tags: [], created_at: new Date(), updated_at: new Date(),
+          content: 'x', version: 1, parent_id: null, gene_ids: null, config: null,
+        },
+      ]);
+      mockPrisma.node.findUnique.mockResolvedValue({ credit_balance: 0 });
+
+      await expect(fetchAssets('node-1', { asset_ids: ['gene-1'] }))
+        .rejects.toThrow('Insufficient credits');
+    });
+
+    it('should return empty array when no asset_ids', async () => {
+      const result = await fetchAssets('node-1', {});
+      expect(result.assets).toHaveLength(0);
+      expect(result.total_cost).toBe(0);
+    });
+  });
+
+  // ─── getHubInfo ──────────────────────────────────────────────────────────
+
+  describe('getHubInfo', () => {
+    it('should return hub info with available commands', async () => {
+      mockPrisma.node.findMany.mockResolvedValue([]);
+      const info = await getHubInfo();
+      expect(info.protocol).toBe('gep-a2a');
+      expect(info.protocol_version).toBe('1.0.0');
+      expect(info.available_commands).toContain('hello');
+      expect(info.available_commands).toContain('validate');
+      expect(info.available_commands).toContain('fetch');
+    });
+  });
+
+  // ─── registerInDirectory ──────────────────────────────────────────────────
+
+  describe('registerInDirectory', () => {
+    it('should register node in directory via upsert', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue({
+        node_id: 'node-1', model: 'GPT-4', reputation: 60, status: 'alive',
+      });
+      mockPrisma.worker.upsert.mockResolvedValue({});
+
+      const result = await registerInDirectory('node-1', ['javascript', 'repair']);
+      expect(result.node_id).toBe('node-1');
+      expect(result.specialties).toEqual(['javascript', 'repair']);
+      expect(mockPrisma.worker.upsert).toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundError for unknown node', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue(null);
+      await expect(registerInDirectory('unknown', [])).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  // ─── sendDm ────────────────────────────────────────────────────────────
+
+  describe('sendDm', () => {
+    it('should create a direct message', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue({});
+      mockPrisma.directMessage.create.mockResolvedValue({
+        dm_id: 'dm-1', from_id: 'node-1', to_id: 'node-2',
+        created_at: new Date(),
+      });
+
+      const result = await sendDm('node-1', 'node-2', 'Hello!');
+      expect(result.dm_id).toBe('dm-1');
+    });
+
+    it('should throw ValidationError for empty content', async () => {
+      await expect(sendDm('node-1', 'node-2', '')).rejects.toThrow(ValidationError);
+    });
+
+    it('should throw NotFoundError when sender not found', async () => {
+      mockPrisma.node.findUnique.mockResolvedValueOnce(null);
+      await expect(sendDm('unknown', 'node-2', 'Hi')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  // ─── submitReport ───────────────────────────────────────────────────────
+
+  describe('submitReport', () => {
+    it('should create a dispute record for the report', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1' });
+      mockPrisma.dispute.create.mockResolvedValue({
+        dispute_id: 'report-1', filed_at: new Date(),
+      });
+
+      const result = await submitReport('node-1', 'node-2', 'spam');
+      expect(result.report_id).toBe('report-1');
+      expect(result.reason).toBe('spam');
+    });
+
+    it('should throw NotFoundError when reporter not found', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue(null);
+      await expect(submitReport('unknown', 'node-2', 'spam')).rejects.toThrow(NotFoundError);
     });
   });
 });

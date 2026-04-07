@@ -5,6 +5,7 @@ export const configSchema = z.object({
   // Server
   port: z.coerce.number().int().min(1).max(65535).default(3001),
   host: z.string().default('0.0.0.0'),
+  baseUrl: z.string().default('http://localhost:3001'),
   logLevel: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
   // Database — individual params (preferred) OR full DATABASE_URL
@@ -86,6 +87,7 @@ function load(): Config {
     port: env('PORT', '3000'),
     host: env('HOST', '0.0.0.0'),
     logLevel: env('LOG_LEVEL', 'info'),
+    baseUrl: env('BASE_URL', 'http://localhost:3001'),
     databaseUrl: buildDatabaseUrl({
       DATABASE_URL: process.env['DATABASE_URL'] ?? '',
       POSTGRES_HOST: env('POSTGRES_HOST', 'localhost'),

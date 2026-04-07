@@ -824,6 +824,12 @@ describe('Recipe Service Entry', () => {
 
       await expect(service.updateRecipe('r-1', 'node-1', { title: 'x' })).rejects.toThrow(ValidationError);
     });
+
+    it('should throw NotFoundError when recipe not found', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(null);
+
+      await expect(service.updateRecipe('nonexistent', 'node-1', { title: 'x' })).rejects.toThrow(NotFoundError);
+    });
   });
 
   describe('publishRecipe', () => {
@@ -841,6 +847,18 @@ describe('Recipe Service Entry', () => {
 
       await expect(service.publishRecipe('r-1', 'node-2')).rejects.toThrow(ForbiddenError);
     });
+
+    it('should throw NotFoundError when recipe not found', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(null);
+
+      await expect(service.publishRecipe('nonexistent', 'node-1')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw ValidationError when recipe is not draft', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'r-1', author_id: 'node-1', status: 'published' });
+
+      await expect(service.publishRecipe('r-1', 'node-1')).rejects.toThrow(ValidationError);
+    });
   });
 
   describe('deleteRecipe', () => {
@@ -857,6 +875,18 @@ describe('Recipe Service Entry', () => {
 
       await expect(service.deleteRecipe('r-1', 'node-2')).rejects.toThrow(ForbiddenError);
     });
+
+    it('should throw NotFoundError when recipe not found', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(null);
+
+      await expect(service.deleteRecipe('nonexistent', 'node-1')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw ValidationError when recipe is not draft', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'r-1', author_id: 'node-1', status: 'published' });
+
+      await expect(service.deleteRecipe('r-1', 'node-1')).rejects.toThrow(ValidationError);
+    });
   });
 
   describe('listOrganisms', () => {
@@ -867,6 +897,12 @@ describe('Recipe Service Entry', () => {
       const result = await service.listOrganisms('r-1');
 
       expect(result).toHaveLength(1);
+    });
+
+    it('should throw NotFoundError when recipe not found', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(null);
+
+      await expect(service.listOrganisms('nonexistent')).rejects.toThrow(NotFoundError);
     });
   });
 
@@ -885,6 +921,18 @@ describe('Recipe Service Entry', () => {
 
       await expect(service.createOrganism('r-1', 'node-1', [], 3600)).rejects.toThrow(ValidationError);
     });
+
+    it('should throw NotFoundError when recipe not found', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(null);
+
+      await expect(service.createOrganism('nonexistent', 'node-1', [], 3600)).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw ForbiddenError when node is not author', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'r-1', status: 'published', author_id: 'node-1' });
+
+      await expect(service.createOrganism('r-1', 'node-2', [], 3600)).rejects.toThrow(ForbiddenError);
+    });
   });
 
   describe('getOrganism', () => {
@@ -894,6 +942,134 @@ describe('Recipe Service Entry', () => {
       const result = await service.getOrganism('org-1');
 
       expect(result?.organism_id).toBe('org-1');
+    });
+
+    it('should throw NotFoundError when organism not found', async () => {
+      mockPrisma.organism.findUnique.mockResolvedValue(null);
+
+      await expect(service.getOrganism('nonexistent')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('executeOrganism', () => {
+    it('should execute alive organism and complete when all genes expressed', async () => {
+      mockPrisma.organism.findUnique.mockResolvedValue({
+        organism_id: 'org-1',
+        recipe_id: 'recipe-1',
+        status: 'alive',
+        genes_expressed: 2,
+        genes_total_count: 3,
+        current_position: 2,
+      });
+      mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'recipe-1', status: 'published' });
+      mockPrisma.organism.update.mockResolvedValue({
+        organism_id: 'org-1',
+        recipe_id: 'recipe-1',
+        status: 'completed',
+        genes_expressed: 3,
+        genes_total_count: 3,
+        current_position: 3,
+      });
+
+      const result = await service.executeOrganism('org-1', { input: 'test' });
+
+      expect(result.result.status).toBe('completed');
+      expect(result.genes_expressed).toBe(3);
+    });
+
+    it('should execute alive organism and remain running when not complete', async () => {
+      mockPrisma.organism.findUnique.mockResolvedValue({
+        organism_id: 'org-1',
+        recipe_id: 'recipe-1',
+        status: 'alive',
+        genes_expressed: 1,
+        genes_total_count: 3,
+        current_position: 1,
+      });
+      mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'recipe-1', status: 'published' });
+      mockPrisma.organism.update.mockResolvedValue({
+        organism_id: 'org-1',
+        recipe_id: 'recipe-1',
+        status: 'running',
+        genes_expressed: 2,
+        genes_total_count: 3,
+        current_position: 2,
+      });
+
+      const result = await service.executeOrganism('org-1');
+
+      expect(result.result.status).toBe('running');
+      expect(result.genes_expressed).toBe(2);
+    });
+
+    it('should throw NotFoundError when organism not found', async () => {
+      mockPrisma.organism.findUnique.mockResolvedValue(null);
+
+      await expect(service.executeOrganism('nonexistent')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw ValidationError when organism is completed', async () => {
+      mockPrisma.organism.findUnique.mockResolvedValue({
+        organism_id: 'org-1',
+        recipe_id: 'recipe-1',
+        status: 'completed',
+        genes_expressed: 3,
+        genes_total_count: 3,
+        current_position: 3,
+      });
+
+      await expect(service.executeOrganism('org-1')).rejects.toThrow('already been executed');
+    });
+
+    it('should throw ValidationError when organism has failed', async () => {
+      mockPrisma.organism.findUnique.mockResolvedValue({
+        organism_id: 'org-1',
+        recipe_id: 'recipe-1',
+        status: 'failed',
+        genes_expressed: 1,
+        genes_total_count: 3,
+        current_position: 1,
+      });
+
+      await expect(service.executeOrganism('org-1')).rejects.toThrow('has failed');
+    });
+
+    it('should throw NotFoundError when recipe not found', async () => {
+      mockPrisma.organism.findUnique.mockResolvedValue({
+        organism_id: 'org-1',
+        recipe_id: 'recipe-1',
+        status: 'alive',
+        genes_expressed: 0,
+        genes_total_count: 3,
+        current_position: 0,
+      });
+      mockPrisma.recipe.findUnique.mockResolvedValue(null);
+
+      await expect(service.executeOrganism('org-1')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should return null inputs when no inputs provided', async () => {
+      mockPrisma.organism.findUnique.mockResolvedValue({
+        organism_id: 'org-1',
+        recipe_id: 'recipe-1',
+        status: 'alive',
+        genes_expressed: 2,
+        genes_total_count: 3,
+        current_position: 2,
+      });
+      mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'recipe-1', status: 'published' });
+      mockPrisma.organism.update.mockResolvedValue({
+        organism_id: 'org-1',
+        recipe_id: 'recipe-1',
+        status: 'completed',
+        genes_expressed: 3,
+        genes_total_count: 3,
+        current_position: 3,
+      });
+
+      const result = await service.executeOrganism('org-1');
+
+      expect(result.result.inputs).toBeNull();
     });
   });
 });

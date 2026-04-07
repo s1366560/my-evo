@@ -24,6 +24,15 @@ const mockPrisma = {
     findMany: jest.fn(),
     create: jest.fn(),
   },
+  taskSubmission: {
+    create: jest.fn(),
+    findFirst: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
+  },
+  asset: {
+    findUnique: jest.fn(),
+  },
 } as any;
 
 describe('Task Service', () => {

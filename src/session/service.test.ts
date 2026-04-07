@@ -215,6 +215,14 @@ describe('Session Service', () => {
         service.leaveSession('session-1', 'node-unknown'),
       ).rejects.toThrow('not in this session');
     });
+
+    it('should throw NotFoundError when session does not exist', async () => {
+      mockPrisma.collaborationSession.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.leaveSession('nonexistent', 'node-1'),
+      ).rejects.toThrow('Session not found');
+    });
   });
 
   describe('sendMessage', () => {
@@ -256,6 +264,65 @@ describe('Session Service', () => {
       );
     });
 
+    it('should increment sender clock to 1 when senderId not in vector_clock', async () => {
+      const session = makeSession({
+        members: [
+          { node_id: 'node-1', role: 'organizer', is_active: true, joined_at: '', last_heartbeat: '' },
+          { node_id: 'node-2', role: 'participant', is_active: true, joined_at: '', last_heartbeat: '' },
+        ],
+        vector_clock: { 'node-1': 5 },
+      });
+      mockPrisma.collaborationSession.findUnique.mockResolvedValue(session);
+      mockPrisma.collaborationSession.update.mockResolvedValue(session);
+
+      await service.sendMessage('session-1', 'node-2', 'query', 'msg');
+
+      expect(mockPrisma.collaborationSession.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            vector_clock: { 'node-1': 5, 'node-2': 1 },
+          }),
+        }),
+      );
+    });
+
+    it('should handle null vector_clock by defaulting to empty object', async () => {
+      const session = makeSession({
+        vector_clock: null as unknown as Record<string, number>,
+      });
+      mockPrisma.collaborationSession.findUnique.mockResolvedValue(session);
+      mockPrisma.collaborationSession.update.mockResolvedValue(session);
+
+      const result = await service.sendMessage('session-1', 'node-1', 'query', 'msg');
+
+      expect(result.message).toBeDefined();
+      expect(mockPrisma.collaborationSession.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            vector_clock: { 'node-1': 1 },
+          }),
+        }),
+      );
+    });
+
+    it('should throw NotFoundError when session does not exist', async () => {
+      mockPrisma.collaborationSession.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.sendMessage('nonexistent', 'node-1', 'query', 'msg'),
+      ).rejects.toThrow('Session not found');
+    });
+
+    it('should reject message when session is not active', async () => {
+      mockPrisma.collaborationSession.findUnique.mockResolvedValue(
+        makeSession({ status: 'completed' }),
+      );
+
+      await expect(
+        service.sendMessage('session-1', 'node-1', 'query', 'msg'),
+      ).rejects.toThrow('Session is not active');
+    });
+
     it('should reject message from non-member', async () => {
       mockPrisma.collaborationSession.findUnique.mockResolvedValue(
         makeSession(),
@@ -282,6 +349,26 @@ describe('Session Service', () => {
 
       expect(result.proposal).toBeDefined();
       expect(result.proposal.proposer_id).toBe('node-1');
+      expect(result.proposal.type).toBe('merge');
+      expect(result.proposal.content).toBe('Merge strategy A');
+    });
+
+    it('should throw NotFoundError when session does not exist', async () => {
+      mockPrisma.collaborationSession.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.proposeConsensus('nonexistent', 'node-1', 'merge', 'strategy'),
+      ).rejects.toThrow('Session not found');
+    });
+
+    it('should reject proposal when session is not active', async () => {
+      mockPrisma.collaborationSession.findUnique.mockResolvedValue(
+        makeSession({ status: 'cancelled' }),
+      );
+
+      await expect(
+        service.proposeConsensus('session-1', 'node-1', 'merge', 'strategy'),
+      ).rejects.toThrow('Session is not active');
     });
 
     it('should reject proposal from non-member', async () => {
@@ -324,6 +411,14 @@ describe('Session Service', () => {
         service.voteConsensus('session-1', 'p1', 'node-outsider', 'approve'),
       ).rejects.toThrow('Only session members');
     });
+
+    it('should throw NotFoundError when session does not exist', async () => {
+      mockPrisma.collaborationSession.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.voteConsensus('nonexistent', 'p1', 'node-1', 'approve'),
+      ).rejects.toThrow('Session not found');
+    });
   });
 
   describe('heartbeat', () => {
@@ -354,6 +449,14 @@ describe('Session Service', () => {
       await expect(
         service.heartbeat('session-1', 'node-1'),
       ).rejects.toThrow('Session is not active');
+    });
+
+    it('should throw NotFoundError when session does not exist', async () => {
+      mockPrisma.collaborationSession.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.heartbeat('nonexistent', 'node-1'),
+      ).rejects.toThrow('Session not found');
     });
   });
 

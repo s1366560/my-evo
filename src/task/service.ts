@@ -5,7 +5,7 @@ import { NotFoundError, ValidationError } from '../shared/errors';
 let prisma = new PrismaClient();
 
 export function setPrisma(client: PrismaClient): void {
-  prisma = client;
+  (prisma as unknown) = client;
 }
 
 export interface ProjectTaskOutput {
@@ -37,7 +37,7 @@ export interface ProjectContributionOutput {
 
 export async function listTasks(projectId: string): Promise<ProjectTaskOutput[]> {
   const tasks = await prisma.projectTask.findMany({
-    where: { project_id: projectId },
+    where: projectId !== '__all__' ? { project_id: projectId } : undefined,
     orderBy: { created_at: 'asc' },
   });
   return tasks.map(mapTask);
@@ -171,6 +171,131 @@ export async function submitContribution(
   return mapContribution(contribution);
 }
 
+// ---- Task release ----
+
+export async function releaseTask(
+  projectId: string,
+  taskId: string,
+  nodeId: string,
+): Promise<ProjectTaskOutput> {
+  const task = await prisma.projectTask.findFirst({
+    where: { task_id: taskId, project_id: projectId },
+  });
+  if (!task) {
+    throw new NotFoundError('Task', taskId);
+  }
+  if (task.assignee_id !== nodeId) {
+    throw new ValidationError('Only the assignee can release this task');
+  }
+  const updated = await prisma.projectTask.update({
+    where: { id: task.id },
+    data: { assignee_id: null, status: 'open' },
+  });
+  return mapTask(updated);
+}
+
+// ---- Submissions ----
+
+export interface SubmissionOutput {
+  id: string;
+  submission_id: string;
+  task_id: string;
+  submitter_id: string;
+  asset_id: string | null;
+  node_id: string | null;
+  status: string;
+  created_at: string;
+}
+
+export async function submitTaskAnswer(
+  taskId: string,
+  nodeId: string,
+  assetId?: string,
+  submitterNodeId?: string,
+): Promise<SubmissionOutput> {
+  const parts = taskId.split(':');
+  if (parts.length !== 2) {
+    throw new ValidationError('Invalid taskId format, expected projectId:taskId');
+  }
+  const [projectId, tId] = parts;
+  if (!tId) {
+    throw new ValidationError('Invalid taskId format, expected projectId:taskId');
+  }
+  const task = await prisma.projectTask.findFirst({
+    where: { task_id: tId, project_id: projectId },
+  });
+  if (!task) {
+    throw new NotFoundError('Task', tId);
+  }
+  const submissionId = crypto.randomUUID();
+  const submission = await prisma.taskSubmission.create({
+    data: {
+      submission_id: submissionId,
+      task_id: tId,
+      submitter_id: nodeId,
+      asset_id: assetId ?? null,
+      node_id: submitterNodeId ?? null,
+      status: 'pending',
+    },
+  });
+  return mapSubmission(submission);
+}
+
+export async function acceptSubmission(
+  taskId: string,
+  submissionId: string,
+): Promise<SubmissionOutput> {
+  const parts = taskId.split(':');
+  if (parts.length !== 2) {
+    throw new ValidationError('Invalid taskId format, expected projectId:taskId');
+  }
+  const [, tId] = parts;
+  const submission = await prisma.taskSubmission.findFirst({
+    where: { submission_id: submissionId, task_id: tId },
+  });
+  if (!submission) {
+    throw new NotFoundError('Submission', submissionId);
+  }
+  const updated = await prisma.taskSubmission.update({
+    where: { id: submission.id },
+    data: { status: 'accepted' },
+  });
+  return mapSubmission(updated);
+}
+
+export async function getSubmissions(taskId: string): Promise<SubmissionOutput[]> {
+  const parts = taskId.split(':');
+  if (parts.length !== 2) {
+    throw new ValidationError('Invalid taskId format, expected projectId:taskId');
+  }
+  const [, tId] = parts;
+  const submissions = await prisma.taskSubmission.findMany({
+    where: { task_id: tId },
+  });
+  return submissions.map(mapSubmission);
+}
+
+// ---- Eligible count ----
+
+export async function getEligibleNodeCount(minReputation?: number): Promise<number> {
+  const where: Record<string, unknown> = {};
+  if (minReputation !== undefined) {
+    where.reputation = { gte: minReputation };
+  }
+  const count = await prisma.node.count({ where });
+  return count;
+}
+
+// ---- Asset lookup ----
+
+export async function getAssetById(assetId: string): Promise<{ asset_id: string } | null> {
+  const asset = await prisma.asset.findUnique({
+    where: { asset_id: assetId },
+    select: { asset_id: true },
+  });
+  return asset;
+}
+
 // ---- Mappers ----
 
 function mapTask(t: {
@@ -220,5 +345,27 @@ function mapContribution(c: {
     reviewed_by: c.reviewed_by,
     created_at: c.created_at.toISOString(),
     reviewed_at: c.reviewed_at ? c.reviewed_at.toISOString() : null,
+  };
+}
+
+function mapSubmission(s: {
+  id: string;
+  submission_id: string;
+  task_id: string;
+  submitter_id: string;
+  asset_id: string | null;
+  node_id: string | null;
+  status: string;
+  created_at: Date;
+}): SubmissionOutput {
+  return {
+    id: s.id,
+    submission_id: s.submission_id,
+    task_id: s.task_id,
+    submitter_id: s.submitter_id,
+    asset_id: s.asset_id,
+    node_id: s.node_id,
+    status: s.status,
+    created_at: s.created_at.toISOString(),
   };
 }

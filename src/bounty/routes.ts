@@ -4,6 +4,37 @@ import { EvoMapError } from '../shared/errors';
 import * as service from './service';
 
 export async function bountyRoutes(app: FastifyInstance) {
+  // Alias: POST /a2a/ask  (same as POST /api/v2/bounty)
+  app.post('/ask', {
+    schema: { tags: ['Bounty'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      title: string;
+      description: string;
+      requirements: string[];
+      amount: number;
+      deadline: string;
+    };
+
+    if (!body.title || !body.description || !body.amount || !body.deadline) {
+      throw new EvoMapError('title, description, amount, and deadline are required', 'VALIDATION_ERROR', 400);
+    }
+
+    const bounty = await service.createBounty(
+      auth.node_id,
+      body.title,
+      body.description,
+      body.requirements ?? [],
+      body.amount,
+      body.deadline,
+    );
+
+    void reply.status(201);
+    return { success: true, data: bounty };
+  });
+
   app.post('/', {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
@@ -168,6 +199,32 @@ export async function bountyRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { bountyId: string };
     const bounty = await service.getBounty(params.bountyId);
+    return { success: true, data: bounty };
+  });
+
+  app.get('/my', {
+    schema: { tags: ['Bounty'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const result = await service.listBountiesByCreator(auth.node_id);
+    return {
+      success: true,
+      data: result.bounties,
+      meta: { total: result.total },
+    };
+  });
+
+  app.post('/:bountyId/accept', {
+    schema: { tags: ['Bounty'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const params = request.params as { bountyId: string };
+    const body = request.body as { bid_id?: string };
+    if (!body.bid_id) {
+      throw new EvoMapError('bid_id is required', 'VALIDATION_ERROR', 400);
+    }
+    const bounty = await service.acceptBid(params.bountyId, body.bid_id);
     return { success: true, data: bounty };
   });
 }

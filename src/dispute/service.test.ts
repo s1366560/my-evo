@@ -15,6 +15,7 @@ const mockPrisma = {
   },
   appeal: {
     findUnique: jest.fn(),
+    findMany: jest.fn(),
     count: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
@@ -228,6 +229,293 @@ describe('Dispute Service', () => {
       mockPrisma.dispute.findUnique.mockResolvedValue(null);
 
       await expect(service.autoGenerateRuling('unknown')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('selectAndAssignArbitrators', () => {
+    it('should select and assign arbitrators to dispute', async () => {
+      const mockDispute = {
+        dispute_id: 'dsp_sel',
+        plaintiff_id: 'plaintiff-1',
+        defendant_id: 'defendant-1',
+        severity: 'high',
+        arbitrators: [],
+        status: 'filed',
+      };
+
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+      mockPrisma.node.findMany.mockResolvedValue(
+        Array.from({ length: 10 }, (_, i) => ({
+          node_id: `arb-node-${i}`,
+          reputation: 80,
+          trust_level: 'trusted',
+          status: 'registered',
+        })),
+      );
+      mockPrisma.dispute.update.mockResolvedValue({
+        ...mockDispute,
+        arbitrators: ['arb-node-0', 'arb-node-1', 'arb-node-2', 'arb-node-3', 'arb-node-4'],
+        status: 'under_review',
+      });
+
+      const result = await service.selectAndAssignArbitrators('dsp_sel');
+
+      expect(result).toHaveLength(5);
+      expect(mockPrisma.dispute.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { dispute_id: 'dsp_sel' },
+          data: expect.objectContaining({ status: 'under_review' }),
+        }),
+      );
+    });
+
+    it('should throw NotFoundError for unknown dispute', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue(null);
+
+      await expect(service.selectAndAssignArbitrators('unknown')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('issueRuling', () => {
+    it('should issue a ruling and set resolved_at when status is resolved', async () => {
+      const mockDispute = {
+        dispute_id: 'dsp_issue',
+        status: 'under_review',
+        hearing_started_at: new Date(),
+      };
+
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+      mockPrisma.dispute.update.mockResolvedValue({
+        ...mockDispute,
+        status: 'resolved',
+        ruling: { verdict: 'plaintiff_wins' },
+      });
+
+      const result = await service.issueRuling('dsp_issue', { verdict: 'plaintiff_wins' }, 'resolved');
+
+      expect(result.status).toBe('resolved');
+      expect(mockPrisma.dispute.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            resolved_at: expect.any(Date),
+          }),
+        }),
+      );
+    });
+
+    it('should issue a ruling without resolved_at when status is not resolved', async () => {
+      const mockDispute = {
+        dispute_id: 'dsp_issue2',
+        status: 'under_review',
+        hearing_started_at: null,
+      };
+
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+      mockPrisma.dispute.update.mockResolvedValue({
+        ...mockDispute,
+        status: 'under_review',
+        ruling: { verdict: 'in_progress' },
+      });
+
+      const result = await service.issueRuling('dsp_issue2', { verdict: 'in_progress' }, 'under_review');
+
+      expect(result.status).toBe('under_review');
+    });
+
+    it('should throw NotFoundError for unknown dispute', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue(null);
+
+      await expect(service.issueRuling('unknown', {}, 'resolved')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('validateEvidence', () => {
+    it('should return valid=false for missing evidence', async () => {
+      mockPrisma.dispute.findFirst.mockResolvedValue(null);
+
+      const result = await service.validateEvidence('evd_unknown');
+
+      expect(result.valid).toBe(false);
+      expect(result.issues).toContain('Evidence record not found');
+    });
+  });
+
+  describe('scoreEvidence', () => {
+    it('should return 0 for dispute with no evidence', async () => {
+      const mockDispute = { dispute_id: 'dsp_noev', evidence: [] };
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+
+      const result = await service.scoreEvidence('dsp_noev');
+
+      expect(result).toBe(0);
+    });
+
+    it('should calculate score from evidence', async () => {
+      const mockDispute = {
+        dispute_id: 'dsp_ev',
+        evidence: [
+          {
+            evidence_id: 'evd_1',
+            type: 'transaction_record',
+            content: 'Transfer confirmed',
+            hash: 'sha256:abc123',
+            verified: true,
+            submitted_at: new Date().toISOString(),
+            submitted_by: 'node-1',
+          },
+        ],
+      };
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+      mockPrisma.dispute.findFirst.mockResolvedValue(mockDispute);
+
+      const result = await service.scoreEvidence('dsp_ev');
+
+      expect(result).toBeGreaterThan(0);
+      expect(result).toBeLessThanOrEqual(1);
+    });
+
+    it('should return 0 for unknown dispute', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue(null);
+
+      const result = await service.scoreEvidence('unknown');
+
+      expect(result).toBe(0);
+    });
+  });
+
+  describe('detectEvidenceTampering', () => {
+    it('should throw NotFoundError when no dispute with evidence exists', async () => {
+      mockPrisma.dispute.findFirst.mockResolvedValue(null);
+
+      await expect(service.detectEvidenceTampering('evd_any')).rejects.toThrow('not found');
+    });
+
+    it('should throw NotFoundError when evidence not found in dispute', async () => {
+      mockPrisma.dispute.findFirst.mockResolvedValue({
+        dispute_id: 'dsp_found',
+        evidence: [
+          {
+            evidence_id: 'evd_other',
+            type: 'screenshot',
+            content: 'Some content',
+            hash: 'sha256:abc',
+            verified: false,
+            submitted_at: new Date().toISOString(),
+            submitted_by: 'node-1',
+          },
+        ],
+      });
+
+      await expect(service.detectEvidenceTampering('evd_missing')).rejects.toThrow('not found');
+    });
+
+    it('should detect tampering when hash mismatches', async () => {
+      mockPrisma.dispute.findFirst.mockResolvedValue({
+        dispute_id: 'dsp_found',
+        evidence: [
+          {
+            evidence_id: 'evd_tampered',
+            type: 'screenshot',
+            content: 'Original content here',
+            hash: 'sha256:wronghash',
+            verified: false,
+            submitted_at: new Date().toISOString(),
+            submitted_by: 'node-1',
+          },
+        ],
+      });
+
+      const result = await service.detectEvidenceTampering('evd_tampered');
+
+      expect(result.tampered).toBe(true);
+      expect(result.confidence).toBe(0.8);
+    });
+  });
+
+  describe('listAppeals', () => {
+    it('should return appeals for a dispute', async () => {
+      const appeals = [
+        { appeal_id: 'apl_1', original_dispute_id: 'dsp_1', status: 'filed' },
+        { appeal_id: 'apl_2', original_dispute_id: 'dsp_1', status: 'accepted' },
+      ];
+      mockPrisma.appeal.findMany.mockResolvedValue(appeals);
+
+      const result = await service.listAppeals('dsp_1');
+
+      expect(result).toHaveLength(2);
+      expect(mockPrisma.appeal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { original_dispute_id: 'dsp_1' } }),
+      );
+    });
+  });
+
+  describe('processAppealDecision', () => {
+    it('should process accepted appeal and re-select arbitrators', async () => {
+      const mockAppeal = {
+        appeal_id: 'apl_proc',
+        original_dispute_id: 'dsp_proc',
+        appellant_id: 'node-app',
+        grounds: 'New evidence',
+        status: 'accepted',
+        new_evidence: [{ test: 'ev' }],
+      };
+      const mockDispute = {
+        dispute_id: 'dsp_proc',
+        plaintiff_id: 'p',
+        defendant_id: 'd',
+        severity: 'medium',
+      };
+
+      mockPrisma.appeal.findUnique.mockResolvedValue(mockAppeal);
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+      mockPrisma.dispute.update.mockResolvedValue({ ...mockDispute, status: 'under_review' });
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'arb-1', reputation: 80, trust_level: 'trusted', status: 'registered' },
+        { node_id: 'arb-2', reputation: 75, trust_level: 'trusted', status: 'registered' },
+      ]);
+
+      await expect(service.processAppealDecision('apl_proc')).resolves.not.toThrow();
+      expect(mockPrisma.dispute.update).toHaveBeenCalled();
+    });
+
+    it('should process rejected appeal without changing dispute', async () => {
+      const mockAppeal = {
+        appeal_id: 'apl_rej',
+        original_dispute_id: 'dsp_rej',
+        appellant_id: 'node-app',
+        grounds: 'Short',
+        status: 'rejected',
+        new_evidence: [],
+      };
+
+      mockPrisma.appeal.findUnique.mockResolvedValue(mockAppeal);
+
+      await expect(service.processAppealDecision('apl_rej')).resolves.not.toThrow();
+      expect(mockPrisma.dispute.update).not.toHaveBeenCalled();
+    });
+
+    it('should throw when appeal not found', async () => {
+      mockPrisma.appeal.findUnique.mockResolvedValue(null);
+
+      await expect(service.processAppealDecision('unknown')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('escalateDisputeToCouncil', () => {
+    it('should escalate dispute and return council session id', async () => {
+      const mockDispute = { dispute_id: 'dsp_esc', status: 'hearing' };
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+      mockPrisma.dispute.update.mockResolvedValue({ ...mockDispute, status: 'escalated' });
+
+      const result = await service.escalateDisputeToCouncil('dsp_esc');
+
+      expect(result.council_session_id).toMatch(/^cns_/);
+    });
+
+    it('should throw NotFoundError for unknown dispute', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue(null);
+
+      await expect(service.escalateDisputeToCouncil('unknown')).rejects.toThrow('not found');
     });
   });
 });

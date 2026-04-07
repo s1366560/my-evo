@@ -631,10 +631,20 @@ const mockMGPrisma = {
     findMany: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
     upsert: jest.fn(),
     count: jest.fn(),
   },
   memoryGraphEdge: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn(),
+    count: jest.fn(),
+  },
+  capabilityChain: {
     findUnique: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
@@ -782,6 +792,941 @@ describe('MemoryGraph Service Entry', () => {
     it('should throw ValidationError for missing fields', async () => {
       await expect(service.upsertGraphNode('', 'gene', 'label'))
         .rejects.toThrow(ValidationError);
+      await expect(service.upsertGraphNode('id', '', 'label'))
+        .rejects.toThrow(ValidationError);
+      await expect(service.upsertGraphNode('id', 'gene', ''))
+        .rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe('triggerDecay', () => {
+    it('should throw NotFoundError for nonexistent node', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue(null);
+      await expect(service.triggerDecay('nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should compute and update confidence decay', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.8, positive: 5, negative: 1,
+        updated_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      } as any);
+      mockMGPrisma.memoryGraphNode.update.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.7,
+      } as any);
+
+      const result = await service.triggerDecay('node-1');
+
+      expect(result.node).toBeDefined();
+      expect(result.decay).toBeDefined();
+      expect(result.decay.grade).toBeDefined();
+    });
+
+    it('should use custom decay params', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.8, positive: 5, negative: 1,
+        updated_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      } as any);
+      mockMGPrisma.memoryGraphNode.update.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.5,
+      } as any);
+
+      const result = await service.triggerDecay('node-1', { lambda: 0.05 });
+      expect(result.node).toBeDefined();
+    });
+  });
+
+  describe('applyPositiveSignal', () => {
+    it('should throw NotFoundError for nonexistent node', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue(null);
+      await expect(service.applyPositiveSignal('nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should apply positive signal and update confidence', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.8, positive: 5, negative: 0,
+        usage_count: 10, updated_at: new Date(),
+      } as any);
+      mockMGPrisma.memoryGraphNode.update.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.85, positive: 6, usage_count: 11,
+      } as any);
+
+      const result = await service.applyPositiveSignal('node-1', 1);
+
+      expect(result.positive).toBe(6);
+      expect(result.usage_count).toBe(11);
+    });
+
+    it('should apply custom amount', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.8, positive: 5, negative: 0,
+        usage_count: 10, updated_at: new Date(),
+      } as any);
+      mockMGPrisma.memoryGraphNode.update.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.9, positive: 15, usage_count: 20,
+      } as any);
+
+      const result = await service.applyPositiveSignal('node-1', 10);
+      expect(result.positive).toBe(15);
+      expect(result.usage_count).toBe(20);
+    });
+  });
+
+  describe('applyNegativeSignal', () => {
+    it('should throw NotFoundError for nonexistent node', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue(null);
+      await expect(service.applyNegativeSignal('nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should apply negative signal and decrease confidence', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.8, positive: 5, negative: 0,
+        usage_count: 10, updated_at: new Date(),
+      } as any);
+      mockMGPrisma.memoryGraphNode.update.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.7, negative: 3,
+      } as any);
+
+      const result = await service.applyNegativeSignal('node-1', 3);
+
+      expect(result.negative).toBe(3);
+    });
+  });
+
+  describe('getConfidenceRecord', () => {
+    it('should throw NotFoundError for nonexistent node', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue(null);
+      await expect(service.getConfidenceRecord('nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should return confidence record', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.75, positive: 10, negative: 2,
+        updated_at: new Date(),
+      } as any);
+
+      const result = await service.getConfidenceRecord('node-1');
+
+      expect(result.asset_id).toBe('node-1');
+      expect(result.current).toBe(0.75);
+      expect(result.positive_signals).toBe(10);
+      expect(result.negative_signals).toBe(2);
+      expect(result.grade).toBeDefined();
+      expect(result.history).toEqual([]);
+    });
+  });
+
+  describe('getConfidenceStats', () => {
+    it('should return zeros when no nodes exist', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+
+      const result = await service.getConfidenceStats();
+
+      expect(result.total).toBe(0);
+      expect(result.avg_confidence).toBe(0);
+      expect(Object.values(result.by_grade).every(v => v === 0)).toBe(true);
+    });
+  });
+
+  describe('checkBan', () => {
+    it('should throw NotFoundError for nonexistent node', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue(null);
+      await expect(service.checkBan('nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should return should_ban=false when node is healthy', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.8, gdi_score: 80, positive: 100, negative: 1,
+      } as any);
+
+      const result = await service.checkBan('node-1');
+
+      expect(result.should_ban).toBe(false);
+      expect(result.reasons).toHaveLength(0);
+    });
+
+    it('should ban node with low confidence', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.05, gdi_score: 80, positive: 100, negative: 1,
+      } as any);
+
+      const result = await service.checkBan('node-1');
+
+      expect(result.should_ban).toBe(true);
+      expect(result.confidence_ok).toBe(false);
+      expect(result.reasons.some((r: string) => r.includes('Confidence'))).toBe(true);
+    });
+
+    it('should ban node with low gdi_score', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.8, gdi_score: 10, positive: 100, negative: 1,
+      } as any);
+
+      const result = await service.checkBan('node-1');
+
+      expect(result.should_ban).toBe(true);
+      expect(result.gdi_ok).toBe(false);
+      expect(result.reasons.some((r: string) => r.includes('GDI'))).toBe(true);
+    });
+
+    it('should ban node with high report ratio and enough signals', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.8, gdi_score: 80, positive: 5, negative: 5,
+      } as any);
+
+      const result = await service.checkBan('node-1');
+
+      expect(result.should_ban).toBe(true);
+      expect(result.report_ratio_ok).toBe(false);
+      expect(result.reasons.some((r: string) => r.includes('Report ratio'))).toBe(true);
+    });
+
+    it('should not ban when report ratio is high but signals are below threshold', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.8, gdi_score: 80, positive: 2, negative: 7,
+      } as any);
+
+      const result = await service.checkBan('node-1');
+
+      expect(result.should_ban).toBe(false);
+      expect(result.report_ratio_ok).toBe(true);
+    });
+
+    it('should use custom ban thresholds', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1', confidence: 0.4, gdi_score: 50, positive: 100, negative: 1,
+      } as any);
+
+      const result = await service.checkBan('node-1', {
+        confidence_min: 0.5, gdi_min: 60, report_ratio_max: 0.1,
+      });
+
+      expect(result.should_ban).toBe(true);
+      expect(result.confidence_ok).toBe(false);
+      expect(result.gdi_ok).toBe(false);
+    });
+  });
+
+  describe('recall', () => {
+    it('should return empty results when no nodes match', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      const result = await service.recall({ query: 'test' });
+
+      expect(result.results).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it('should apply type filter', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      await service.recall({ query: 'test', filters: { type: ['gene'] } });
+
+      expect(mockMGPrisma.memoryGraphNode.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { type: { in: ['gene'] } } }),
+      );
+    });
+
+    it('should apply min_confidence filter', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      await service.recall({ query: 'test', filters: { min_confidence: 0.8 } });
+
+      expect(mockMGPrisma.memoryGraphNode.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { confidence: { gte: 0.8 } } }),
+      );
+    });
+
+    it('should apply min_gdi filter', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      await service.recall({ query: 'test', filters: { min_gdi: 60 } });
+
+      expect(mockMGPrisma.memoryGraphNode.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { gdi_score: { gte: 60 } } }),
+      );
+    });
+
+    it('should apply multiple filters together', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      await service.recall({
+        query: 'test',
+        filters: { type: ['gene'], min_confidence: 0.5, min_gdi: 40 },
+      });
+
+      expect(mockMGPrisma.memoryGraphNode.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            type: { in: ['gene'] },
+            confidence: { gte: 0.5 },
+            gdi_score: { gte: 40 },
+          }),
+        }),
+      );
+    });
+
+    it('should handle query with no keyword matches (keywordScore=0.5 fallback)', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', label: 'alpha', confidence: 0.8, type: 'gene',
+          gdi_score: 80, positive: 10, negative: 2, updated_at: new Date() },
+      ]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      const result = await service.recall({ query: 'zzzzzz' });
+
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0]!.score).toBeLessThanOrEqual(1);
+    });
+
+    it('should calculate chain depth from evolves_from edges', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', label: 'root', confidence: 0.9, type: 'gene',
+          gdi_score: 80, positive: 10, negative: 0, updated_at: new Date() },
+      ]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'n1', target_id: 'n2', relation: 'evolves_from' },
+        { source_id: 'n2', target_id: 'n3', relation: 'derived_from' },
+      ]);
+
+      // From n1's perspective, no parent edge exists, so chainDepth = 0
+      const result = await service.recall({ query: 'root' });
+      expect(result.results[0]!.chain_depth).toBe(0);
+    });
+
+    it('should increment chainDepth when parent edge is found', async () => {
+      // Start node has a parent edge → while loop enters if(parentEdge) block
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n2', label: 'child gene', confidence: 0.9, type: 'gene',
+          gdi_score: 80, positive: 10, negative: 0, updated_at: new Date() },
+      ]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'n1', target_id: 'n2', relation: 'evolves_from' },
+      ]);
+
+      const result = await service.recall({ query: 'child' });
+      expect(result.results[0]!.chain_depth).toBe(1);
+    });
+
+    it('should respect limit parameter', async () => {
+      const manyNodes = Array.from({ length: 20 }, (_, i) => ({
+        node_id: `n${i}`, label: `gene ${i}`, confidence: 0.9, type: 'gene',
+        gdi_score: 80, positive: 10, negative: 0, updated_at: new Date(),
+      }));
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue(manyNodes);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      const result = await service.recall({ query: 'gene', limit: 3 });
+
+      expect(result.results).toHaveLength(3);
+    });
+
+    it('should include query_time_ms in response', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      const result = await service.recall({ query: 'test' });
+
+      expect(result.query_time_ms).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('getLineage', () => {
+    it('should return lineage with depth 0 when no parent edges exist', async () => {
+      mockMGPrisma.memoryGraphEdge.findFirst.mockResolvedValue(null);
+
+      const result = await service.getLineage('node-1', 5);
+
+      expect(result.root).toBe('node-1');
+      expect(result.lineage).toHaveLength(1);
+      expect(result.lineage[0]!.depth).toBe(0);
+      expect(result.lineage[0]!.parent).toBeNull();
+    });
+
+    it('should walk backward through evolves_from edges', async () => {
+      mockMGPrisma.memoryGraphEdge.findFirst
+        .mockResolvedValueOnce({ source_id: 'parent-1', relation: 'evolves_from' })
+        .mockResolvedValueOnce({ source_id: 'grandparent-1', relation: 'derived_from' })
+        .mockResolvedValueOnce(null);
+
+      const result = await service.getLineage('node-1', 5);
+
+      expect(result.lineage).toHaveLength(3);
+      expect(result.lineage[0]!.asset_id).toBe('node-1');
+      expect(result.lineage[0]!.parent).toBe('parent-1');
+      expect(result.lineage[1]!.parent).toBe('grandparent-1');
+      expect(result.lineage[2]!.parent).toBeNull();
+    });
+
+    it('should respect max depth parameter', async () => {
+      mockMGPrisma.memoryGraphEdge.findFirst.mockResolvedValue(null);
+
+      const result = await service.getLineage('node-1', 3);
+
+      expect(result.total_depth).toBeLessThanOrEqual(3);
+    });
+  });
+
+  describe('constructChain', () => {
+    it('should construct a capability chain', async () => {
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'node-1', target_id: 'node-2', relation: 'evolves_from' },
+      ]);
+      mockMGPrisma.capabilityChain.create.mockResolvedValue({
+        chain_id: 'chain_abc', root_asset_id: 'node-1', chain: ['node-1', 'node-2'],
+        total_evolution_steps: 1,
+      } as any);
+
+      const result = await service.constructChain('node-1', 5);
+
+      expect(result.chain_id).toBeDefined();
+      expect(result.root_asset_id).toBe('node-1');
+    });
+
+    it('should handle node with no edges', async () => {
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+      mockMGPrisma.capabilityChain.create.mockResolvedValue({
+        chain_id: 'chain_abc', root_asset_id: 'node-1', chain: ['node-1'],
+        total_evolution_steps: 0,
+      } as any);
+
+      const result = await service.constructChain('node-1', 5);
+
+      expect(result.chain).toContain('node-1');
+    });
+  });
+
+  describe('getChain', () => {
+    it('should return null when chain not found', async () => {
+      mockMGPrisma.capabilityChain.findUnique.mockResolvedValue(null);
+
+      const result = await service.getChain('nonexistent');
+
+      expect(result).toBeNull();
+    });
+
+    it('should return chain when found', async () => {
+      mockMGPrisma.capabilityChain.findUnique.mockResolvedValue({
+        chain_id: 'chain_abc', root_asset_id: 'node-1', chain: ['node-1', 'node-2'],
+        total_evolution_steps: 1,
+      } as any);
+
+      const result = await service.getChain('chain_abc');
+
+      expect(result?.chain_id).toBe('chain_abc');
+    });
+  });
+
+  describe('evaluateCapabilityChain', () => {
+    it('should throw NotFoundError for nonexistent chain', async () => {
+      mockMGPrisma.capabilityChain.findUnique.mockResolvedValue(null);
+      await expect(service.evaluateCapabilityChain('nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should evaluate a valid chain', async () => {
+      mockMGPrisma.capabilityChain.findUnique.mockResolvedValue({
+        chain_id: 'chain_abc', chain: ['n1', 'n2'], root_asset_id: 'n1',
+        total_evolution_steps: 1,
+      } as any);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', confidence: 0.9, positive: 10, negative: 0, usage_count: 50 },
+        { node_id: 'n2', confidence: 0.8, positive: 5, negative: 0, usage_count: 20 },
+      ]);
+
+      const result = await service.evaluateCapabilityChain('chain_abc');
+
+      expect(result.strength).toBeGreaterThanOrEqual(0);
+      expect(result.grade).toBeDefined();
+    });
+  });
+
+  describe('optimizeCapabilityChain', () => {
+    it('should throw NotFoundError for nonexistent chain', async () => {
+      mockMGPrisma.capabilityChain.findUnique.mockResolvedValue(null);
+      await expect(service.optimizeCapabilityChain('nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should optimize a valid chain', async () => {
+      mockMGPrisma.capabilityChain.findUnique.mockResolvedValue({
+        chain_id: 'chain_abc', chain: ['n1', 'n2'], root_asset_id: 'n1',
+        total_evolution_steps: 1,
+      } as any);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', confidence: 0.9, positive: 10, negative: 0, usage_count: 50 },
+        { node_id: 'n2', confidence: 0.8, positive: 5, negative: 0, usage_count: 20 },
+      ]);
+
+      const result = await service.optimizeCapabilityChain('chain_abc');
+
+      expect(result.optimised).toBeDefined();
+      expect(result.improvements).toBeDefined();
+      expect(result.newStrength).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('inferNodeCapabilities', () => {
+    it('should throw NotFoundError for nonexistent node', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue(null);
+      await expect(service.inferNodeCapabilities('nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should infer capabilities from neighbours', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'n1', label: 'seed', type: 'capsule', confidence: 0.8,
+        positive: 5, negative: 0, usage_count: 10,
+      } as any);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'n1', target_id: 'n2', relation: 'produced', weight: 0.9 },
+      ]);
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n2', label: 'code generator for Python', type: 'gene',
+          confidence: 0.9, positive: 10, negative: 0, usage_count: 50 },
+      ]);
+
+      const result = await service.inferNodeCapabilities('n1');
+
+      expect(result).toBeDefined();
+    });
+
+    it('should return empty array when node has no neighbours', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'n1', label: 'orphan', type: 'capsule', confidence: 0.8,
+        positive: 0, negative: 0, usage_count: 0,
+      } as any);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+
+      const result = await service.inferNodeCapabilities('n1');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('updateNodeEdgeWeights', () => {
+    it('should update edge weights based on interaction', async () => {
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { id: 'edge-1', source_id: 'n1', target_id: 'n2', relation: 'produced', weight: 0.5 },
+      ]);
+      mockMGPrisma.memoryGraphEdge.update.mockResolvedValue({} as any);
+
+      const result = await service.updateNodeEdgeWeights('n1', {
+        node_id: 'n1', outcome: 'success',
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.edge_id).toBe('edge-1');
+      expect(result[0]!.new_weight).toBeGreaterThan(0.5);
+    });
+
+    it('should return empty when node has no edges', async () => {
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      const result = await service.updateNodeEdgeWeights('n1', {
+        node_id: 'n1', outcome: 'neutral',
+      });
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('propagateNodeConfidence', () => {
+    it('should propagate confidence to neighbours', async () => {
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'n1', target_id: 'n2', weight: 0.8 },
+      ]);
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', confidence: 0.9 },
+        { node_id: 'n2', confidence: 0.5 },
+      ]);
+      mockMGPrisma.memoryGraphNode.updateMany.mockResolvedValue({} as any);
+
+      const result = await service.propagateNodeConfidence('n1', 3);
+
+      expect(result).toBeDefined();
+    });
+
+    it('should handle updateMany failure gracefully', async () => {
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'n1', target_id: 'n2', weight: 0.8 },
+      ]);
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', confidence: 0.9 },
+        { node_id: 'n2', confidence: 0.5 },
+      ]);
+      mockMGPrisma.memoryGraphNode.updateMany.mockRejectedValue(new Error('DB error'));
+
+      // Should not throw, just return results
+      const result = await service.propagateNodeConfidence('n1', 3);
+      expect(result).toBeDefined();
+    });
+  });
+
+  describe('linkGeneToMemoryNode', () => {
+    it('should throw NotFoundError for nonexistent memory node', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue(null);
+      await expect(service.linkGeneToMemoryNode('gene-1', 'nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should link gene to memory node', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'mem-1', type: 'capsule', confidence: 0.8,
+        positive: 0, negative: 0, usage_count: 0,
+      } as any);
+
+      const result = await service.linkGeneToMemoryNode('gene-1', 'mem-1', 0.9);
+
+      expect(result.gene_id).toBe('gene-1');
+      expect(result.memory_node_id).toBe('mem-1');
+      expect(result.strength).toBe(0.9);
+    });
+  });
+
+  describe('inferGeneCapabilities', () => {
+    it('should return capabilities from gene usage', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', label: 'Python code generator', type: 'gene',
+          confidence: 0.9, positive: 10, negative: 0, usage_count: 50 },
+      ]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'gene-1', target_id: 'n1', relation: 'produced', weight: 0.9 },
+      ]);
+
+      const result = await service.inferGeneCapabilities('gene-1');
+
+      expect(result).toBeDefined();
+    });
+
+    it('should return empty array when gene has no connections', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      const result = await service.inferGeneCapabilities('gene-orphan');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('suggestGeneCapabilities', () => {
+    it('should return suggestions from transitive neighbours', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', label: 'code generator', type: 'gene',
+          confidence: 0.8, positive: 10, negative: 0, usage_count: 30 },
+        { node_id: 'n2', label: 'classifier', type: 'gene',
+          confidence: 0.9, positive: 20, negative: 0, usage_count: 100 },
+      ]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'gene-1', target_id: 'n1', relation: 'produced', weight: 0.9 },
+        { source_id: 'n1', target_id: 'n2', relation: 'evolves_from', weight: 0.8 },
+      ]);
+
+      const result = await service.suggestGeneCapabilities('gene-1');
+
+      expect(result).toBeDefined();
+    });
+
+    it('should return empty array for orphan gene', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+
+      const result = await service.suggestGeneCapabilities('gene-orphan');
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getGraphStats', () => {
+    it('should return graph statistics', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', type: 'gene', confidence: 0.9, gdi_score: 80 },
+        { node_id: 'n2', type: 'capsule', confidence: 0.7, gdi_score: 60 },
+      ]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'n1', target_id: 'n2', relation: 'produced', weight: 0.5 },
+      ]);
+      mockMGPrisma.capabilityChain.count.mockResolvedValue(3);
+
+      const result = await service.getGraphStats();
+
+      expect(result.total_nodes).toBe(2);
+      expect(result.total_edges).toBe(1);
+      expect(result.chains_count).toBe(3);
+      expect(result.node_types.gene).toBe(1);
+      expect(result.node_types.capsule).toBe(1);
+      expect(result.edge_types.produced).toBe(1);
+    });
+
+    it('should return zeros for empty graph', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+      mockMGPrisma.capabilityChain.count.mockResolvedValue(0);
+
+      const result = await service.getGraphStats();
+
+      expect(result.total_nodes).toBe(0);
+      expect(result.total_edges).toBe(0);
+      expect(result.avg_confidence).toBe(0);
+      expect(result.avg_gdi).toBe(0);
+      expect(result.chains_count).toBe(0);
+    });
+  });
+
+  describe('exportGraph', () => {
+    it('should export all graph data', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        { node_id: 'n1', type: 'gene' },
+      ]);
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'n1', target_id: 'n2' },
+      ]);
+      mockMGPrisma.capabilityChain.findMany.mockResolvedValue([
+        { chain_id: 'chain-1', root_asset_id: 'n1', chain: ['n1'] },
+      ]);
+
+      const result = await service.exportGraph();
+
+      expect(result.nodes).toHaveLength(1);
+      expect(result.edges).toHaveLength(1);
+      expect(result.chains).toHaveLength(1);
+      expect(result.exported_at).toBeDefined();
+    });
+  });
+
+  describe('importGraph', () => {
+    it('should import nodes with upsert', async () => {
+      mockMGPrisma.memoryGraphNode.upsert.mockResolvedValue({} as any);
+
+      const result = await service.importGraph({
+        nodes: [
+          { node_id: 'n1', type: 'gene', label: 'Test Gene' },
+          { node_id: 'n2', type: 'capsule', label: 'Test Capsule' },
+        ],
+      });
+
+      expect(result.imported_nodes).toBe(2);
+      expect(mockMGPrisma.memoryGraphNode.upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('should import edges with duplicate check', async () => {
+      mockMGPrisma.memoryGraphEdge.findFirst.mockResolvedValue(null);
+      mockMGPrisma.memoryGraphEdge.create.mockResolvedValue({} as any);
+
+      const result = await service.importGraph({
+        edges: [
+          { source_id: 'n1', target_id: 'n2', relation: 'produced' },
+        ],
+      });
+
+      expect(result.imported_edges).toBe(1);
+    });
+
+    it('should skip existing edges', async () => {
+      mockMGPrisma.memoryGraphEdge.findFirst.mockResolvedValue({ id: 'existing' });
+
+      const result = await service.importGraph({
+        edges: [
+          { source_id: 'n1', target_id: 'n2', relation: 'produced' },
+        ],
+      });
+
+      expect(result.imported_edges).toBe(0);
+    });
+
+    it('should import chains with duplicate check', async () => {
+      mockMGPrisma.capabilityChain.findUnique.mockResolvedValue(null);
+      mockMGPrisma.capabilityChain.create.mockResolvedValue({} as any);
+
+      const result = await service.importGraph({
+        chains: [
+          { chain_id: 'chain-1', root_asset_id: 'n1', chain: ['n1'], total_evolution_steps: 0 },
+        ],
+      });
+
+      expect(result.imported_chains).toBe(1);
+    });
+
+    it('should skip existing chains', async () => {
+      mockMGPrisma.capabilityChain.findUnique.mockResolvedValue({ chain_id: 'chain-1' });
+
+      const result = await service.importGraph({
+        chains: [
+          { chain_id: 'chain-1', root_asset_id: 'n1', chain: ['n1'], total_evolution_steps: 0 },
+        ],
+      });
+
+      expect(result.imported_chains).toBe(0);
+    });
+
+    it('should handle empty snapshot', async () => {
+      const result = await service.importGraph({});
+
+      expect(result.imported_nodes).toBe(0);
+      expect(result.imported_edges).toBe(0);
+      expect(result.imported_chains).toBe(0);
+    });
+
+    it('should use default values for missing node fields', async () => {
+      mockMGPrisma.memoryGraphNode.upsert.mockResolvedValue({} as any);
+
+      await service.importGraph({
+        nodes: [{ node_id: 'n1', type: 'gene', label: 'Test' }],
+      });
+
+      expect(mockMGPrisma.memoryGraphNode.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            positive: 0,
+            negative: 0,
+            usage_count: 0,
+            confidence: 1,
+            gdi_score: 50,
+          }),
+        }),
+      );
+    });
+
+    it('should skip nodes on upsert error', async () => {
+      mockMGPrisma.memoryGraphNode.upsert.mockRejectedValue(new Error('DB error'));
+
+      const result = await service.importGraph({
+        nodes: [{ node_id: 'n1', type: 'gene', label: 'Test' }],
+      });
+
+      // Should not throw, just return 0 imported
+      expect(result.imported_nodes).toBe(0);
+    });
+
+    it('should skip edges on create error', async () => {
+      mockMGPrisma.memoryGraphEdge.findFirst.mockResolvedValue(null);
+      mockMGPrisma.memoryGraphEdge.create.mockRejectedValue(new Error('DB error'));
+
+      const result = await service.importGraph({
+        edges: [{ source_id: 'n1', target_id: 'n2', relation: 'produced' }],
+      });
+
+      expect(result.imported_edges).toBe(0);
+    });
+
+    it('should skip chains on create error', async () => {
+      mockMGPrisma.capabilityChain.findUnique.mockResolvedValue(null);
+      mockMGPrisma.capabilityChain.create.mockRejectedValue(new Error('DB error'));
+
+      const result = await service.importGraph({
+        chains: [{ chain_id: 'c1', root_asset_id: 'n1', chain: ['n1'] }],
+      });
+
+      expect(result.imported_chains).toBe(0);
+    });
+  });
+
+  describe('triggerDecayAll', () => {
+    it('should process nodes and skip errors', async () => {
+      // First batch: first node succeeds, second throws
+      mockMGPrisma.memoryGraphNode.findMany
+        .mockResolvedValueOnce([
+          { id: 'id1', node_id: 'n1', updated_at: new Date(0) },
+          { id: 'id2', node_id: 'n2', updated_at: new Date(0) },
+        ])
+        .mockResolvedValueOnce([]);
+
+      mockMGPrisma.memoryGraphNode.findUnique
+        .mockResolvedValueOnce({
+          node_id: 'n1', confidence: 0.8, positive: 5, negative: 1,
+          updated_at: new Date(0),
+        } as any)
+        .mockRejectedValueOnce(new Error('DB error'));
+
+      mockMGPrisma.memoryGraphNode.update.mockResolvedValue({} as any);
+
+      const result = await service.triggerDecayAll({}, 90, 100);
+
+      expect(result.processed).toBe(1);
+      expect(result.skipped).toBe(1);
+    });
+
+    it('should handle empty result immediately', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+
+      const result = await service.triggerDecayAll({}, 90, 100);
+
+      expect(result.processed).toBe(0);
+      expect(result.skipped).toBe(0);
+    });
+  });
+
+  describe('listGraphEdges', () => {
+    it('should return paginated edges', async () => {
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([
+        { source_id: 'n1', target_id: 'n2', relation: 'produced', weight: 0.5 },
+      ]);
+      mockMGPrisma.memoryGraphEdge.count.mockResolvedValue(1);
+
+      const result = await service.listGraphEdges();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.total).toBe(1);
+    });
+
+    it('should filter by sourceId', async () => {
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.count.mockResolvedValue(0);
+
+      await service.listGraphEdges('n1');
+
+      expect(mockMGPrisma.memoryGraphEdge.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { source_id: 'n1' } }),
+      );
+    });
+
+    it('should filter by targetId', async () => {
+      mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphEdge.count.mockResolvedValue(0);
+
+      await service.listGraphEdges(undefined, 'n2');
+
+      expect(mockMGPrisma.memoryGraphEdge.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { target_id: 'n2' } }),
+      );
+    });
+  });
+
+  describe('listGraphNodes', () => {
+    it('should filter by minConfidence', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphNode.count.mockResolvedValue(0);
+
+      await service.listGraphNodes(undefined, 0.8);
+
+      expect(mockMGPrisma.memoryGraphNode.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { confidence: { gte: 0.8 } } }),
+      );
+    });
+
+    it('should handle both type and minConfidence filters together', async () => {
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphNode.count.mockResolvedValue(0);
+
+      await service.listGraphNodes('gene', 0.5);
+
+      expect(mockMGPrisma.memoryGraphNode.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ type: 'gene', confidence: { gte: 0.5 } }),
+        }),
+      );
     });
   });
 });

@@ -559,8 +559,326 @@ describe('schema', () => {
 });
 
 // ---------------------------------------------------------------------------
-// service.spec.ts (integration)
+// service.spec.ts (DB-backed integration — mock Prisma)
 // ---------------------------------------------------------------------------
+
+describe('service DB-backed', () => {
+  let mockPrisma: ReturnType<typeof createMockPrisma>;
+
+  function createMockPrisma() {
+    return {
+      gepxBundle: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        create: jest.fn(),
+        upsert: jest.fn(),
+        count: jest.fn(),
+      },
+      gepxExport: {
+        findMany: jest.fn(),
+        create: jest.fn(),
+      },
+      sandboxAsset: {
+        findMany: jest.fn(),
+      },
+    };
+  }
+
+  beforeAll(() => {
+    mockPrisma = createMockPrisma();
+    (service as any).setPrisma(mockPrisma);
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('listBundles', () => {
+    it('should return bundles without bundleType filter', async () => {
+      const bundles = [
+        { bundle_id: 'b-1', bundle_type: 'Gene', name: 'Bundle 1', description: '', tags: [], exported_by: 'node-x', asset_count: 1, checksum: 'cs1', size_bytes: 100, created_at: new Date() },
+        { bundle_id: 'b-2', bundle_type: 'Capsule', name: 'Bundle 2', description: '', tags: [], exported_by: 'node-x', asset_count: 2, checksum: 'cs2', size_bytes: 200, created_at: new Date() },
+      ];
+      mockPrisma.gepxBundle.findMany.mockResolvedValue(bundles);
+      mockPrisma.gepxBundle.count.mockResolvedValue(2);
+
+      const result = await service.listBundles();
+
+      expect(result.items).toHaveLength(2);
+      expect(result.total).toBe(2);
+      expect(mockPrisma.gepxBundle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: {} }),
+      );
+    });
+
+    it('should filter by bundleType when provided', async () => {
+      mockPrisma.gepxBundle.findMany.mockResolvedValue([]);
+      mockPrisma.gepxBundle.count.mockResolvedValue(0);
+
+      await service.listBundles('Gene');
+
+      expect(mockPrisma.gepxBundle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { bundle_type: 'Gene' } }),
+      );
+    });
+
+    it('should apply limit and offset', async () => {
+      mockPrisma.gepxBundle.findMany.mockResolvedValue([]);
+      mockPrisma.gepxBundle.count.mockResolvedValue(0);
+
+      await service.listBundles(undefined, 10, 5);
+
+      expect(mockPrisma.gepxBundle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 10, skip: 5 }),
+      );
+    });
+  });
+
+  describe('getBundle', () => {
+    it('should return a bundle by id', async () => {
+      const bundle = {
+        bundle_id: 'b-1',
+        bundle_type: 'Gene',
+        name: 'Test Bundle',
+        description: '',
+        tags: [],
+        exported_by: 'node-x',
+        asset_count: 1,
+        checksum: 'cs1',
+        size_bytes: 100,
+        created_at: new Date(),
+      };
+      mockPrisma.gepxBundle.findUnique.mockResolvedValue(bundle);
+
+      const result = await service.getBundle('b-1');
+
+      expect(result.bundle_id).toBe('b-1');
+    });
+
+    it('should throw NotFoundError for unknown bundle', async () => {
+      mockPrisma.gepxBundle.findUnique.mockResolvedValue(null);
+
+      await expect(service.getBundle('unknown')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('createBundle', () => {
+    it('should create and return a bundle', async () => {
+      const created = {
+        bundle_id: expect.stringMatching(/^[a-f0-9-]+$/),
+        bundle_type: 'Gene',
+        name: 'My Gene',
+        description: 'Test gene bundle',
+        tags: ['test'],
+        exported_by: 'node-x',
+        asset_count: 2,
+        checksum: expect.any(String),
+        size_bytes: expect.any(Number),
+        created_at: expect.any(Date),
+      };
+      mockPrisma.gepxBundle.create.mockResolvedValue(created);
+
+      const result = await service.createBundle(
+        'node-x',
+        'My Gene',
+        'Test gene bundle',
+        'Gene',
+        ['asset-1', 'asset-2'],
+        ['test'],
+      );
+
+      expect(result.bundle_type).toBe('Gene');
+      expect(result.asset_count).toBe(2);
+      expect(mockPrisma.gepxBundle.create).toHaveBeenCalled();
+    });
+
+    it('should create bundle without optional tags', async () => {
+      const created = {
+        bundle_id: expect.stringMatching(/./),
+        bundle_type: 'Capsule',
+        name: 'Capsule v1',
+        description: '',
+        tags: [],
+        exported_by: 'node-y',
+        asset_count: 1,
+        checksum: expect.any(String),
+        size_bytes: expect.any(Number),
+        created_at: expect.any(Date),
+      };
+      mockPrisma.gepxBundle.create.mockResolvedValue(created);
+
+      const result = await service.createBundle(
+        'node-y',
+        'Capsule v1',
+        '',
+        'Capsule',
+        ['asset-1'],
+      );
+
+      expect(result.tags).toEqual([]);
+      expect(mockPrisma.gepxBundle.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ tags: [] }) }),
+      );
+    });
+  });
+
+  describe('downloadBundle', () => {
+    it('should return bundle, assets, and export record', async () => {
+      const bundle = {
+        bundle_id: 'b-1',
+        bundle_type: 'Gene',
+        name: 'Download Test',
+        description: '',
+        tags: [],
+        exported_by: 'node-x',
+        asset_count: 2,
+        checksum: 'cs1',
+        size_bytes: 100,
+        created_at: new Date(),
+      };
+      const assets = [
+        { asset_id: 'a-1', sandbox_id: 'b-1', content: 'code1' },
+        { asset_id: 'a-2', sandbox_id: 'b-1', content: 'code2' },
+      ];
+
+      mockPrisma.gepxBundle.findUnique.mockResolvedValue(bundle);
+      mockPrisma.sandboxAsset.findMany.mockResolvedValue(assets);
+      mockPrisma.gepxExport.create.mockResolvedValue({
+        export_id: 'exp-1',
+        bundle_id: 'b-1',
+        node_id: 'node-x',
+        format: 'gepx',
+        created_at: new Date(),
+      });
+
+      const result = await service.downloadBundle('b-1', 'node-x');
+
+      expect(result.bundle.bundle_id).toBe('b-1');
+      expect(result.assets).toHaveLength(2);
+      expect(result.exportRecord.export_id).toBe('exp-1');
+    });
+
+    it('should throw NotFoundError when bundle does not exist', async () => {
+      mockPrisma.gepxBundle.findUnique.mockResolvedValue(null);
+
+      await expect(service.downloadBundle('unknown', 'node-x')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('listExports', () => {
+    it('should return export records for a node', async () => {
+      const exports = [
+        { export_id: 'exp-1', bundle_id: 'b-1', node_id: 'node-x', format: 'gepx', created_at: new Date() },
+        { export_id: 'exp-2', bundle_id: 'b-2', node_id: 'node-x', format: 'gepx', created_at: new Date() },
+      ];
+      mockPrisma.gepxExport.findMany.mockResolvedValue(exports);
+
+      const result = await service.listExports('node-x');
+
+      expect(result).toHaveLength(2);
+      expect(mockPrisma.gepxExport.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { node_id: 'node-x' } }),
+      );
+    });
+  });
+
+  describe('importBundle', () => {
+    it('should import a bundle and create export record', async () => {
+      const imported = {
+        bundle_id: 'b-imported',
+        bundle_type: 'Gene',
+        name: 'Imported Bundle',
+        description: '',
+        tags: ['imported'],
+        exported_by: 'node-x',
+        asset_count: 1,
+        checksum: 'imported-checksum',
+        size_bytes: 0,
+        created_at: expect.any(Date),
+      };
+      mockPrisma.gepxBundle.upsert.mockResolvedValue(imported);
+      mockPrisma.gepxExport.create.mockResolvedValue({
+        export_id: 'exp-new',
+        bundle_id: 'b-imported',
+        node_id: 'node-x',
+        format: 'gepx',
+        created_at: new Date(),
+      });
+
+      const bundleData = {
+        bundle_id: 'b-imported',
+        name: 'Imported Bundle',
+        bundle_type: 'Gene',
+        assets: [{ asset_id: 'a-1' }],
+        tags: ['imported'],
+        checksum: 'imported-checksum',
+      };
+
+      const result = await service.importBundle('node-x', bundleData);
+
+      expect(result.imported.bundle_id).toBe('b-imported');
+      expect(result.skipped).toBe(0);
+      expect(mockPrisma.gepxBundle.upsert).toHaveBeenCalled();
+      expect(mockPrisma.gepxExport.create).toHaveBeenCalled();
+    });
+
+    it('should use defaults when optional fields are missing', async () => {
+      const imported = {
+        bundle_id: expect.stringMatching(/./),
+        bundle_type: 'unknown',
+        name: 'Imported Bundle',
+        description: '',
+        tags: [],
+        exported_by: 'node-x',
+        asset_count: 0,
+        checksum: expect.any(String),
+        size_bytes: 0,
+        created_at: expect.any(Date),
+      };
+      mockPrisma.gepxBundle.upsert.mockResolvedValue(imported);
+      mockPrisma.gepxExport.create.mockResolvedValue({
+        export_id: 'exp-new',
+        bundle_id: 'b-new',
+        node_id: 'node-x',
+        format: 'gepx',
+        created_at: new Date(),
+      });
+
+      const bundleData = {}; // no fields at all
+
+      const result = await service.importBundle('node-x', bundleData);
+
+      expect(result.imported.name).toBe('Imported Bundle');
+      expect(result.imported.bundle_type).toBe('unknown');
+      expect(mockPrisma.gepxBundle.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ tags: [] }),
+        }),
+      );
+    });
+
+    it('should throw ValidationError when bundleData is not an object', async () => {
+      await expect(service.importBundle('node-x', null as any)).rejects.toThrow('Invalid bundle_data');
+      await expect(service.importBundle('node-x', 'string' as any)).rejects.toThrow('Invalid bundle_data');
+      await expect(service.importBundle('node-x', 123 as any)).rejects.toThrow('Invalid bundle_data');
+    });
+  });
+});
+
+describe('service misc', () => {
+  describe('isVersionSupported', () => {
+    it('should return true for supported versions', () => {
+      expect(service.isVersionSupported('1.0.0')).toBe(true);
+      expect(service.isVersionSupported('2.0.0')).toBe(true);
+      expect(service.isVersionSupported('1.1.0')).toBe(true);
+    });
+
+    it('should return false for unsupported versions', () => {
+      expect(service.isVersionSupported('0.9.0')).toBe(false);
+      expect(service.isVersionSupported('0.0.1')).toBe(false);
+    });
+  });
+});
 
 describe('service', () => {
   describe('serializer integration', () => {

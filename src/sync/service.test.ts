@@ -177,6 +177,98 @@ describe('Sync Service', () => {
       expect(loaded).toBeNull();
     });
   });
+
+  // ===== Uncovered lines coverage =====
+
+  describe('fetchSyncHistory', () => {
+    it('should return sync history for a node', async () => {
+      const { getSyncHistory } = require('./audit');
+      getSyncHistory.mockResolvedValueOnce([
+        { id: 'log-1', node_id: 'node-1', step: 'CHECK', status: 'SYNCED', items_synced: 5, synced_at: '2026-01-01T00:00:00Z' },
+      ]);
+
+      const result = await service.fetchSyncHistory('node-1', 10);
+
+      expect(getSyncHistory).toHaveBeenCalledWith('node-1', 10);
+      expect(result).toHaveLength(1);
+    });
+
+    it('should use default limit when not provided', async () => {
+      const { getSyncHistory } = require('./audit');
+      getSyncHistory.mockResolvedValueOnce([]);
+
+      await service.fetchSyncHistory('node-1');
+
+      expect(getSyncHistory).toHaveBeenCalledWith('node-1', 50);
+    });
+  });
+
+  describe('fetchSyncPatterns', () => {
+    it('should return sync patterns for a node', async () => {
+      const { analyzeSyncPatterns } = require('./audit');
+      analyzeSyncPatterns.mockResolvedValueOnce({
+        average_interval_ms: 600000,
+        typical_sync_time: '12:00',
+        peak_sync_hour: 12,
+        activity_level: 'medium',
+        suggested_interval_ms: 480000,
+      });
+
+      const result = await service.fetchSyncPatterns('node-1');
+
+      expect(analyzeSyncPatterns).toHaveBeenCalledWith('node-1');
+      expect(result.activity_level).toBe('medium');
+    });
+  });
+
+  describe('fetchSyncMetrics', () => {
+    it('should return sync metrics for a node', async () => {
+      const { getSyncMetrics } = require('./audit');
+      getSyncMetrics.mockResolvedValueOnce({
+        node_id: 'node-1',
+        total_syncs: 10,
+        successful_syncs: 8,
+        failed_syncs: 2,
+        average_items_per_sync: 5,
+        average_duration_ms: 300,
+        last_sync_duration_ms: 250,
+        last_successful_sync: '2026-01-01T00:00:00Z',
+        sync_success_rate: 80,
+      });
+
+      const result = await service.fetchSyncMetrics('node-1');
+
+      expect(getSyncMetrics).toHaveBeenCalledWith('node-1');
+      expect(result.total_syncs).toBe(10);
+      expect(result.sync_success_rate).toBe(80);
+    });
+  });
+
+  describe('performIncrementalSync', () => {
+    it('should return SYNC_ERROR status when applyIncrementalSync returns errors', async () => {
+      const { calculateSyncDelta } = require('./incremental');
+      const { applyIncrementalSync } = require('./incremental');
+      const { logSyncOperation } = require('./audit');
+      calculateSyncDelta.mockResolvedValueOnce({ node_id: 'node-1', changes: [], total_changes: 0 });
+      applyIncrementalSync.mockResolvedValueOnce({ applied: 0, skipped: 0, errors: ['Apply failed: constraint violation'] });
+      logSyncOperation.mockResolvedValue({ id: 'log-err' });
+
+      const result = await service.performIncrementalSync('node-1');
+
+      expect(result.changes).toBe(0);
+      expect(logSyncOperation).toHaveBeenCalledWith(
+        'node-1',
+        expect.objectContaining({ status: 'SYNC_ERROR', error: 'Apply failed: constraint violation' })
+      );
+    });
+  });
+
+  describe('resumeSync', () => {
+    it('should return resume result for an interrupted sync', async () => {
+      const result = await service.resumeSync('resumable-sync');
+      expect(typeof result.can_resume).toBe('boolean');
+    });
+  });
 });
 
 describe('Conflict Resolution', () => {

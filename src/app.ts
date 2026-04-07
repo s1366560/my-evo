@@ -231,6 +231,9 @@ export async function buildApp() {
   const { securityRoutes } = await import('./security/routes');
   await app.register(securityRoutes, { prefix: '/api/v2' });
 
+  const { projectRoutes } = await import('./project/routes');
+  await app.register(projectRoutes, { prefix: '/a2a' });
+
   const { memoryGraphRoutes } = await import('./memory_graph/routes');
   await app.register(memoryGraphRoutes, { prefix: '/api/v2/memory-graph' });
 

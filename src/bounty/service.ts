@@ -452,3 +452,11 @@ export async function listBounties(input: ListBountiesInput) {
 
   return { bounties, total, limit, offset };
 }
+
+export async function listBountiesByCreator(creatorId: string) {
+  const bounties = await prisma.bounty.findMany({
+    where: { creator_id: creatorId },
+    orderBy: { created_at: 'desc' },
+  });
+  return { bounties, total: bounties.length };
+}

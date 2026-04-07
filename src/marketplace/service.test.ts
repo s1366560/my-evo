@@ -1585,6 +1585,57 @@ describe('Marketplace Service Entry', () => {
       await expect(service.createListing('node-1', 'asset-1', 'gene', 0))
         .rejects.toThrow(ValidationError);
     });
+
+    it('should throw ValidationError when low-rep seller lists above capped price', async () => {
+      // LOW_REP_THRESHOLD=30, LOW_REP_PRICE_CAP_RATE=0.5, capped=50000
+      mockMPPrisma.asset.findUnique.mockResolvedValue({
+        asset_id: 'asset-1', author_id: 'node-1', status: 'published',
+      } as any);
+      mockMPPrisma.node.findFirst.mockResolvedValue({
+        node_id: 'node-1', reputation: 20,
+      } as any);
+
+      await expect(service.createListing('node-1', 'asset-1', 'gene', 60000))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should allow low-rep seller to list at or below capped price', async () => {
+      // cappedPrice = 100000 * 0.5 = 50000
+      mockMPPrisma.asset.findUnique.mockResolvedValue({
+        asset_id: 'asset-1', author_id: 'node-1', status: 'published',
+      } as any);
+      mockMPPrisma.node.findFirst.mockResolvedValue({
+        node_id: 'node-1', reputation: 20,
+      } as any);
+      mockMPPrisma.marketplaceListing.findFirst.mockResolvedValue(null);
+      mockMPPrisma.marketplaceListing.create.mockResolvedValue({
+        listing_id: 'lst-1', seller_id: 'node-1', asset_id: 'asset-1',
+        asset_type: 'gene', price: 40000, status: 'active',
+        listed_at: new Date(), expires_at: new Date(Date.now() + 86400000),
+      } as any);
+
+      const result = await service.createListing('node-1', 'asset-1', 'gene', 40000);
+
+      expect(result.listing_id).toBe('lst-1');
+    });
+
+    it('should skip reputation check when seller node not found', async () => {
+      // seller === null should bypass the reputation branch and proceed normally
+      mockMPPrisma.asset.findUnique.mockResolvedValue({
+        asset_id: 'asset-1', author_id: 'node-1', status: 'published',
+      } as any);
+      mockMPPrisma.node.findFirst.mockResolvedValue(null);
+      mockMPPrisma.marketplaceListing.findFirst.mockResolvedValue(null);
+      mockMPPrisma.marketplaceListing.create.mockResolvedValue({
+        listing_id: 'lst-1', seller_id: 'node-1', asset_id: 'asset-1',
+        asset_type: 'gene', price: 100, status: 'active',
+        listed_at: new Date(), expires_at: new Date(Date.now() + 86400000),
+      } as any);
+
+      const result = await service.createListing('node-1', 'asset-1', 'gene', 100);
+
+      expect(result.listing_id).toBe('lst-1');
+    });
   });
 
   describe('buyListing', () => {
@@ -1616,6 +1667,17 @@ describe('Marketplace Service Entry', () => {
       mockMPPrisma.marketplaceListing.findUnique.mockResolvedValue(null);
 
       await expect(service.buyListing('node-2', 'nonexistent'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw NotFoundError when buyer node not found', async () => {
+      mockMPPrisma.marketplaceListing.findUnique.mockResolvedValue({
+        listing_id: 'lst-1', seller_id: 'node-1', status: 'active', price: 100,
+        expires_at: new Date(Date.now() + 86400000),
+      } as any);
+      mockMPPrisma.node.findFirst.mockResolvedValue(null);
+
+      await expect(service.buyListing('node-2', 'lst-1'))
         .rejects.toThrow(NotFoundError);
     });
 
@@ -1701,14 +1763,140 @@ describe('Marketplace Service Entry', () => {
           { listing_id: 'lst-1', seller_id: 'node-1', asset_id: 'asset-1',
             asset_type: 'gene', price: 100, status: 'active',
             listed_at: now, expires_at: later },
-        ])
-        .mockResolvedValueOnce([]);
+        ]);
       // count called by Promise.all second element
       (mockMPPrisma.marketplaceListing.count as any).mockResolvedValueOnce(1);
 
       const result = await service.getListings();
 
       expect(result.items).toHaveLength(1);
+    });
+
+    it('should filter by minPrice and maxPrice', async () => {
+      const now = new Date();
+      const later = new Date(Date.now() + 86400000);
+      mockMPPrisma.marketplaceListing.findMany
+        .mockResolvedValueOnce([
+          { listing_id: 'lst-1', seller_id: 'node-1', asset_id: 'asset-1',
+            asset_type: 'gene', price: 500, status: 'active',
+            listed_at: now, expires_at: later },
+        ]);
+      (mockMPPrisma.marketplaceListing.count as any).mockResolvedValueOnce(1);
+
+      const result = await service.getListings(undefined, 100, 1000);
+
+      expect(result.items).toHaveLength(1);
+      expect(mockMPPrisma.marketplaceListing.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            price: { gte: 100, lte: 1000 },
+          }),
+        }),
+      );
+    });
+
+    it('should sort by price_asc', async () => {
+      const now = new Date();
+      const later = new Date(Date.now() + 86400000);
+      mockMPPrisma.marketplaceListing.findMany
+        .mockResolvedValueOnce([
+          { listing_id: 'lst-1', seller_id: 'node-1', asset_id: 'asset-1',
+            asset_type: 'gene', price: 50, status: 'active',
+            listed_at: now, expires_at: later },
+        ]);
+      (mockMPPrisma.marketplaceListing.count as any).mockResolvedValueOnce(1);
+
+      await service.getListings(undefined, undefined, undefined, 'price_asc');
+
+      expect(mockMPPrisma.marketplaceListing.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { price: 'asc' },
+        }),
+      );
+    });
+
+    it('should sort by price_desc', async () => {
+      const now = new Date();
+      const later = new Date(Date.now() + 86400000);
+      mockMPPrisma.marketplaceListing.findMany
+        .mockResolvedValueOnce([
+          { listing_id: 'lst-1', seller_id: 'node-1', asset_id: 'asset-1',
+            asset_type: 'gene', price: 500, status: 'active',
+            listed_at: now, expires_at: later },
+        ]);
+      (mockMPPrisma.marketplaceListing.count as any).mockResolvedValueOnce(1);
+
+      await service.getListings(undefined, undefined, undefined, 'price_desc');
+
+      expect(mockMPPrisma.marketplaceListing.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { price: 'desc' },
+        }),
+      );
+    });
+
+    it('should sort by newest (default)', async () => {
+      const now = new Date();
+      const later = new Date(Date.now() + 86400000);
+      mockMPPrisma.marketplaceListing.findMany
+        .mockResolvedValueOnce([
+          { listing_id: 'lst-1', seller_id: 'node-1', asset_id: 'asset-1',
+            asset_type: 'gene', price: 100, status: 'active',
+            listed_at: now, expires_at: later },
+        ]);
+      (mockMPPrisma.marketplaceListing.count as any).mockResolvedValueOnce(1);
+
+      await service.getListings(undefined, undefined, undefined, 'newest', 20, 0);
+
+      expect(mockMPPrisma.marketplaceListing.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { listed_at: 'desc' },
+          take: 20,
+          skip: 0,
+        }),
+      );
+    });
+
+    it('should respect limit and offset pagination', async () => {
+      const now = new Date();
+      const later = new Date(Date.now() + 86400000);
+      mockMPPrisma.marketplaceListing.findMany
+        .mockResolvedValueOnce([
+          { listing_id: 'lst-2', seller_id: 'node-1', asset_id: 'asset-2',
+            asset_type: 'capsule', price: 200, status: 'active',
+            listed_at: now, expires_at: later },
+        ]);
+      (mockMPPrisma.marketplaceListing.count as any).mockResolvedValueOnce(5);
+
+      const result = await service.getListings(undefined, undefined, undefined, 'newest', 10, 10);
+
+      expect(mockMPPrisma.marketplaceListing.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 10,
+          skip: 10,
+        }),
+      );
+      expect(result.total).toBe(5);
+    });
+
+    it('should filter by asset type', async () => {
+      const now = new Date();
+      const later = new Date(Date.now() + 86400000);
+      mockMPPrisma.marketplaceListing.findMany
+        .mockResolvedValueOnce([
+          { listing_id: 'lst-1', seller_id: 'node-1', asset_id: 'asset-1',
+            asset_type: 'capsule', price: 200, status: 'active',
+            listed_at: now, expires_at: later },
+        ]);
+      (mockMPPrisma.marketplaceListing.count as any).mockResolvedValueOnce(1);
+
+      await service.getListings('capsule');
+
+      expect(mockMPPrisma.marketplaceListing.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ asset_type: 'capsule' }),
+        }),
+      );
     });
   });
 

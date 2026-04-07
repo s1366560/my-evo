@@ -178,6 +178,26 @@ describe('Credits Service', () => {
 
       await expect(transfer('node-1', 'node-2', 100)).rejects.toThrow(InsufficientCreditsError);
     });
+
+    it('should update from node balance before to node balance', async () => {
+      const fromNode = { node_id: 'node-1', credit_balance: 500 };
+      const toNode = { node_id: 'node-2', credit_balance: 300 };
+      const updateOrder: string[] = [];
+
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce(fromNode)
+        .mockResolvedValueOnce(toNode);
+      mockPrisma.node.update.mockImplementation(async (args: any) => {
+        updateOrder.push(args.where.node_id);
+        return {};
+      });
+      mockPrisma.creditTransaction.create.mockResolvedValue({ id: 'tx-1', timestamp: new Date() });
+
+      await transfer('node-1', 'node-2', 100);
+
+      // Verify sequential update order: from node first, then to node
+      expect(updateOrder).toEqual(['node-1', 'node-2']);
+    });
   });
 
   describe('applyDecay', () => {
@@ -254,6 +274,66 @@ describe('Credits Service', () => {
       mockPrisma.node.findUnique.mockResolvedValue(null);
       await expect(applyDecay('unknown')).rejects.toThrow(NotFoundError);
     });
+
+    it('should apply decay to a balance just above minimum', async () => {
+      // Balance = 101, rate = 5%, decay = floor(5.05) = 5
+      // newBalance = max(100, 101 - 5) = max(100, 96) = 100
+      // actualDecay = 101 - 100 = 1 (positive, so update is executed)
+      // This exercises the decay calculation when balance is only slightly
+      // above min_balance (100) and the Math.max floor result is clamped.
+      const ninetyOneDaysAgo = new Date(
+        Date.now() - 91 * 24 * 60 * 60 * 1000,
+      );
+      const mockNode = {
+        node_id: 'node-1',
+        credit_balance: 101,
+        last_seen: ninetyOneDaysAgo,
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.creditTransaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 101 } })
+        .mockResolvedValueOnce({ _sum: { amount: 0 } });
+
+      const result = await applyDecay('node-1');
+
+      // newBalance = max(100, 96) = 100, so update is called with 100, decay of 1
+      expect(mockPrisma.node.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { credit_balance: 100 } }),
+      );
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ amount: -1 }) }),
+      );
+      // getBalance reads stale mock (balance 101) since update doesn't mutate mock state
+      expect(result.available).toBe(101);
+    });
+
+    it('should skip update and transaction when balance is already at minimum', async () => {
+      // balance == min_balance triggers the balance <= min_balance guard,
+      // verifying that node.update and creditTransaction.create are NOT called.
+      const ninetyOneDaysAgo = new Date(
+        Date.now() - 91 * 24 * 60 * 60 * 1000,
+      );
+      const mockNode = {
+        node_id: 'node-1',
+        credit_balance: CREDIT_DECAY.min_balance,
+        last_seen: ninetyOneDaysAgo,
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.creditTransaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 100 } })
+        .mockResolvedValueOnce({ _sum: { amount: 0 } });
+
+      const result = await applyDecay('node-1');
+
+      // No update or transaction should be created
+      expect(mockPrisma.node.update).not.toHaveBeenCalled();
+      expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+      expect(result.available).toBe(100);
+    });
   });
 
   describe('getHistory', () => {
@@ -283,6 +363,37 @@ describe('Credits Service', () => {
           where: expect.objectContaining({ type: 'publish_cost' }),
         }),
       );
+    });
+
+    it('should return all transactions when no type filter is provided', async () => {
+      const mockTransactions = [
+        { id: 'tx-1', node_id: 'node-1', amount: 500, type: 'initial_grant', description: 'Grant', balance_after: 500, timestamp: new Date() },
+        { id: 'tx-2', node_id: 'node-1', amount: -5, type: 'publish_cost', description: 'Cost', balance_after: 495, timestamp: new Date() },
+      ];
+
+      mockPrisma.creditTransaction.findMany.mockResolvedValue(mockTransactions);
+      mockPrisma.creditTransaction.count.mockResolvedValue(2);
+
+      // Call without type filter
+      const result = await getHistory('node-1');
+
+      expect(mockPrisma.creditTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.not.objectContaining({ type: expect.anything() }),
+        }),
+      );
+      expect(result.items).toHaveLength(2);
+      expect(result.total).toBe(2);
+    });
+
+    it('should return empty results for node with no transactions', async () => {
+      mockPrisma.creditTransaction.findMany.mockResolvedValue([]);
+      mockPrisma.creditTransaction.count.mockResolvedValue(0);
+
+      const result = await getHistory('node-without-tx', 'heartbeat_reward', 20, 0);
+
+      expect(result.items).toHaveLength(0);
+      expect(result.total).toBe(0);
     });
   });
 });

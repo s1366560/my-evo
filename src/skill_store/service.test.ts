@@ -663,6 +663,40 @@ describe('SkillStore Service', () => {
       });
     });
 
+    describe('gradeFromScore', () => {
+      it('should return grade from score', () => {
+        expect(service.gradeFromScore(95)).toBe('A+');
+        expect(service.gradeFromScore(85)).toBe('A');
+        expect(service.gradeFromScore(70)).toBe('B');
+      });
+    });
+
+    describe('getSkillImprovements', () => {
+      it('should return improvement suggestions', () => {
+        const suggestions = service.getSkillImprovements({
+          name: 'Test',
+          description: 'Short',
+          code_template: 'x',
+        });
+        expect(Array.isArray(suggestions)).toBe(true);
+      });
+    });
+
+    describe('getComplementarySkills', () => {
+      it('should return complementary skills', async () => {
+        const baseSkill = mockSkill({
+          skill_id: 'skill_base',
+          category: 'python',
+          tags: ['python', 'api'],
+        });
+        mockPrisma.skill.findUnique.mockResolvedValue(baseSkill);
+        mockPrisma.skill.findMany.mockResolvedValue([]);
+
+        const results = await service.getComplementarySkills('skill_base');
+        expect(Array.isArray(results)).toBe(true);
+      });
+    });
+
     describe('restoreSkill', () => {
       it('should clear deleted_at and set status to published', async () => {
         const deletedSkill = {
@@ -771,6 +805,24 @@ describe('SkillStore Service', () => {
         service.createSkill('node-1', { name: '', description: 'desc', category: 'cat' }),
       ).rejects.toThrow(ValidationError);
     });
+
+    it('should reject empty description', async () => {
+      await expect(
+        service.createSkill('node-1', { name: 'name', description: '', category: 'cat' }),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('should reject whitespace-only description', async () => {
+      await expect(
+        service.createSkill('node-1', { name: 'name', description: '   ', category: 'cat' }),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('should reject empty category', async () => {
+      await expect(
+        service.createSkill('node-1', { name: 'name', description: 'desc', category: '' }),
+      ).rejects.toThrow(ValidationError);
+    });
   });
 
   describe('updateSkill', () => {
@@ -852,6 +904,361 @@ describe('SkillStore Service', () => {
       const result = await service.getFeaturedSkills(5);
 
       expect(result).toHaveLength(1);
+    });
+  });
+
+  // ==================================================================
+  // Additional coverage for service.ts branches
+  // ==================================================================
+
+  describe('listSkills — sort variants', () => {
+    it('should sort by rating', async () => {
+      mockPrisma.skill.findMany.mockResolvedValue([{ skill_id: 'sk-1' }]);
+      mockPrisma.skill.count.mockResolvedValue(1);
+      await service.listSkills(undefined, undefined, undefined, 20, 0, 'rating');
+      expect(mockPrisma.skill.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { rating: 'desc' } }),
+      );
+    });
+
+    it('should sort by downloads', async () => {
+      mockPrisma.skill.findMany.mockResolvedValue([{ skill_id: 'sk-1' }]);
+      mockPrisma.skill.count.mockResolvedValue(1);
+      await service.listSkills(undefined, undefined, undefined, 20, 0, 'downloads');
+      expect(mockPrisma.skill.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { download_count: 'desc' } }),
+      );
+    });
+
+    it('should sort by price_asc', async () => {
+      mockPrisma.skill.findMany.mockResolvedValue([{ skill_id: 'sk-1' }]);
+      mockPrisma.skill.count.mockResolvedValue(1);
+      await service.listSkills(undefined, undefined, undefined, 20, 0, 'price_asc');
+      expect(mockPrisma.skill.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { price_credits: 'asc' } }),
+      );
+    });
+
+    it('should sort by price_desc', async () => {
+      mockPrisma.skill.findMany.mockResolvedValue([{ skill_id: 'sk-1' }]);
+      mockPrisma.skill.count.mockResolvedValue(1);
+      await service.listSkills(undefined, undefined, undefined, 20, 0, 'price_desc');
+      expect(mockPrisma.skill.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { price_credits: 'desc' } }),
+      );
+    });
+
+    it('should filter by tags', async () => {
+      mockPrisma.skill.findMany.mockResolvedValue([]);
+      mockPrisma.skill.count.mockResolvedValue(0);
+      await service.listSkills(undefined, ['test', 'unit']);
+      expect(mockPrisma.skill.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ tags: { hasSome: ['test', 'unit'] } }) }),
+      );
+    });
+
+    it('should skip tags filter when empty', async () => {
+      mockPrisma.skill.findMany.mockResolvedValue([{ skill_id: 'sk-1' }]);
+      mockPrisma.skill.count.mockResolvedValue(1);
+      await service.listSkills(undefined, []);
+      expect(mockPrisma.skill.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.not.objectContaining({ tags: expect.anything() }) }),
+      );
+    });
+
+    it('should search by name and description', async () => {
+      mockPrisma.skill.findMany.mockResolvedValue([]);
+      mockPrisma.skill.count.mockResolvedValue(0);
+      await service.listSkills(undefined, undefined, 'api handler');
+      expect(mockPrisma.skill.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: expect.arrayContaining([
+              expect.objectContaining({ name: expect.objectContaining({ contains: 'api handler', mode: 'insensitive' }) }),
+            ]),
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('updateSkill — field branches', () => {
+    it('should update description', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1' });
+      mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1', description: 'Updated desc' });
+      const result = await service.updateSkill('sk-1', 'node-1', { description: 'Updated desc' });
+      expect(result.description).toBe('Updated desc');
+    });
+
+    it('should update category', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1' });
+      mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1', category: 'web' });
+      const result = await service.updateSkill('sk-1', 'node-1', { category: 'web' });
+      expect(result.category).toBe('web');
+    });
+
+    it('should update price_credits', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1' });
+      mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1', price_credits: 15 });
+      const result = await service.updateSkill('sk-1', 'node-1', { price_credits: 15 });
+      expect(result.price_credits).toBe(15);
+    });
+
+    it('should update code_template', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1' });
+      mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1', code_template: 'new code' });
+      const result = await service.updateSkill('sk-1', 'node-1', { code_template: 'new code' });
+      expect(result.code_template).toBe('new code');
+    });
+
+    it('should update parameters', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1' });
+      mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1' });
+      await service.updateSkill('sk-1', 'node-1', { parameters: { timeout: 5000 } });
+      expect(mockPrisma.skill.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ parameters: { timeout: 5000 } }),
+        }),
+      );
+    });
+
+    it('should update steps', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1' });
+      mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1' });
+      await service.updateSkill('sk-1', 'node-1', { steps: ['Step A', 'Step B'] });
+      expect(mockPrisma.skill.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ steps: ['Step A', 'Step B'] }),
+        }),
+      );
+    });
+
+    it('should update examples', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1' });
+      mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1' });
+      await service.updateSkill('sk-1', 'node-1', { examples: ['example A'] });
+      expect(mockPrisma.skill.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ examples: ['example A'] }),
+        }),
+      );
+    });
+
+    it('should update tags', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1' });
+      mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1' });
+      await service.updateSkill('sk-1', 'node-1', { tags: ['python', 'api'] });
+      expect(mockPrisma.skill.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ tags: ['python', 'api'] }),
+        }),
+      );
+    });
+
+    it('should update source_capsules', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1' });
+      mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1' });
+      await service.updateSkill('sk-1', 'node-1', { source_capsules: ['cap_new'] });
+      expect(mockPrisma.skill.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ source_capsules: ['cap_new'] }),
+        }),
+      );
+    });
+
+    it('should throw NotFoundError for non-existent skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue(null);
+      await expect(service.updateSkill('nonexistent', 'node-1', { name: 'x' })).rejects.toThrow('not found');
+    });
+
+    it('should throw NotFoundError for deleted skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', deleted_at: new Date() });
+      await expect(service.updateSkill('sk-1', 'node-1', { name: 'x' })).rejects.toThrow('not found');
+    });
+
+    it('should throw ValidationError for non-owner', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'other-node' });
+      await expect(service.updateSkill('sk-1', 'node-1', { name: 'x' })).rejects.toThrow('only update your own');
+    });
+  });
+
+  describe('deleteSkill', () => {
+    it('should throw NotFoundError for non-existent skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue(null);
+      await expect(service.deleteSkill('nonexistent', 'node-1')).rejects.toThrow('not found');
+    });
+
+    it('should throw NotFoundError for deleted skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', deleted_at: new Date() });
+      await expect(service.deleteSkill('sk-1', 'node-1')).rejects.toThrow('not found');
+    });
+
+    it('should throw ValidationError for non-owner', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'other-node' });
+      await expect(service.deleteSkill('sk-1', 'node-1')).rejects.toThrow('only delete your own');
+    });
+  });
+
+  describe('publishSkill', () => {
+    it('should throw NotFoundError for non-existent skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue(null);
+      await expect(service.publishSkill('nonexistent', 'node-1')).rejects.toThrow('not found');
+    });
+
+    it('should throw NotFoundError for deleted skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', deleted_at: new Date() });
+      await expect(service.publishSkill('sk-1', 'node-1')).rejects.toThrow('not found');
+    });
+
+    it('should throw ValidationError for non-owner', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'other-node' });
+      await expect(service.publishSkill('sk-1', 'node-1')).rejects.toThrow('only publish your own');
+    });
+
+    it('should throw ValidationError for already published skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({
+        skill_id: 'sk-1', author_id: 'node-1', status: 'published',
+      });
+      await expect(service.publishSkill('sk-1', 'node-1')).rejects.toThrow('already published');
+    });
+  });
+
+  describe('rateSkill — deleted skill', () => {
+    it('should throw NotFoundError for deleted skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', deleted_at: new Date() });
+      await expect(service.rateSkill('sk-1', 'rater-1', 4)).rejects.toThrow('not found');
+    });
+  });
+
+  describe('downloadSkill', () => {
+    it('should throw NotFoundError for non-existent skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue(null);
+      await expect(service.downloadSkill('nonexistent', 'node-1')).rejects.toThrow('not found');
+    });
+
+    it('should throw NotFoundError for deleted skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', deleted_at: new Date() });
+      await expect(service.downloadSkill('sk-1', 'node-1')).rejects.toThrow('not found');
+    });
+
+    it('should throw ValidationError for unpublished skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', status: 'pending' });
+      await expect(service.downloadSkill('sk-1', 'node-1')).rejects.toThrow('Only published skills');
+    });
+  });
+
+  describe('restoreSkill', () => {
+    it('should throw NotFoundError for non-existent skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue(null);
+      await expect(service.restoreSkill('nonexistent', 'node-1')).rejects.toThrow('not found');
+    });
+
+    it('should throw ValidationError for non-deleted skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', deleted_at: null, author_id: 'node-1' });
+      await expect(service.restoreSkill('sk-1', 'node-1')).rejects.toThrow('not deleted');
+    });
+
+    it('should throw ValidationError for non-owner', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({
+        skill_id: 'sk-1', deleted_at: new Date(), author_id: 'other-node',
+      });
+      await expect(service.restoreSkill('sk-1', 'node-1')).rejects.toThrow('only restore your own');
+    });
+  });
+
+  describe('listWorkers — branch coverage', () => {
+    // listWorkers is in workerpool/service.ts, not skill_store
+    // This section intentionally left blank — coverage is handled in workerpool tests
+  });
+
+  // ==================================================================
+  // Additional coverage for recommendation / ranking
+  // ==================================================================
+
+  describe('recommendation — recommendSkills', () => {
+    beforeEach(() => {
+      recommendation.setPrisma(mockPrisma as unknown as PrismaClient);
+      ranking.setPrisma(mockPrisma as unknown as PrismaClient);
+    });
+
+    it('should recommend skills based on user profile', async () => {
+      const skill = mockSkill({ skill_id: 'rec-1', category: 'python', tags: ['python'] });
+      mockPrisma.skillRating.findMany.mockResolvedValue([]);
+      mockPrisma.skill.findMany.mockResolvedValue([{ skill_id: 'rec-1', tags: ['python'], category: 'python' }]);
+      mockPrisma.skill.findUnique.mockResolvedValue(skill);
+
+      const result = await service.getRecommendedSkills('node-001', 5);
+
+      expect(mockPrisma.skill.findMany).toHaveBeenCalled();
+    });
+  });
+
+  describe('ranking — compareSkills tie', () => {
+    beforeEach(() => {
+      ranking.setPrisma(mockPrisma as unknown as PrismaClient);
+    });
+
+    it('should return tie when scores are equal', async () => {
+      const now = new Date();
+      mockPrisma.skill.findUnique
+        .mockResolvedValueOnce(mockSkill({ skill_id: 'sA', updated_at: now, rating: 4.0, download_count: 50, rating_count: 10 }))
+        .mockResolvedValueOnce(mockSkill({ skill_id: 'sB', updated_at: now, rating: 4.0, download_count: 50, rating_count: 10 }));
+
+      const result = await ranking.compareSkills('sA', 'sB');
+      expect(result.winner).toBe('tie');
+    });
+  });
+
+  describe('ranking — calculateSkillScore with deleted skill', () => {
+    beforeEach(() => {
+      ranking.setPrisma(mockPrisma as unknown as PrismaClient);
+    });
+
+    it('should throw for deleted skill', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-del', deleted_at: new Date() });
+      await expect(ranking.calculateSkillScore('sk-del')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('ranking — getTopRankedSkills', () => {
+    beforeEach(() => {
+      ranking.setPrisma(mockPrisma as unknown as PrismaClient);
+    });
+
+    it('should return top skills', async () => {
+      mockPrisma.skill.findMany.mockResolvedValue([mockSkill()]);
+      mockPrisma.skill.count.mockResolvedValue(1);
+      mockPrisma.skill.findUnique.mockResolvedValue(mockSkill());
+
+      const result = await service.getTopRankedSkills(5);
+
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should filter by category', async () => {
+      mockPrisma.skill.findMany.mockResolvedValue([mockSkill({ category: 'web' })]);
+      mockPrisma.skill.count.mockResolvedValue(1);
+      mockPrisma.skill.findUnique.mockResolvedValue(mockSkill({ category: 'web' }));
+
+      const result = await service.getTopRankedSkills(5, 'web');
+
+      expect(mockPrisma.skill.findMany).toHaveBeenCalled();
+    });
+  });
+
+  describe('ranking — compareTwoSkills', () => {
+    beforeEach(() => {
+      ranking.setPrisma(mockPrisma as unknown as PrismaClient);
+    });
+
+    it('should compare two skills via service', async () => {
+      mockPrisma.skill.findUnique
+        .mockResolvedValueOnce(mockSkill({ skill_id: 's1', rating: 5.0, download_count: 100 }))
+        .mockResolvedValueOnce(mockSkill({ skill_id: 's2', rating: 3.0, download_count: 10 }));
+
+      const result = await service.compareTwoSkills('s1', 's2');
+      expect(result.skillA).toBe('s1');
+      expect(result.skillB).toBe('s2');
     });
   });
 });

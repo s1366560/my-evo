@@ -9,6 +9,11 @@ const {
   getRankings,
   getSeason,
   listSeasons,
+  joinMatchmaking,
+  leaveMatchmaking,
+  getMatchmakingStatus,
+  listMatches,
+  submitMatchResult,
 } = service;
 
 const mockPrisma = {
@@ -449,6 +454,213 @@ describe('Arena Service', () => {
       const result = await listSeasons();
 
       expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('joinMatchmaking', () => {
+    it('should add node to queue and return queued status', async () => {
+      mockPrisma.arenaSeason.findUnique.mockResolvedValue({
+        season_id: 'season-1',
+        status: 'active',
+      });
+
+      const result = await joinMatchmaking('season-1', 'node-1');
+
+      expect(result.status).toBe('queued');
+    });
+
+    it('should throw NotFoundError when season does not exist', async () => {
+      mockPrisma.arenaSeason.findUnique.mockResolvedValue(null);
+
+      await expect(joinMatchmaking('missing', 'node-1')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw ValidationError when season is not active', async () => {
+      mockPrisma.arenaSeason.findUnique.mockResolvedValue({
+        season_id: 'season-1',
+        status: 'upcoming',
+      });
+
+      await expect(joinMatchmaking('season-1', 'node-1')).rejects.toThrow(ValidationError);
+      await expect(joinMatchmaking('season-1', 'node-1')).rejects.toThrow('Season is not active');
+    });
+  });
+
+  describe('leaveMatchmaking', () => {
+    it('should remove node from queue without throwing', async () => {
+      // First join
+      mockPrisma.arenaSeason.findUnique.mockResolvedValue({
+        season_id: 'season-1',
+        status: 'active',
+      });
+      await joinMatchmaking('season-1', 'node-1');
+
+      // Then leave - should not throw
+      await expect(leaveMatchmaking('season-1', 'node-1')).resolves.not.toThrow();
+    });
+  });
+
+  describe('getMatchmakingStatus', () => {
+    it('should return in_queue=false when node is not in queue', async () => {
+      const result = await getMatchmakingStatus('season-1', 'node-unknown');
+
+      expect(result.in_queue).toBe(false);
+    });
+
+    it('should return in_queue=true with position when node is in queue', async () => {
+      mockPrisma.arenaSeason.findUnique.mockResolvedValue({
+        season_id: 'season-1',
+        status: 'active',
+      });
+      await joinMatchmaking('season-1', 'node-1');
+      await joinMatchmaking('season-1', 'node-2');
+
+      const result = await getMatchmakingStatus('season-1', 'node-1');
+
+      expect(result.in_queue).toBe(true);
+      expect(result.position).toBe(1);
+    });
+  });
+
+  describe('listMatches', () => {
+    it('should return matches with pagination', async () => {
+      const matches = [
+        { match_id: 'm-1', season_id: 'season-1', challenger: 'node-1', defender: 'node-2', winner_id: null, status: 'pending', scores: {}, created_at: new Date('2025-06-01') },
+        { match_id: 'm-2', season_id: 'season-1', challenger: 'node-3', defender: 'node-4', winner_id: 'node-3', status: 'completed', scores: { quality: 80 }, created_at: new Date('2025-06-02') },
+      ];
+      mockPrisma.arenaMatch.findMany.mockResolvedValue(matches);
+      mockPrisma.arenaMatch.count.mockResolvedValue(2);
+
+      const result = await listMatches('season-1');
+
+      expect(result.items).toHaveLength(2);
+      expect(result.total).toBe(2);
+      expect(mockPrisma.arenaMatch.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { season_id: 'season-1' } }),
+      );
+    });
+
+    it('should filter by status when provided', async () => {
+      mockPrisma.arenaMatch.findMany.mockResolvedValue([]);
+      mockPrisma.arenaMatch.count.mockResolvedValue(0);
+
+      await listMatches('season-1', 'completed');
+
+      expect(mockPrisma.arenaMatch.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { season_id: 'season-1', status: 'completed' } }),
+      );
+    });
+
+    it('should apply limit and offset', async () => {
+      mockPrisma.arenaMatch.findMany.mockResolvedValue([]);
+      mockPrisma.arenaMatch.count.mockResolvedValue(0);
+
+      await listMatches(undefined, undefined, 10, 5);
+
+      expect(mockPrisma.arenaMatch.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 10, skip: 5 }),
+      );
+    });
+  });
+
+  describe('submitMatchResult', () => {
+    it('should submit match result and update Elo ratings', async () => {
+      const matchData = {
+        match_id: 'match-1',
+        season_id: 'season-1',
+        challenger: 'node-1',
+        defender: 'node-2',
+        winner_id: null,
+        status: 'pending',
+        scores: {},
+      };
+
+      mockPrisma.arenaMatch.findUnique.mockResolvedValue(matchData);
+      mockPrisma.arenaSeason.findUnique.mockResolvedValue({
+        rankings: [{ node_id: 'node-1', elo: 1000 }, { node_id: 'node-2', elo: 1000 }],
+      });
+      mockPrisma.arenaSeason.update.mockResolvedValue({});
+      mockPrisma.arenaMatch.update.mockResolvedValue({
+        match_id: 'match-1',
+        season_id: 'season-1',
+        challenger: 'node-1',
+        defender: 'node-2',
+        winner_id: 'node-1',
+        status: 'completed',
+        scores: { quality: 85 },
+        created_at: new Date('2025-06-01'),
+      });
+
+      const result = await submitMatchResult('match-1', 'node-1', { quality: 85 });
+
+      expect(result.match_id).toBe('match-1');
+      expect(result.winner_id).toBe('node-1');
+      expect(result.status).toBe('completed');
+      expect(result.scores).toEqual({ quality: 85 });
+    });
+
+    it('should use empty scores when not provided', async () => {
+      const matchData = {
+        match_id: 'match-2',
+        season_id: 'season-1',
+        challenger: 'node-1',
+        defender: 'node-2',
+        winner_id: null,
+        status: 'pending',
+        scores: {},
+      };
+
+      mockPrisma.arenaMatch.findUnique.mockResolvedValue(matchData);
+      mockPrisma.arenaSeason.findUnique.mockResolvedValue({
+        rankings: [{ node_id: 'node-1', elo: 1000 }, { node_id: 'node-2', elo: 1000 }],
+      });
+      mockPrisma.arenaSeason.update.mockResolvedValue({});
+      mockPrisma.arenaMatch.update.mockResolvedValue({
+        match_id: 'match-2',
+        season_id: 'season-1',
+        challenger: 'node-1',
+        defender: 'node-2',
+        winner_id: 'node-1',
+        status: 'completed',
+        scores: {},
+        created_at: new Date('2025-06-01'),
+      });
+
+      const result = await submitMatchResult('match-2', 'node-1');
+
+      expect(result.scores).toEqual({});
+    });
+
+    it('should throw NotFoundError when match does not exist', async () => {
+      mockPrisma.arenaMatch.findUnique.mockResolvedValue(null);
+
+      await expect(submitMatchResult('missing', 'node-1')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw ValidationError when match is not pending', async () => {
+      mockPrisma.arenaMatch.findUnique.mockResolvedValue({
+        match_id: 'match-1',
+        season_id: 'season-1',
+        challenger: 'node-1',
+        defender: 'node-2',
+        status: 'completed',
+      });
+
+      await expect(submitMatchResult('match-1', 'node-1')).rejects.toThrow(ValidationError);
+      await expect(submitMatchResult('match-1', 'node-1')).rejects.toThrow('Match is not pending');
+    });
+
+    it('should throw ValidationError when winner is not a participant', async () => {
+      mockPrisma.arenaMatch.findUnique.mockResolvedValue({
+        match_id: 'match-1',
+        season_id: 'season-1',
+        challenger: 'node-1',
+        defender: 'node-2',
+        status: 'pending',
+      });
+
+      await expect(submitMatchResult('match-1', 'node-3')).rejects.toThrow(ValidationError);
+      await expect(submitMatchResult('match-1', 'node-3')).rejects.toThrow('Winner must be a match participant');
     });
   });
 });

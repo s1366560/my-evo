@@ -179,6 +179,37 @@ describe('Worker Pool Service', () => {
       const result = await service.findAvailableWorkers(['coding'], 5);
       expect(result[0]!.node_id).toBe('w2');
     });
+
+    it('should sort by success_rate when capacity is equal', async () => {
+      // Both workers have same remaining capacity (max=3, tasks=1 => capacity=2)
+      const workers = [
+        {
+          node_id: 'w_low',
+          specialties: ['coding'],
+          max_concurrent: 3,
+          current_tasks: 1,
+          success_rate: 70,
+          is_available: true,
+          last_heartbeat: new Date(),
+        },
+        {
+          node_id: 'w_high',
+          specialties: ['coding'],
+          max_concurrent: 3,
+          current_tasks: 1,
+          success_rate: 95,
+          is_available: true,
+          last_heartbeat: new Date(),
+        },
+      ];
+
+      mockPrisma.worker.findMany.mockResolvedValue(workers);
+
+      const result = await service.findAvailableWorkers(['coding'], 5);
+      // Higher success_rate should come first
+      expect(result[0]!.node_id).toBe('w_high');
+      expect(result[1]!.node_id).toBe('w_low');
+    });
   });
 
   describe('assignTask', () => {
@@ -333,6 +364,190 @@ describe('Worker Pool Service', () => {
           },
         }),
       );
+    });
+  });
+
+  // ==================================================================
+  // Part 4: Specialist endpoints
+  // ==================================================================
+
+  describe('listSpecialists', () => {
+    it('should return paginated specialists', async () => {
+      const workers = [
+        {
+          node_id: 'w1',
+          specialties: ['coding'],
+          max_concurrent: 3,
+          current_tasks: 0,
+          total_completed: 10,
+          success_rate: 90,
+          is_available: true,
+          last_heartbeat: new Date('2024-01-01'),
+        },
+      ];
+      mockPrisma.worker.findMany.mockResolvedValue(workers);
+      mockPrisma.worker.count.mockResolvedValue(1);
+
+      const result = await service.listSpecialists();
+
+      expect(result.items).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(result.items[0]).toHaveProperty('last_heartbeat');
+      // last_heartbeat should be ISO string
+      expect(typeof result.items[0]!.last_heartbeat).toBe('string');
+    });
+
+    it('should filter by availableOnly=true', async () => {
+      mockPrisma.worker.findMany.mockResolvedValue([]);
+      mockPrisma.worker.count.mockResolvedValue(0);
+
+      await service.listSpecialists(undefined, true);
+
+      expect(mockPrisma.worker.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ is_available: true }),
+        }),
+      );
+    });
+
+    it('should filter by availableOnly=false', async () => {
+      mockPrisma.worker.findMany.mockResolvedValue([]);
+      mockPrisma.worker.count.mockResolvedValue(0);
+
+      await service.listSpecialists(undefined, false);
+
+      expect(mockPrisma.worker.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ is_available: false }),
+        }),
+      );
+    });
+
+    it('should filter by specialty', async () => {
+      mockPrisma.worker.findMany.mockResolvedValue([]);
+      mockPrisma.worker.count.mockResolvedValue(0);
+
+      await service.listSpecialists('design');
+
+      expect(mockPrisma.worker.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ specialties: { has: 'design' } }),
+        }),
+      );
+    });
+
+    it('should filter by both specialty and availableOnly', async () => {
+      mockPrisma.worker.findMany.mockResolvedValue([]);
+      mockPrisma.worker.count.mockResolvedValue(0);
+
+      await service.listSpecialists('coding', true);
+
+      expect(mockPrisma.worker.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            is_available: true,
+            specialties: { has: 'coding' },
+          }),
+        }),
+      );
+    });
+
+    it('should apply limit and offset', async () => {
+      mockPrisma.worker.findMany.mockResolvedValue([{ node_id: 'w1', last_heartbeat: new Date() }]);
+      mockPrisma.worker.count.mockResolvedValue(50);
+
+      const result = await service.listSpecialists(undefined, undefined, 10, 20);
+
+      expect(mockPrisma.worker.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 10, skip: 20 }),
+      );
+      expect(result.total).toBe(50);
+    });
+  });
+
+  describe('getSpecialist', () => {
+    it('should return specialist info', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue({
+        node_id: 'w1',
+        specialties: ['coding'],
+        max_concurrent: 3,
+        current_tasks: 1,
+        total_completed: 10,
+        success_rate: 90,
+        is_available: true,
+        last_heartbeat: new Date('2024-01-01'),
+      });
+
+      const result = await service.getSpecialist('w1');
+
+      expect(result.node_id).toBe('w1');
+      expect(typeof result.last_heartbeat).toBe('string');
+    });
+
+    it('should throw NotFoundError for missing specialist', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue(null);
+
+      await expect(service.getSpecialist('nonexistent')).rejects.toThrow('Worker not found');
+    });
+  });
+
+  describe('rateSpecialist', () => {
+    it('should accept valid rating', async () => {
+      await expect(service.rateSpecialist('task-1', 'rater-1', 3)).resolves.toBeUndefined();
+    });
+
+    it('should accept rating=1', async () => {
+      await expect(service.rateSpecialist('task-1', 'rater-1', 1)).resolves.toBeUndefined();
+    });
+
+    it('should accept rating=5', async () => {
+      await expect(service.rateSpecialist('task-1', 'rater-1', 5)).resolves.toBeUndefined();
+    });
+
+    it('should reject rating=0', async () => {
+      await expect(service.rateSpecialist('task-1', 'rater-1', 0)).rejects.toThrow(
+        'Rating must be between 1 and 5',
+      );
+    });
+
+    it('should reject rating=6', async () => {
+      await expect(service.rateSpecialist('task-1', 'rater-1', 6)).rejects.toThrow(
+        'Rating must be between 1 and 5',
+      );
+    });
+
+    it('should reject negative rating', async () => {
+      await expect(service.rateSpecialist('task-1', 'rater-1', -1)).rejects.toThrow(
+        'Rating must be between 1 and 5',
+      );
+    });
+  });
+
+  // ==================================================================
+  // Additional coverage: edge cases for existing functions
+  // ==================================================================
+
+  describe('assignTask', () => {
+    it('should throw NotFoundError when worker not found', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue(null);
+
+      await expect(service.assignTask('nonexistent', 'task-1')).rejects.toThrow('Worker not found');
+    });
+  });
+
+  describe('completeTask', () => {
+    it('should throw NotFoundError when worker not found', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue(null);
+
+      await expect(service.completeTask('nonexistent', 'task-1', true)).rejects.toThrow('Worker not found');
+    });
+  });
+
+  describe('deregisterWorker', () => {
+    it('should throw NotFoundError when worker not found', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue(null);
+
+      await expect(service.deregisterWorker('nonexistent')).rejects.toThrow('Worker not found');
     });
   });
 });

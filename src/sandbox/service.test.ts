@@ -184,6 +184,12 @@ describe('Sandbox Service', () => {
 
       await expect(deleteSandbox('sb-1', 'node-2')).rejects.toThrow(ForbiddenError);
     });
+
+    it('should throw NotFoundError when sandbox not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue(null);
+
+      await expect(deleteSandbox('nonexistent', 'node-1')).rejects.toThrow(NotFoundError);
+    });
   });
 
   describe('joinSandbox', () => {
@@ -201,6 +207,12 @@ describe('Sandbox Service', () => {
       mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1', state: 'archived' });
 
       await expect(joinSandbox('sb-1', 'node-2')).rejects.toThrow(ValidationError);
+    });
+
+    it('should throw NotFoundError when sandbox not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue(null);
+
+      await expect(joinSandbox('nonexistent', 'node-2')).rejects.toThrow(NotFoundError);
     });
   });
 
@@ -292,6 +304,19 @@ describe('Sandbox Service', () => {
 
       await expect(requestPromotion('sb-1', 'node-1', 'asset-1')).rejects.toThrow(ValidationError);
     });
+
+    it('should throw NotFoundError when sandbox not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue(null);
+
+      await expect(requestPromotion('nonexistent', 'node-1', 'asset-1')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw NotFoundError when asset not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1' });
+      mockPrisma.sandboxAsset.findFirst.mockResolvedValue(null);
+
+      await expect(requestPromotion('sb-1', 'node-1', 'nonexistent')).rejects.toThrow(NotFoundError);
+    });
   });
 
   describe('approvePromotion', () => {
@@ -313,6 +338,152 @@ describe('Sandbox Service', () => {
 
       await expect(approvePromotion('sb-1', 'req-1', 'node-1')).rejects.toThrow(ValidationError);
     });
+
+    it('should throw NotFoundError when request not found', async () => {
+      mockPrisma.promotionRequest.findUnique.mockResolvedValue(null);
+
+      await expect(approvePromotion('sb-1', 'nonexistent', 'node-1')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('leaveSandbox', () => {
+    it('should allow member to leave', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1', created_by: 'node-1' });
+      mockPrisma.sandboxMember.findUnique.mockResolvedValue({ sandbox_id: 'sb-1', node_id: 'node-2' });
+      mockPrisma.sandboxMember.delete.mockResolvedValue({});
+      mockPrisma.evolutionSandbox.update.mockResolvedValue({});
+
+      await expect(leaveSandbox('sb-1', 'node-2')).resolves.not.toThrow();
+    });
+
+    it('should reject when creator tries to leave', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1', created_by: 'node-1' });
+
+      await expect(leaveSandbox('sb-1', 'node-1')).rejects.toThrow(ValidationError);
+    });
+
+    it('should throw NotFoundError when sandbox not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue(null);
+
+      await expect(leaveSandbox('nonexistent', 'node-2')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw NotFoundError when member not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1', created_by: 'node-1' });
+      mockPrisma.sandboxMember.findUnique.mockResolvedValue(null);
+
+      await expect(leaveSandbox('sb-1', 'node-2')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('listMembers', () => {
+    it('should return members of a sandbox', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1' });
+      mockPrisma.sandboxMember.findMany.mockResolvedValue([
+        { node_id: 'node-1', role: 'owner' },
+        { node_id: 'node-2', role: 'participant' },
+      ]);
+
+      const result = await listMembers('sb-1');
+      expect(result).toHaveLength(2);
+    });
+
+    it('should throw NotFoundError when sandbox not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue(null);
+
+      await expect(listMembers('nonexistent')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('inviteMember', () => {
+    it('should create an invite', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1' });
+      mockPrisma.sandboxInvite.create.mockResolvedValue({
+        invite_id: 'inv-1',
+        sandbox_id: 'sb-1',
+        invitee: 'node-3',
+        status: 'pending',
+      });
+
+      const result = await inviteMember('sb-1', 'node-1', 'node-3');
+
+      expect(result.status).toBe('pending');
+    });
+
+    it('should throw NotFoundError when sandbox not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue(null);
+
+      await expect(inviteMember('nonexistent', 'node-1', 'node-3')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('listAssets', () => {
+    it('should return assets of a sandbox', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1' });
+      mockPrisma.sandboxAsset.findMany.mockResolvedValue([
+        { asset_id: 'asset-1', name: 'Test Asset' },
+      ]);
+
+      const result = await listAssets('sb-1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.asset_id).toBe('asset-1');
+    });
+
+    it('should throw NotFoundError when sandbox not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue(null);
+
+      await expect(listAssets('nonexistent')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('addAsset', () => {
+    it('should add an asset and increment counters', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1' });
+      mockPrisma.sandboxAsset.create.mockResolvedValue({ asset_id: 'asset-1', sandbox_id: 'sb-1' });
+      mockPrisma.evolutionSandbox.update.mockResolvedValue({});
+      mockPrisma.sandboxMember.updateMany.mockResolvedValue({});
+
+      const result = await addAsset('sb-1', 'node-1', {
+        asset_id: 'asset-1',
+        asset_type: 'gene',
+        name: 'Test Gene',
+        content: '// gene content',
+      });
+
+      expect(result.asset_id).toBe('asset-1');
+    });
+
+    it('should throw NotFoundError when sandbox not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue(null);
+
+      await expect(addAsset('nonexistent', 'node-1', {
+        asset_id: 'asset-1',
+        asset_type: 'gene',
+        name: 'Test',
+        content: 'content',
+      })).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('listPromotions', () => {
+    it('should return promotions for a sandbox', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1' });
+      mockPrisma.promotionRequest.findMany.mockResolvedValue([
+        { request_id: 'req-1', status: 'pending' },
+      ]);
+
+      const result = await listPromotions('sb-1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.request_id).toBe('req-1');
+    });
+
+    it('should throw NotFoundError when sandbox not found', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue(null);
+
+      await expect(listPromotions('nonexistent')).rejects.toThrow(NotFoundError);
+    });
   });
 
   describe('rejectPromotion', () => {
@@ -324,6 +495,24 @@ describe('Sandbox Service', () => {
       const result = await rejectPromotion('sb-1', 'req-1', 'node-reviewer', 'Insufficient quality');
 
       expect(result.status).toBe('rejected');
+    });
+
+    it('should throw NotFoundError when request not found', async () => {
+      mockPrisma.promotionRequest.findUnique.mockResolvedValue(null);
+
+      await expect(rejectPromotion('sb-1', 'nonexistent', 'node-1', 'note')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw ValidationError when request is not pending', async () => {
+      mockPrisma.promotionRequest.findUnique.mockResolvedValue({ request_id: 'req-1', sandbox_id: 'sb-1', status: 'approved' });
+
+      await expect(rejectPromotion('sb-1', 'req-1', 'node-1', 'note')).rejects.toThrow(ValidationError);
+    });
+
+    it('should throw NotFoundError when request not found', async () => {
+      mockPrisma.promotionRequest.findUnique.mockResolvedValue(null);
+
+      await expect(rejectPromotion('sb-1', 'nonexistent', 'node-1', 'note')).rejects.toThrow(NotFoundError);
     });
   });
 });
