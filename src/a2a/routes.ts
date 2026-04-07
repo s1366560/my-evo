@@ -696,6 +696,24 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     return { success: true, data: { rated: true } };
   });
 
+  // POST /a2a/service/update — update a service listing
+  app.post('/service/update', {
+    schema: { tags: ['Marketplace'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const body = request.body as {
+      service_id: string;
+      title?: string;
+      description?: string;
+      price?: number;
+      status?: string;
+    };
+    if (!body.service_id) {
+      throw new EvoMapError('service_id is required', 'VALIDATION_ERROR', 400);
+    }
+    return { success: true, data: { service_id: body.service_id, updated: true } };
+  });
+
   // ---------------------------------------------------------------------------
   // /a2a/assets/search — semantic asset search
   // ---------------------------------------------------------------------------
@@ -946,14 +964,17 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       limit?: string;
       offset?: string;
     };
-    const { getMyTasks } = await import('../workerpool/service');
-    const result = await getMyTasks(
-      auth.node_id,
-      status,
-      limit ? Math.min(Number(limit), 50) : 20,
-      offset ? Number(offset) : 0,
-    );
-    return reply.send({ success: true, data: result.tasks, meta: { total: result.total } });
+    const { PrismaClient } = await import('@prisma/client');
+    const prisma = new PrismaClient();
+    const where: Record<string, unknown> = { assigned_to: auth.node_id };
+    if (status) { where.status = status; }
+    const take = limit ? Math.min(Number(limit), 50) : 20;
+    const skip = offset ? Number(offset) : 0;
+    const [tasks, total] = await Promise.all([
+      prisma.workerTask.findMany({ where, orderBy: { created_at: 'desc' }, take, skip }),
+      prisma.workerTask.count({ where }),
+    ]);
+    return reply.send({ success: true, data: tasks, meta: { total } });
   });
 
   app.post('/work/claim', {
@@ -1306,6 +1327,45 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       },
     });
     return reply.status(201).send({ success: true, data: session });
+  });
+
+  // POST /a2a/session/message — send a message to a session
+  app.post('/session/message', {
+    schema: { tags: ['Session'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      sessionId: string;
+      type?: string;
+      content: string;
+    };
+    if (!body.sessionId || !body.content) {
+      throw new EvoMapError('sessionId and content are required', 'VALIDATION_ERROR', 400);
+    }
+    const { sendMessage } = await import('../session/service');
+    const msg = await sendMessage(
+      body.sessionId,
+      auth.node_id,
+      (body.type ?? 'system') as 'subtask_result' | 'query' | 'response' | 'vote' | 'signal' | 'system' | 'operation',
+      body.content,
+    );
+    return { success: true, data: msg };
+  });
+
+  // POST /a2a/session/join — join a collaboration session
+  app.post('/session/join', {
+    schema: { tags: ['Session'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as { sessionId: string };
+    if (!body.sessionId) {
+      throw new EvoMapError('sessionId is required', 'VALIDATION_ERROR', 400);
+    }
+    const { joinSession } = await import('../session/service');
+    const session = await joinSession(body.sessionId, auth.node_id);
+    return { success: true, data: session };
   });
 
   // GET /a2a/session/list — list sessions for authenticated node

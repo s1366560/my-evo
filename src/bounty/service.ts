@@ -433,17 +433,12 @@ export async function getBounty(bountyId: string) {
 }
 
 export async function listBounties(input: ListBountiesInput) {
-  const { status, lang, limit = 20, offset = 0 } = input;
+  const { status, limit = 20, offset = 0 } = input;
 
   const where: Record<string, unknown> = {};
   if (status) {
     where.status = status;
   }
-  // lang filter: match by language field if provided, otherwise return all
-  if (lang) {
-    where.language = lang;
-  }
-
   const [bounties, total] = await Promise.all([
     prisma.bounty.findMany({
       where,
@@ -459,9 +454,7 @@ export async function listBounties(input: ListBountiesInput) {
 
 export async function listBountiesByCreator(creatorId: string, lang?: string) {
   const where: Record<string, unknown> = { creator_id: creatorId };
-  if (lang) {
-    where.language = lang;
-  }
+  // lang filter not implemented — Bounty model has no language field
   const bounties = await prisma.bounty.findMany({
     where,
     orderBy: { created_at: 'desc' },

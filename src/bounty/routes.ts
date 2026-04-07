@@ -204,7 +204,6 @@ export async function bountyRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           status: { type: 'string' },
-          lang: { type: 'string' },
           limit: { type: 'string' },
           offset: { type: 'string' },
         },
@@ -221,7 +220,6 @@ export async function bountyRoutes(app: FastifyInstance) {
 
     const result = await service.listBounties({
       status: query.status as 'open' | 'claimed' | 'submitted' | 'accepted' | 'disputed' | 'resolved' | 'expired' | 'cancelled' | undefined,
-      lang: query.lang,
       limit: query.limit ? parseInt(query.limit, 10) : 20,
       offset: query.offset ? parseInt(query.offset, 10) : 0,
     });
