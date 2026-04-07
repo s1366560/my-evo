@@ -35,6 +35,37 @@ export async function bountyRoutes(app: FastifyInstance) {
     return { success: true, data: bounty };
   });
 
+  // POST /api/v2/bounty/create — explicit create alias
+  app.post('/create', {
+    schema: { tags: ['Bounty'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      title: string;
+      description: string;
+      requirements: string[];
+      amount: number;
+      deadline: string;
+    };
+
+    if (!body.title || !body.description || !body.amount || !body.deadline) {
+      throw new EvoMapError('title, description, amount, and deadline are required', 'VALIDATION_ERROR', 400);
+    }
+
+    const bounty = await service.createBounty(
+      auth.node_id,
+      body.title,
+      body.description,
+      body.requirements ?? [],
+      body.amount,
+      body.deadline,
+    );
+
+    void reply.status(201);
+    return { success: true, data: bounty };
+  });
+
   app.post('/', {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
@@ -167,17 +198,30 @@ export async function bountyRoutes(app: FastifyInstance) {
   });
 
   app.get('/', {
-    schema: { tags: ['Bounty'] },
+    schema: {
+      tags: ['Bounty'],
+      querystring: {
+        type: 'object',
+        properties: {
+          status: { type: 'string' },
+          lang: { type: 'string' },
+          limit: { type: 'string' },
+          offset: { type: 'string' },
+        },
+      },
+    },
     preHandler: [requireAuth()],
   }, async (request) => {
     const query = request.query as {
       status?: string;
+      lang?: string;
       limit?: string;
       offset?: string;
     };
 
     const result = await service.listBounties({
       status: query.status as 'open' | 'claimed' | 'submitted' | 'accepted' | 'disputed' | 'resolved' | 'expired' | 'cancelled' | undefined,
+      lang: query.lang,
       limit: query.limit ? parseInt(query.limit, 10) : 20,
       offset: query.offset ? parseInt(query.offset, 10) : 0,
     });
@@ -203,11 +247,20 @@ export async function bountyRoutes(app: FastifyInstance) {
   });
 
   app.get('/my', {
-    schema: { tags: ['Bounty'] },
+    schema: {
+      tags: ['Bounty'],
+      querystring: {
+        type: 'object',
+        properties: {
+          lang: { type: 'string' },
+        },
+      },
+    },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
-    const result = await service.listBountiesByCreator(auth.node_id);
+    const query = request.query as { lang?: string };
+    const result = await service.listBountiesByCreator(auth.node_id, query.lang);
     return {
       success: true,
       data: result.bounties,

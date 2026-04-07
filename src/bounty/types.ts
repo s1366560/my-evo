@@ -44,6 +44,7 @@ export interface CancelBountyInput {
 
 export interface ListBountiesInput {
   status?: BountyStatus;
+  lang?: string;
   limit?: number;
   offset?: number;
 }

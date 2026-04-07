@@ -433,11 +433,15 @@ export async function getBounty(bountyId: string) {
 }
 
 export async function listBounties(input: ListBountiesInput) {
-  const { status, limit = 20, offset = 0 } = input;
+  const { status, lang, limit = 20, offset = 0 } = input;
 
   const where: Record<string, unknown> = {};
   if (status) {
     where.status = status;
+  }
+  // lang filter: match by language field if provided, otherwise return all
+  if (lang) {
+    where.language = lang;
   }
 
   const [bounties, total] = await Promise.all([
@@ -453,10 +457,22 @@ export async function listBounties(input: ListBountiesInput) {
   return { bounties, total, limit, offset };
 }
 
-export async function listBountiesByCreator(creatorId: string) {
+export async function listBountiesByCreator(creatorId: string, lang?: string) {
+  const where: Record<string, unknown> = { creator_id: creatorId };
+  if (lang) {
+    where.language = lang;
+  }
   const bounties = await prisma.bounty.findMany({
-    where: { creator_id: creatorId },
+    where,
     orderBy: { created_at: 'desc' },
   });
   return { bounties, total: bounties.length };
+}
+
+export async function listBids(bidderId: string) {
+  const bids = await prisma.bountyBid.findMany({
+    where: { bidder_id: bidderId },
+    orderBy: { submitted_at: 'desc' },
+  });
+  return bids;
 }

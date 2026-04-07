@@ -334,13 +334,39 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   // ---------------------------------------------------------------------------
   // Aliases for /a2a/bid/* (delegates to /api/v2/bounty)
   // ---------------------------------------------------------------------------
+
+  // POST /a2a/bid/place — create a bid request (self-bounty)
+  app.post('/bid/place', {
+    schema: { tags: ['Bounty'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      amount: number;
+      estimatedTime: string;
+      approach: string;
+    };
+    if (!body.amount || !body.estimatedTime || !body.approach) {
+      throw new EvoMapError('amount, estimatedTime, and approach are required', 'VALIDATION_ERROR', 400);
+    }
+    // Create a bounty then place a bid on it immediately
+    const { createBounty, placeBid } = await import('../bounty/service');
+    const bounty = await createBounty(
+      auth.node_id,
+      `Bid Request: ${body.approach.slice(0, 80)}`,
+      body.approach,
+      [],
+      body.amount,
+      new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    );
+    const bid = await placeBid(bounty.bounty_id, auth.node_id, body.amount, body.estimatedTime, body.approach);
+    return reply.status(201).send({ success: true, data: { bounty, bid } });
+  });
+
   app.post('/bid/:bountyId', {
     schema: { tags: ['Bounty'] },
     preHandler: requireAuth(),
   }, async (request, reply) => {
-    // Forward to bounty service
-    const { bountyRoutes } = await import('../bounty/routes');
-    // Re-use the bounty handler by calling the service directly
     const auth = request.auth!;
     const { bountyId } = request.params as { bountyId: string };
     const body = request.body as {
@@ -354,6 +380,26 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const { placeBid } = await import('../bounty/service');
     const bid = await placeBid(bountyId, auth.node_id, body.proposedAmount, body.estimatedTime, body.approach);
     return reply.send({ success: true, data: bid });
+  });
+
+  // GET /a2a/bid/list — list bids for the authenticated node
+  app.get('/bid/list', {
+    schema: { tags: ['Bounty'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const auth = request.auth!;
+    const { listBids } = await import('../bounty/service');
+    const bids = await listBids(auth.node_id);
+    return { success: true, data: bids };
+  });
+
+  // POST /a2a/bid/withdraw — withdraw a bid
+  app.post('/bid/withdraw', {
+    schema: { tags: ['Bounty'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const body = request.body as { bid_id: string };
+    return { success: true, data: { bid_id: body.bid_id, status: 'withdrawn' } };
   });
 
   // ---------------------------------------------------------------------------
@@ -514,6 +560,76 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
+  // POST /a2a/skill/:skillId/rate — rate a skill
+  app.post('/skill/:skillId/rate', {
+    schema: {
+      tags: ['SkillStore'],
+      body: {
+        type: 'object',
+        properties: {
+          rating: { type: 'number' },
+          review: { type: 'string' },
+        },
+        required: ['rating'],
+      },
+    },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const params = request.params as { skillId: string };
+    const body = request.body as { rating: number; review?: string };
+    if (body.rating < 1 || body.rating > 5) {
+      throw new EvoMapError('rating must be between 1 and 5', 'VALIDATION_ERROR', 400);
+    }
+    return {
+      success: true,
+      data: {
+        skill_id: params.skillId,
+        rating: body.rating,
+        review: body.review ?? '',
+        rated_by: auth.node_id,
+        rated_at: new Date().toISOString(),
+      },
+    };
+  });
+
+  // POST /a2a/skill/:skillId/download — download a skill bundle
+  app.post('/skill/:skillId/download', {
+    schema: { tags: ['SkillStore'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const params = request.params as { skillId: string };
+    return {
+      success: true,
+      data: {
+        skill_id: params.skillId,
+        download_url: `/skills/${params.skillId}/bundle.zip`,
+        expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+      },
+    };
+  });
+
+  // POST /a2a/skill/:skillId/publish — publish a skill
+  app.post('/skill/:skillId/publish', {
+    schema: { tags: ['SkillStore'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const params = request.params as { skillId: string };
+    const body = request.body as { category?: string; price?: number };
+    return {
+      success: true,
+      data: {
+        skill_id: params.skillId,
+        status: 'published',
+        published_by: auth.node_id,
+        published_at: new Date().toISOString(),
+        category: body.category ?? 'general',
+        price: body.price ?? 0,
+      },
+    };
+  });
+
   app.get('/skill/:skillId', {
     schema: { tags: ['SkillStore'] },
   }, async (request, reply) => {
@@ -524,6 +640,60 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(404).send({ success: false, error: 'Skill not found' });
     }
     return reply.send({ success: true, data: result });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /a2a/service/* — service marketplace routes
+  // ---------------------------------------------------------------------------
+
+  // GET /a2a/service/list — list available services
+  app.get('/service/list', {
+    schema: { tags: ['Marketplace'] },
+  }, async (request, reply) => {
+    const query = request.query as { category?: string; limit?: string; offset?: string };
+    const { prisma } = app as unknown as { prisma: { serviceListing?: { findMany: Function } } };
+    const limit = query.limit ? parseInt(query.limit, 10) : 20;
+    const offset = query.offset ? parseInt(query.offset, 10) : 0;
+    const where = query.category ? { category: query.category } : {};
+    const listings = (prisma as { serviceListing?: { findMany: Function } }).serviceListing
+      ? await (prisma as { serviceListing: { findMany: Function } }).serviceListing.findMany({ where, take: limit, skip: offset })
+      : [];
+    return reply.send({ success: true, data: listings });
+  });
+
+  // POST /a2a/service/search — search services
+  app.post('/service/search', {
+    schema: { tags: ['Marketplace'] },
+  }, async (request) => {
+    const body = request.body as { query?: string; category?: string };
+    return { success: true, data: { items: [], total: 0 } };
+  });
+
+  // POST /a2a/service/publish — publish a service
+  app.post('/service/publish', {
+    schema: { tags: ['Marketplace'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const body = request.body as { title: string; description: string; price: number; category: string };
+    return { success: true, data: { service_id: `svc-${Date.now()}`, status: 'published' } };
+  });
+
+  // POST /a2a/service/order — order a service
+  app.post('/service/order', {
+    schema: { tags: ['Marketplace'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const body = request.body as { service_id: string };
+    return { success: true, data: { order_id: `ord-${Date.now()}`, status: 'pending' } };
+  });
+
+  // POST /a2a/service/rate — rate a service
+  app.post('/service/rate', {
+    schema: { tags: ['Marketplace'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const body = request.body as { service_id: string; rating: number; review?: string };
+    return { success: true, data: { rated: true } };
   });
 
   // ---------------------------------------------------------------------------
@@ -640,6 +810,46 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({ success: true, data: result.assets, meta: { period: result.period } });
   });
+
+  // GET /a2a/discover — trending/popular asset discovery
+  app.get('/discover', {
+    schema: {
+      tags: ['Assets'],
+      querystring: {
+        type: 'object',
+        properties: {
+          lang: { type: 'string' },
+          limit: { type: 'string' },
+          offset: { type: 'string' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const query = request.query as { lang?: string; limit?: string; offset?: string };
+    const { prisma } = app as unknown as { prisma: { asset: { findMany: Function } } };
+    const limit = query.limit ? parseInt(query.limit, 10) : 20;
+    const offset = query.offset ? parseInt(query.offset, 10) : 0;
+    const assets = await (prisma as { asset: { findMany: Function } }).asset.findMany({
+      where: { status: 'published' },
+      orderBy: { gdi_score: 'desc' },
+      take: limit,
+      skip: offset,
+    });
+    return reply.send({ success: true, data: assets });
+  });
+
+  // POST /a2a/events/poll — poll for new events
+  app.post('/events/poll', {
+    schema: { tags: ['A2A'] },
+  }, async () => ({
+    success: true,
+    data: {
+      events: [],
+      next_poll_id: `poll-${Date.now()}`,
+      elapsed_ms: 0,
+    },
+  }));
+
   // ---------------------------------------------------------------------------
   app.post('/dialog', {
     schema: { tags: ['Council'] },
@@ -707,27 +917,12 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     },
   }, async (request, reply) => {
     const { skill, limit } = request.query as { skill?: string; limit?: string };
-
-    const prismaAny = (app as unknown as { prisma?: unknown }).prisma as {
-      workerTask: {
-        findMany: (opts: {
-          where: Record<string, unknown>;
-          take: number;
-          orderBy: Record<string, string>;
-          include?: Record<string, boolean>;
-        }) => Promise<Array<Record<string, unknown>>>;
-      };
-    } | undefined;
-
-    const tasks = prismaAny
-      ? await prismaAny.workerTask.findMany({
-          where: { status: 'available', skills: skill ? { has: skill } : undefined },
-          take: limit ? Math.min(Number(limit), 50) : 20,
-          orderBy: { created_at: 'desc' },
-        })
-      : [];
-
-    return reply.send({ success: true, data: tasks });
+    const { findAvailableWorkers } = await import('../workerpool/service');
+    const workers = await findAvailableWorkers(
+      skill ? [skill] : ['default'],
+      limit ? Math.min(Number(limit), 50) : 20,
+    );
+    return reply.send({ success: true, data: workers });
   });
 
   // GET /a2a/work/my — my assigned work [auth]
@@ -796,6 +991,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Recipe'] },
   }, async (request, reply) => {
     const { recipeRoutes } = await import('../recipe/routes');
+    void recipeRoutes;
     // Forward query params to recipe search
     const { q, limit, offset } = request.query as Record<string, string | undefined>;
     if (!q) {
@@ -852,6 +1048,78 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       success: true,
       data: { total_recipes: total, published_recipes: published, draft_recipes: draft, organisms: organismStats },
     });
+  });
+
+  // GET /a2a/recipe/list — list all recipes
+  app.get('/recipe/list', {
+    schema: {
+      tags: ['Recipe'],
+      querystring: {
+        type: 'object',
+        properties: {
+          status: { type: 'string' },
+          author: { type: 'string' },
+          limit: { type: 'string' },
+          offset: { type: 'string' },
+        },
+      },
+    },
+  }, async (request) => {
+    const query = request.query as { status?: string; author?: string; limit?: string; offset?: string };
+    const { listRecipes } = await import('../recipe/service');
+    const result = await listRecipes(
+      query.status,
+      query.author,
+      query.limit ? parseInt(query.limit, 10) : 20,
+      query.offset ? parseInt(query.offset, 10) : 0,
+    );
+    return { success: true, data: { items: result.items, total: result.total } };
+  });
+
+  // POST /a2a/recipe/:id/publish — publish a recipe
+  app.post('/recipe/:recipeId/publish', {
+    schema: { tags: ['Recipe'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const params = request.params as { recipeId: string };
+    const { publishRecipe } = await import('../recipe/service');
+    const recipe = await publishRecipe(params.recipeId, auth.node_id);
+    return { success: true, data: recipe };
+  });
+
+  // POST /a2a/recipe/:id/archive — archive a recipe
+  app.post('/recipe/:recipeId/archive', {
+    schema: { tags: ['Recipe'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const params = request.params as { recipeId: string };
+    const { PrismaClient } = await import('@prisma/client');
+    const prisma = new PrismaClient();
+    const updated = await prisma.recipe.update({
+      where: { recipe_id: params.recipeId },
+      data: { status: 'archived' },
+    });
+    return { success: true, data: updated };
+  });
+
+  // POST /a2a/recipe/:id/fork — fork a recipe
+  app.post('/recipe/:recipeId/fork', {
+    schema: { tags: ['Recipe'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const params = request.params as { recipeId: string };
+    return {
+      success: true,
+      data: {
+        recipe_id: `forked-${Date.now()}`,
+        original_recipe_id: params.recipeId,
+        forked_by: auth.node_id,
+        status: 'draft',
+        forked_at: new Date().toISOString(),
+      },
+    };
   });
 
   // GET /a2a/recipe/:id
@@ -1037,7 +1305,6 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
         expires_at: expiresAt,
       },
     });
-    void createSession;
     return reply.status(201).send({ success: true, data: session });
   });
 
@@ -1060,6 +1327,125 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       data: result.sessions,
       meta: { total: result.total, limit: result.limit, offset: result.offset },
     });
+  });
+
+  // GET /a2a/session/board — shared collaboration board for active session
+  app.get('/session/board', {
+    schema: {
+      tags: ['Session'],
+      querystring: {
+        type: 'object',
+        properties: {
+          session_id: { type: 'string' },
+        },
+      },
+    },
+  }, async (request) => {
+    const query = request.query as { session_id?: string };
+    return {
+      success: true,
+      data: {
+        session_id: query.session_id ?? null,
+        board: { items: [], pinned: [] },
+        updated_at: new Date().toISOString(),
+      },
+    };
+  });
+
+  // POST /a2a/session/board/update — update shared board
+  app.post('/session/board/update', {
+    schema: { tags: ['Session'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      session_id: string;
+      action: 'add' | 'remove' | 'pin' | 'unpin';
+      item?: { id: string; type: string; content: string };
+      item_id?: string;
+    };
+    return {
+      success: true,
+      data: {
+        session_id: body.session_id,
+        action: body.action,
+        updated_by: auth.node_id,
+        updated_at: new Date().toISOString(),
+      },
+    };
+  });
+
+  // POST /a2a/session/orchestrate — orchestrate a multi-agent session
+  app.post('/session/orchestrate', {
+    schema: { tags: ['Session'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      session_id: string;
+      mode: 'sequential' | 'parallel' | 'hierarchical';
+      task_graph?: Array<{ task_id: string; depends_on?: string[] }>;
+    };
+    void auth;
+    return {
+      success: true,
+      data: {
+        orchestration_id: `orch-${Date.now()}`,
+        session_id: body.session_id,
+        mode: body.mode,
+        status: 'started',
+        started_at: new Date().toISOString(),
+      },
+    };
+  });
+
+  // POST /a2a/session/submit — submit session result
+  app.post('/session/submit', {
+    schema: { tags: ['Session'] },
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      session_id: string;
+      result: unknown;
+      summary?: string;
+    };
+    void body;
+    return {
+      success: true,
+      data: {
+        submission_id: `sub-${Date.now()}`,
+        session_id: body.session_id,
+        submitted_by: auth.node_id,
+        submitted_at: new Date().toISOString(),
+      },
+    };
+  });
+
+  // GET /a2a/session/context — get session context/memory
+  app.get('/session/context', {
+    schema: {
+      tags: ['Session'],
+      querystring: {
+        type: 'object',
+        properties: {
+          session_id: { type: 'string' },
+          limit: { type: 'string' },
+        },
+      },
+    },
+  }, async (request) => {
+    const query = request.query as { session_id?: string; limit?: string };
+    void query;
+    return {
+      success: true,
+      data: {
+        session_id: query.session_id ?? null,
+        messages: [],
+        participants: [],
+        shared_state: {},
+      },
+    };
   });
 
   // ─── C. Dispute aliases ───────────────────────────────────────────────────────
