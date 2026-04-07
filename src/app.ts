@@ -220,7 +220,7 @@ export async function buildApp() {
   await app.register(constitutionRoutes, { prefix: '/a2a/constitution' });
 
   const { docsRoutes } = await import('./docs/routes');
-  await app.register(docsRoutes);
+  await app.register(docsRoutes, { prefix: '/docs' });
 
   const { agentConfigRoutes } = await import('./agent_config/routes');
   await app.register(agentConfigRoutes, { prefix: '/api/v2' });

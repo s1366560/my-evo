@@ -23,16 +23,17 @@ const SLUG_TO_FILE: Record<string, string> = {
 };
 
 export async function docsRoutes(app: FastifyInstance): Promise<void> {
-  // Language-aware doc endpoint: GET /:lang/:slug
+  // Language-aware doc endpoint: GET /docs/:lang/:slug
   app.get('/:lang/:slug', {
     schema: {
       tags: ['Docs'],
       params: {
         type: 'object',
         properties: {
-          lang: { type: 'string', enum: SUPPORTED_LANGS },
+          lang: { type: 'string' },
           slug: { type: 'string' },
         },
+        required: ['lang', 'slug'],
       },
       response: {
         200: { type: 'string' },
@@ -43,9 +44,9 @@ export async function docsRoutes(app: FastifyInstance): Promise<void> {
 
     if (!SUPPORTED_LANGS.includes(lang)) {
       throw new EvoMapError(
-        `Unsupported language: ${lang}. Supported: ${SUPPORTED_LANGS.join(', ')}`,
-        'VALIDATION_ERROR',
-        400,
+        `Unknown doc: ${lang}/${slug}`,
+        'NOT_FOUND',
+        404,
       );
     }
 
@@ -70,7 +71,7 @@ export async function docsRoutes(app: FastifyInstance): Promise<void> {
     return reply.type('text/plain').send(content);
   });
 
-  // Backwards-compatible flat routes for existing .md files (no lang prefix)
+  // Backwards-compatible flat routes for existing .md files: /docs/skill.md
   for (const [route, filename] of Object.entries(SLUG_TO_FILE)) {
     const fullRoute = `/${route}.md`;
     app.get(fullRoute, {
