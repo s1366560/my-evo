@@ -328,3 +328,151 @@ export async function listSeasons(
     created_at: s.created_at.toISOString(),
   }));
 }
+
+// ---- Matchmaking (Part 3 additions) ----
+
+// In-memory matchmaking queue (reset on restart — fine for MVP)
+const matchmakingQueue: Map<string, Set<string>> = new Map();
+
+export async function joinMatchmaking(
+  seasonId: string,
+  nodeId: string,
+): Promise<{ status: string }> {
+  const season = await prisma.arenaSeason.findUnique({
+    where: { season_id: seasonId },
+  });
+  if (!season) {
+    throw new NotFoundError('Season', seasonId);
+  }
+  if (season.status !== 'active') {
+    throw new ValidationError('Season is not active');
+  }
+  if (!matchmakingQueue.has(seasonId)) {
+    matchmakingQueue.set(seasonId, new Set());
+  }
+  matchmakingQueue.get(seasonId)!.add(nodeId);
+  return { status: 'queued' };
+}
+
+export async function leaveMatchmaking(seasonId: string, nodeId: string): Promise<void> {
+  matchmakingQueue.get(seasonId)?.delete(nodeId);
+}
+
+export async function getMatchmakingStatus(
+  seasonId: string,
+  nodeId: string,
+): Promise<{ in_queue: boolean; position?: number }> {
+  const queue = matchmakingQueue.get(seasonId);
+  if (!queue || !queue.has(nodeId)) {
+    return { in_queue: false };
+  }
+  const position = [...queue].indexOf(nodeId) + 1;
+  return { in_queue: true, position };
+}
+
+export async function listMatches(
+  seasonId?: string,
+  status?: string,
+  limit = 20,
+  offset = 0,
+): Promise<{ items: ArenaMatchDetail[]; total: number }> {
+  const where: Record<string, unknown> = {};
+  if (seasonId) where.season_id = seasonId;
+  if (status) where.status = status;
+
+  const [matches, total] = await Promise.all([
+    prisma.arenaMatch.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.arenaMatch.count({ where }),
+  ]);
+
+  return {
+    items: matches.map((m) => ({
+      match_id: m.match_id,
+      season_id: m.season_id,
+      challenger: m.challenger,
+      defender: m.defender,
+      winner_id: m.winner_id,
+      status: m.status,
+      scores: m.scores as Record<string, number>,
+      created_at: m.created_at.toISOString(),
+    })),
+    total,
+  };
+}
+
+export async function submitMatchResult(
+  matchId: string,
+  winnerId: string,
+  scores?: Record<string, number>,
+): Promise<ArenaMatchDetail> {
+  const match = await prisma.arenaMatch.findUnique({
+    where: { match_id: matchId },
+  });
+  if (!match) {
+    throw new NotFoundError('Match', matchId);
+  }
+  if (match.status !== 'pending') {
+    throw new ValidationError('Match is not pending');
+  }
+  if (winnerId !== match.challenger && winnerId !== match.defender) {
+    throw new ValidationError('Winner must be a match participant');
+  }
+
+  const rankings = (await prisma.arenaSeason.findUnique({
+    where: { season_id: match.season_id },
+    select: { rankings: true },
+  }))?.rankings as Array<{ node_id: string; elo: number }> ?? [];
+
+  const challengerRanking = rankings.find((r) => r.node_id === match.challenger);
+  const defenderRanking = rankings.find((r) => r.node_id === match.defender);
+  const challengerElo = challengerRanking?.elo ?? DEFAULT_ELO;
+  const defenderElo = defenderRanking?.elo ?? DEFAULT_ELO;
+  const challengerScore = winnerId === match.challenger ? 1 : 0;
+  const newChallengerElo = calculateElo(challengerElo, defenderElo, challengerScore);
+  const newDefenderElo = calculateElo(defenderElo, challengerElo, 1 - challengerScore);
+
+  const updatedRankings = [...rankings];
+  const cIdx = updatedRankings.findIndex((r) => r.node_id === match.challenger);
+  if (cIdx >= 0) {
+    updatedRankings[cIdx] = { ...updatedRankings[cIdx]!, elo: newChallengerElo };
+  } else {
+    updatedRankings.push({ node_id: match.challenger, elo: newChallengerElo });
+  }
+  const dIdx = updatedRankings.findIndex((r) => r.node_id === match.defender);
+  if (dIdx >= 0) {
+    updatedRankings[dIdx] = { ...updatedRankings[dIdx]!, elo: newDefenderElo };
+  } else {
+    updatedRankings.push({ node_id: match.defender, elo: newDefenderElo });
+  }
+
+  await prisma.arenaSeason.update({
+    where: { season_id: match.season_id },
+    data: { rankings: updatedRankings },
+  });
+
+  const updated = await prisma.arenaMatch.update({
+    where: { match_id: matchId },
+    data: {
+      winner_id: winnerId,
+      status: 'completed',
+      scores: scores ?? {},
+      completed_at: new Date(),
+    },
+  });
+
+  return {
+    match_id: updated.match_id,
+    season_id: updated.season_id,
+    challenger: updated.challenger,
+    defender: updated.defender,
+    winner_id: updated.winner_id,
+    status: updated.status,
+    scores: updated.scores as Record<string, number>,
+    created_at: updated.created_at.toISOString(),
+  };
+}

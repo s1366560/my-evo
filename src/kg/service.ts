@@ -338,3 +338,215 @@ export async function deleteNode(nodeId: string): Promise<void> {
     where: { asset_id: nodeId },
   });
 }
+
+// ----- Neo4j fallback helpers -----
+
+export async function getAllPublishedAssets(): Promise<AssetGraphNode[]> {
+  const assets = await prisma.asset.findMany({
+    where: { status: 'published' },
+    take: 1000,
+  });
+  return assets as unknown as AssetGraphNode[];
+}
+
+/**
+ * BFS-based shortest path between two nodes using PostgreSQL.
+ * Returns a KgQueryResult compatible with the graph module.
+ */
+export async function getShortestPathPostgres(
+  fromId: string,
+  toId: string,
+  maxHops = 3,
+): Promise<KgQueryResult> {
+  if (fromId === toId) {
+    return { nodes: [{ id: fromId, type: 'asset', properties: {}, created_at: '' }], relationships: [] };
+  }
+
+  const visited = new Set<string>();
+  const queue: Array<{ id: string; path: string[] }> = [{ id: fromId, path: [fromId] }];
+  visited.add(fromId);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    if (current.path.length > maxHops) continue;
+
+    const neighbors: string[] = [];
+
+    const children = await prisma.asset.findMany({
+      where: { parent_id: current.id },
+      select: { asset_id: true },
+      take: 50,
+    });
+    neighbors.push(...children.map((c) => c.asset_id));
+
+    const parentAsset = await prisma.asset.findUnique({
+      where: { asset_id: current.id },
+      select: { parent_id: true },
+    });
+    if (parentAsset?.parent_id) {
+      neighbors.push(parentAsset.parent_id);
+    }
+
+    for (const neighborId of neighbors) {
+      if (neighborId === toId) {
+        const finalPath = [...current.path, neighborId];
+        const nodes: KgNode[] = [];
+        const relationships: KgRelationship[] = [];
+
+        for (let i = 0; i < finalPath.length; i++) {
+          const asset = await prisma.asset.findUnique({ where: { asset_id: finalPath[i] } });
+          if (asset) {
+            nodes.push(toKgNode(asset as unknown as AssetGraphNode));
+            if (i > 0) {
+              const from = finalPath[i - 1]!;
+              const to = finalPath[i]!;
+              relationships.push({
+                id: `rel-${from}-${to}`,
+                from_id: from,
+                to_id: to,
+                type: 'derived_from',
+                properties: {},
+                created_at: new Date().toISOString(),
+              });
+            }
+          }
+        }
+        return { nodes, relationships };
+      }
+
+      if (!visited.has(neighborId)) {
+        visited.add(neighborId);
+        queue.push({ id: neighborId, path: [...current.path, neighborId] });
+      }
+    }
+  }
+
+  return { nodes: [], relationships: [] };
+}
+
+/**
+ * Returns relationship edges for Dijkstra/PageRank computation.
+ */
+export async function shortestPathPostgres(
+  fromId: string,
+  toId: string,
+): Promise<KgRelationship[]> {
+  const result = await getShortestPathPostgres(fromId, toId, 10);
+  return result.relationships;
+}
+
+/**
+ * Find similar assets using PostgreSQL signal-sharing.
+ */
+export async function findSimilarAssetsPostgres(
+  assetId: string,
+  limit = 10,
+): Promise<Array<{ node: KgNode; similarity: number; sharedSignals: string[]; relationshipType: string }>> {
+  const asset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
+  if (!asset) return [];
+
+  const signalSet = new Set(asset.signals as string[]);
+
+  const similar = await prisma.asset.findMany({
+    where: {
+      status: 'published',
+      asset_id: { not: assetId },
+      signals: { hasSome: asset.signals },
+    },
+    take: limit,
+  });
+
+  return similar.map((a) => {
+    const shared = (a.signals as string[]).filter((s) => signalSet.has(s));
+    return {
+      node: toKgNode(a as unknown as AssetGraphNode),
+      similarity: shared.length / Math.max(asset.signals.length, 1),
+      sharedSignals: shared,
+      relationshipType: 'shares_signals',
+    };
+  });
+}
+
+/**
+ * Find related capabilities via BFS traversal in PostgreSQL.
+ */
+export async function findRelatedCapabilitiesPostgres(
+  nodeId: string,
+  maxDepth = 2,
+  limit = 20,
+): Promise<KgQueryResult> {
+  const visited = new Set<string>();
+  const queue: Array<{ id: string; depth: number }> = [{ id: nodeId, depth: 0 }];
+  visited.add(nodeId);
+  const nodes: KgNode[] = [];
+  const relationships: KgRelationship[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    const asset = await prisma.asset.findUnique({ where: { asset_id: current.id } });
+    if (!asset) continue;
+
+    if (nodes.length < limit) {
+      nodes.push(toKgNode(asset as unknown as AssetGraphNode));
+    }
+
+    if (current.depth >= maxDepth) continue;
+
+    const children = await prisma.asset.findMany({
+      where: { parent_id: current.id },
+      take: 10,
+    });
+
+    for (const child of children) {
+      if (!visited.has(child.asset_id)) {
+        visited.add(child.asset_id);
+        queue.push({ id: child.asset_id, depth: current.depth + 1 });
+      }
+      if (relationships.length < limit) {
+        relationships.push({
+          id: `rel-${current.id}-${child.asset_id}`,
+          from_id: current.id,
+          to_id: child.asset_id,
+          type: 'derived_from',
+          properties: {},
+          created_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    if (asset.signals.length > 0 && current.depth < maxDepth) {
+      const signalNeighbors = await prisma.asset.findMany({
+        where: {
+          status: 'published',
+          asset_id: { not: current.id },
+          signals: { hasSome: asset.signals },
+        },
+        take: 5,
+      });
+
+      for (const neighbor of signalNeighbors) {
+        const shared = (asset.signals as string[]).filter((s) =>
+          (neighbor.signals as string[]).includes(s),
+        );
+        if (!visited.has(neighbor.asset_id)) {
+          visited.add(neighbor.asset_id);
+          queue.push({ id: neighbor.asset_id, depth: current.depth + 1 });
+        }
+        if (relationships.length < limit) {
+          relationships.push({
+            id: `rel-sig-${current.id}-${neighbor.asset_id}`,
+            from_id: current.id,
+            to_id: neighbor.asset_id,
+            type: 'shares_signals',
+            properties: { shared_signals: shared },
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+    }
+  }
+
+  return { nodes, relationships };
+}

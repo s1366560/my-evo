@@ -36,12 +36,12 @@ export function setPrisma(client: PrismaClient): void {
 export { prisma };
 
 function getCarbonCost(assetType: AssetType): number {
-  const costs: Record<AssetType, number> = {
+  const costs: Record<string, number> = {
     gene: CARBON_COST_GENE,
     capsule: CARBON_COST_CAPSULE,
     recipe: CARBON_COST_RECIPE,
   };
-  return costs[assetType];
+  return costs[assetType.toLowerCase()] ?? 0;
 }
 
 export function calculateSimilarity(content1: string, content2: string): number {

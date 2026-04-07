@@ -56,6 +56,16 @@ export async function buildApp() {
         { name: 'Arena', description: 'Arena rankings' },
         { name: 'Account', description: 'Account management' },
         { name: 'Search', description: 'Asset search' },
+        { name: 'Sandbox', description: 'Evolution sandbox' },
+        { name: 'Recipe', description: 'Recipe & organism management' },
+        { name: 'Gepx', description: 'Gepx bundle import/export' },
+        { name: 'Subscription', description: 'Subscription & billing' },
+        { name: 'Questions', description: 'Q&A questions & answers' },
+        { name: 'Disputes', description: 'Dispute resolution & appeals' },
+        { name: 'AntiHallucination', description: 'Hallucination detection & memory graph' },
+        { name: 'SkillStore', description: 'Skill store & marketplace' },
+        { name: 'Constitution', description: 'Constitution rules, ethics & amendments' },
+        { name: 'MemoryGraph', description: 'Memory graph, capability chains & confidence decay' },
       ],
     },
   });
@@ -167,8 +177,53 @@ export async function buildApp() {
   const { readingRoutes } = await import('./reading/routes');
   await app.register(readingRoutes, { prefix: '/api/v2/reading' });
 
+  const { taskRoutes } = await import('./task/routes');
+  await app.register(taskRoutes, { prefix: '/api/v2' });
+
   const { monitoringRoutes } = await import('./monitoring/routes');
   await app.register(monitoringRoutes, { prefix: '/api/v2/monitoring' });
+
+  const { subscriptionRoutes } = await import('./subscription/routes');
+  await app.register(subscriptionRoutes, { prefix: '/api/v2/subscription' });
+
+  const { questionRoutes } = await import('./questions/routes');
+  await app.register(questionRoutes, { prefix: '/api/v2/questions' });
+
+  const { disputeRoutes } = await import('./dispute/routes');
+  await app.register(disputeRoutes, { prefix: '/api/v2/disputes' });
+
+  const { sandboxRoutes } = await import('./sandbox/routes');
+  await app.register(sandboxRoutes, { prefix: '/api/v2/sandbox' });
+
+  const { recipeRoutes } = await import('./recipe/routes');
+  await app.register(recipeRoutes, { prefix: '/api/v2/recipes' });
+
+  const { gepxRoutes } = await import('./gepx/routes');
+  await app.register(gepxRoutes, { prefix: '/api/v2/gepx' });
+
+  const { antiHallucinationRoutes } = await import('./anti_hallucination/routes');
+  await app.register(antiHallucinationRoutes, { prefix: '/api/v2/anti-hallucination' });
+
+  const { skillStoreRoutes } = await import('./skill_store/routes');
+  await app.register(skillStoreRoutes, { prefix: '/api/v2/skills' });
+
+  const { constitutionRoutes } = await import('./constitution/routes');
+  await app.register(constitutionRoutes, { prefix: '/a2a/constitution' });
+
+  const { docsRoutes } = await import('./docs/routes');
+  await app.register(docsRoutes);
+
+  const { agentConfigRoutes } = await import('./agent_config/routes');
+  await app.register(agentConfigRoutes, { prefix: '/api/v2' });
+
+  const { modelTierRoutes } = await import('./model_tier/routes');
+  await app.register(modelTierRoutes, { prefix: '/api/v2' });
+
+  const { securityRoutes } = await import('./security/routes');
+  await app.register(securityRoutes, { prefix: '/api/v2' });
+
+  const { memoryGraphRoutes } = await import('./memory_graph/routes');
+  await app.register(memoryGraphRoutes, { prefix: '/api/v2/memory-graph' });
 
   return app;
 }

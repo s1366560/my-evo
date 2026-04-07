@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import { PrismaClient } from '@prisma/client';
 import {
   WORKER_HEARTBEAT_MS,
@@ -9,21 +8,12 @@ import {
   NotFoundError,
   ValidationError,
 } from '../shared/errors';
-import type {
-  RegisterWorkerInput,
-  FindWorkersInput,
-  WorkerTaskInput,
-  CompleteTaskInput,
-  ListWorkersInput,
-} from './types';
 
 let prisma = new PrismaClient();
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
-
-export { prisma };
 
 export async function registerWorker(
   nodeId: string,
@@ -218,7 +208,7 @@ export async function getWorker(nodeId: string) {
   return worker;
 }
 
-export async function listWorkers(input: ListWorkersInput) {
+export async function listWorkers(input: { skill?: string; available?: boolean; limit?: number; offset?: number }) {
   const { skill, available, limit = 20, offset = 0 } = input;
 
   const where: Record<string, unknown> = {};
@@ -240,4 +230,76 @@ export async function listWorkers(input: ListWorkersInput) {
   ]);
 
   return { workers, total, limit, offset };
+}
+
+// ---- Specialist endpoints (Part 4 additions) ----
+
+export async function listSpecialists(
+  specialty?: string,
+  availableOnly?: boolean,
+  limit = 20,
+  offset = 0,
+): Promise<{ items: Array<Record<string, unknown>>; total: number }> {
+  const where: Record<string, unknown> = {};
+  if (availableOnly !== undefined) {
+    where.is_available = availableOnly;
+  }
+  if (specialty) {
+    where.specialties = { has: specialty };
+  }
+
+  const [workers, total] = await Promise.all([
+    prisma.worker.findMany({
+      where,
+      orderBy: { success_rate: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.worker.count({ where }),
+  ]);
+
+  return {
+    items: workers.map((w) => ({
+      node_id: w.node_id,
+      specialties: w.specialties,
+      max_concurrent: w.max_concurrent,
+      current_tasks: w.current_tasks,
+      total_completed: w.total_completed,
+      success_rate: w.success_rate,
+      is_available: w.is_available,
+      last_heartbeat: w.last_heartbeat.toISOString(),
+    })),
+    total,
+  };
+}
+
+export async function getSpecialist(nodeId: string): Promise<Record<string, unknown>> {
+  const worker = await prisma.worker.findUnique({
+    where: { node_id: nodeId },
+  });
+  if (!worker) {
+    throw new NotFoundError('Worker', nodeId);
+  }
+  return {
+    node_id: worker.node_id,
+    specialties: worker.specialties,
+    max_concurrent: worker.max_concurrent,
+    current_tasks: worker.current_tasks,
+    total_completed: worker.total_completed,
+    success_rate: worker.success_rate,
+    is_available: worker.is_available,
+    last_heartbeat: worker.last_heartbeat.toISOString(),
+  };
+}
+
+export async function rateSpecialist(
+  _taskId: string,
+  _raterId: string,
+  rating: number,
+  _review?: string,
+): Promise<void> {
+  if (rating < 1 || rating > 5) {
+    throw new ValidationError('Rating must be between 1 and 5');
+  }
+  // WorkerRating storage requires a WorkerRating model — validated above; no-op for MVP
 }

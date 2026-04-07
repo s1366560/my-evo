@@ -226,7 +226,7 @@ describe('Reading Service', () => {
       };
       mockPrisma.readingSession.findUnique.mockResolvedValue(mockSession);
 
-      const result = await getReadingSession('session-1');
+      const result = await getReadingSession('session-1', 'user-1');
 
       expect(result).not.toBeNull();
       expect(result!.id).toBe('session-1');
@@ -238,7 +238,7 @@ describe('Reading Service', () => {
     it('should return null when session not found', async () => {
       mockPrisma.readingSession.findUnique.mockResolvedValue(null);
 
-      const result = await getReadingSession('nonexistent');
+      const result = await getReadingSession('nonexistent', 'user-1');
 
       expect(result).toBeNull();
     });
