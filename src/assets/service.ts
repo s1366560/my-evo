@@ -139,7 +139,13 @@ export async function publishAsset(nodeId: string, payload: PublishPayload): Pro
   });
 
   const newBalance = node.credit_balance - carbonCost;
-  await prisma.node.update({ where: { node_id: nodeId }, data: { credit_balance: newBalance } });
+  const countIncrement = payload.asset_type === 'gene' ? { gene_count: { increment: 1 } }
+    : payload.asset_type === 'capsule' ? { capsule_count: { increment: 1 } }
+    : {};
+  await prisma.node.update({
+    where: { node_id: nodeId },
+    data: { credit_balance: newBalance, ...countIncrement },
+  });
   await prisma.creditTransaction.create({
     data: {
       node_id: nodeId,

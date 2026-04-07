@@ -151,7 +151,45 @@ describe('Assets Service', () => {
       expect(result.carbon_cost).toBe(CARBON_COST_GENE);
       expect(mockPrisma.node.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { credit_balance: 500 - CARBON_COST_GENE },
+          data: { credit_balance: 500 - CARBON_COST_GENE, gene_count: { increment: 1 } },
+        }),
+      );
+    });
+
+    it('should increment gene_count when publishing a gene', async () => {
+      const mockNode = { node_id: 'node-1', credit_balance: 500, reputation: 50 };
+      const mockAsset = { asset_id: 'asset-1', asset_type: 'gene', name: 'Gene', description: '', gdi_score: 60, carbon_cost: 5 };
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.asset.findMany.mockResolvedValue([]);
+      mockPrisma.asset.create.mockResolvedValue(mockAsset);
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.evolutionEvent.create.mockResolvedValue({});
+
+      await publishAsset('node-1', { ...validPayload, asset_type: 'gene' });
+
+      expect(mockPrisma.node.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ gene_count: { increment: 1 } }),
+        }),
+      );
+    });
+
+    it('should increment capsule_count when publishing a capsule', async () => {
+      const mockNode = { node_id: 'node-1', credit_balance: 500, reputation: 50 };
+      const mockAsset = { asset_id: 'asset-1', asset_type: 'capsule', name: 'Capsule', description: '', gdi_score: 60, carbon_cost: 10 };
+      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.asset.findMany.mockResolvedValue([]);
+      mockPrisma.asset.create.mockResolvedValue(mockAsset);
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.evolutionEvent.create.mockResolvedValue({});
+
+      await publishAsset('node-1', { ...validPayload, asset_type: 'capsule' });
+
+      expect(mockPrisma.node.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ capsule_count: { increment: 1 } }),
         }),
       );
     });

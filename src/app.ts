@@ -115,7 +115,10 @@ export async function buildApp() {
   await app.register(a2aRoutes, { prefix: '/a2a' });
 
   const { assetRoutes } = await import('./assets/routes');
-  await app.register(assetRoutes, { prefix: '/a2a' });
+  await app.register(assetRoutes, { prefix: '/assets' });
+
+  const { claimRoutes } = await import('./claim/routes');
+  await app.register(claimRoutes, { prefix: '/claim' });
 
   const { creditRoutes } = await import('./credits/routes');
   await app.register(creditRoutes, { prefix: '/a2a' });
@@ -179,6 +182,12 @@ export async function buildApp() {
 
   const { taskRoutes } = await import('./task/routes');
   await app.register(taskRoutes, { prefix: '/api/v2' });
+
+  const { taskAliasRoutes } = await import('./task_alias/routes');
+  await app.register(taskAliasRoutes, { prefix: '/task' });
+
+  const { billingRoutes } = await import('./billing/routes');
+  await app.register(billingRoutes, { prefix: '/billing' });
 
   const { monitoringRoutes } = await import('./monitoring/routes');
   await app.register(monitoringRoutes, { prefix: '/api/v2/monitoring' });
