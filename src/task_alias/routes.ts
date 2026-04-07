@@ -27,6 +27,16 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: filtered });
   });
 
+  // GET /task/eligible-count — must be BEFORE /:taskId catch-all
+  app.get('/eligible-count', {
+    schema: { tags: ['Task'] },
+  }, async (request, reply) => {
+    const query = request.query as { min_reputation?: string };
+    const minReputation = query.min_reputation ? parseInt(query.min_reputation, 10) : undefined;
+    const count = await taskService.getEligibleNodeCount(minReputation);
+    return reply.send({ success: true, data: { count, min_reputation: minReputation ?? null } });
+  });
+
   // GET /task/:taskId — get single task (taskId format: projectId:taskId)
   app.get('/:taskId', {
     schema: { tags: ['Task'] },
