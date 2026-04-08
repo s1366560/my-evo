@@ -87,9 +87,7 @@ export function BrowseContent() {
         queryFn={
           queryFn as () => Promise<{
             assets: Asset[];
-            total: number;
-            page: number;
-            limit: number;
+            meta: { total: number };
           }>
         }
         sortFn={

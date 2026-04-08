@@ -1,12 +1,16 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
-import { ShieldCheck } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ShieldCheck, AlertCircle } from "lucide-react";
+import { apiClient } from "@/lib/api/client";
+import { QueryKeys } from "@/lib/api/query-keys";
 
 type TrustLevel = "unverified" | "verified" | "trusted";
 
 interface TrustBadgeProps {
-  level: TrustLevel;
+  nodeId: string;
 }
 
 const TRUST_CONFIG: Record<TrustLevel, { label: string; color: string; bg: string }> = {
@@ -27,7 +31,46 @@ const TRUST_CONFIG: Record<TrustLevel, { label: string; color: string; bg: strin
   },
 };
 
-export function TrustBadge({ level }: TrustBadgeProps) {
+export function TrustBadge({ nodeId }: TrustBadgeProps) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: QueryKeys.a2a.reputation(nodeId),
+    queryFn: () => apiClient.getReputation(nodeId),
+    enabled: !!nodeId,
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-5">
+          <p className="mb-2 text-sm font-medium text-[var(--color-muted-foreground)]">
+            Trust Level
+          </p>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-8 rounded-full" />
+            <Skeleton className="h-5 w-20" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Card>
+        <CardContent className="p-5">
+          <p className="mb-2 text-sm font-medium text-[var(--color-muted-foreground)]">
+            Trust Level
+          </p>
+          <div className="flex items-center gap-1 text-sm text-[var(--color-destructive)]">
+            <AlertCircle className="h-3.5 w-3.5" />
+            <span>Failed to load</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const level: TrustLevel = data.trust;
   const config = TRUST_CONFIG[level];
 
   return (

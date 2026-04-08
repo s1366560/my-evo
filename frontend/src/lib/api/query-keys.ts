@@ -33,4 +33,9 @@ export const QueryKeys = {
     list: (projectId: string, page?: number) =>
       ['task', 'list', projectId, page ?? 1] as const,
   },
+
+  // Swarm module
+  swarm: {
+    list: () => ['swarm', 'list'] as const,
+  },
 } as const;

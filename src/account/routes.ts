@@ -4,6 +4,40 @@ import * as accountService from './service';
 import { ValidationError } from '../shared/errors';
 
 export async function accountRoutes(app: FastifyInstance): Promise<void> {
+  app.post('/register', {
+    schema: { tags: ['Account'] },
+  }, async (request, reply) => {
+    const body = request.body as { email?: string; password?: string };
+    const result = await accountService.registerUser(
+      body.email ?? '',
+      body.password ?? '',
+    );
+    void reply.setCookie('session_token', result.token, {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'strict',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+    });
+    return reply.status(201).send({ success: true, data: result });
+  });
+
+  app.post('/login', {
+    schema: { tags: ['Account'] },
+  }, async (request, reply) => {
+    const body = request.body as { email?: string; password?: string };
+    const result = await accountService.loginUser(
+      body.email ?? '',
+      body.password ?? '',
+    );
+    void reply.setCookie('session_token', result.token, {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'strict',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+    });
+    return reply.status(200).send({ success: true, data: result });
+  });
+
   app.post('/api-keys', {
     schema: { tags: ['Account'] },
   }, async (request, reply) => {

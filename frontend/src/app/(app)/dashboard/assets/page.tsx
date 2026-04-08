@@ -30,7 +30,7 @@ export default function MyAssetsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-[var(--color-foreground)]">My Assets</h1>
         <span className="text-sm text-[var(--color-muted-foreground)]">
-          {data?.total ?? 0} total
+          {data?.meta?.total ?? 0} total
         </span>
       </div>
 

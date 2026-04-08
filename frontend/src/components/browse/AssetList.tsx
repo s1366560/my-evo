@@ -56,10 +56,10 @@ export function AssetList({ queryKey, queryFn, sortFn }: AssetListProps) {
           <AssetCard key={asset.asset_id} asset={asset} />
         ))}
       </div>
-      {data.total > assets.length && (
+      {data.meta.total > assets.length && (
         <div className="flex justify-center pt-4">
           <p className="text-sm text-[var(--color-muted-foreground)]">
-            Showing {assets.length} of {data.total} assets
+            Showing {assets.length} of {data.meta.total} assets
           </p>
         </div>
       )}

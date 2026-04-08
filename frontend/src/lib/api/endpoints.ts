@@ -58,10 +58,51 @@ export const Endpoints = {
 
   // ── Task module (API v2) ────────────────────────────────────────────────────
   task: {
-    list: (projectId: string, page?: number) => {
+    all: (projectId: string, page?: number) => {
       const params = new URLSearchParams({ project_id: projectId });
       if (page) params.set('page', String(page));
       return `/api/v2/task/list?${params.toString()}`;
     },
+  },
+
+  // ── Arena module (API v2) ───────────────────────────────────────────────────
+  arena: {
+    seasons: '/api/v2/arena/seasons',
+    rankings: (seasonId: string) => `/api/v2/arena/rankings/${seasonId}`,
+  },
+
+  // ── Swarm module (API v2) ──────────────────────────────────────────────────
+  swarm: {
+    all: '/api/v2/swarm/',
+  },
+
+  // ── Council module (API v2) ───────────────────────────────────────────────
+  council: {
+    all: '/api/v2/council/proposals',
+  },
+
+  // ── Marketplace module (API v2) ─────────────────────────────────────────────
+  marketplace: {
+    all: '/api/v2/marketplace/listings',
+  },
+
+  // ── Biology module (API v2) ────────────────────────────────────────────────
+  biology: {
+    phylogeny: (assetId: string) => `/api/v2/biology/phylogeny/${assetId}`,
+    fitness: '/api/v2/biology/fitness',
+  },
+
+  // ── Workerpool module (API v2) ─────────────────────────────────────────────
+  workerpool: {
+    all: '/api/v2/workerpool/',
+  },
+
+  // ── Credits / Reputation (root-level) ──────────────────────────────────────
+  credits: {
+    history: (nodeId: string) => `/credits/${nodeId}/history`,
+  },
+
+  reputation: {
+    history: (nodeId: string) => `/reputation/${nodeId}/history`,
   },
 } as const;

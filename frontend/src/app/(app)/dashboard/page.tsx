@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { QueryKeys } from "@/lib/api/query-keys";
@@ -9,13 +10,18 @@ import { TrustBadge } from "@/components/dashboard/TrustBadge";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { Skeleton } from "@/components/ui/skeleton";
 
+// TODO: Replace with real nodeId from auth context once Phase 2b auth is wired
+const PLACEHOLDER_NODE_ID = "demo-node";
+
 export default function DashboardPage() {
-  const { data: statsData, isLoading } = useQuery({
+  const [nodeId] = useState<string>(PLACEHOLDER_NODE_ID);
+
+  const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: QueryKeys.a2a.stats(),
     queryFn: () => apiClient.getStats(),
   });
 
-  if (isLoading) {
+  if (statsLoading) {
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-[var(--color-foreground)]">Dashboard</h1>
@@ -32,10 +38,10 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-[var(--color-foreground)]">Dashboard</h1>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <CreditsCard balance={1247} trend={23} />
-        <ReputationCard score={72} />
-        <TrustBadge level="verified" />
-        <ActivityFeed />
+        <CreditsCard nodeId={nodeId} />
+        <ReputationCard nodeId={nodeId} />
+        <TrustBadge nodeId={nodeId} />
+        <ActivityFeed nodeId={nodeId} />
       </div>
 
       {/* Stats summary */}

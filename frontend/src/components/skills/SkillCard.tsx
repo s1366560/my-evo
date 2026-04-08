@@ -1,18 +1,11 @@
 "use client";
 
+import type { Skill } from "@/lib/api/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 interface SkillCardProps {
-  skill: {
-    id: string;
-    name: string;
-    author: string;
-    gdiScore: number;
-    downloads: number;
-    description: string;
-    tags: string[];
-  };
+  skill: Skill;
 }
 
 function GDIScoreBadge({ score }: { score: number }) {
@@ -52,12 +45,14 @@ export function SkillCard({ skill }: SkillCardProps) {
         {/* Header row */}
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-semibold leading-tight">{skill.name}</h3>
-          <GDIScoreBadge score={skill.gdiScore} />
+          {skill.gdi_score !== undefined && (
+            <GDIScoreBadge score={skill.gdi_score} />
+          )}
         </div>
 
         {/* Author */}
         <div className="text-xs text-[var(--color-muted-foreground)]">
-          by <span className="font-medium">{skill.author}</span>
+          by <span className="font-medium">{skill.author ?? "Unknown"}</span>
         </div>
 
         {/* Description */}
@@ -65,17 +60,12 @@ export function SkillCard({ skill }: SkillCardProps) {
           {skill.description}
         </p>
 
-        {/* Footer: downloads + tags */}
+        {/* Footer: category + downloads */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-1">
-            {skill.tags.map((tag) => (
-              <span
-                key={tag}
-                className="rounded bg-[var(--color-border)]/60 px-1.5 py-0.5 text-xs text-[var(--color-muted-foreground)]"
-              >
-                {tag}
-              </span>
-            ))}
+            <span className="rounded bg-[var(--color-border)]/60 px-1.5 py-0.5 text-xs text-[var(--color-muted-foreground)]">
+              {skill.category}
+            </span>
           </div>
           <div className="flex items-center gap-1 text-xs text-[var(--color-muted-foreground)]">
             <svg
@@ -91,7 +81,7 @@ export function SkillCard({ skill }: SkillCardProps) {
                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
               />
             </svg>
-            {formatDownloads(skill.downloads)}
+            {skill.downloads !== undefined ? formatDownloads(skill.downloads) : "—"}
           </div>
         </div>
       </CardContent>

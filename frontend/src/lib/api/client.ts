@@ -102,8 +102,8 @@ class ApiClient {
     return this.post<PublishResponse>(Endpoints.a2a.publish, body);
   }
 
-  getSkills() {
-    return this.get<Skill[]>(Endpoints.a2a.skills);
+  getSkills(q = '') {
+    return this.get<Skill[]>(Endpoints.a2a.skillSearch(q));
   }
 
   getSkillCategories() {
@@ -120,6 +120,46 @@ class ApiClient {
 
   getReputation(nodeId: string) {
     return this.get<ReputationInfo>(Endpoints.a2a.reputation(nodeId));
+  }
+
+  getArenaSeasons() {
+    return this.get<Season[]>(Endpoints.arena.seasons);
+  }
+
+  getArenaRankings(seasonId: string) {
+    return this.get<Rankings>(Endpoints.arena.rankings(seasonId));
+  }
+
+  getSwarmTasks() {
+    return this.get<{ swarms: Swarm[]; meta: { total: number; limit: number; offset: number } }>(Endpoints.swarm.all);
+  }
+
+  getCouncilProposals() {
+    return this.get<{ proposals: CouncilProposal[]; meta: { total: number; limit: number; offset: number } }>(Endpoints.council.all);
+  }
+
+  getMarketplaceListings() {
+    return this.get<MarketplaceListing[]>(Endpoints.marketplace.all);
+  }
+
+  getBiologyPhylogeny(assetId: string) {
+    return this.get<PhylogenyTree>(Endpoints.biology.phylogeny(assetId));
+  }
+
+  getBiologyFitness() {
+    return this.get<FitnessLandscape>(Endpoints.biology.fitness);
+  }
+
+  getWorkerpool() {
+    return this.get<{ workers: Worker[]; meta: { total: number; limit: number; offset: number } }>(Endpoints.workerpool.all);
+  }
+
+  getCreditsHistory(nodeId: string) {
+    return this.get<{ items: CreditTransaction[]; meta: { total: number; page: number; limit: number } }>(Endpoints.credits.history(nodeId));
+  }
+
+  getReputationHistory(nodeId: string) {
+    return this.get<{ items: ReputationEvent[]; meta: { total: number; page: number; limit: number } }>(Endpoints.reputation.history(nodeId));
   }
 }
 
@@ -153,21 +193,16 @@ export interface Asset {
 
 export interface AssetListResponse {
   assets: Asset[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-export interface TrendingSignal {
-  signal_id: string;
-  name: string;
-  count: number;
-  trend: 'up' | 'down' | 'stable';
+  meta: {
+    total: number;
+    page?: number;
+    limit?: number;
+  };
 }
 
 export interface TrendingResponse {
-  signals: TrendingSignal[];
-  updated_at: string;
+  assets: Asset[];
+  meta: { period: string };
 }
 
 export interface LineageNode {
@@ -190,9 +225,20 @@ export interface HelloRequest {
 }
 
 export interface HelloResponse {
-  node_id: string;
+  your_node_id: string;
   node_secret: string;
   registered_at: string;
+  status: string;
+  credit_balance: number;
+  trust_level: string;
+  hub_node_id: string;
+  claim_code?: string;
+  claim_url?: string;
+  referral_code?: string;
+  heartbeat_interval_ms: number;
+  heartbeat_endpoint: string;
+  protocol: string;
+  protocol_version: string;
 }
 
 export interface PublishRequest {
@@ -227,7 +273,7 @@ export interface SkillCategory {
 export interface CreditsInfo {
   node_id: string;
   balance: number;
-  last_updated: string;
+  updated_at: string;
 }
 
 export interface ReputationInfo {
@@ -235,6 +281,106 @@ export interface ReputationInfo {
   score: number;
   tier: string;
   trust: 'unverified' | 'verified' | 'trusted';
+}
+
+export interface Season {
+  season_id: string;
+  name: string;
+  started_at: string;
+  ended_at?: string;
+  status: 'active' | 'completed' | 'upcoming';
+  participants?: number;
+}
+
+export interface RankingEntry {
+  rank: number;
+  node_id: string;
+  node_name?: string;
+  score: number;
+  wins?: number;
+  losses?: number;
+  gdi_score?: number;
+}
+
+export type Rankings = RankingEntry[];
+
+export interface Swarm {
+  swarm_id: string;
+  name: string;
+  mode: string;
+  status: 'active' | 'completed' | 'failed';
+  participant_count: number;
+  created_at: string;
+  progress?: number;
+}
+
+export interface CouncilProposal {
+  proposal_id: string;
+  title: string;
+  description: string;
+  status: 'active' | 'passed' | 'rejected' | 'pending';
+  votes_for: number;
+  votes_against: number;
+  created_at: string;
+  author?: string;
+}
+
+export interface MarketplaceListing {
+  listing_id: string;
+  asset_id: string;
+  asset_name: string;
+  asset_type: 'Gene' | 'Capsule' | 'Recipe';
+  price: number;
+  seller: string;
+  gdi_score?: number;
+  created_at: string;
+}
+
+export interface PhylogenyNode {
+  asset_id: string;
+  name: string;
+  type: AssetType;
+  parent_id?: string;
+  gdi_score?: number;
+}
+
+export interface PhylogenyTree {
+  nodes: PhylogenyNode[];
+  edges: { from: string; to: string }[];
+  root_id?: string;
+}
+
+export interface FitnessLandscape {
+  data: Array<{ novelty: number; usefulness: number; rigor: number; gdi: number }>;
+  clusters?: number;
+}
+
+export interface Worker {
+  node_id: string;
+  name: string;
+  expertise: string[];
+  rating: number;
+  completed_tasks: number;
+  availability: 'available' | 'busy';
+  hourly_rate: number;
+}
+
+export interface CreditTransaction {
+  id: string;
+  type: string;
+  amount: number;
+  balance_after: number;
+  created_at: string;
+  description?: string;
+}
+
+export interface ReputationEvent {
+  id: string;
+  event_type: string;
+  delta: number;
+  score_after: number;
+  created_at: string;
+  description?: string;
 }
 
 // Re-export error class for consumers

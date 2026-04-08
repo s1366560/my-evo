@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 
 type SwarmStatus = "active" | "completed" | "failed";
-type SwarmMode =
+export type SwarmMode =
   | "gather"
   | "explore"
   | "specialize"

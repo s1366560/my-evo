@@ -748,6 +748,23 @@ export interface DisputeRuling {
 }
 
 // ===== Account =====
+// Auth
+export interface UserInfo {
+  id: string;
+  email: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+}
+
+// API keys
 export interface ApiKeyCreateRequest {
   name: string;
   scopes: string[];

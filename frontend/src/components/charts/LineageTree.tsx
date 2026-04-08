@@ -15,14 +15,9 @@ import "@xyflow/react/dist/style.css";
 
 import type { LineageNode } from "@/lib/api/client";
 
-interface LineageEdge {
-  from: string;
-  to: string;
-}
-
 interface LineageData {
   nodes: LineageNode[];
-  edges: LineageEdge[];
+  edges: { from: string; to: string }[];
 }
 
 interface LineageTreeProps {
@@ -95,7 +90,7 @@ export function LineageTree({ data, assetId }: LineageTreeProps) {
   return (
     <div className="h-[480px] w-full rounded-lg border border-[var(--color-border)] overflow-hidden">
       {data.nodes.length > MAX_NODES && (
-        <p className="p-2 text-xs text-[var(--color-muted-foreground)] bg-[var(--color-muted)]">
+        <p className="p-2 text-xs text-[var(--color-muted-foreground)] bg-[var(--color-muted-background)]">
           Showing first {MAX_NODES} of {data.nodes.length} nodes.
         </p>
       )}

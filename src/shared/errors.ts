@@ -83,3 +83,9 @@ export class KeyInceptionError extends EvoMapError {
     super('API keys cannot create other API keys', 'KEY_INCEPTION_BLOCKED', 403);
   }
 }
+
+export class ConflictError extends EvoMapError {
+  constructor(message = 'Conflict') {
+    super(message, 'CONFLICT', 409);
+  }
+}

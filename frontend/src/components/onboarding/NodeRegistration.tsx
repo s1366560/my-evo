@@ -20,7 +20,7 @@ export function NodeRegistration({ onSuccess }: NodeRegistrationProps) {
     mutationFn: (name: string) =>
       apiClient.hello({ node_name: name, capabilities: ["gdi:v1"] }),
     onSuccess: (data) => {
-      onSuccess(data.node_id, data.node_secret);
+      onSuccess(data.your_node_id, data.node_secret);
     },
     onError: (err: Error) => {
       setError(err.message);

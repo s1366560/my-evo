@@ -1,86 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { WorkerCard } from "@/components/workerpool/WorkerCard";
 import { WorkerFilter } from "@/components/workerpool/WorkerFilter";
 import { Skeleton } from "@/components/ui/skeleton";
-
-// Mock worker data
-const allWorkers = [
-  {
-    id: "worker-001",
-    name: "Alice Chen",
-    expertise: ["NLP", "Text Classification", "Sentiment Analysis"],
-    rating: 4.8,
-    completedTasks: 312,
-    availability: "available" as const,
-    hourlyRate: 45,
-  },
-  {
-    id: "worker-002",
-    name: "Bob Martinez",
-    expertise: ["Security", "Penetration Testing", "Vulnerability Assessment"],
-    rating: 4.9,
-    completedTasks: 278,
-    availability: "busy" as const,
-    hourlyRate: 60,
-  },
-  {
-    id: "worker-003",
-    name: "Carol Kim",
-    expertise: ["Computer Vision", "Object Detection", "Image Processing"],
-    rating: 4.6,
-    completedTasks: 189,
-    availability: "available" as const,
-    hourlyRate: 50,
-  },
-  {
-    id: "worker-004",
-    name: "David Lee",
-    expertise: ["Reasoning", "Planning", "Agent Architecture"],
-    rating: 4.7,
-    completedTasks: 421,
-    availability: "available" as const,
-    hourlyRate: 55,
-  },
-  {
-    id: "worker-005",
-    name: "Emma Wilson",
-    expertise: ["Memory Systems", "Graph Databases", "Knowledge Graphs"],
-    rating: 4.5,
-    completedTasks: 156,
-    availability: "busy" as const,
-    hourlyRate: 40,
-  },
-  {
-    id: "worker-006",
-    name: "Frank Brown",
-    expertise: ["API Design", "Rate Limiting", "Load Balancing"],
-    rating: 4.3,
-    completedTasks: 98,
-    availability: "available" as const,
-    hourlyRate: 35,
-  },
-  {
-    id: "worker-007",
-    name: "Grace Taylor",
-    expertise: ["NLP", "Machine Translation", "Text Summarization"],
-    rating: 4.9,
-    completedTasks: 503,
-    availability: "available" as const,
-    hourlyRate: 65,
-  },
-  {
-    id: "worker-008",
-    name: "Henry Johnson",
-    expertise: ["Swarm Coordination", "Multi-Agent Systems", "Distributed AI"],
-    rating: 4.8,
-    completedTasks: 267,
-    availability: "busy" as const,
-    hourlyRate: 70,
-  },
-];
+import { apiClient, Worker } from "@/lib/api/client";
 
 export type WorkerExpertise =
   | "All"
@@ -116,6 +42,18 @@ function WorkerSkeleton() {
   );
 }
 
+function toWorkerCard(worker: Worker) {
+  return {
+    id: worker.node_id,
+    name: worker.name,
+    expertise: worker.expertise,
+    rating: worker.rating,
+    completedTasks: worker.completed_tasks,
+    availability: worker.availability,
+    hourlyRate: worker.hourly_rate,
+  };
+}
+
 export default function WorkerPoolPage() {
   const [filters, setFilters] = useState<FilterState>({
     expertise: "All",
@@ -123,7 +61,15 @@ export default function WorkerPoolPage() {
     minRating: 0,
   });
 
-  const filteredWorkers = allWorkers.filter((w) => {
+  const { data, isLoading } = useQuery({
+    queryKey: ["workerpool", "workers"],
+    queryFn: () => apiClient.getWorkerpool(),
+  });
+
+  const workers = data?.workers ?? [];
+  const total = data?.meta?.total ?? 0;
+
+  const filteredWorkers = workers.filter((w) => {
     if (filters.availability !== "All" && w.availability !== filters.availability) {
       return false;
     }
@@ -136,7 +82,15 @@ export default function WorkerPoolPage() {
     return true;
   });
 
-  const availableCount = allWorkers.filter((w) => w.availability === "available").length;
+  const availableCount = workers.filter((w) => w.availability === "available").length;
+
+  if (isLoading) {
+    return (
+      <PageContainer>
+        <WorkerSkeleton />
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer>
@@ -159,14 +113,14 @@ export default function WorkerPoolPage() {
 
         {/* Results count */}
         <div className="text-sm text-[var(--color-muted-foreground)]">
-          Showing {filteredWorkers.length} of {allWorkers.length} workers
+          Showing {filteredWorkers.length} of {total} workers
         </div>
 
         {/* Worker grid */}
         {filteredWorkers.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filteredWorkers.map((worker) => (
-              <WorkerCard key={worker.id} worker={worker} />
+              <WorkerCard key={worker.node_id} worker={toWorkerCard(worker)} />
             ))}
           </div>
         ) : (

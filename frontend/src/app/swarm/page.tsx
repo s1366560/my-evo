@@ -1,75 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { SwarmTaskCard } from "@/components/swarm/SwarmTaskCard";
 import { SwarmSessionTimeline } from "@/components/swarm/SwarmSessionTimeline";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiClient } from "@/lib/api/client";
+import { QueryKeys } from "@/lib/api/query-keys";
+import type { SwarmMode } from "@/components/swarm/SwarmTaskCard";
 
-// Mock swarm task data
-const mockSwarmTasks = [
-  {
-    id: "swarm-001",
-    name: "Security Audit Pipeline",
-    status: "active" as const,
-    participantCount: 5,
-    mode: "gather" as const,
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    progress: 68,
-  },
-  {
-    id: "swarm-002",
-    name: "NLP Text Classification",
-    status: "active" as const,
-    participantCount: 8,
-    mode: "explore" as const,
-    createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-    progress: 42,
-  },
-  {
-    id: "swarm-003",
-    name: "Vision Model Benchmark",
-    status: "completed" as const,
-    participantCount: 3,
-    mode: "elect" as const,
-    createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-    progress: 100,
-  },
-  {
-    id: "swarm-004",
-    name: "Reasoning Agent Stack",
-    status: "active" as const,
-    participantCount: 12,
-    mode: "specialize" as const,
-    createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-    progress: 25,
-  },
-  {
-    id: "swarm-005",
-    name: "API Rate Limiter",
-    status: "failed" as const,
-    participantCount: 2,
-    mode: "pool" as const,
-    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    progress: 0,
-  },
-  {
-    id: "swarm-006",
-    name: "Memory Graph Indexer",
-    status: "completed" as const,
-    participantCount: 4,
-    mode: "merge" as const,
-    createdAt: new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString(),
-    progress: 100,
-  },
-];
-
-// Mock timeline: 30 data points over 24 hours
+// Deterministic timeline: 30 data points over 24 hours (no Math.random())
 const mockTimeline = Array.from({ length: 30 }, (_, i) => {
   const hour = Math.floor((i / 30) * 24);
   const participants = Math.max(
     0,
-    Math.round(8 + 6 * Math.sin((i / 30) * Math.PI * 2 + 1) + (Math.random() - 0.5) * 4)
+    Math.round(8 + 6 * Math.sin((i / 30) * Math.PI * 2 + 1) + (Math.sin(i * 1.7) * 2))
   );
   return {
     hour,
@@ -78,36 +23,28 @@ const mockTimeline = Array.from({ length: 30 }, (_, i) => {
   };
 });
 
-function SwarmSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <Skeleton className="mb-2 h-9 w-48" />
-        <Skeleton className="h-4 w-72" />
-      </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-36" />
-        ))}
-      </div>
-      <Skeleton className="h-[300px]" />
-    </div>
-  );
-}
 
 export default function SwarmPage() {
-  const [isLoading] = useState(true);
+  const { data: swarmData, isLoading } = useQuery({
+    queryKey: QueryKeys.swarm.list(),
+    queryFn: () => apiClient.getSwarmTasks(),
+  });
 
-  if (isLoading) {
-    return (
-      <PageContainer>
-        <SwarmSkeleton />
-      </PageContainer>
-    );
-  }
+  const swarms = swarmData?.swarms ?? [];
 
-  const activeTasks = mockSwarmTasks.filter((t) => t.status === "active");
-  const completedTasks = mockSwarmTasks.filter((t) => t.status === "completed");
+  const activeSwarms = swarms.filter((s) => s.status === "active");
+  const completedSwarms = swarms.filter((s) => s.status === "completed");
+  const failedSwarms = swarms.filter((s) => s.status === "failed");
+
+  const tasks = swarms.map((s) => ({
+    id: s.swarm_id,
+    name: s.name,
+    status: s.status,
+    participantCount: s.participant_count,
+    mode: s.mode as SwarmMode,
+    createdAt: s.created_at,
+    progress: s.progress ?? 0,
+  }));
 
   return (
     <PageContainer>
@@ -120,23 +57,23 @@ export default function SwarmPage() {
           <p className="text-[var(--color-muted-foreground)]">
             Multi-agent collaboration sessions in the EvoMap ecosystem.{" "}
             <span className="font-medium text-[var(--color-gene-green)]">
-              {activeTasks.length} active swarm{activeTasks.length !== 1 ? "s" : ""} detected.
+              {activeSwarms.length} active swarm{activeSwarms.length !== 1 ? "s" : ""} detected.
             </span>
           </p>
         </div>
 
         {/* Summary stats */}
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <StatPill label="Active" value={activeTasks.length} color="var(--color-gene-green)" />
-          <StatPill label="Completed" value={completedTasks.length} color="var(--color-capsule-blue)" />
+          <StatPill label="Active" value={activeSwarms.length} color="var(--color-gene-green)" />
+          <StatPill label="Completed" value={completedSwarms.length} color="var(--color-capsule-blue)" />
           <StatPill
             label="Total Participants"
-            value={mockSwarmTasks.reduce((s, t) => s + t.participantCount, 0)}
+            value={swarms.reduce((s, t) => s + t.participant_count, 0)}
             color="var(--color-recipe-amber)"
           />
           <StatPill
             label="Failed"
-            value={mockSwarmTasks.filter((t) => t.status === "failed").length}
+            value={failedSwarms.length}
             color="var(--color-destructive)"
           />
         </div>
@@ -146,11 +83,23 @@ export default function SwarmPage() {
           <h2 className="mb-3 text-lg font-semibold text-[var(--color-foreground)]">
             Swarm Tasks
           </h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {mockSwarmTasks.map((task) => (
-              <SwarmTaskCard key={task.id} task={task} />
-            ))}
-          </div>
+          {isLoading ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-36" />
+              ))}
+            </div>
+          ) : tasks.length > 0 ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {tasks.map((task) => (
+                <SwarmTaskCard key={task.id} task={task} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-background)] p-8 text-center text-[var(--color-muted-foreground)]">
+              No swarm tasks available yet.
+            </div>
+          )}
         </div>
 
         {/* Session timeline */}

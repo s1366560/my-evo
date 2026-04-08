@@ -29,7 +29,6 @@ model Node {
   validatorStakes    ValidatorStake[]
   trustAttestations  TrustAttestation[]
   apiKeys            ApiKey[]
-  sessions           UserSession[]
   onboardingState    OnboardingState?
 
   @@index([status])
@@ -393,10 +392,23 @@ model UserSession {
   created_at DateTime @default(now())
   expires_at DateTime
 
-  node Node @relation(fields: [user_id], references: [node_id])
+  user User @relation(fields: [user_id], references: [id])
 
   @@index([token])
   @@index([user_id])
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password_hash String
+  node_id       String?  @unique
+  trust_level   String   @default("unverified")
+  created_at    DateTime @default(now())
+
+  sessions UserSession[]
+
+  @@index([email])
 }
 
 model OnboardingState {

@@ -1,6 +1,8 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { ProposalCard } from "@/components/council/ProposalCard";
+import { apiClient, CouncilProposal } from "@/lib/api/client";
 
 type ProposalStatus = "draft" | "active" | "passed" | "rejected";
 
@@ -16,70 +18,42 @@ interface Proposal {
   createdAt: string;
 }
 
-const mockProposals: Proposal[] = [
-  {
-    id: "1",
-    title: "GEP-A2A Protocol v2.1 Upgrade",
-    description:
-      "Proposal to adopt the updated GEP-A2A protocol with enhanced security signatures, improved message routing, and support for multi-hop relay through intermediate nodes.",
-    status: "active",
-    votesFor: 342,
-    votesAgainst: 28,
-    votesAbstain: 15,
-    author: "EvoCore Council",
-    createdAt: "2026-04-01",
-  },
-  {
-    id: "2",
-    title: "Increase Gene Publishing Reward",
-    description:
-      "Raise the GDI score bonus for newly published Genes from +2 to +5 credits to incentivize higher-quality submissions.",
-    status: "active",
-    votesFor: 189,
-    votesAgainst: 76,
-    votesAbstain: 23,
-    author: "ContributorGuild",
-    createdAt: "2026-03-28",
-  },
-  {
-    id: "3",
-    title: "Extend Arena Season Duration",
-    description:
-      "Extend the current Arena season from 30 days to 45 days to allow more matches and a fairer ranking process.",
-    status: "passed",
-    votesFor: 421,
-    votesAgainst: 45,
-    votesAbstain: 12,
-    author: "ArenaCommittee",
-    createdAt: "2026-03-15",
-  },
-  {
-    id: "4",
-    title: "Introduce Capsule Verification Tiers",
-    description:
-      "Add a new verification tier for Capsules that have passed automated security scans and peer review.",
-    status: "rejected",
-    votesFor: 98,
-    votesAgainst: 287,
-    votesAbstain: 34,
-    author: "SecurityGuild",
-    createdAt: "2026-03-10",
-  },
-  {
-    id: "5",
-    title: "Swarm Coordination Fee Reduction",
-    description:
-      "Reduce the coordination fee for Swarm formations from 3% to 1% to lower the barrier for multi-agent collaboration.",
-    status: "draft",
-    votesFor: 0,
-    votesAgainst: 0,
+function mapProposal(api: CouncilProposal): Proposal {
+  // Map API status to component status; 'pending' becomes 'draft'
+  const statusMap: Record<string, ProposalStatus> = {
+    active: "active",
+    passed: "passed",
+    rejected: "rejected",
+    pending: "draft",
+  };
+  return {
+    id: api.proposal_id,
+    title: api.title,
+    description: api.description,
+    status: statusMap[api.status] ?? "draft",
+    votesFor: api.votes_for,
+    votesAgainst: api.votes_against,
     votesAbstain: 0,
-    author: "SwarmCollective",
-    createdAt: "2026-04-05",
-  },
-];
+    author: api.author ?? "Unknown",
+    createdAt: new Date(api.created_at).toLocaleDateString("en-CA"),
+  };
+}
 
 export default function CouncilPage() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["council-proposals"],
+    queryFn: () => apiClient.getCouncilProposals(),
+  });
+
+  const proposals: Proposal[] = (data?.proposals ?? []).map(mapProposal);
+
+  const counts = {
+    active: proposals.filter((p) => p.status === "active").length,
+    passed: proposals.filter((p) => p.status === "passed").length,
+    rejected: proposals.filter((p) => p.status === "rejected").length,
+    draft: proposals.filter((p) => p.status === "draft").length,
+  };
+
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 pb-16 sm:px-6 lg:px-8">
       {/* Header */}
@@ -96,10 +70,10 @@ export default function CouncilPage() {
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
-          { label: "Active", value: 2, color: "text-[var(--color-capsule-blue)]" },
-          { label: "Passed", value: 1, color: "text-[var(--color-success)]" },
-          { label: "Rejected", value: 1, color: "text-[var(--color-destructive)]" },
-          { label: "Draft", value: 1, color: "text-[var(--color-muted-foreground)]" },
+          { label: "Active", value: counts.active, color: "text-[var(--color-capsule-blue)]" },
+          { label: "Passed", value: counts.passed, color: "text-[var(--color-success)]" },
+          { label: "Rejected", value: counts.rejected, color: "text-[var(--color-destructive)]" },
+          { label: "Draft", value: counts.draft, color: "text-[var(--color-muted-foreground)]" },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -113,12 +87,39 @@ export default function CouncilPage() {
         ))}
       </div>
 
+      {/* Loading skeleton */}
+      {isLoading && (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="h-36 animate-pulse rounded-xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-5"
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Error state */}
+      {isError && (
+        <div className="rounded-xl border border-[var(--color-destructive)] bg-[var(--color-destructive)]/5 p-6 text-center text-sm text-[var(--color-destructive)]">
+          Failed to load proposals. Please try again later.
+        </div>
+      )}
+
       {/* Proposals */}
-      <div className="space-y-4">
-        {mockProposals.map((proposal) => (
-          <ProposalCard key={proposal.id} proposal={proposal} />
-        ))}
-      </div>
+      {!isLoading && !isError && (
+        <div className="space-y-4">
+          {proposals.length === 0 ? (
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-6 text-center text-sm text-[var(--color-muted-foreground)]">
+              No proposals yet.
+            </div>
+          ) : (
+            proposals.map((proposal) => (
+              <ProposalCard key={proposal.id} proposal={proposal} />
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }

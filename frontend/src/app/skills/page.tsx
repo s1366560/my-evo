@@ -1,33 +1,30 @@
 "use client";
 
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiClient } from "@/lib/api/client";
+import { QueryKeys } from "@/lib/api/query-keys";
 import { SkillCard } from "@/components/skills/SkillCard";
+import { Skeleton } from "@/components/ui/skeleton";
 
-interface MockSkill {
-  id: string;
-  name: string;
-  author: string;
-  gdiScore: number;
-  downloads: number;
-  description: string;
-  tags: string[];
+function SkillsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 9 }).map((_, i) => (
+        <Skeleton key={i} className="h-40" />
+      ))}
+    </div>
+  );
 }
 
-const mockSkills: MockSkill[] = [
-  { id: "1", name: "ContextAssembler", author: "NeuroCore", gdiScore: 95, downloads: 12843, description: "Efficiently assembles and compresses conversation context for long-horizon tasks.", tags: ["nlp", "context", "reasoning"] },
-  { id: "2", name: "RLHF-Pipeline", author: "SynthLab", gdiScore: 91, downloads: 8234, description: "End-to-end reinforcement learning from human feedback pipeline.", tags: ["rl", "training", "alignment"] },
-  { id: "3", name: "CodeSynth-v4", author: "CodeForge", gdiScore: 97, downloads: 21056, description: "Advanced code generation with multi-language support and test generation.", tags: ["coding", "synthesis", "testing"] },
-  { id: "4", name: "VisionEncoder", author: "PixelMind", gdiScore: 88, downloads: 6547, description: "High-quality image feature extraction and encoding for multi-modal agents.", tags: ["vision", "encoding", "multi-modal"] },
-  { id: "5", name: "MathSolver-Pro", author: "NumLogic", gdiScore: 93, downloads: 11230, description: "Step-by-step mathematical reasoning with symbolic and numeric solving.", tags: ["math", "reasoning", "symbols"] },
-  { id: "6", name: "SecurityScanner", author: "SecuPath", gdiScore: 79, downloads: 3891, description: "Automated security vulnerability scanning for agent-generated code.", tags: ["security", "analysis", "coding"] },
-  { id: "7", name: "PromptOptimizer", author: "PromptWiz", gdiScore: 86, downloads: 9876, description: "Automatic prompt optimization using evolutionary strategies.", tags: ["nlp", "prompting", "optimization"] },
-  { id: "8", name: "DataAugmentor", author: "DataForge", gdiScore: 82, downloads: 5432, description: "Synthetic data generation and augmentation for model fine-tuning.", tags: ["data", "augmentation", "training"] },
-  { id: "9", name: "NLU-Enhanced", author: "Linguist", gdiScore: 89, downloads: 7654, description: "Enhanced natural language understanding with intent classification and entity extraction.", tags: ["nlu", "nlp", "classification"] },
-  { id: "10", name: "InferenceEngine", author: "FastMind", gdiScore: 96, downloads: 15432, description: "High-throughput inference optimization with batching and caching.", tags: ["inference", "performance", "optimization"] },
-  { id: "11", name: "TextSummarizer", author: "TextAI", gdiScore: 84, downloads: 6123, description: "Abstractive and extractive text summarization across multiple domains.", tags: ["nlp", "summarization", "text"] },
-  { id: "12", name: "GraphReasoner", author: "NeoLogic", gdiScore: 90, downloads: 4321, description: "Knowledge graph traversal and multi-hop logical reasoning.", tags: ["reasoning", "graph", "knowledge"] },
-];
-
 export default function SkillsPage() {
+  const [search, setSearch] = useState("");
+
+  const { data: skills, isLoading, isError } = useQuery({
+    queryKey: QueryKeys.a2a.skillSearch(search),
+    queryFn: () => apiClient.getSkills(search),
+  });
+
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 pb-16 sm:px-6 lg:px-8">
       {/* Header */}
@@ -43,6 +40,8 @@ export default function SkillsPage() {
         <input
           type="search"
           placeholder="Search skills..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
           className="h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-input-background)] px-4 pr-10 text-sm placeholder-[var(--color-muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]"
         />
         <svg
@@ -56,11 +55,23 @@ export default function SkillsPage() {
       </div>
 
       {/* Skill Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {mockSkills.map((skill) => (
-          <SkillCard key={skill.id} skill={skill} />
-        ))}
-      </div>
+      {isLoading ? (
+        <SkillsSkeleton />
+      ) : isError ? (
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-background)] p-8 text-center text-[var(--color-muted-foreground)]">
+          Failed to load skills. Please try again.
+        </div>
+      ) : skills && skills.length > 0 ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {skills.map((skill) => (
+            <SkillCard key={skill.skill_id} skill={skill} />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-background)] p-8 text-center text-[var(--color-muted-foreground)]">
+          {search ? `No skills found for "${search}"` : "No skills available yet."}
+        </div>
+      )}
     </div>
   );
 }

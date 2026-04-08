@@ -50,7 +50,7 @@ async function authenticateSession(
 ): Promise<AuthResult> {
   const session = await prisma.userSession.findUnique({
     where: { token },
-    include: { node: true },
+    include: { user: true },
   });
 
   if (!session) {
@@ -62,8 +62,8 @@ async function authenticateSession(
   }
 
   return {
-    node_id: session.node.node_id,
-    trust_level: session.node.trust_level as TrustLevel,
+    node_id: session.user.node_id ?? `user-${session.user.id}`,
+    trust_level: session.user.trust_level as TrustLevel,
     auth_type: 'session',
   };
 }

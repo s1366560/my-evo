@@ -1,10 +1,12 @@
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import type {
   ApiKeyResponse,
   ApiKeyListItem,
   OnboardingState,
   OnboardingStep,
+  UserInfo,
 } from '../shared/types';
 import {
   MAX_API_KEYS_PER_USER,
@@ -19,6 +21,8 @@ import {
   ValidationError,
   ForbiddenError,
   KeyInceptionError,
+  UnauthorizedError,
+  ConflictError,
 } from '../shared/errors';
 
 let prisma = new PrismaClient();
@@ -201,6 +205,54 @@ export async function createSession(
     token,
     expires_at: expiresAt.toISOString(),
   };
+}
+
+export async function registerUser(
+  email: string,
+  password: string,
+): Promise<{ token: string; user: UserInfo }> {
+  if (!email || !email.includes('@')) {
+    throw new ValidationError('Valid email is required');
+  }
+  if (!password || password.length < 8) {
+    throw new ValidationError('Password must be at least 8 characters');
+  }
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    throw new ConflictError('Email already registered');
+  }
+
+  const password_hash = await bcrypt.hash(password, 12);
+  const user = await prisma.user.create({
+    data: { email, password_hash },
+    select: { id: true, email: true },
+  });
+
+  const session = await createSession(user.id);
+  return { token: session.token, user };
+}
+
+export async function loginUser(
+  email: string,
+  password: string,
+): Promise<{ token: string; user: UserInfo }> {
+  if (!email || !password) {
+    throw new ValidationError('Email and password are required');
+  }
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    throw new UnauthorizedError('Invalid email or password');
+  }
+
+  const valid = await bcrypt.compare(password, user.password_hash);
+  if (!valid) {
+    throw new UnauthorizedError('Invalid email or password');
+  }
+
+  const session = await createSession(user.id);
+  return { token: session.token, user };
 }
 
 export async function getOnboardingState(
