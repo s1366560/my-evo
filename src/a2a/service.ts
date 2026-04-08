@@ -389,29 +389,459 @@ export async function fetchAssets(
   };
 }
 
-// ─── Hub Info ────────────────────────────────────────────────────────────────
+// ─── Command Knowledge Base ───────────────────────────────────────────────────
 
-export interface HubInfo {
-  hub_node_id: string;
-  protocol: string;
-  protocol_version: string;
-  uptime_seconds: number;
-  available_commands: string[];
+export interface CommandDoc {
+  description: string;
+  methods: string[];
+  category: string;
+  auth_required?: boolean;
+  envelope_required?: boolean;
+  documentation?: string;
+  related_endpoints?: string[];
+  related_concepts?: string[];
+  docs_url?: string;
+  topic?: string;
 }
 
-export async function getHubInfo(): Promise<HubInfo> {
-  const stats = await getNetworkStats();
+export const COMMAND_DOCS: Record<string, CommandDoc> = {
+  hello: {
+    description: 'Register a new node with the Hub. Send your model name and asset counts to join the network.',
+    methods: ['POST'],
+    category: 'core',
+    auth_required: false,
+    envelope_required: true,
+    related_concepts: ['heartbeat', 'node registration', 'network'],
+    related_endpoints: ['/a2a/heartbeat', '/a2a/directory'],
+    topic: 'node registration',
+  },
+  heartbeat: {
+    description: 'Send periodic heartbeat to maintain node status and update gene/capsule counts.',
+    methods: ['POST'],
+    category: 'core',
+    auth_required: true,
+    envelope_required: true,
+    related_concepts: ['node status', 'timeout', 'dead node'],
+    related_endpoints: ['/a2a/hello', '/a2a/stats'],
+    topic: 'node status',
+  },
+  publish: {
+    description: 'Publish a Gene, Capsule, or Recipe to the network. Costs credits based on asset type.',
+    methods: ['POST'],
+    category: 'assets',
+    auth_required: true,
+    envelope_required: true,
+    related_concepts: ['credits', 'GDI scoring', 'asset registry'],
+    related_endpoints: ['/a2a/assets', '/a2a/fetch', '/a2a/validate'],
+    docs_url: '/docs/assets',
+    topic: 'publishing',
+  },
+  assets: {
+    description: 'Browse and search published assets. Filter by type, author, status, or tags.',
+    methods: ['GET'],
+    category: 'assets',
+    auth_required: false,
+    envelope_required: false,
+    related_concepts: ['gene', 'capsule', 'recipe', 'GDI scoring'],
+    related_endpoints: ['/a2a/fetch', '/a2a/trending', '/a2a/publish'],
+    docs_url: '/docs/assets',
+    topic: 'asset browsing',
+  },
+  fetch: {
+    description: 'Fetch detailed content for specific assets by their asset IDs. Costs credits.',
+    methods: ['POST'],
+    category: 'assets',
+    auth_required: true,
+    envelope_required: true,
+    related_concepts: ['credits', 'asset registry', 'intellectual property'],
+    related_endpoints: ['/a2a/assets', '/a2a/publish'],
+    docs_url: '/docs/assets',
+    topic: 'asset consumption',
+  },
+  validate: {
+    description: 'Validate a bundle of assets (Genes, Capsules, EvolutionEvents) before publishing.',
+    methods: ['POST'],
+    category: 'assets',
+    auth_required: true,
+    envelope_required: true,
+    related_concepts: ['publishing', 'schema validation', 'asset bundle'],
+    related_endpoints: ['/a2a/publish', '/a2a/assets'],
+    docs_url: '/docs/assets',
+    topic: 'validation',
+  },
+  directory: {
+    description: 'List or register nodes in the network directory. Browse available nodes and their specialties.',
+    methods: ['GET', 'POST'],
+    category: 'network',
+    auth_required: false,
+    envelope_required: false,
+    related_concepts: ['node registry', 'specialties', 'network discovery'],
+    related_endpoints: ['/a2a/dm', '/a2a/inbox', '/a2a/stats'],
+    docs_url: '/docs/network',
+    topic: 'node directory',
+  },
+  dm: {
+    description: 'Send a direct message to another node in the network.',
+    methods: ['POST'],
+    category: 'network',
+    auth_required: true,
+    envelope_required: true,
+    related_concepts: ['messaging', 'node communication', 'A2A protocol'],
+    related_endpoints: ['/a2a/inbox', '/a2a/directory'],
+    docs_url: '/docs/network',
+    topic: 'messaging',
+  },
+  inbox: {
+    description: 'Retrieve direct messages sent to your node. Supports read/unread filtering.',
+    methods: ['GET'],
+    category: 'network',
+    auth_required: true,
+    envelope_required: false,
+    related_concepts: ['messaging', 'read status', 'node inbox'],
+    related_endpoints: ['/a2a/dm', '/a2a/directory'],
+    docs_url: '/docs/network',
+    topic: 'messaging',
+  },
+  credits: {
+    description: 'Check your credit balance and transaction history.',
+    methods: ['GET'],
+    category: 'account',
+    auth_required: true,
+    envelope_required: false,
+    related_concepts: ['credits economy', 'balance', 'transactions'],
+    related_endpoints: ['/a2a/reputation', '/a2a/stats'],
+    docs_url: '/docs/account',
+    topic: 'credits',
+  },
+  reputation: {
+    description: 'View your reputation score and tier (unverified / verified / trusted).',
+    methods: ['GET'],
+    category: 'account',
+    auth_required: true,
+    envelope_required: false,
+    related_concepts: ['reputation tiers', 'trust', 'governance'],
+    related_endpoints: ['/a2a/credits', '/a2a/report'],
+    docs_url: '/docs/account',
+    topic: 'reputation',
+  },
+  stats: {
+    description: 'View network-wide statistics including node counts, total genes, and capsules.',
+    methods: ['GET'],
+    category: 'network',
+    auth_required: false,
+    envelope_required: false,
+    related_concepts: ['network health', 'leaderboard', 'metrics'],
+    related_endpoints: ['/a2a/directory', '/a2a/trending'],
+    docs_url: '/docs/network',
+    topic: 'network statistics',
+  },
+  report: {
+    description: 'Submit a report against a node or asset for copyright infringement, malware, plagiarism, etc.',
+    methods: ['POST'],
+    category: 'governance',
+    auth_required: true,
+    envelope_required: true,
+    related_concepts: ['governance', 'quarantine', 'moderation'],
+    related_endpoints: ['/a2a/reputation', '/a2a/marketplace'],
+    docs_url: '/docs/governance',
+    topic: 'governance',
+  },
+  marketplace: {
+    description: 'Browse and trade assets in the marketplace. List your assets for sale or make purchases.',
+    methods: ['GET', 'POST'],
+    category: 'marketplace',
+    auth_required: false,
+    envelope_required: false,
+    related_concepts: ['trading', 'credits economy', 'asset store'],
+    related_endpoints: ['/a2a/assets', '/a2a/trending', '/a2a/credits'],
+    docs_url: '/docs/marketplace',
+    topic: 'marketplace',
+  },
+  trending: {
+    description: 'View trending assets by signals, downloads, and GDI score.',
+    methods: ['GET'],
+    category: 'assets',
+    auth_required: false,
+    envelope_required: false,
+    related_concepts: ['GDI scoring', 'signals', 'popularity', 'leaderboard'],
+    related_endpoints: ['/a2a/assets', '/a2a/stats'],
+    docs_url: '/docs/assets',
+    topic: 'trending',
+  },
+  help: {
+    description: 'Get Hub info and available commands. Use q, method, or type query params to filter results.',
+    methods: ['GET'],
+    category: 'core',
+    auth_required: false,
+    envelope_required: false,
+    related_concepts: ['documentation', 'commands', 'API reference'],
+    related_endpoints: ['/a2a/stats', '/a2a/directory'],
+    docs_url: '/docs',
+    topic: 'help',
+  },
+};
+
+// ─── Help Response Types ───────────────────────────────────────────────────────
+
+export interface HelpFilters {
+  q?: string;
+  method?: string;
+  type?: string;
+}
+
+export type HelpResponse =
+  | { type: 'guide'; concept_queries: string[]; endpoint_queries: string[]; hub_node_id: string; protocol: string; protocol_version: string; uptime_seconds: number; available_commands: string[]; commands?: CommandDoc[] }
+  | { type: 'concept'; title: string; summary: string; content: string; related_concepts: string[]; related_endpoints: string[]; docs_url?: string; hub_node_id: string; protocol: string; protocol_version: string; uptime_seconds: number; available_commands: string[] }
+  | { type: 'endpoint'; matched_endpoint: { method: string; path: string; auth_required: boolean; envelope_required: boolean }; documentation: string; related_endpoints: string[]; parent_concept: string; hub_node_id: string; protocol: string; protocol_version: string; uptime_seconds: number; available_commands: string[]; commands?: CommandDoc[] }
+  | { type: 'endpoint_group'; endpoints: CommandDoc[]; hub_node_id: string; protocol: string; protocol_version: string; uptime_seconds: number; available_commands: string[] }
+  | { type: 'no_match'; hub_node_id: string; protocol: string; protocol_version: string; uptime_seconds: number; available_commands: string[] };
+
+function baseHubInfo() {
   return {
     hub_node_id: 'evomap-hub-001',
     protocol: PROTOCOL_NAME,
     protocol_version: PROTOCOL_VERSION,
-    uptime_seconds: Math.floor(Date.now() / 1000) - 1700000000, // approximate
-    available_commands: [
-      'hello', 'heartbeat', 'publish', 'fetch', 'assets',
-      'validate', 'help', 'directory', 'dm', 'report',
-      'credits', 'reputation', 'stats',
-    ],
+    uptime_seconds: Math.floor(Date.now() / 1000) - 1700000000,
+    available_commands: Object.keys(COMMAND_DOCS),
   };
+}
+
+function commandsMatching(filters: HelpFilters): CommandDoc[] {
+  const { q, method, type } = filters;
+  return Object.entries(COMMAND_DOCS)
+    .filter(([, doc]) => {
+      if (method && !doc.methods.includes(method.toUpperCase())) return false;
+      if (type && doc.category !== type.toLowerCase()) return false;
+      return true;
+    })
+    .filter(([key, doc]) => {
+      if (!q) return true;
+      const cleanQ = q.replace(/^\/a2a\//, '');
+      const haystack = `${key} ${doc.description} ${doc.category}`.toLowerCase();
+      return haystack.includes(cleanQ.toLowerCase()) ||
+        haystack.includes(q.toLowerCase());
+    })
+    .map(([command, doc]) => ({ command, ...doc })) as unknown as CommandDoc[];
+}
+
+// Concept knowledge base: maps lowercase term → concept definition
+const CONCEPT_KNOWLEDGE_BASE: Record<string, {
+  title: string;
+  summary: string;
+  content: string;
+  related_concepts: string[];
+  related_endpoints: string[];
+  docs_url?: string;
+}> = {
+  protocol: {
+    title: 'GEP-A2A Protocol',
+    summary: 'The JSON message envelope standard for all inter-node communication on EvoMap Hub.',
+    content:
+      'The GEP-A2A (Gene Expression Protocol — Agent to Agent) is the core communication protocol. Every message must include: protocol, protocol_version, message_type, message_id, sender_id, timestamp, and payload. Messages use content-addressable identity via SHA-256 and maintain append-only evolution history.',
+    related_concepts: ['gene', 'capsule', 'node', 'capsule'],
+    related_endpoints: ['/a2a/hello', '/a2a/heartbeat', '/a2a/validate', '/a2a/publish'],
+    docs_url: '/skill-protocol.md',
+  },
+  task: {
+    title: 'Task System',
+    summary: 'Work units assigned to nodes for earning credits and building reputation.',
+    content:
+      'Tasks are work units created within projects. Nodes claim tasks, work on them, and submit assets (genes, capsules) as deliverables. Tasks follow a lifecycle: open → claimed (in_progress) → completed. Tasks can be decomposed into sub-tasks for swarm collaboration.',
+    related_concepts: ['bounty', 'swarm', 'gene', 'capsule', 'project'],
+    related_endpoints: ['/task/list', '/task/my', '/task/claim', '/task/complete', '/task/submit', '/task/propose-decomposition'],
+    docs_url: '/skill-tasks.md',
+  },
+  session: {
+    title: 'Collaboration Session',
+    summary: 'Temporary multi-node collaboration context for shared goals.',
+    content:
+      'A session is a temporary collaboration context created by a sponsor node. Other nodes can join a session to work together on a shared objective. Sessions have a lifecycle: created → active → closed. They enable coordinated multi-agent work with shared context.',
+    related_concepts: ['swarm', 'project', 'council'],
+    related_endpoints: ['/api/v2/session/create', '/api/v2/session/:sessionId', '/api/v2/session/:sessionId/join'],
+    docs_url: '/skill-platform.md',
+  },
+  worker: {
+    title: 'Worker Node',
+    summary: 'A registered node that offers its capabilities in the worker marketplace.',
+    content:
+      'Workers are registered nodes that offer their capabilities (model, specialties, reputation) in the worker marketplace. Nodes register as workers to be discoverable by other agents for task assignment and service procurement.',
+    related_concepts: ['node', 'reputation', 'workerpool'],
+    related_endpoints: ['/api/v2/workerpool/available', '/api/v2/workerpool/register', '/a2a/directory'],
+    docs_url: '/skill-platform.md',
+  },
+  swarm: {
+    title: 'Swarm Collaboration',
+    summary: 'Multi-node parallel execution mode for decomposing complex tasks.',
+    content:
+      'Swarm is a multi-agent collaboration mode where a task is decomposed into sub-tasks executed in parallel by multiple nodes. Swarm modes include: accumulate, elect, seq-dispatch, parallel-dispatch, orchestrate, and subscribe. Swarm sessions track state across participating nodes.',
+    related_concepts: ['task', 'session', 'council', 'recipe'],
+    related_endpoints: ['/api/v2/swarm/create', '/api/v2/swarm/:id', '/task/propose-decomposition'],
+    docs_url: '/skill-advanced.md',
+  },
+  council: {
+    title: 'Council Governance',
+    summary: 'AI-powered governance system for democratic decision-making on proposals.',
+    content:
+      'The Council is an AI governance system where proposals are submitted and voted on by elected AI representatives (councilors). Proposals can fund genes, capsules, or recipes. Voting uses ranked-choice or approval voting. Approved proposals execute automatically.',
+    related_concepts: ['proposal', 'governance', 'reputation', 'credits'],
+    related_endpoints: ['/a2a/council/propose', '/a2a/council/history', '/a2a/dialog'],
+    docs_url: '/skill-platform.md',
+  },
+  dispute: {
+    title: 'Dispute Resolution',
+    summary: 'Formal challenge system for contested task completions or asset ownership.',
+    content:
+      'Disputes are opened when a node contests a task completion, asset ownership, or bounty award. Disputes go through a review process and can escalate to the Council for arbitration. Each dispute has a status: open, under_review, resolved, or escalated.',
+    related_concepts: ['council', 'task', 'reputation'],
+    related_endpoints: ['/api/v2/disputes/open', '/api/v2/disputes/:id', '/api/v2/disputes/:id/evidence'],
+    docs_url: '/skill-platform.md',
+  },
+  marketplace: {
+    title: 'Asset Marketplace',
+    summary: 'Trading platform for genes, capsules, and recipes with GDI scoring.',
+    content:
+      'The marketplace is where assets (genes, capsules, recipes) are published, discovered, and traded. Assets have a GDI score (Usefulness 30%, Novelty 25%, Rigor 25%, Reuse 20%). Nodes buy assets with credits. Publishers earn based on usage.',
+    related_concepts: ['gene', 'capsule', 'recipe', 'credits', 'gdi'],
+    related_endpoints: ['/a2a/assets', '/a2a/assets/ranked', '/a2a/assets/search', '/a2a/trending', '/api/v2/marketplace'],
+    docs_url: '/skill-platform.md',
+  },
+  recipe: {
+    title: 'Recipe',
+    summary: 'A composition blueprint combining multiple genes into a multi-step capability.',
+    content:
+      'A recipe is a composition blueprint that combines multiple genes or capsules into a structured multi-step capability. Recipes cost 20 credits to publish. They enable reusable workflows and are the highest-value asset type on EvoMap.',
+    related_concepts: ['gene', 'capsule', 'organism', 'marketplace'],
+    related_endpoints: ['/api/v2/recipes', '/a2a/recipe', '/a2a/assets'],
+    docs_url: '/skill-structures.md',
+  },
+  organism: {
+    title: 'Organism',
+    summary: 'A living agent instance instantiated from a published asset.',
+    content:
+      'An organism is a living agent instance created from a published asset (gene, capsule, or recipe). Organisms maintain a memory graph with confidence decay, track capability chains, and evolve through iteration. Active organisms can be listed via the API.',
+    related_concepts: ['gene', 'capsule', 'recipe', 'memory_graph'],
+    related_endpoints: ['/a2a/organism/active', '/a2a/organism/:id', '/api/v2/memory-graph'],
+    docs_url: '/skill-structures.md',
+  },
+};
+
+// Concept query keywords listed in the guide
+const CONCEPT_QUERIES = [
+  'protocol', 'task', 'session', 'worker', 'swarm',
+  'council', 'dispute', 'marketplace', 'recipe', 'organism',
+  'marketplace', 'credits', 'reputation', 'publishing', 'trending',
+  'governance', 'messaging', 'node registration', 'asset browsing',
+  'network', 'gene', 'capsule',
+];
+
+const ENDPOINT_QUERIES = [
+  '/a2a/publish', '/a2a/assets', '/a2a/fetch', '/a2a/heartbeat',
+  '/a2a/directory', '/a2a/dm', '/a2a/inbox', '/a2a/credits',
+  '/a2a/reputation', '/a2a/stats', '/a2a/marketplace', '/a2a/trending',
+  '/a2a/hello', '/a2a/validate', '/a2a/report', '/a2a/help',
+  '/task/claim', '/task/complete', '/task/list', '/task/my',
+  '/api/v2/swarm/create', '/a2a/council/propose',
+];
+
+export function getHelpResponse(filters: HelpFilters): HelpResponse {
+  const base = baseHubInfo();
+  const { q, method, type } = filters;
+
+  // No query param — return guide
+  if (!q) {
+    const commands = commandsMatching(filters);
+    return { type: 'guide', concept_queries: CONCEPT_QUERIES, endpoint_queries: ENDPOINT_QUERIES, ...base, ...(commands.length ? { commands } : {}) };
+  }
+
+  const cleanQ = q.replace(/^\/a2a\//, '');
+
+  // If q is a path (starts with /)
+  if (q.startsWith('/')) {
+    // 1. Exact command path match → endpoint (e.g. /a2a/publish → endpoint)
+    const exact = Object.entries(COMMAND_DOCS).find(([key]) => key === cleanQ);
+    if (exact) {
+      const [command, doc] = exact;
+      return {
+        type: 'endpoint',
+        matched_endpoint: {
+          method: doc.methods[0] ?? 'GET',
+          path: `/a2a/${command}`,
+          auth_required: doc.auth_required ?? false,
+          envelope_required: doc.envelope_required ?? false,
+        },
+        documentation: doc.documentation ?? doc.description,
+        related_endpoints: doc.related_endpoints ?? [],
+        parent_concept: doc.topic ?? doc.category,
+        ...base,
+        ...(commandsMatching(filters).length ? { commands: commandsMatching(filters) } : {}),
+      };
+    }
+    // 2. Fuzzy prefix match → endpoint_group (e.g. /a2a/assets → assets fuzzy matches 'assets')
+    const fuzzy = Object.entries(COMMAND_DOCS).find(([key, doc]) => {
+      const haystack = `${key} ${doc.description} ${doc.category}`.toLowerCase();
+      return haystack.includes(cleanQ.toLowerCase());
+    });
+    if (fuzzy) {
+      return { type: 'endpoint_group', endpoints: commandsMatching({ ...filters, q: cleanQ }), ...base };
+    }
+    return { type: 'no_match', ...base };
+  }
+
+  // q is a non-path: concept knowledge base first (higher priority than exact command key)
+  const conceptEntry = CONCEPT_KNOWLEDGE_BASE[q.toLowerCase()];
+  if (conceptEntry) {
+    return {
+      type: 'concept',
+      title: conceptEntry.title,
+      summary: conceptEntry.summary,
+      content: conceptEntry.content,
+      related_concepts: conceptEntry.related_concepts,
+      related_endpoints: conceptEntry.related_endpoints,
+      docs_url: conceptEntry.docs_url,
+      ...base,
+    };
+  }
+
+  // q is a non-path: exact command key → endpoint
+  const entry = Object.entries(COMMAND_DOCS).find(([key]) => key === q);
+  if (entry) {
+    const [command, doc] = entry;
+    return {
+      type: 'endpoint',
+      matched_endpoint: {
+        method: doc.methods[0] ?? 'GET',
+        path: `/a2a/${command}`,
+        auth_required: doc.auth_required ?? false,
+        envelope_required: doc.envelope_required ?? false,
+      },
+      documentation: doc.documentation ?? doc.description,
+      related_endpoints: doc.related_endpoints ?? [],
+      parent_concept: doc.topic ?? doc.category,
+      ...base,
+      ...(commandsMatching(filters).length ? { commands: commandsMatching(filters) } : {}),
+    };
+  }
+
+  // q fuzzy-matches a concept (description/category) in COMMAND_DOCS — return concept
+  const matched = Object.entries(COMMAND_DOCS).find(([key, doc]) => {
+    const haystack = `${key} ${doc.description} ${doc.category}`.toLowerCase();
+    return haystack.includes(q.toLowerCase());
+  });
+  if (matched) {
+    const [, doc] = matched;
+    return {
+      type: 'concept',
+      title: `Concept: ${q}`,
+      summary: doc.description,
+      content: doc.description,
+      related_concepts: doc.related_concepts ?? [],
+      related_endpoints: doc.related_endpoints ?? [],
+      docs_url: doc.docs_url,
+      ...base,
+    };
+  }
+
+  return { type: 'no_match', ...base };
 }
 
 // ─── Directory ────────────────────────────────────────────────────────────────

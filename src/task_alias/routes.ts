@@ -37,6 +37,60 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: { count, min_reputation: minReputation ?? null } });
   });
 
+  // POST /task/claim — claim a task (task_id in body, no URL path param)
+  app.post('/claim', {
+    schema: { tags: ['Task'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as { task_id?: string; node_id?: string };
+    if (!body.task_id) {
+      return reply.status(400).send({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: 'task_id is required in body. Usage: POST /task/claim with body { task_id: "projectId:taskId" }. Also requires Authorization: Bearer <token> header.',
+      });
+    }
+    const parts = body.task_id.split(':');
+    if (parts.length !== 2) {
+      return reply.status(400).send({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: `Invalid task_id format. Expected projectId:taskId (e.g., bounty-001:task-123). Got: '${body.task_id}'.`,
+      });
+    }
+    const [projectId, tId] = parts as [string, string];
+    const task = await taskService.claimTask(projectId, tId, auth.node_id);
+    return reply.send({ success: true, data: task });
+  });
+
+  // POST /task/complete — complete a claimed task (task_id/asset_id in body)
+  app.post('/complete', {
+    schema: { tags: ['Task'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as { task_id?: string; asset_id?: string; node_id?: string };
+    if (!body.task_id) {
+      return reply.status(400).send({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: 'task_id is required in body. Usage: POST /task/complete with body { task_id: "projectId:taskId", asset_id?: "sha256:..." }. Also requires Authorization: Bearer <token> header.',
+      });
+    }
+    const parts = body.task_id.split(':');
+    if (parts.length !== 2) {
+      return reply.status(400).send({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: `Invalid task_id format. Expected projectId:taskId (e.g., bounty-001:task-123). Got: '${body.task_id}'.`,
+      });
+    }
+    const [projectId, tId] = parts as [string, string];
+    const task = await taskService.completeTask(projectId, tId, auth.node_id);
+    return reply.send({ success: true, data: task });
+  });
+
   // GET /task/:taskId — get single task (taskId format: projectId:taskId)
   app.get('/:taskId', {
     schema: { tags: ['Task'] },
@@ -61,9 +115,18 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const { taskId } = request.params as { taskId: string };
+    if (!taskId) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing taskId parameter. Usage: POST /task/{projectId}:{taskId}/claim with JSON body { node_id: \'...\' }. Also requires Authorization: Bearer <token> header.',
+      });
+    }
     const parts = taskId.split(':');
     if (parts.length !== 2) {
-      return reply.status(400).send({ success: false, error: 'Invalid taskId format, expected projectId:taskId' });
+      return reply.status(400).send({
+        success: false,
+        error: `Invalid taskId format. Expected projectId:taskId (e.g., bounty-001:task-123). Got: '${taskId}'. Also requires Authorization: Bearer <token> header and JSON body { node_id: '...' }.`,
+      });
     }
     const [projectId, tId] = parts as [string, string];
     const task = await taskService.claimTask(projectId, tId, auth.node_id);
@@ -77,9 +140,18 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const { taskId } = request.params as { taskId: string };
+    if (!taskId) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Missing taskId parameter. Usage: POST /task/{projectId}:{taskId}/complete with JSON body { node_id: \'...\' }. Also requires Authorization: Bearer <token> header.',
+      });
+    }
     const parts = taskId.split(':');
     if (parts.length !== 2) {
-      return reply.status(400).send({ success: false, error: 'Invalid taskId format, expected projectId:taskId' });
+      return reply.status(400).send({
+        success: false,
+        error: `Invalid taskId format. Expected projectId:taskId (e.g., bounty-001:task-123). Got: '${taskId}'. Also requires Authorization: Bearer <token> header and JSON body { node_id: '...' }.`,
+      });
     }
     const [projectId, tId] = parts as [string, string];
     const task = await taskService.completeTask(projectId, tId, auth.node_id);

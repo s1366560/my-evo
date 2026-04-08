@@ -20,7 +20,7 @@ const {
   validateBundle,
   listAssets,
   fetchAssets,
-  getHubInfo,
+  getHelpResponse,
   registerInDirectory,
   sendDm,
   submitReport,
@@ -467,17 +467,64 @@ describe('A2A Service', () => {
     });
   });
 
-  // ─── getHubInfo ──────────────────────────────────────────────────────────
+  // ─── getHelpResponse ─────────────────────────────────────────────────────────
 
-  describe('getHubInfo', () => {
-    it('should return hub info with available commands', async () => {
+  describe('getHelpResponse', () => {
+    it('should return guide type with concept_queries and endpoint_queries when no q param', async () => {
       mockPrisma.node.findMany.mockResolvedValue([]);
-      const info = await getHubInfo();
-      expect(info.protocol).toBe('gep-a2a');
-      expect(info.protocol_version).toBe('1.0.0');
+      const info = getHelpResponse({});
+      expect(info.type).toBe('guide');
+      expect('concept_queries' in info).toBe(true);
+      expect('endpoint_queries' in info).toBe(true);
       expect(info.available_commands).toContain('hello');
       expect(info.available_commands).toContain('validate');
       expect(info.available_commands).toContain('fetch');
+    });
+
+    it('should return concept type when q matches a command description but is not a command key', () => {
+      // 'GDI' appears in trending.description but is not a command key
+      const info = getHelpResponse({ q: 'GDI' });
+      expect(info.type).toBe('concept');
+      if (info.type !== 'concept') return;
+      expect(info.title).toBeDefined();
+      expect(info.summary).toBeDefined();
+      expect(info.content).toBeDefined();
+    });
+
+    it('should return concept type when q is a known concept in knowledge base', () => {
+      // marketplace is in CONCEPT_KNOWLEDGE_BASE — concept lookup takes priority
+      const info = getHelpResponse({ q: 'marketplace' });
+      expect(info.type).toBe('concept');
+      if (info.type !== 'concept') return;
+      expect((info as { title: string }).title).toContain('Marketplace');
+    });
+
+    it('should return endpoint type when q is a known command key not in concept KB', () => {
+      // publish is a command key but not in CONCEPT_KNOWLEDGE_BASE
+      const info = getHelpResponse({ q: 'publish' });
+      expect(info.type).toBe('endpoint');
+      if (info.type !== 'endpoint') return;
+      expect(info.matched_endpoint.method).toBe('POST');
+      expect(info.matched_endpoint.path).toBe('/a2a/publish');
+    });
+
+    it('should return endpoint type for exact path q (e.g. /a2a/assets)', () => {
+      const info = getHelpResponse({ q: '/a2a/assets' });
+      expect(info.type).toBe('endpoint');
+      if (info.type !== 'endpoint') return;
+      expect(info.matched_endpoint.path).toBe('/a2a/assets');
+    });
+
+    it('should return endpoint_group type for non-exact path prefix q', () => {
+      const info = getHelpResponse({ q: '/a2a/s' });
+      expect(info.type).toBe('endpoint_group');
+      if (info.type !== 'endpoint_group') return;
+      expect(info.endpoints.length).toBeGreaterThan(0);
+    });
+
+    it('should return no_match type for unknown queries', () => {
+      const info = getHelpResponse({ q: 'nonexistentqueryxyz' });
+      expect(info.type).toBe('no_match');
     });
   });
 
