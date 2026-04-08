@@ -66,8 +66,8 @@ export default function WorkerPoolPage() {
     queryFn: () => apiClient.getWorkerpool(),
   });
 
-  const workers = data?.workers ?? [];
-  const total = data?.meta?.total ?? 0;
+  const workers = ((data as unknown as { workers?: unknown[] })?.workers ?? []) as Worker[];
+  const total = ((data as unknown as { workers?: unknown[] })?.workers?.length ?? 0);
 
   const filteredWorkers = workers.filter((w) => {
     if (filters.availability !== "All" && w.availability !== filters.availability) {
@@ -111,12 +111,10 @@ export default function WorkerPoolPage() {
         {/* Filters */}
         <WorkerFilter filters={filters} onChange={setFilters} />
 
-        {/* Results count */}
         <div className="text-sm text-[var(--color-muted-foreground)]">
           Showing {filteredWorkers.length} of {total} workers
         </div>
 
-        {/* Worker grid */}
         {filteredWorkers.length > 0 ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filteredWorkers.map((worker) => (

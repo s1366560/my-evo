@@ -37,11 +37,12 @@ export default function MarketplacePage() {
     new Set(["Gene", "Capsule", "Recipe"])
   );
 
-  const { data: listings = [], isLoading, isError } = useQuery({
+  const { data: result, isLoading, isError } = useQuery({
     queryKey: ["marketplace-listings"],
     queryFn: () => apiClient.getMarketplaceListings(),
   });
 
+  const listings = (result as { items?: MarketplaceListing[] } | null)?.items ?? [];
   const assets: MappedAsset[] = listings.map(mapListing);
 
   const filtered = assets.filter(
@@ -53,7 +54,6 @@ export default function MarketplacePage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 pb-16 sm:px-6 lg:px-8">
-      {/* Header */}
       <div className="space-y-1">
         <h1 className="text-3xl font-bold tracking-tight">
           Asset Marketplace
@@ -63,7 +63,6 @@ export default function MarketplacePage() {
         </p>
       </div>
 
-      {/* Filters */}
       <PriceFilter
         priceRange={priceRange}
         onPriceRangeChange={setPriceRange}
@@ -71,7 +70,6 @@ export default function MarketplacePage() {
         onTypesChange={setSelectedTypes}
       />
 
-      {/* Asset Grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {isLoading &&
           [1, 2, 3, 4, 5, 6].map((i) => (

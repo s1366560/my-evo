@@ -9,21 +9,6 @@ import { apiClient } from "@/lib/api/client";
 import { QueryKeys } from "@/lib/api/query-keys";
 import type { SwarmMode } from "@/components/swarm/SwarmTaskCard";
 
-// Deterministic timeline: 30 data points over 24 hours (no Math.random())
-const mockTimeline = Array.from({ length: 30 }, (_, i) => {
-  const hour = Math.floor((i / 30) * 24);
-  const participants = Math.max(
-    0,
-    Math.round(8 + 6 * Math.sin((i / 30) * Math.PI * 2 + 1) + (Math.sin(i * 1.7) * 2))
-  );
-  return {
-    hour,
-    participants,
-    tasks: Math.max(1, Math.round(participants * 0.4)),
-  };
-});
-
-
 export default function SwarmPage() {
   const { data: swarmData, isLoading } = useQuery({
     queryKey: QueryKeys.swarm.list(),
@@ -45,6 +30,15 @@ export default function SwarmPage() {
     createdAt: s.created_at,
     progress: s.progress ?? 0,
   }));
+
+  // Derive session timeline from real swarm data
+  const timelineData = swarms.length > 0
+    ? swarms.slice(0, 30).map((s, i) => ({
+        hour: Math.floor((i / Math.max(swarms.length, 1)) * 24),
+        participants: s.participant_count,
+        tasks: Math.max(1, Math.round(s.participant_count * 0.4)),
+      }))
+    : [];
 
   return (
     <PageContainer>
@@ -103,7 +97,9 @@ export default function SwarmPage() {
         </div>
 
         {/* Session timeline */}
-        <SwarmSessionTimeline data={mockTimeline} />
+        {timelineData.length > 0 && (
+          <SwarmSessionTimeline data={timelineData} />
+        )}
       </div>
     </PageContainer>
   );

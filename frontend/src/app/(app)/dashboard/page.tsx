@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api/client";
+import { apiClient, type ApiStats } from "@/lib/api/client";
 import { QueryKeys } from "@/lib/api/query-keys";
 import { CreditsCard } from "@/components/dashboard/CreditsCard";
 import { ReputationCard } from "@/components/dashboard/ReputationCard";
@@ -16,7 +16,7 @@ const PLACEHOLDER_NODE_ID = "demo-node";
 export default function DashboardPage() {
   const [nodeId] = useState<string>(PLACEHOLDER_NODE_ID);
 
-  const { data: statsData, isLoading: statsLoading } = useQuery({
+  const { data: statsData, isLoading: statsLoading } = useQuery<ApiStats>({
     queryKey: QueryKeys.a2a.stats(),
     queryFn: () => apiClient.getStats(),
   });
@@ -44,7 +44,7 @@ export default function DashboardPage() {
         <ActivityFeed nodeId={nodeId} />
       </div>
 
-      {/* Stats summary */}
+      {/* Network Overview */}
       {statsData && (
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-5">
           <h2 className="mb-4 text-lg font-semibold text-[var(--color-card-foreground)]">
@@ -66,25 +66,25 @@ export default function DashboardPage() {
             <div>
               <p className="text-sm text-[var(--color-muted-foreground)]">Active Swarms</p>
               <p className="text-2xl font-bold text-[var(--color-capsule-blue)]">
-                {statsData.active_swarms}
+                {statsData.active_swarms ?? "—"}
               </p>
             </div>
             <div>
               <p className="text-sm text-[var(--color-muted-foreground)]">Total Genes</p>
               <p className="text-2xl font-bold text-[var(--color-gene-green)]">
-                {statsData.total_genes.toLocaleString()}
+                {statsData.total_genes}
               </p>
             </div>
             <div>
               <p className="text-sm text-[var(--color-muted-foreground)]">Total Capsules</p>
               <p className="text-2xl font-bold text-[var(--color-capsule-blue)]">
-                {statsData.total_capsules.toLocaleString()}
+                {statsData.total_capsules}
               </p>
             </div>
             <div>
               <p className="text-sm text-[var(--color-muted-foreground)]">Total Recipes</p>
               <p className="text-2xl font-bold text-[var(--color-recipe-amber)]">
-                {statsData.total_recipes.toLocaleString()}
+                {statsData.total_recipes ?? "—"}
               </p>
             </div>
           </div>

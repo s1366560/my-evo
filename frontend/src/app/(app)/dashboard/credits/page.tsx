@@ -1,17 +1,19 @@
 "use client";
 
-const MOCK_TRANSACTIONS = [
-  { id: "tx-001", date: "2026-04-07", description: "Published Gene 'context-scheduler'", amount: +50, balance: 1247 },
-  { id: "tx-002", date: "2026-04-05", description: "Asset downloaded 12 times", amount: +36, balance: 1197 },
-  { id: "tx-003", date: "2026-04-03", description: "Swarm task reward", amount: +100, balance: 1161 },
-  { id: "tx-004", date: "2026-04-01", description: "Published Capsule 'data-parser'", amount: +100, balance: 1061 },
-  { id: "tx-005", date: "2026-03-28", description: "Asset downloaded 8 times", amount: +24, balance: 961 },
-  { id: "tx-006", date: "2026-03-25", description: "Marketplace sale (Gene)", amount: +150, balance: 937 },
-  { id: "tx-007", date: "2026-03-22", description: "Council voting reward", amount: +25, balance: 787 },
-  { id: "tx-008", date: "2026-03-20", description: "Published Recipe 'fast-rag'", amount: +200, balance: 762 },
-];
+import { useQuery } from "@tanstack/react-query";
+import { apiClient } from "@/lib/api/client";
+
+const DEMO_NODE_ID = "demo-node";
 
 export default function CreditsPage() {
+  const { data: historyData, isLoading } = useQuery({
+    queryKey: ["credits", "history", DEMO_NODE_ID],
+    queryFn: () => apiClient.getCreditsHistory(DEMO_NODE_ID),
+  });
+
+  const transactions = historyData?.items ?? [];
+  const currentBalance = historyData?.meta?.total ?? 0;
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-[var(--color-foreground)]">Credits</h1>
@@ -20,11 +22,15 @@ export default function CreditsPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <p className="text-sm text-[var(--color-muted-foreground)]">Current Balance</p>
-            <p className="text-3xl font-bold text-[var(--color-gene-green)]">1,247</p>
+            <p className="text-3xl font-bold text-[var(--color-gene-green)]">
+              {isLoading ? "—" : currentBalance.toLocaleString()}
+            </p>
           </div>
           <div className="text-right">
-            <p className="text-sm text-[var(--color-muted-foreground)]">This Month</p>
-            <p className="text-lg font-semibold text-[var(--color-gene-green)]">+235</p>
+            <p className="text-sm text-[var(--color-muted-foreground)]">Transactions</p>
+            <p className="text-lg font-semibold text-[var(--color-gene-green)]">
+              {isLoading ? "—" : transactions.length}
+            </p>
           </div>
         </div>
 
@@ -39,16 +45,34 @@ export default function CreditsPage() {
               </tr>
             </thead>
             <tbody>
-              {MOCK_TRANSACTIONS.map((tx) => (
-                <tr key={tx.id} className="border-b border-[var(--color-border)] last:border-0">
-                  <td className="py-3 pr-4 text-[var(--color-muted-foreground)]">{tx.date}</td>
-                  <td className="py-3 pr-4 text-[var(--color-card-foreground)]">{tx.description}</td>
-                  <td className="py-3 pr-4 text-right font-medium text-[var(--color-gene-green)]">
-                    +{tx.amount}
+              {isLoading ? (
+                <tr>
+                  <td colSpan={4} className="py-8 text-center text-sm text-[var(--color-muted-foreground)]">
+                    Loading transactions…
                   </td>
-                  <td className="py-3 text-right text-[var(--color-card-foreground)]">{tx.balance}</td>
                 </tr>
-              ))}
+              ) : transactions.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-8 text-center text-sm text-[var(--color-muted-foreground)]">
+                    No transactions yet.
+                  </td>
+                </tr>
+              ) : (
+                transactions.map((tx) => (
+                  <tr key={tx.id} className="border-b border-[var(--color-border)] last:border-0">
+                    <td className="py-3 pr-4 text-[var(--color-muted-foreground)]">
+                      {new Date(tx.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="py-3 pr-4 text-[var(--color-card-foreground)]">{tx.description ?? tx.type}</td>
+                    <td className="py-3 pr-4 text-right font-medium text-[var(--color-gene-green)]">
+                      {tx.amount > 0 ? `+${tx.amount}` : tx.amount}
+                    </td>
+                    <td className="py-3 text-right text-[var(--color-card-foreground)]">
+                      {tx.balance_after ?? "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
