@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/* ============================================================
+   EvoMap Design System — CSS Variables
+   All colors via CSS variables, no hardcoded hex in components
+   ============================================================ */
+
+@theme {
+  /* EvoMap Brand Colors */
+  --color-gene-green: #10b981;
+  --color-capsule-blue: #3b82f6;
+  --color-recipe-amber: #f59e0b;
+  --color-trust-gold: #f59e0b;
+  --color-trust-silver: #9ca3af;
+
+  /* Semantic Tokens — Light (default) */
+  --color-background: #ffffff;
+  --color-foreground: #0a0a0a;
+  --color-border: #e5e5e5;
+  --color-muted-foreground: #737373;
+  --color-card-background: #ffffff;
+  --color-card-foreground: #0a0a0a;
+  --color-input-background: #ffffff;
+  --color-ring: #10b981;
+  --color-destructive: #ef4444;
+  --color-success: #10b981;
+
+  /* Spacing Scale */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+
+  /* Radius */
+  --radius: 0.5rem;
+}
+
+/* ============================================================
+   Dark Mode — .dark class on <html>
+   ============================================================ */
+.dark {
+  --color-background: #0a0a0a;
+  --color-foreground: #fafafa;
+  --color-border: #262626;
+  --color-muted-foreground: #a3a3a3;
+  --color-card-background: #171717;
+  --color-card-foreground: #fafafa;
+  --color-input-background: #171717;
+  --color-ring: #34d399;
+  --color-destructive: #f87171;
+  --color-success: #34d399;
+}
+
+/* ============================================================
+   Base Styles
+   ============================================================ */
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ============================================================
+   Custom Scrollbar
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-foreground);
+}

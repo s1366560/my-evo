@@ -55,6 +55,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const query = request.query as {
+      q?: string;
       skill?: string;
       available?: string;
       limit?: string;
@@ -62,6 +63,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     };
 
     const result = await service.listWorkers({
+      q: query.q,
       skill: query.skill,
       available: query.available === 'true' ? true : query.available === 'false' ? false : undefined,
       limit: query.limit ? parseInt(query.limit, 10) : 20,

@@ -5,12 +5,12 @@ import { getConfig } from '../shared/config';
 import { EvoMapError } from '../shared/errors';
 
 // Resolve to src/docs/ from dist/docs/
-const DOCS_DIR = join(process.cwd(), 'src', 'docs');
+export const DOCS_DIR = join(process.cwd(), 'src', 'docs');
 
 // Supported language codes
-const SUPPORTED_LANGS = ['en', 'zh', 'ja', 'ko', 'es', 'fr', 'de'];
+export const SUPPORTED_LANGS = ['en', 'zh', 'ja', 'ko', 'es', 'fr', 'de'];
 
-const SLUG_TO_FILE: Record<string, string> = {
+export const SLUG_TO_FILE: Record<string, string> = {
   'skill': 'skill.md',
   'skill-protocol': 'skill-protocol.md',
   'skill-structures': 'skill-structures.md',
@@ -113,6 +113,51 @@ export async function docsRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  // Credits Economy entry point
+  app.get('/economics', {
+    schema: { tags: ['Docs'] },
+  }, async (_request, reply) => {
+    return reply.send({
+      success: true,
+      data: {
+        title: 'EvoMap Credits Economy',
+        description: 'Credits-based economy for AI Agent self-evolution',
+        sections: [
+          {
+            title: 'Credits System',
+            content: 'Nodes start with 500 credits. Credits are consumed through various operations.',
+          },
+          {
+            title: 'Publishing Costs',
+            items: [
+              { asset: 'Gene', cost: 5, description: 'Unit of capability' },
+              { asset: 'Capsule', cost: 10, description: 'Executable package' },
+              { asset: 'Recipe', cost: 20, description: 'Composition blueprint' },
+            ],
+          },
+          {
+            title: 'Decay Rules',
+            content: '5% monthly decay after 90 days of inactivity',
+          },
+          {
+            title: 'GDI Scoring',
+            items: [
+              { dimension: 'Usefulness', weight: '30%' },
+              { dimension: 'Novelty', weight: '25%' },
+              { dimension: 'Rigor', weight: '25%' },
+              { dimension: 'Reuse', weight: '20%' },
+            ],
+          },
+        ],
+        related: [
+          { label: 'Credits API', url: '/a2a/credit/price' },
+          { label: 'Credit Economics', url: '/a2a/credit/economics' },
+          { label: 'Publishing', url: '/a2a/publish' },
+        ],
+      },
+    });
+  });
+
   // /api/docs/wiki-full — full wiki index
   app.get('/api/docs/wiki-full', {
     schema: { tags: ['Docs'] },
@@ -156,4 +201,9 @@ export async function docsRoutes(app: FastifyInstance): Promise<void> {
     const { page } = request.params as { page: string };
     return reply.send({ success: true, data: { page, content: 'Wiki page stub' } });
   });
+}
+
+// Reusable helper for root-level routes in app.ts
+export function readDocFile(filename: string): string {
+  return readFileSync(join(DOCS_DIR, filename), 'utf-8');
 }

@@ -208,14 +208,17 @@ export async function getWorker(nodeId: string) {
   return worker;
 }
 
-export async function listWorkers(input: { skill?: string; available?: boolean; limit?: number; offset?: number }) {
-  const { skill, available, limit = 20, offset = 0 } = input;
+export async function listWorkers(input: { q?: string; skill?: string; available?: boolean; limit?: number; offset?: number }) {
+  const { q, skill, available, limit = 20, offset = 0 } = input;
 
   const where: Record<string, unknown> = {};
   if (available !== undefined) {
     where.is_available = available;
   }
-  if (skill) {
+  if (q && q.trim()) {
+    const lower = q.trim().toLowerCase();
+    where.specialties = { has: lower };
+  } else if (skill) {
     where.specialties = { has: skill };
   }
 
@@ -233,6 +236,19 @@ export async function listWorkers(input: { skill?: string; available?: boolean; 
 }
 
 // ---- Specialist endpoints (Part 4 additions) ----
+
+function workerToSpecialist(w: { node_id: string; specialties: string[]; max_concurrent: number; current_tasks: number; total_completed: number; success_rate: number; is_available: boolean; last_heartbeat: Date }): Record<string, unknown> {
+  return {
+    node_id: w.node_id,
+    specialties: w.specialties,
+    max_concurrent: w.max_concurrent,
+    current_tasks: w.current_tasks,
+    total_completed: w.total_completed,
+    success_rate: w.success_rate,
+    is_available: w.is_available,
+    last_heartbeat: w.last_heartbeat.toISOString(),
+  };
+}
 
 export async function listSpecialists(
   specialty?: string,
@@ -258,19 +274,7 @@ export async function listSpecialists(
     prisma.worker.count({ where }),
   ]);
 
-  return {
-    items: workers.map((w) => ({
-      node_id: w.node_id,
-      specialties: w.specialties,
-      max_concurrent: w.max_concurrent,
-      current_tasks: w.current_tasks,
-      total_completed: w.total_completed,
-      success_rate: w.success_rate,
-      is_available: w.is_available,
-      last_heartbeat: w.last_heartbeat.toISOString(),
-    })),
-    total,
-  };
+  return { items: workers.map(workerToSpecialist), total };
 }
 
 export async function getSpecialist(nodeId: string): Promise<Record<string, unknown>> {
@@ -280,16 +284,7 @@ export async function getSpecialist(nodeId: string): Promise<Record<string, unkn
   if (!worker) {
     throw new NotFoundError('Worker', nodeId);
   }
-  return {
-    node_id: worker.node_id,
-    specialties: worker.specialties,
-    max_concurrent: worker.max_concurrent,
-    current_tasks: worker.current_tasks,
-    total_completed: worker.total_completed,
-    success_rate: worker.success_rate,
-    is_available: worker.is_available,
-    last_heartbeat: worker.last_heartbeat.toISOString(),
-  };
+  return workerToSpecialist(worker);
 }
 
 export async function rateSpecialist(

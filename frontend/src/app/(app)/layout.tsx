@@ -1,0 +1,33 @@
+"use client";
+
+import { NavBar } from "@/components/layout/NavBar";
+import { Footer } from "@/components/layout/Footer";
+import { SideNav } from "@/components/layout/SideNav";
+
+const DASHBOARD_NAV_ITEMS = [
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "My Assets", href: "/dashboard/assets" },
+  { label: "Credits", href: "/dashboard/credits" },
+  { label: "Settings", href: "/profile" },
+];
+
+export default function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <NavBar />
+      <div className="flex flex-1">
+        <SideNav items={DASHBOARD_NAV_ITEMS} />
+        <main className="flex-1">
+          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+            {children}
+          </div>
+        </main>
+      </div>
+      <Footer />
+    </div>
+  );
+}

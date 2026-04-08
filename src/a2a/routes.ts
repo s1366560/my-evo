@@ -246,21 +246,11 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   // GET /a2a/help — Hub info and available commands
   app.get('/help', {
     schema: { tags: ['A2A'] },
-  }, async (_request, reply) => {
-    const info = await a2aService.getHubInfo();
+  }, async (request, reply) => {
+    const { q, method, type } = request.query as { q?: string; method?: string; type?: string };
+    const response = a2aService.getHelpResponse({ q, method, type });
 
-    void reply.send({
-      success: true,
-      data: {
-        hub_node_id: info.hub_node_id,
-        protocol: info.protocol,
-        protocol_version: info.protocol_version,
-        heartbeat_interval_ms: HEARTBEAT_INTERVAL_MS,
-        available_commands: info.available_commands,
-        documentation: `${getConfig().baseUrl}/skill.md`,
-        wiki: `${getConfig().baseUrl}/wiki`,
-      },
-    });
+    void reply.send({ success: true, data: response });
   });
 
   // POST /a2a/directory — register node in Hub directory
@@ -766,9 +756,10 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   app.get('/directory', {
     schema: { tags: ['A2A'] },
   }, async (request, reply) => {
-    const { specialty, available, limit, offset } = request.query as Record<string, string | undefined>;
+    const { q, specialty, available, limit, offset } = request.query as Record<string, string | undefined>;
     const { listWorkers } = await import('../workerpool/service');
     const result = await listWorkers({
+      q: q ?? undefined,
       skill: specialty,
       available: available === 'true' ? true : available === 'false' ? false : undefined,
       limit: limit ? Number(limit) : 20,

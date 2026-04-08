@@ -76,7 +76,7 @@ export async function buildApp() {
   app.decorate('prisma', prisma);
 
   // Global error handler
-  app.setErrorHandler((error: Error & { validation?: unknown }, _request, reply) => {
+  app.setErrorHandler((error: Error & { validation?: unknown; statusCode?: number }, _request, reply) => {
     if (error instanceof EvoMapError) {
       void reply.status(error.statusCode).send({
         success: false,
@@ -90,6 +90,16 @@ export async function buildApp() {
       void reply.status(400).send({
         success: false,
         error: 'VALIDATION_ERROR',
+        message: error.message,
+      });
+      return;
+    }
+
+    // Handle Fastify errors (e.g. FST_ERR_CTP_EMPTY_JSON_BODY) with their own statusCode
+    if (error.statusCode && error.statusCode < 600) {
+      void reply.status(error.statusCode).send({
+        success: false,
+        error: 'REQUEST_ERROR',
         message: error.message,
       });
       return;
@@ -219,7 +229,123 @@ export async function buildApp() {
   const { constitutionRoutes } = await import('./constitution/routes');
   await app.register(constitutionRoutes, { prefix: '/a2a/constitution' });
 
-  const { docsRoutes } = await import('./docs/routes');
+  const { docsRoutes, readDocFile, SLUG_TO_FILE } = await import('./docs/routes');
+  const { getConfig } = await import('./shared/config');
+
+  // Root-level doc routes (registered before /docs prefix so they take precedence)
+  // Flat .md / .txt files at root level
+  for (const [, filename] of Object.entries(SLUG_TO_FILE)) {
+    const route = `/${filename}`;
+    app.get(route, {
+      schema: { tags: ['Docs'] },
+    }, async (_request, reply) => {
+      const content = readDocFile(filename);
+      return reply.type('text/plain').send(content);
+    });
+  }
+
+  // /api/docs/wiki-full — root level
+  app.get('/api/docs/wiki-full', {
+    schema: { tags: ['Docs'] },
+  }, async (_request, reply) => {
+    return reply.send({
+      success: true,
+      data: {
+        pages: [
+          { slug: 'getting-started', title: 'Getting Started', url: '/wiki/getting-started' },
+          { slug: 'publishing', title: 'Publishing Assets', url: '/wiki/publishing' },
+          { slug: 'gdi-scoring', title: 'GDI Scoring', url: '/wiki/gdi-scoring' },
+          { slug: 'credits', title: 'Credits Economy', url: '/wiki/credits' },
+        ],
+      },
+    });
+  });
+
+  // /api/wiki/index — root level
+  app.get('/api/wiki/index', {
+    schema: { tags: ['Docs'] },
+  }, async (_request, reply) => {
+    return reply.send({
+      success: true,
+      data: {
+        title: 'EvoMap Wiki',
+        categories: ['Getting Started', 'Protocol', 'Assets', 'Governance', 'Marketplace'],
+      },
+    });
+  });
+
+  // /ai-nav — root level
+  app.get('/ai-nav', {
+    schema: { tags: ['Docs'] },
+  }, async (_request, reply) => {
+    const base = getConfig().baseUrl;
+    return reply.send({
+      success: true,
+      data: {
+        title: 'EvoMap Hub',
+        description: 'AI Agent self-evolution infrastructure',
+        navigation: [
+          { label: 'Getting Started', url: `${base}/skill.md` },
+          { label: 'Protocol Reference', url: `${base}/skill-protocol.md` },
+          { label: 'Asset Structures', url: `${base}/skill-structures.md` },
+          { label: 'Tasks & Bounties', url: `${base}/skill-tasks.md` },
+          { label: 'Advanced Features', url: `${base}/skill-advanced.md` },
+          { label: 'Platform APIs', url: `${base}/skill-platform.md` },
+          { label: 'Evolver Client', url: `${base}/skill-evolver.md` },
+          { label: 'API Docs', url: `${base}/docs` },
+          { label: 'Wiki', url: `${base}/wiki` },
+        ],
+        api_base: `${base}/a2a`,
+        version: '1.0.0',
+      },
+    });
+  });
+
+  // /economics — root level
+  app.get('/economics', {
+    schema: { tags: ['Docs'] },
+  }, async (_request, reply) => {
+    return reply.send({
+      success: true,
+      data: {
+        title: 'EvoMap Credits Economy',
+        description: 'Credits-based economy for AI Agent self-evolution',
+        sections: [
+          {
+            title: 'Credits System',
+            content: 'Nodes start with 500 credits. Credits are consumed through various operations.',
+          },
+          {
+            title: 'Publishing Costs',
+            items: [
+              { asset: 'Gene', cost: 5, description: 'Unit of capability' },
+              { asset: 'Capsule', cost: 10, description: 'Executable package' },
+              { asset: 'Recipe', cost: 20, description: 'Composition blueprint' },
+            ],
+          },
+          {
+            title: 'Decay Rules',
+            content: '5% monthly decay after 90 days of inactivity',
+          },
+          {
+            title: 'GDI Scoring',
+            items: [
+              { dimension: 'Usefulness', weight: '30%' },
+              { dimension: 'Novelty', weight: '25%' },
+              { dimension: 'Rigor', weight: '25%' },
+              { dimension: 'Reuse', weight: '20%' },
+            ],
+          },
+        ],
+        related: [
+          { label: 'Credits API', url: '/a2a/credit/price' },
+          { label: 'Credit Economics', url: '/a2a/credit/economics' },
+          { label: 'Publishing', url: '/a2a/publish' },
+        ],
+      },
+    });
+  });
+
   await app.register(docsRoutes, { prefix: '/docs' });
 
   const { agentConfigRoutes } = await import('./agent_config/routes');

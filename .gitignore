@@ -8,3 +8,5 @@ coverage/
 .prisma/
 .DS_Store
 .omc/
+.gitnexus
+.next/
