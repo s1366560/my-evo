@@ -1,39 +1,36 @@
 @import "tailwindcss";
 
-/* ============================================================
-   EvoMap Design System — CSS Variables
-   All colors via CSS variables, no hardcoded hex in components
-   ============================================================ */
-
 @theme {
-  /* EvoMap Brand Colors */
-  --color-gene-green: #10b981;
-  --color-capsule-blue: #3b82f6;
-  --color-recipe-amber: #f59e0b;
-  --color-organism-purple: #a855f7;
-  --color-trust-gold: #f59e0b;
-  --color-trust-silver: #9ca3af;
+  --color-gene-green: oklch(0.66 0.16 156);
+  --color-capsule-blue: oklch(0.62 0.15 238);
+  --color-recipe-amber: oklch(0.76 0.15 82);
+  --color-organism-purple: oklch(0.63 0.19 312);
+  --color-trust-gold: oklch(0.79 0.13 86);
+  --color-trust-silver: oklch(0.69 0.02 220);
 
-  /* Tier Colors */
-  --color-tier-bronze: #f97316;
-  --color-tier-silver: #9ca3af;
-  --color-tier-gold: #eab308;
-  --color-tier-platinum: #14b8a6;
-  --color-tier-diamond: #a855f7;
+  --color-tier-bronze: oklch(0.7 0.15 53);
+  --color-tier-silver: oklch(0.73 0.02 220);
+  --color-tier-gold: oklch(0.82 0.14 90);
+  --color-tier-platinum: oklch(0.74 0.11 203);
+  --color-tier-diamond: oklch(0.66 0.17 305);
 
-  /* Semantic Tokens — Light (default) */
-  --color-background: #ffffff;
-  --color-foreground: #0a0a0a;
-  --color-border: #e5e5e5;
-  --color-muted-foreground: #737373;
-  --color-card-background: #ffffff;
-  --color-card-foreground: #0a0a0a;
-  --color-input-background: #ffffff;
-  --color-ring: #10b981;
-  --color-destructive: #ef4444;
-  --color-success: #10b981;
+  --color-background: oklch(0.982 0.006 180);
+  --color-background-elevated: oklch(0.994 0.003 180);
+  --color-foreground: oklch(0.24 0.018 204);
+  --color-foreground-soft: oklch(0.46 0.017 208);
+  --color-border: oklch(0.9 0.012 196);
+  --color-border-strong: oklch(0.8 0.02 196);
+  --color-card-background: oklch(0.992 0.004 180 / 0.92);
+  --color-card-foreground: var(--color-foreground);
+  --color-input-background: oklch(0.99 0.003 180 / 0.9);
+  --color-ring: var(--color-gene-green);
+  --color-destructive: oklch(0.63 0.22 24);
+  --color-success: var(--color-gene-green);
+  --color-grid: oklch(0.86 0.016 190 / 0.45);
+  --color-surface-muted: oklch(0.965 0.01 182 / 0.82);
+  --color-surface-strong: oklch(0.952 0.018 186 / 0.95);
+  --color-shadow: oklch(0.28 0.025 208 / 0.12);
 
-  /* Spacing Scale */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 16px;
@@ -41,57 +38,183 @@
   --spacing-xl: 32px;
   --spacing-2xl: 48px;
 
-  /* Radius */
-  --radius: 0.5rem;
+  --radius: 1rem;
 }
 
-/* ============================================================
-   Dark Mode — .dark class on <html>
-   ============================================================ */
 .dark {
-  --color-background: #0a0a0a;
-  --color-foreground: #fafafa;
-  --color-border: #262626;
-  --color-muted-foreground: #a3a3a3;
-  --color-card-background: #171717;
-  --color-card-foreground: #fafafa;
-  --color-input-background: #171717;
-  --color-ring: #34d399;
-  --color-destructive: #f87171;
-  --color-success: #34d399;
+  --color-background: oklch(0.19 0.018 224);
+  --color-background-elevated: oklch(0.22 0.02 224);
+  --color-foreground: oklch(0.95 0.01 180);
+  --color-foreground-soft: oklch(0.77 0.015 198);
+  --color-border: oklch(0.33 0.018 220);
+  --color-border-strong: oklch(0.46 0.03 210);
+  --color-card-background: oklch(0.23 0.02 224 / 0.92);
+  --color-card-foreground: var(--color-foreground);
+  --color-input-background: oklch(0.24 0.018 224 / 0.92);
+  --color-ring: oklch(0.72 0.15 162);
+  --color-destructive: oklch(0.68 0.2 23);
+  --color-success: oklch(0.72 0.15 162);
+  --color-grid: oklch(0.43 0.03 208 / 0.24);
+  --color-surface-muted: oklch(0.27 0.015 220 / 0.82);
+  --color-surface-strong: oklch(0.31 0.02 215 / 0.95);
+  --color-shadow: oklch(0.02 0.01 250 / 0.45);
 }
 
-/* ============================================================
-   Base Styles
-   ============================================================ */
+html {
+  color-scheme: light;
+  scroll-behavior: smooth;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
 * {
   border-color: var(--color-border);
+  min-width: 0;
 }
 
 body {
-  background-color: var(--color-background);
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, color-mix(in oklab, var(--color-gene-green) 10%, transparent) 0, transparent 32%),
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-capsule-blue) 11%, transparent) 0, transparent 28%),
+    linear-gradient(180deg, color-mix(in oklab, var(--color-background-elevated) 92%, white) 0%, var(--color-background) 60%, color-mix(in oklab, var(--color-background) 88%, var(--color-gene-green) 4%) 100%);
   color: var(--color-foreground);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans), "IBM Plex Sans", "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
 }
 
-/* ============================================================
-   Custom Scrollbar
-   ============================================================ */
+body::before {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.55;
+  background-image:
+    linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.26), transparent 82%);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-gene-green) 26%, white);
+  color: var(--color-foreground);
+}
+
+button,
+a {
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    opacity 180ms ease;
+}
+
+img,
+svg {
+  flex-shrink: 0;
+}
+
+.evomap-shell {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, var(--color-gene-green) 18%);
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--color-card-background) 92%, white) 0%, var(--color-card-background) 100%);
+  box-shadow:
+    0 1px 0 color-mix(in oklab, var(--color-background-elevated) 72%, transparent),
+    0 18px 50px -28px var(--color-shadow);
+  border-radius: calc(var(--radius) * 1.4);
+}
+
+.evomap-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, color-mix(in oklab, var(--color-background-elevated) 70%, transparent) 0%, transparent 35%, color-mix(in oklab, var(--color-gene-green) 6%, transparent) 100%);
+  opacity: 0.55;
+}
+
+.evomap-shell-muted {
+  background: linear-gradient(180deg, var(--color-surface-muted) 0%, var(--color-card-background) 100%);
+}
+
+.evomap-shell-strong {
+  background:
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-capsule-blue) 14%, transparent), transparent 30%),
+    linear-gradient(180deg, color-mix(in oklab, var(--color-surface-strong) 92%, white) 0%, var(--color-card-background) 100%);
+}
+
+.evomap-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--color-border) 65%, var(--color-gene-green) 35%);
+  background: color-mix(in oklab, var(--color-background-elevated) 80%, var(--color-gene-green) 4%);
+  padding: 0.45rem 0.8rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-foreground-soft);
+}
+
+.evomap-kicker::before {
+  content: "";
+  height: 0.48rem;
+  width: 0.48rem;
+  border-radius: 999px;
+  background: var(--color-gene-green);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-gene-green) 16%, transparent);
+}
+
+.evomap-display {
+  font-family: var(--font-display), "Space Grotesk", sans-serif;
+  letter-spacing: -0.04em;
+}
+
+.evomap-hairline {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--color-border-strong) 78%, var(--color-gene-green) 22%), transparent);
+}
+
+.evomap-dot {
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-background);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: color-mix(in oklab, var(--color-border-strong) 74%, transparent);
   border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-muted-foreground);
+  background: color-mix(in oklab, var(--color-foreground-soft) 60%, transparent);
+  background-clip: padding-box;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }

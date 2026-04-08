@@ -3,30 +3,30 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]",
+  "inline-flex items-center rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.12em] transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)] focus:ring-offset-2 focus:ring-offset-[var(--color-background)]",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-[var(--color-gene-green)] text-white",
+          "border-transparent bg-[var(--color-gene-green)] text-[var(--color-background-elevated)]",
         secondary:
-          "border-transparent bg-[var(--color-border)] text-[var(--color-foreground)]",
+          "border-transparent bg-[var(--color-surface-muted)] text-[var(--color-foreground)]",
         destructive:
           "border-transparent bg-[var(--color-destructive)] text-white",
         outline:
-          "border-[var(--color-border)] text-[var(--color-foreground)]",
+          "border-[var(--color-border-strong)] bg-transparent text-[var(--color-foreground-soft)]",
         gene:
-          "border-transparent bg-[var(--color-gene-green)]/10 text-[var(--color-gene-green)]",
+          "border-transparent bg-[color-mix(in_oklab,var(--color-gene-green)_14%,transparent)] text-[var(--color-gene-green)]",
         capsule:
-          "border-transparent bg-[var(--color-capsule-blue)]/10 text-[var(--color-capsule-blue)]",
+          "border-transparent bg-[color-mix(in_oklab,var(--color-capsule-blue)_16%,transparent)] text-[var(--color-capsule-blue)]",
         recipe:
-          "border-transparent bg-[var(--color-recipe-amber)]/10 text-[var(--color-recipe-amber)]",
+          "border-transparent bg-[color-mix(in_oklab,var(--color-recipe-amber)_20%,transparent)] text-[color-mix(in_oklab,var(--color-recipe-amber)_70%,black)] dark:text-[var(--color-recipe-amber)]",
       },
     },
     defaultVariants: {
       variant: "default",
     },
-  }
+  },
 );
 
 export interface BadgeProps
@@ -34,9 +34,7 @@ export interface BadgeProps
     VariantProps<typeof badgeVariants> {}
 
 function Badge({ className, variant, ...props }: BadgeProps) {
-  return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
-  );
+  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
 export { Badge, badgeVariants };

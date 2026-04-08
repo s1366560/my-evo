@@ -90,23 +90,96 @@ const mockAssets: MockAsset[] = [
   },
 ];
 
-const mockTrending = {
+const mockCredits = {
   success: true,
   data: {
-    signals: [
-      { signal_id: 's1', name: 'context', count: 4821, trend: 'up' },
-      { signal_id: 's2', name: 'retrieval', count: 3204, trend: 'up' },
-      { signal_id: 's3', name: 'code', count: 2890, trend: 'stable' },
-      { signal_id: 's4', name: 'security', count: 2103, trend: 'up' },
-      { signal_id: 's5', name: 'planning', count: 1876, trend: 'down' },
-      { signal_id: 's6', name: 'memory', count: 1654, trend: 'stable' },
-      { signal_id: 's7', name: 'reasoning', count: 1432, trend: 'up' },
-      { signal_id: 's8', name: 'synthesis', count: 1201, trend: 'stable' },
-      { signal_id: 's9', name: 'evaluation', count: 987, trend: 'down' },
-      { signal_id: 's10', name: 'tool-use', count: 876, trend: 'up' },
-    ],
-    updated_at: '2026-04-08T00:00:00Z',
+    node_id: 'demo-node',
+    balance: 12480,
+    updated_at: '2026-04-08T08:00:00Z',
   },
+};
+
+const mockReputation = {
+  success: true,
+  data: {
+    node_id: 'demo-node',
+    score: 86,
+    tier: 'Master',
+    trust: 'verified',
+  },
+};
+
+const mockCreditsHistory = {
+  success: true,
+  data: {
+    items: [
+      {
+        id: 'txn-1',
+        type: 'earn',
+        amount: 320,
+        balance_after: 12480,
+        created_at: '2026-04-08T07:20:00Z',
+        description: 'Downloaded by 12 nodes',
+      },
+      {
+        id: 'txn-2',
+        type: 'spend',
+        amount: 40,
+        balance_after: 12160,
+        created_at: '2026-04-07T16:15:00Z',
+        description: 'Published Recipe fast-rag-pipeline',
+      },
+    ],
+    meta: {
+      total: 2,
+      page: 1,
+      limit: 20,
+    },
+  },
+};
+
+const mockReputationHistory = {
+  success: true,
+  data: {
+    items: [
+      {
+        id: 'rep-1',
+        event_type: 'quality-score',
+        delta: 6,
+        score_after: 86,
+        created_at: '2026-04-08T06:10:00Z',
+        description: 'Recipe fast-rag-pipeline reached GDI 85',
+      },
+      {
+        id: 'rep-2',
+        event_type: 'review',
+        delta: 3,
+        score_after: 80,
+        created_at: '2026-04-06T09:30:00Z',
+        description: 'Peer review marked capsule as trustworthy',
+      },
+    ],
+    meta: {
+      total: 2,
+      page: 1,
+      limit: 20,
+    },
+  },
+};
+
+function getScore(asset: MockAsset) {
+  return typeof asset.gdi_score === 'number'
+    ? asset.gdi_score
+    : asset.gdi_score.overall;
+}
+
+function getRankedAssets() {
+  return [...mockAssets].sort((a, b) => getScore(b) - getScore(a));
+}
+
+const mockTrending = {
+  success: true,
+  data: getRankedAssets().slice(0, 4),
 };
 
 const mockSkillCategories = {
@@ -184,8 +257,8 @@ export const handlers = [
     const start = (page - 1) * limit;
     return HttpResponse.json({
       success: true,
-      data: {
-        assets: assets.slice(start, start + limit),
+      data: assets.slice(start, start + limit),
+      meta: {
         total: assets.length,
         page,
         limit,
@@ -195,15 +268,11 @@ export const handlers = [
 
   // A2A assets/ranked
   http.get('http://localhost:3001/a2a/assets/ranked', () => {
-    const ranked = [...mockAssets].sort(
-      (a, b) =>
-        (typeof a.gdi_score === 'number' ? a.gdi_score : (a.gdi_score as { overall: number }).overall) -
-        (typeof b.gdi_score === 'number' ? b.gdi_score : (b.gdi_score as { overall: number }).overall),
-    ).reverse();
+    const ranked = getRankedAssets();
     return HttpResponse.json({
       success: true,
-      data: {
-        assets: ranked,
+      data: ranked,
+      meta: {
         total: ranked.length,
         page: 1,
         limit: 20,
@@ -268,13 +337,45 @@ export const handlers = [
     const start = (page - 1) * limit;
     return HttpResponse.json({
       success: true,
-      data: {
-        assets: filtered.slice(start, start + limit),
+      data: filtered.slice(start, start + limit),
+      meta: {
         total: filtered.length,
         page,
         limit,
       },
     });
+  }),
+
+  // A2A credits
+  http.get('http://localhost:3001/a2a/credits/:nodeId', ({ params }) => {
+    return HttpResponse.json({
+      ...mockCredits,
+      data: {
+        ...mockCredits.data,
+        node_id: String(params.nodeId ?? mockCredits.data.node_id),
+      },
+    });
+  }),
+
+  // A2A reputation
+  http.get('http://localhost:3001/a2a/reputation/:nodeId', ({ params }) => {
+    return HttpResponse.json({
+      ...mockReputation,
+      data: {
+        ...mockReputation.data,
+        node_id: String(params.nodeId ?? mockReputation.data.node_id),
+      },
+    });
+  }),
+
+  // Credits history
+  http.get('http://localhost:3001/credits/:nodeId/history', () => {
+    return HttpResponse.json(mockCreditsHistory);
+  }),
+
+  // Reputation history
+  http.get('http://localhost:3001/reputation/:nodeId/history', () => {
+    return HttpResponse.json(mockReputationHistory);
   }),
 
   // A2A skill

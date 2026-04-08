@@ -18,26 +18,38 @@ export function SideNav({ items }: SideNavProps) {
   const pathname = usePathname();
 
   return (
-    <nav className="hidden lg:flex w-56 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] py-6">
-      <nav className="flex flex-col gap-1 px-3">
-        {items.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-[var(--color-gene-green)]/10 text-[var(--color-gene-green)]"
-                  : "text-[var(--color-muted-foreground)] hover:bg-[var(--color-border)] hover:text-[var(--color-foreground)]",
-              )}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-    </nav>
+    <aside className="hidden border-r border-[var(--color-border)] bg-[color-mix(in_oklab,var(--color-background-elevated)_90%,transparent)] xl:block xl:w-72">
+      <div className="sticky top-16 space-y-6 px-5 py-8">
+        <div className="space-y-3">
+          <p className="evomap-kicker">Console</p>
+          <div>
+            <p className="evomap-display text-lg font-semibold text-[var(--color-foreground)]">Operator view</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--color-foreground-soft)]">
+              Track credits, reputation, and asset performance without losing the protocol context.
+            </p>
+          </div>
+        </div>
+
+        <nav className="space-y-1">
+          {items.map((item) => {
+            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "block rounded-2xl px-4 py-3 text-sm font-medium",
+                  isActive
+                    ? "bg-[color-mix(in_oklab,var(--color-gene-green)_12%,transparent)] text-[var(--color-gene-green)]"
+                    : "text-[var(--color-foreground-soft)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-foreground)]",
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+    </aside>
   );
 }

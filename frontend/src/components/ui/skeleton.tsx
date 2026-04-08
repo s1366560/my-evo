@@ -7,8 +7,8 @@ function Skeleton({
   return (
     <div
       className={cn(
-        "animate-pulse rounded-md bg-[var(--color-border)]",
-        className
+        "relative overflow-hidden rounded-2xl bg-[color-mix(in_oklab,var(--color-border)_84%,transparent)] before:absolute before:inset-0 before:-translate-x-full before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.35),transparent)] before:animate-[shimmer_1.8s_infinite] dark:before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent)]",
+        className,
       )}
       {...props}
     />

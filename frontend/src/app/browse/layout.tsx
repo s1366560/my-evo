@@ -1,5 +1,6 @@
-import { NavBar } from "@/components/layout/NavBar";
 import { Footer } from "@/components/layout/Footer";
+import { NavBar } from "@/components/layout/NavBar";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 export default function BrowseLayout({
   children,
@@ -9,11 +10,9 @@ export default function BrowseLayout({
   return (
     <div className="flex min-h-screen flex-col">
       <NavBar />
-      <main className="flex-1">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          {children}
-        </div>
-      </main>
+      <div className="flex-1">
+        <PageContainer className="py-8 sm:py-10">{children}</PageContainer>
+      </div>
       <Footer />
     </div>
   );
