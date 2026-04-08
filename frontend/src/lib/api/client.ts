@@ -69,17 +69,17 @@ class ApiClient {
   }
 
   getAssets(filters?: Parameters<typeof Endpoints.a2a.assetsWithFilters>[0]) {
-    return this.get<AssetListResponse>(
+    return this.get<Asset[]>(
       Endpoints.a2a.assetsWithFilters(filters),
     );
   }
 
   getAssetsRanked() {
-    return this.get<AssetListResponse>(Endpoints.a2a.assetsRanked);
+    return this.get<Asset[]>(Endpoints.a2a.assetsRanked);
   }
 
   getTrending() {
-    return this.get<TrendingResponse>(Endpoints.a2a.trending);
+    return this.get<Asset[]>(Endpoints.a2a.trending);
   }
 
   getAssetById(assetId: string) {
@@ -91,7 +91,7 @@ class ApiClient {
   }
 
   searchAssets(q: string, page?: number) {
-    return this.get<AssetListResponse>(Endpoints.assets.search(q, page));
+    return this.get<Asset[]>(Endpoints.assets.search(q, page));
   }
 
   hello(body: HelloRequest) {
@@ -170,8 +170,8 @@ export interface ApiStats {
   alive_nodes: number;
   total_genes: number;
   total_capsules: number;
-  total_recipes: number;
-  active_swarms: number;
+  total_recipes?: number;
+  active_swarms?: number;
 }
 
 export type AssetType = 'Gene' | 'Capsule' | 'Recipe' | 'Organism';
@@ -189,20 +189,6 @@ export interface Asset {
   created_at: string;
   updated_at?: string;
   status?: string;
-}
-
-export interface AssetListResponse {
-  assets: Asset[];
-  meta: {
-    total: number;
-    page?: number;
-    limit?: number;
-  };
-}
-
-export interface TrendingResponse {
-  assets: Asset[];
-  meta: { period: string };
 }
 
 export interface LineageNode {
@@ -350,9 +336,19 @@ export interface PhylogenyTree {
   root_id?: string;
 }
 
+export interface FitnessCell {
+  row: number;
+  col: number;
+  label: string;
+  count: number;
+  avg_gdi: number;
+}
+
 export interface FitnessLandscape {
-  data: Array<{ novelty: number; usefulness: number; rigor: number; gdi: number }>;
-  clusters?: number;
+  grid_size: number;
+  grid: FitnessCell[][];
+  x_axis_label: string;
+  y_axis_label: string;
 }
 
 export interface Worker {

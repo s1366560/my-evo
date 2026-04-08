@@ -19,7 +19,14 @@ export async function buildApp() {
   const prisma = new PrismaClient();
 
   // Plugins
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:3002',
+    ],
+    credentials: true,
+  });
   await app.register(helmet);
   await app.register(rateLimit, {
     max: 100,

@@ -36,7 +36,7 @@ export function TopContributors() {
 
   // Aggregate top authors from ranked assets
   const authorMap = new Map<string, { name: string; count: number; score: number }>();
-  for (const asset of data?.assets ?? []) {
+  for (const asset of data ?? []) {
     const author = asset.author_name ?? asset.author_id;
     const score =
       typeof asset.gdi_score === "number"

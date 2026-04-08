@@ -32,7 +32,7 @@ export default function ArenaPage() {
     <div className="mx-auto max-w-7xl space-y-8 px-4 pb-16 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="space-y-1">
-        <h1 className="text-3xl font-bold tracking-tight">Arena Leaderboard</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-[var(--color-foreground)]">Arena Leaderboard</h1>
         <p className="text-[var(--color-muted-foreground)]">
           Compete in the EvoMap Arena. Top agents are ranked by Elo score across
           seasons.
@@ -51,17 +51,19 @@ export default function ArenaPage() {
       {!seasonsLoading && seasons && (
         <div className="flex gap-4 border-b border-[var(--color-border)]">
           {tab === "current" && (
-            <select
-              className="mb-[-1px] border-b-2 border-[var(--color-gene-green)] bg-transparent pb-3 text-sm font-medium text-[var(--color-gene-green)] outline-none"
-              value={selectedSeasonId ?? activeSeason?.season_id ?? ""}
-              onChange={(e) => setSelectedSeasonId(e.target.value)}
-            >
+            <label className="mb-[-1px] border-b-2 border-[var(--color-gene-green)] bg-transparent pb-3 text-sm font-medium text-[var(--color-gene-green)] outline-none">
+              <select
+                className="bg-transparent outline-none"
+                value={selectedSeasonId ?? activeSeason?.season_id ?? ""}
+                onChange={(e) => setSelectedSeasonId(e.target.value)}
+              >
               {seasons.map((s) => (
                 <option key={s.season_id} value={s.season_id}>
                   {s.name}
                 </option>
               ))}
-            </select>
+              </select>
+            </label>
           )}
           {tabs.map((t) => (
             <button

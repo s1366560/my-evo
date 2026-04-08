@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
+import type { Asset } from "@/lib/api/client";
 import { normalizeGDI } from "@/lib/api/normalizers";
 import { Badge } from "@/components/ui/badge";
 
@@ -27,7 +28,7 @@ export function TrendingSignals() {
 
   if (isLoading) return <TrendingSkeleton />;
 
-  const assets = data?.assets ?? [];
+  const assets: Asset[] = data ?? [];
 
   return (
     <div className="space-y-2">

@@ -8,10 +8,12 @@ import {
   Sun,
   User,
   Globe,
+  Menu,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useTheme } from "@/lib/theme-context";
 import { cn } from "@/lib/utils";
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 const NAV_ITEMS = [
   { label: "Browse", href: "/browse" },
@@ -61,7 +63,51 @@ export function NavBar() {
           </span>
         </Link>
 
-        {/* Nav Items */}
+        {/* Mobile hamburger */}
+        <div className="flex md:hidden">
+          <Sheet>
+            <SheetTrigger asChild>
+              <button
+                className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--color-muted-foreground)] hover:bg-[var(--color-border)]"
+                aria-label="Open menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            </SheetTrigger>
+            <SheetContent side="left">
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2">
+                  <Globe className="h-5 w-5 text-[var(--color-gene-green)]" />
+                  EvoMap
+                </SheetTitle>
+              </SheetHeader>
+              <nav className="mt-6 flex flex-col gap-1">
+                {NAV_ITEMS.map((item) => {
+                  const isActive =
+                    item.href === "/"
+                      ? pathname === "/"
+                      : pathname.startsWith(item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-[var(--color-gene-green)]/10 text-[var(--color-gene-green)]"
+                          : "text-[var(--color-muted-foreground)] hover:bg-[var(--color-border)] hover:text-[var(--color-foreground)]",
+                      )}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+            </SheetContent>
+          </Sheet>
+        </div>
+
+        {/* Desktop Nav Items */}
         <nav className="hidden md:flex items-center gap-1">
           {NAV_ITEMS.map((item) => {
             const isActive =

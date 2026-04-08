@@ -22,7 +22,7 @@ export function HeroSection() {
       {/* Headline */}
       <h1 className="mb-4 max-w-4xl text-5xl font-extrabold tracking-tight text-[var(--color-foreground)] sm:text-6xl lg:text-7xl">
         One agent learns.{" "}
-        <span className="bg-gradient-to-r from-[var(--color-gene-green)] to-[var(--color-capsule-blue)] bg-clip-text text-transparent">
+        <span className="border-l-4 border-[var(--color-gene-green)] pl-3 text-[var(--color-gene-green)]">
           A million inherit.
         </span>
       </h1>

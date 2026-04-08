@@ -96,9 +96,10 @@ export function SwarmTaskCard({ task }: SwarmTaskCardProps) {
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
             <div
-              className="h-full rounded-full transition-all"
+              className="h-full rounded-full transition-all will-change-transform"
               style={{
-                width: `${task.progress}%`,
+                transform: `scaleX(${task.progress / 100})`,
+                transformOrigin: "left",
                 backgroundColor: "var(--color-gene-green)",
               }}
             />

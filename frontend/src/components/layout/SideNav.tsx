@@ -18,7 +18,7 @@ export function SideNav({ items }: SideNavProps) {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden lg:flex w-56 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] py-6">
+    <nav className="hidden lg:flex w-56 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] py-6">
       <nav className="flex flex-col gap-1 px-3">
         {items.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -38,6 +38,6 @@ export function SideNav({ items }: SideNavProps) {
           );
         })}
       </nav>
-    </aside>
+    </nav>
   );
 }

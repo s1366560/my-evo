@@ -25,28 +25,7 @@ interface RankEntry {
   losses: number;
 }
 
-const MOCK_RANKINGS: RankEntry[] = [
-  { rank: 1, name: "EvoAgent-Omega", elo: 2847, tier: "Diamond", wins: 142, losses: 23 },
-  { rank: 2, name: "DeepSynth-7B", elo: 2781, tier: "Diamond", wins: 138, losses: 31 },
-  { rank: 3, name: "NeuralHunter-X", elo: 2712, tier: "Diamond", wins: 129, losses: 38 },
-  { rank: 4, name: "CortexElite", elo: 2654, tier: "Platinum", wins: 118, losses: 42 },
-  { rank: 5, name: "MetaLearner-v3", elo: 2601, tier: "Platinum", wins: 112, losses: 45 },
-  { rank: 6, name: "AgnosticAI", elo: 2543, tier: "Platinum", wins: 105, losses: 51 },
-  { rank: 7, name: "QuantumThinker", elo: 2498, tier: "Gold", wins: 99, losses: 57 },
-  { rank: 8, name: "SynapseCore", elo: 2431, tier: "Gold", wins: 94, losses: 62 },
-  { rank: 9, name: "LogicFlow-v9", elo: 2376, tier: "Gold", wins: 88, losses: 66 },
-  { rank: 10, name: "PrimevalMind", elo: 2312, tier: "Gold", wins: 83, losses: 71 },
-  { rank: 11, name: "AdaBot-v2", elo: 2254, tier: "Silver", wins: 77, losses: 73 },
-  { rank: 12, name: "FluxRunner", elo: 2198, tier: "Silver", wins: 72, losses: 78 },
-  { rank: 13, name: "HelixAgent", elo: 2141, tier: "Silver", wins: 67, losses: 82 },
-  { rank: 14, name: "NovaCognitio", elo: 2087, tier: "Silver", wins: 62, losses: 87 },
-  { rank: 15, name: "PulsarNode", elo: 2034, tier: "Bronze", wins: 57, losses: 92 },
-  { rank: 16, name: "ZenithCore", elo: 1981, tier: "Bronze", wins: 52, losses: 97 },
-  { rank: 17, name: "AxiomSolver", elo: 1923, tier: "Bronze", wins: 47, losses: 102 },
-  { rank: 18, name: "GridMind-5", elo: 1867, tier: "Bronze", wins: 42, losses: 107 },
-  { rank: 19, name: "TangentAI", elo: 1812, tier: "Bronze", wins: 37, losses: 112 },
-  { rank: 20, name: "FractalGen", elo: 1754, tier: "Bronze", wins: 32, losses: 117 },
-];
+
 
 function eloToTier(elo: number): Tier {
   if (elo >= 2700) return "Diamond";
@@ -68,17 +47,17 @@ function pastSeasonsToMockRows(seasons: Season[]): RankEntry[] {
 }
 
 const tierStyles: Record<Tier, string> = {
-  Bronze: "bg-orange-500/10 text-orange-500",
-  Silver: "bg-gray-400/10 text-gray-400",
-  Gold: "bg-yellow-500/10 text-yellow-600",
-  Platinum: "bg-teal-500/10 text-teal-500",
-  Diamond: "bg-purple-500/10 text-purple-500",
+  Bronze:   "bg-[var(--color-tier-bronze)]/10   text-[var(--color-tier-bronze)]",
+  Silver:   "bg-[var(--color-tier-silver)]/10   text-[var(--color-tier-silver)]",
+  Gold:     "bg-[var(--color-tier-gold)]/10     text-[var(--color-tier-gold)]",
+  Platinum: "bg-[var(--color-tier-platinum)]/10 text-[var(--color-tier-platinum)]",
+  Diamond:  "bg-[var(--color-tier-diamond)]/10  text-[var(--color-tier-diamond)]",
 };
 
 const topThreeStyles: Record<number, string> = {
-  1: "bg-yellow-500/5 border-yellow-500/20",
-  2: "bg-gray-300/5 border-gray-400/20",
-  3: "bg-orange-700/5 border-orange-500/20",
+  1: "bg-[var(--color-tier-gold)]/5     border-[var(--color-tier-gold)]/20",
+  2: "bg-[var(--color-tier-silver)]/5  border-[var(--color-tier-silver)]/20",
+  3: "bg-[var(--color-tier-bronze)]/5  border-[var(--color-tier-bronze)]/20",
 };
 
 interface RankingTableProps {
@@ -94,10 +73,7 @@ export function RankingTable({ seasonId, pastSeasons, allTime }: RankingTablePro
     enabled: seasonId != null || allTime === true,
   });
 
-  const rows: RankEntry[] = (() => {
-    if (allTime && !seasonId) {
-      return MOCK_RANKINGS.slice(0, 10);
-    }
+  const rows: RankEntry[] | undefined = (() => {
     if (pastSeasons && pastSeasons.length > 0 && !seasonId) {
       return pastSeasonsToMockRows(pastSeasons);
     }
@@ -111,7 +87,7 @@ export function RankingTable({ seasonId, pastSeasons, allTime }: RankingTablePro
         losses: r.losses ?? 0,
       }));
     }
-    return MOCK_RANKINGS;
+    return undefined;
   })();
 
   if (error) {
@@ -147,6 +123,14 @@ export function RankingTable({ seasonId, pastSeasons, allTime }: RankingTablePro
                   <TableCell><Skeleton className="ml-auto h-4 w-16" /></TableCell>
                 </TableRow>
               ))
+            : !rows || rows.length === 0
+            ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-24 text-center text-sm text-[var(--color-muted-foreground)]">
+                    No rankings available.
+                  </TableCell>
+                </TableRow>
+              )
             : rows.map((entry) => (
                 <TableRow
                   key={entry.rank}

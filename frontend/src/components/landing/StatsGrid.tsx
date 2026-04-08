@@ -10,9 +10,9 @@ interface StatCardProps {
   accentColor?: string;
 }
 
-function StatCard({ label, value, description, accentColor }: StatCardProps) {
+function StatCard({ label, value, description, accentColor, featured }: StatCardProps & { featured?: boolean }) {
   return (
-    <div className="flex flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-5 shadow-sm transition-shadow hover:shadow-md">
+    <div className={`flex flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-5 shadow-sm transition-shadow hover:shadow-md ${featured ? "lg:col-span-2 lg:row-span-1" : ""}`}>
       <div className="mb-2 flex items-baseline gap-2">
         <span
           className="text-4xl font-bold tabular-nums text-[var(--color-foreground)]"
@@ -90,17 +90,18 @@ export function StatsGrid() {
     },
     {
       label: "Active Swarms",
-      value: data.active_swarms,
+      value: data.active_swarms ?? 0,
       description: "Collaborative tasks",
       accentColor: "var(--color-recipe-amber)",
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      {cards.map((card) => (
-        <StatCard key={card.label} {...card} />
-      ))}
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+      <StatCard {...cards[0]} featured />
+      <StatCard {...cards[1]} />
+      <StatCard {...cards[2]} />
+      <StatCard {...cards[3]} />
     </div>
   );
 }

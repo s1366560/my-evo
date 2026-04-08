@@ -1,12 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { Asset, AssetListResponse } from "@/lib/api/client";
+import type { Asset } from "@/lib/api/client";
 import { AssetCard, AssetCardSkeleton } from "./AssetCard";
 
 interface AssetListProps {
   queryKey: readonly [string, ...unknown[]];
-  queryFn: () => Promise<AssetListResponse>;
+  queryFn: () => Promise<Asset[]>;
   /** Override sorting — when provided, client-side sort is applied */
   sortFn?: (assets: Asset[]) => Asset[];
 }
@@ -20,7 +20,7 @@ function EmptyState({ message }: { message: string }) {
 }
 
 export function AssetList({ queryKey, queryFn, sortFn }: AssetListProps) {
-  const { data, isLoading, isError } = useQuery<AssetListResponse>({
+  const { data, isLoading, isError } = useQuery<Asset[]>({
     queryKey,
     queryFn,
   });
@@ -39,7 +39,7 @@ export function AssetList({ queryKey, queryFn, sortFn }: AssetListProps) {
     return <EmptyState message="Failed to load assets. Please try again." />;
   }
 
-  let assets = data.assets;
+  let assets: Asset[] = data ?? [];
 
   if (sortFn) {
     assets = sortFn(assets);
@@ -56,13 +56,6 @@ export function AssetList({ queryKey, queryFn, sortFn }: AssetListProps) {
           <AssetCard key={asset.asset_id} asset={asset} />
         ))}
       </div>
-      {data.meta.total > assets.length && (
-        <div className="flex justify-center pt-4">
-          <p className="text-sm text-[var(--color-muted-foreground)]">
-            Showing {assets.length} of {data.meta.total} assets
-          </p>
-        </div>
-      )}
     </div>
   );
 }

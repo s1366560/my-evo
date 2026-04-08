@@ -54,7 +54,7 @@ export function CreditsCard({ nodeId }: CreditsCardProps) {
         <p className="mb-2 text-sm font-medium text-[var(--color-muted-foreground)]">
           Credits
         </p>
-        <p className="mb-1 text-3xl font-bold text-[var(--color-foreground)]">
+        <p className="mb-1 text-3xl font-bold" style={{ color: "var(--color-gene-green)" }}>
           {data.balance.toLocaleString()}
         </p>
         <div className="flex items-center gap-1 text-sm text-[var(--color-gene-green)]">

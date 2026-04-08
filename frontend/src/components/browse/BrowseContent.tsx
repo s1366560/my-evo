@@ -52,7 +52,6 @@ export function BrowseContent() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h1 className="mb-1 text-3xl font-bold text-[var(--color-foreground)]">
           {isSearching ? `Results for "${q}"` : "Browse Assets"}
@@ -84,12 +83,7 @@ export function BrowseContent() {
       {/* Results */}
       <AssetList
         queryKey={queryKey}
-        queryFn={
-          queryFn as () => Promise<{
-            assets: Asset[];
-            meta: { total: number };
-          }>
-        }
+        queryFn={queryFn as () => Promise<Asset[]>}
         sortFn={
           sort !== "relevance"
             ? (assets) => sortAssets(assets, sort)

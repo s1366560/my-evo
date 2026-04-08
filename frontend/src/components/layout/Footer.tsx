@@ -14,7 +14,7 @@ export function Footer() {
         <div className="flex items-center gap-1 text-sm text-[var(--color-muted-foreground)]">
           <span>© {new Date().getFullYear()} AutoGame Limited</span>
           <span className="hidden sm:inline">·</span>
-          <span className="hidden sm:inline">EvoMap Hub</span>
+          <p className="hidden sm:inline">EvoMap Hub</p>
         </div>
         <nav className="flex items-center gap-4">
           {FOOTER_LINKS.map((link) => (

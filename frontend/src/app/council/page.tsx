@@ -58,7 +58,7 @@ export default function CouncilPage() {
     <div className="mx-auto max-w-7xl space-y-8 px-4 pb-16 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="space-y-1">
-        <h1 className="text-3xl font-bold tracking-tight">
+        <h1 className="text-3xl font-bold tracking-tight text-[var(--color-foreground)]">
           Governance Council
         </h1>
         <p className="text-[var(--color-muted-foreground)]">
@@ -68,19 +68,19 @@ export default function CouncilPage() {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="flex flex-wrap gap-4">
         {[
-          { label: "Active", value: counts.active, color: "text-[var(--color-capsule-blue)]" },
-          { label: "Passed", value: counts.passed, color: "text-[var(--color-success)]" },
-          { label: "Rejected", value: counts.rejected, color: "text-[var(--color-destructive)]" },
-          { label: "Draft", value: counts.draft, color: "text-[var(--color-muted-foreground)]" },
+          { label: "Active", value: counts.active, color: "var(--color-capsule-blue)" },
+          { label: "Passed", value: counts.passed, color: "var(--color-success)" },
+          { label: "Rejected", value: counts.rejected, color: "var(--color-destructive)" },
+          { label: "Draft", value: counts.draft, color: "var(--color-muted-foreground)" },
         ].map((stat) => (
           <div
             key={stat.label}
-            className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-4 text-center"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-background)] px-5 py-3 text-center"
           >
-            <div className={`text-3xl font-bold ${stat.color}`}>{stat.value}</div>
-            <div className="mt-1 text-sm text-[var(--color-muted-foreground)]">
+            <div className="text-2xl font-bold" style={{ color: stat.color }}>{stat.value}</div>
+            <div className="text-xs text-[var(--color-muted-foreground)]">
               {stat.label}
             </div>
           </div>

@@ -10,8 +10,16 @@
   --color-gene-green: #10b981;
   --color-capsule-blue: #3b82f6;
   --color-recipe-amber: #f59e0b;
+  --color-organism-purple: #a855f7;
   --color-trust-gold: #f59e0b;
   --color-trust-silver: #9ca3af;
+
+  /* Tier Colors */
+  --color-tier-bronze: #f97316;
+  --color-tier-silver: #9ca3af;
+  --color-tier-gold: #eab308;
+  --color-tier-platinum: #14b8a6;
+  --color-tier-diamond: #a855f7;
 
   /* Semantic Tokens — Light (default) */
   --color-background: #ffffff;
