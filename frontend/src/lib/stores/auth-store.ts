@@ -3,8 +3,9 @@ import { persist } from 'zustand/middleware';
 
 interface AuthState {
   token: string | null;
+  userId: string | null;
   isAuthenticated: boolean;
-  login: (token: string) => void;
+  login: (token: string, userId?: string) => void;
   logout: () => void;
 }
 
@@ -12,24 +13,26 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       token: null,
+      userId: null,
       isAuthenticated: false,
 
-      login: (token: string) => {
-        set({ token, isAuthenticated: true });
+      login: (token: string, userId?: string) => {
+        set({ token, userId: userId ?? null, isAuthenticated: true });
       },
 
       logout: () => {
-        set({ token: null, isAuthenticated: false });
+        set({ token: null, userId: null, isAuthenticated: false });
       },
     }),
     {
       name: 'evomap-auth',
-      // Only persist the token; isAuthenticated is derived
-      partialize: (state) => ({ token: state.token }),
+      // Only persist the token and userId; isAuthenticated is derived
+      partialize: (state) => ({ token: state.token, userId: state.userId }),
     },
   ),
 );
 
-// Convenience selector hooks
+// Convenience selectors
 export const useToken = () => useAuthStore((s) => s.token);
 export const useIsAuthenticated = () => useAuthStore((s) => s.isAuthenticated);
+export const useUserId = () => useAuthStore((s) => s.userId);

@@ -324,6 +324,14 @@ export async function completeOnboardingStep(
   };
 }
 
+export async function deleteSessionByToken(
+  token: string,
+): Promise<void> {
+  await prisma.userSession.deleteMany({
+    where: { token },
+  });
+}
+
 export async function resetOnboarding(
   agentId: string,
 ): Promise<OnboardingState> {

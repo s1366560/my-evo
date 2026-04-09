@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Mail, Lock, AlertCircle, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiClient } from "@/lib/api/client";
 
 export function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const registered = searchParams.get("registered") === "true";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,18 +46,7 @@ export function RegisterForm() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/account/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error ?? "Registration failed");
-      }
-
-      // Redirect to login with success message
+      await apiClient.register({ email, password });
       router.push("/login?registered=true");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
@@ -72,8 +64,15 @@ export function RegisterForm() {
         </p>
       </div>
 
+      {registered && (
+        <div role="status" aria-live="polite" className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--color-gene-green)]/30 bg-[color-mix(in_oklab,var(--color-gene-green)_8%,transparent)] px-4 py-3 text-sm text-[var(--color-gene-green)]">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          Account created! Please sign in.
+        </div>
+      )}
+
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--color-destructive)]/30 bg-[var(--color-destructive)]/5 px-4 py-3 text-sm text-[var(--color-destructive)]">
+        <div role="alert" aria-live="assertive" className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--color-destructive)]/30 bg-[var(--color-destructive)]/5 px-4 py-3 text-sm text-[var(--color-destructive)]">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
@@ -154,7 +153,7 @@ export function RegisterForm() {
             />
           </div>
           {password && confirmPassword && password === confirmPassword && (
-            <div className="flex items-center gap-1 text-xs text-[var(--color-gene-green)]">
+            <div role="status" aria-live="polite" className="flex items-center gap-1 text-xs text-[var(--color-gene-green)]">
               <CheckCircle2 className="h-3 w-3" />
               Passwords match
             </div>

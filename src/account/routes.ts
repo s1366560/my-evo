@@ -15,7 +15,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     void reply.setCookie('session_token', result.token, {
       path: '/',
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30, // 30 days
     });
     return reply.status(201).send({ success: true, data: result });
@@ -32,7 +32,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     void reply.setCookie('session_token', result.token, {
       path: '/',
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30, // 30 days
     });
     return reply.status(200).send({ success: true, data: result });
@@ -123,6 +123,36 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     );
 
     return reply.send({ success: true, data: result });
+  });
+
+  app.get('/me', {
+    schema: { tags: ['Account'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    return reply.send({
+      success: true,
+      data: {
+        node_id: auth.node_id,
+        auth_type: auth.auth_type,
+        trust_level: auth.trust_level,
+      },
+    });
+  });
+
+  app.post('/logout', {
+    schema: { tags: ['Account'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const sessionToken = request.cookies?.session_token;
+    if (sessionToken) {
+      await accountService.deleteSessionByToken(sessionToken);
+    }
+    void reply.clearCookie('session_token', {
+      path: '/',
+      sameSite: 'lax',
+    });
+    return reply.send({ success: true });
   });
 
   app.post('/onboarding/reset', {

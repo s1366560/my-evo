@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/stores/auth-store";
+import { apiClient } from "@/lib/api/client";
 import { Loader2, Mail, Lock, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,22 +28,9 @@ export function LoginForm() {
     setIsLoading(true);
 
     try {
-      // Mock login — Phase 2b uses MSW mocks
-      const response = await fetch("/account/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+      const data = await apiClient.login({ email, password });
+      login(data.token, data.user.id);
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error ?? "Login failed");
-      }
-
-      // Set a mock token and mark authenticated
-      login("mock-token-" + Date.now());
-
-      // Redirect to dashboard
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed. Please try again.");
@@ -61,7 +49,7 @@ export function LoginForm() {
       </div>
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--color-destructive)]/30 bg-[var(--color-destructive)]/5 px-4 py-3 text-sm text-[var(--color-destructive)]">
+        <div role="alert" aria-live="assertive" className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--color-destructive)]/30 bg-[var(--color-destructive)]/5 px-4 py-3 text-sm text-[var(--color-destructive)]">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>

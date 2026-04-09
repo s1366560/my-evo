@@ -28,7 +28,6 @@ model Node {
   quarantineRecords  QuarantineRecord[]
   validatorStakes    ValidatorStake[]
   trustAttestations  TrustAttestation[]
-  apiKeys            ApiKey[]
   onboardingState    OnboardingState?
 
   @@index([status])
@@ -379,7 +378,7 @@ model ApiKey {
   created_at DateTime  @default(now())
   user_id    String
 
-  node Node @relation(fields: [user_id], references: [node_id])
+  user User @relation(fields: [user_id], references: [id])
 
   @@index([key_hash])
   @@index([user_id])
@@ -407,6 +406,7 @@ model User {
   created_at    DateTime @default(now())
 
   sessions UserSession[]
+  apiKeys   ApiKey[]
 
   @@index([email])
 }

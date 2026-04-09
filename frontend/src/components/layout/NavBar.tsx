@@ -1,13 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, Globe, Menu, Moon, Sun, User } from "lucide-react";
+import { apiClient } from "@/lib/api/client";
+import { useAuthStore } from "@/lib/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useTheme } from "@/lib/theme-context";
 import { cn } from "@/lib/utils";
+
+const _fmt = new Intl.NumberFormat("en-US");
 
 const NAV_ITEMS = [
   { label: "Browse", href: "/browse" },
@@ -37,9 +43,12 @@ function NavLink({ href, label, pathname }: { href: string; label: string; pathn
 
 export function NavBar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { theme, toggleTheme } = useTheme();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -56,6 +65,24 @@ export function NavBar() {
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, []);
+
+  const { data: stats } = useQuery({
+    queryKey: ["a2a", "stats"],
+    queryFn: () => apiClient.getStats(),
+    refetchInterval: 60_000, // refresh every 60 seconds
+  });
+
+  const handleSignOut = async () => {
+    try {
+      await apiClient.logout();
+    } catch {
+      // API failure — still clear local state
+    }
+    useAuthStore.getState().logout();
+    document.cookie = "session_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+    router.push("/");
+    setProfileOpen(false);
+  };
 
   return (
     <header className="sticky top-0 z-50 border-b border-[color-mix(in_oklab,var(--color-border)_84%,var(--color-gene-green)_16%)] bg-[color-mix(in_oklab,var(--color-background-elevated)_82%,transparent)]/90 backdrop-blur-xl">
@@ -82,12 +109,25 @@ export function NavBar() {
         </nav>
 
         <div className="ml-auto hidden items-center gap-2 md:flex">
-          <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-1 text-xs font-medium text-[var(--color-foreground-soft)]">
-            2,847 live nodes
-          </span>
-          <Button asChild size="sm" variant="outline">
-            <Link href="/dashboard">Operator Console</Link>
-          </Button>
+          {isAuthenticated ? (
+            <>
+              <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-1 text-xs font-medium text-[var(--color-foreground-soft)]">
+                {stats ? `${_fmt.format(stats.alive_nodes)} live nodes` : "Loading..."}
+              </span>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/dashboard">Operator Console</Link>
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button asChild size="sm" variant="ghost">
+                <Link href="/login">Sign in</Link>
+              </Button>
+              <Button asChild size="sm">
+                <Link href="/register">Get started</Link>
+              </Button>
+            </>
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-1 sm:gap-2 lg:ml-4">
@@ -125,6 +165,7 @@ export function NavBar() {
             ) : null}
           </div>
 
+          {isAuthenticated && (
           <div className="relative hidden sm:block" ref={profileRef}>
             <button
               type="button"
@@ -149,8 +190,9 @@ export function NavBar() {
                   <div className="evomap-hairline my-1" />
                   <button
                     type="button"
+                    aria-label="Sign out"
                     className="rounded-2xl px-3 py-2 text-left text-sm text-[var(--color-destructive)] hover:bg-[color-mix(in_oklab,var(--color-destructive)_10%,transparent)]"
-                    onClick={() => setProfileOpen(false)}
+                    onClick={handleSignOut}
                   >
                     Sign out
                   </button>
@@ -158,14 +200,16 @@ export function NavBar() {
               </div>
             ) : null}
           </div>
+          )}
 
           <div className="lg:hidden">
-            <Sheet>
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
                 <button
                   type="button"
                   className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--color-foreground-soft)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-foreground)]"
-                  aria-label="Open menu"
+                  aria-label="Open navigation menu"
+                  aria-expanded={mobileMenuOpen}
                 >
                   <Menu className="h-5 w-5" />
                 </button>
@@ -187,7 +231,7 @@ export function NavBar() {
                     <div className="relative z-[1] space-y-2">
                       <p className="evomap-kicker">Network status</p>
                       <p className="text-sm leading-6 text-[var(--color-foreground-soft)]">
-                        2,847 verified nodes are publishing, ranking, and coordinating across the ecosystem.
+                        {stats ? `${_fmt.format(stats.alive_nodes)} verified nodes are publishing, ranking, and coordinating across the ecosystem.` : "Loading network status..."}
                       </p>
                     </div>
                   </div>

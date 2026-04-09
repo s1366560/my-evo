@@ -55,4 +55,21 @@ export const authHandlers = [
 
     return HttpResponse.json(mockRegisterResponse);
   }),
+
+  // POST /account/logout
+  http.post('http://localhost:3001/account/logout', async () => {
+    return HttpResponse.json({ success: true });
+  }),
+
+  // GET /account/me
+  http.get('http://localhost:3001/account/me', async () => {
+    return HttpResponse.json({
+      success: true,
+      data: {
+        node_id: 'node-mock-001',
+        auth_type: 'session',
+        trust_level: 'unverified',
+      },
+    });
+  }),
 ];

@@ -42,8 +42,12 @@ export const Endpoints = {
     skillFeatured: '/a2a/skill/featured',
     /** GET /a2a/credits/:nodeId */
     credits: (nodeId: string) => `/a2a/credits/${nodeId}`,
+    /** GET /a2a/credits/:nodeId/history */
+    creditsHistory: (nodeId: string) => `/a2a/credits/${nodeId}/history`,
     /** GET /a2a/reputation/:nodeId */
     reputation: (nodeId: string) => `/a2a/reputation/${nodeId}`,
+    /** GET /a2a/reputation/:nodeId/history */
+    reputationHistory: (nodeId: string) => `/a2a/reputation/${nodeId}/history`,
   },
 
   // ── Assets module ────────────────────────────────────────────────────────────
@@ -65,44 +69,50 @@ export const Endpoints = {
     },
   },
 
-  // ── Arena module (API v2) ───────────────────────────────────────────────────
+  // ── Arena (API v2) ───────────────────────────────────────────────────────────
   arena: {
     seasons: '/api/v2/arena/seasons',
+    /** GET /api/v2/arena/rankings/:seasonId */
     rankings: (seasonId: string) => `/api/v2/arena/rankings/${seasonId}`,
+    /** GET /api/v2/arena/matches */
+    matches: '/api/v2/arena/matches',
   },
 
-  // ── Swarm module (API v2) ──────────────────────────────────────────────────
+  // ── Swarm (API v2) ──────────────────────────────────────────────────────────
   swarm: {
     all: '/api/v2/swarm/',
   },
 
-  // ── Council module (API v2) ───────────────────────────────────────────────
+  // ── Council (A2A prefix) ──────────────────────────────────────────────────
   council: {
-    all: '/api/v2/council/proposals',
+    all: '/a2a/council/history',
+    vote: (proposalId: string) => `/a2a/council/proposal/${proposalId}/vote`,
   },
 
-  // ── Marketplace module (API v2) ─────────────────────────────────────────────
+  // ── Marketplace (API v2) ─────────────────────────────────────────────────────
   marketplace: {
+    /** GET /api/v2/marketplace/listings */
     all: '/api/v2/marketplace/listings',
   },
 
-  // ── Biology module (API v2) ────────────────────────────────────────────────
+  // ── Biology (API v2) ────────────────────────────────────────────────────────
   biology: {
     phylogeny: (assetId: string) => `/api/v2/biology/phylogeny/${assetId}`,
     fitness: '/api/v2/biology/fitness',
   },
 
-  // ── Workerpool module (API v2) ─────────────────────────────────────────────
+  // ── Workerpool (API v2) ─────────────────────────────────────────────────────
   workerpool: {
+    /** GET /api/v2/workerpool/ — returns { data: { workers[], meta } } */
     all: '/api/v2/workerpool/',
   },
 
-  // ── Credits / Reputation (root-level) ──────────────────────────────────────
-  credits: {
-    history: (nodeId: string) => `/credits/${nodeId}/history`,
-  },
-
-  reputation: {
-    history: (nodeId: string) => `/reputation/${nodeId}/history`,
+  // ── Account module ─────────────────────────────────────────────────────────────
+  account: {
+    login: '/account/login',
+    register: '/account/register',
+    logout: '/account/logout',
+    me: '/account/me',
+    apiKeys: '/account/api-keys',
   },
 } as const;

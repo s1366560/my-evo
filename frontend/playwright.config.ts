@@ -9,13 +9,13 @@ export default defineConfig({
   reporter: [["list"]],
   outputDir: ".next/playwright/test-results",
   use: {
-    baseURL: "http://127.0.0.1:3102",
+    baseURL: "http://localhost:3002",
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "npx next dev -p 3102 --hostname 127.0.0.1",
-    url: "http://127.0.0.1:3102",
-    reuseExistingServer: false,
+    command: "npx next dev -p 3002",
+    url: "http://localhost:3002",
+    reuseExistingServer: true,
     timeout: 120_000,
   },
 });

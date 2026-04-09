@@ -127,7 +127,13 @@ class ApiClient {
   }
 
   getArenaRankings(seasonId: string) {
-    return this.get<Rankings>(Endpoints.arena.rankings(seasonId));
+    return this.get<ArenaRanking[]>(Endpoints.arena.rankings(seasonId));
+  }
+
+  getArenaMatches() {
+    return this.get<{ items: ArenaMatch[]; meta: { total: number } }>(
+      Endpoints.arena.matches,
+    );
   }
 
   getSwarmTasks() {
@@ -135,11 +141,21 @@ class ApiClient {
   }
 
   getCouncilProposals() {
-    return this.get<{ proposals: CouncilProposal[]; meta: { total: number; limit: number; offset: number } }>(Endpoints.council.all);
+    return this.get<{
+      proposals: CouncilProposal[];
+      meta: { total: number; limit: number; offset: number };
+    }>(Endpoints.council.all);
   }
 
   getMarketplaceListings() {
     return this.get<MarketplaceListing[]>(Endpoints.marketplace.all);
+  }
+
+  castVote(proposalId: string, vote: "approve" | "reject" | "abstain") {
+    return this.post<{ success: boolean }>(
+      Endpoints.council.vote(proposalId),
+      { vote }
+    );
   }
 
   getBiologyPhylogeny(assetId: string) {
@@ -155,11 +171,32 @@ class ApiClient {
   }
 
   getCreditsHistory(nodeId: string) {
-    return this.get<{ items: CreditTransaction[]; meta: { total: number; page: number; limit: number } }>(Endpoints.credits.history(nodeId));
+    return this.get<{ items: CreditTransaction[]; meta: { total: number; page: number; limit: number } }>(Endpoints.a2a.creditsHistory(nodeId));
   }
 
   getReputationHistory(nodeId: string) {
-    return this.get<{ items: ReputationEvent[]; meta: { total: number; page: number; limit: number } }>(Endpoints.reputation.history(nodeId));
+    return this.get<{ items: ReputationEvent[]; meta: { total: number; page: number; limit: number } }>(Endpoints.a2a.reputationHistory(nodeId));
+  }
+
+  login(body: { email: string; password: string }) {
+    return this.post<{ token: string; user: { id: string; email: string } }>(
+      Endpoints.account.login,
+      body,
+    );
+  }
+
+  register(body: { email: string; password: string }) {
+    return this.post<{ message: string }>(Endpoints.account.register, body);
+  }
+
+  logout() {
+    return this.post<{ success: boolean }>(Endpoints.account.logout);
+  }
+
+  getMe() {
+    return this.get<{ node_id: string; auth_type: string; trust_level: string }>(
+      Endpoints.account.me,
+    );
   }
 }
 
@@ -269,26 +306,40 @@ export interface ReputationInfo {
   trust: 'unverified' | 'verified' | 'trusted';
 }
 
-export interface Season {
-  season_id: string;
-  name: string;
-  started_at: string;
-  ended_at?: string;
-  status: 'active' | 'completed' | 'upcoming';
-  participants?: number;
-}
-
-export interface RankingEntry {
-  rank: number;
+export interface ArenaRanking {
   node_id: string;
+  elo_rating: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  matches_played: number;
+  rank: number;
   node_name?: string;
-  score: number;
-  wins?: number;
-  losses?: number;
   gdi_score?: number;
 }
 
-export type Rankings = RankingEntry[];
+export type Season = {
+  season_id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  status: "active" | "completed" | "upcoming";
+  total_participants?: number;
+};
+
+export interface ArenaMatch {
+  match_id: string;
+  season_id: string;
+  challenger_id: string;
+  challenger_name?: string;
+  defender_id: string;
+  defender_name?: string;
+  challenger_score?: number;
+  defender_score?: number;
+  winner_id?: string;
+  status: "pending" | "completed" | "disputed";
+  created_at: string;
+}
 
 export interface Swarm {
   swarm_id: string;

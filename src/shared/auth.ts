@@ -93,7 +93,7 @@ async function authenticateApiKey(
 
   const apiKey = await prisma.apiKey.findFirst({
     where: { key_hash: keyHash },
-    include: { node: true },
+    include: { user: true },
   });
 
   if (!apiKey) {
@@ -105,8 +105,8 @@ async function authenticateApiKey(
   }
 
   return {
-    node_id: apiKey.node.node_id,
-    trust_level: apiKey.node.trust_level as TrustLevel,
+    node_id: apiKey.user.node_id ?? `user-${apiKey.user.id}`,
+    trust_level: apiKey.user.trust_level as TrustLevel,
     auth_type: 'api_key',
     scopes: apiKey.scopes,
   };
