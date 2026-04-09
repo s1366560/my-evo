@@ -14,10 +14,12 @@ export type TrendDirection = 'rising' | 'stable' | 'declining';
 export interface GDITrendPoint {
   date: string;
   overall: number;
-  usefulness: number;
-  novelty: number;
-  rigor: number;
-  reuse: number;
+  intrinsic: number;
+  usage_mean: number;
+  usage_lower: number;
+  social_mean: number;
+  social_lower: number;
+  freshness: number;
 }
 
 export interface GDITrendResult {
@@ -59,10 +61,12 @@ export async function calculateGDITrend(
   const trendPoints: GDITrendPoint[] = records.map((r) => ({
     date: r.calculated_at.toISOString().split('T')[0] ?? '',
     overall: r.overall,
-    usefulness: r.usefulness,
-    novelty: r.novelty,
-    rigor: r.rigor,
-    reuse: r.reuse,
+    intrinsic: r.intrinsic,
+    usage_mean: r.usage_mean,
+    usage_lower: r.usage_lower,
+    social_mean: r.social_mean,
+    social_lower: r.social_lower,
+    freshness: r.freshness,
   }));
 
   // Linear regression for slope
@@ -98,18 +102,18 @@ export interface BenchmarkComparison {
   assetGdi: number;
   benchmarkGdi: number;
   percentile: number; // 0–100
-  usefulnessDelta: number;
-  noveltyDelta: number;
-  rigorDelta: number;
-  reuseDelta: number;
+  intrinsicDelta: number;
+  usageDelta: number;
+  socialDelta: number;
+  freshnessDelta: number;
   verdict: 'above' | 'at' | 'below';
 }
 
 export interface BenchmarkSet {
-  avg_usefulness: number;
-  avg_novelty: number;
-  avg_rigor: number;
-  avg_reuse: number;
+  avg_intrinsic: number;
+  avg_usage_mean: number;
+  avg_social_mean: number;
+  avg_freshness: number;
   avg_overall: number;
 }
 
@@ -133,10 +137,10 @@ export async function compareWithBenchmarks(
       assetGdi: 0,
       benchmarkGdi: 0,
       percentile: 0,
-      usefulnessDelta: 0,
-      noveltyDelta: 0,
-      rigorDelta: 0,
-      reuseDelta: 0,
+      intrinsicDelta: 0,
+      usageDelta: 0,
+      socialDelta: 0,
+      freshnessDelta: 0,
       verdict: 'below',
     };
   }
@@ -160,17 +164,17 @@ export async function compareWithBenchmarks(
     ? Math.round((belowCount / allAssets.length) * 100)
     : 50;
 
-  const usefulnessDelta = recentRecord
-    ? recentRecord.usefulness - benchmarks.avg_usefulness
+  const intrinsicDelta = recentRecord
+    ? recentRecord.intrinsic - benchmarks.avg_intrinsic
     : 0;
-  const noveltyDelta = recentRecord
-    ? recentRecord.novelty - benchmarks.avg_novelty
+  const usageDelta = recentRecord
+    ? recentRecord.usage_mean - benchmarks.avg_usage_mean
     : 0;
-  const rigorDelta = recentRecord
-    ? recentRecord.rigor - benchmarks.avg_rigor
+  const socialDelta = recentRecord
+    ? recentRecord.social_mean - benchmarks.avg_social_mean
     : 0;
-  const reuseDelta = recentRecord
-    ? recentRecord.reuse - benchmarks.avg_reuse
+  const freshnessDelta = recentRecord
+    ? recentRecord.freshness - benchmarks.avg_freshness
     : 0;
 
   const verdict = assetGdi > benchmarkGdi * 1.1
@@ -184,10 +188,10 @@ export async function compareWithBenchmarks(
     assetGdi: Math.round(assetGdi * 100) / 100,
     benchmarkGdi: Math.round(benchmarkGdi * 100) / 100,
     percentile,
-    usefulnessDelta: Math.round(usefulnessDelta * 100) / 100,
-    noveltyDelta: Math.round(noveltyDelta * 100) / 100,
-    rigorDelta: Math.round(rigorDelta * 100) / 100,
-    reuseDelta: Math.round(reuseDelta * 100) / 100,
+    intrinsicDelta: Math.round(intrinsicDelta * 100) / 100,
+    usageDelta: Math.round(usageDelta * 100) / 100,
+    socialDelta: Math.round(socialDelta * 100) / 100,
+    freshnessDelta: Math.round(freshnessDelta * 100) / 100,
     verdict,
   };
 }
@@ -195,7 +199,7 @@ export async function compareWithBenchmarks(
 // ─── Improvement Areas ──────────────────────────────────────────────────────
 
 export interface ImprovementArea {
-  dimension: 'usefulness' | 'novelty' | 'rigor' | 'reuse';
+  dimension: 'intrinsic' | 'usage' | 'social' | 'freshness';
   currentScore: number;
   benchmarkScore: number;
   gap: number;
@@ -220,21 +224,21 @@ export async function identifyImprovementAreas(
   if (!asset) return [];
 
   const dimensions: Array<{
-    dimension: 'usefulness' | 'novelty' | 'rigor' | 'reuse';
+    dimension: 'intrinsic' | 'usage' | 'social' | 'freshness';
     currentScore: number;
     benchmarkScore: number;
   }> = [
-    { dimension: 'usefulness', currentScore: asset.usefulness, benchmarkScore: benchmarks.avg_usefulness },
-    { dimension: 'novelty', currentScore: asset.novelty, benchmarkScore: benchmarks.avg_novelty },
-    { dimension: 'rigor', currentScore: asset.rigor, benchmarkScore: benchmarks.avg_rigor },
-    { dimension: 'reuse', currentScore: asset.reuse, benchmarkScore: benchmarks.avg_reuse },
+    { dimension: 'intrinsic', currentScore: asset.intrinsic, benchmarkScore: benchmarks.avg_intrinsic },
+    { dimension: 'usage', currentScore: asset.usage_mean, benchmarkScore: benchmarks.avg_usage_mean },
+    { dimension: 'social', currentScore: asset.social_mean, benchmarkScore: benchmarks.avg_social_mean },
+    { dimension: 'freshness', currentScore: asset.freshness, benchmarkScore: benchmarks.avg_freshness },
   ];
 
   const suggestions: Record<string, string> = {
-    usefulness: 'Improve documentation and add usage examples to increase practical value.',
-    novelty: 'Introduce unique approaches or novel techniques to differentiate from existing solutions.',
-    rigor: 'Strengthen validation, add error handling, and ensure production-ready quality.',
-    reuse: 'Modularize code, improve parameterization, and reduce hardcoded dependencies.',
+    intrinsic: 'Improve code quality, documentation, and trigger specificity to increase intrinsic value.',
+    usage: 'Drive more fetches and unique users to improve the usage dimension.',
+    social: 'Encourage positive votes and resolve disputes to strengthen the social dimension.',
+    freshness: 'Keep the asset active and verified to maintain freshness score.',
   };
 
   return dimensions
@@ -245,7 +249,7 @@ export async function identifyImprovementAreas(
         currentScore: Math.round(currentScore * 100) / 100,
         benchmarkScore: Math.round(benchmarkScore * 100) / 100,
         gap: Math.round(gap * 100) / 100,
-        priority: (gap > 15 ? 'high' : gap > 8 ? 'medium' : 'low') as 'high' | 'medium' | 'low',
+        priority: (gap > 0.15 ? 'high' : gap > 0.08 ? 'medium' : 'low') as 'high' | 'medium' | 'low',
         suggestion: suggestions[dimension] ?? '',
       };
     })
@@ -258,10 +262,12 @@ export async function identifyImprovementAreas(
 export interface GDIHistoryEntry {
   date: string;
   overall: number;
-  usefulness: number;
-  novelty: number;
-  rigor: number;
-  reuse: number;
+  intrinsic: number;
+  usage_mean: number;
+  usage_lower: number;
+  social_mean: number;
+  social_lower: number;
+  freshness: number;
   changeFromPrevious: number | null;
 }
 
@@ -283,10 +289,12 @@ export async function getGDIHistory(
     return {
       date: r.calculated_at.toISOString().split('T')[0] ?? '',
       overall: r.overall,
-      usefulness: r.usefulness,
-      novelty: r.novelty,
-      rigor: r.rigor,
-      reuse: r.reuse,
+      intrinsic: r.intrinsic,
+      usage_mean: r.usage_mean,
+      usage_lower: r.usage_lower,
+      social_mean: r.social_mean,
+      social_lower: r.social_lower,
+      freshness: r.freshness,
       changeFromPrevious: prev !== null
         ? Math.round((r.overall - prev) * 100) / 100
         : null,
@@ -339,10 +347,10 @@ async function getBenchmarkSet(): Promise<BenchmarkSet> {
 
   if (records.length === 0) {
     return {
-      avg_usefulness: 50,
-      avg_novelty: 50,
-      avg_rigor: 50,
-      avg_reuse: 50,
+      avg_intrinsic: 0.5,
+      avg_usage_mean: 0.5,
+      avg_social_mean: 0.5,
+      avg_freshness: 0.5,
       avg_overall: 50,
     };
   }
@@ -350,20 +358,20 @@ async function getBenchmarkSet(): Promise<BenchmarkSet> {
   const n = records.length;
   const sum = records.reduce(
     (acc, r) => ({
-      usefulness: acc.usefulness + r.usefulness,
-      novelty: acc.novelty + r.novelty,
-      rigor: acc.rigor + r.rigor,
-      reuse: acc.reuse + r.reuse,
+      intrinsic: acc.intrinsic + r.intrinsic,
+      usage_mean: acc.usage_mean + r.usage_mean,
+      social_mean: acc.social_mean + r.social_mean,
+      freshness: acc.freshness + r.freshness,
       overall: acc.overall + r.overall,
     }),
-    { usefulness: 0, novelty: 0, rigor: 0, reuse: 0, overall: 0 },
+    { intrinsic: 0, usage_mean: 0, social_mean: 0, freshness: 0, overall: 0 },
   );
 
   return {
-    avg_usefulness: Math.round((sum.usefulness / n) * 100) / 100,
-    avg_novelty: Math.round((sum.novelty / n) * 100) / 100,
-    avg_rigor: Math.round((sum.rigor / n) * 100) / 100,
-    avg_reuse: Math.round((sum.reuse / n) * 100) / 100,
+    avg_intrinsic: Math.round((sum.intrinsic / n) * 100) / 100,
+    avg_usage_mean: Math.round((sum.usage_mean / n) * 100) / 100,
+    avg_social_mean: Math.round((sum.social_mean / n) * 100) / 100,
+    avg_freshness: Math.round((sum.freshness / n) * 100) / 100,
     avg_overall: Math.round((sum.overall / n) * 100) / 100,
   };
 }

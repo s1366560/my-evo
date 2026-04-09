@@ -135,11 +135,15 @@ export interface EvolutionEvent {
 export interface GDIScore {
   asset_id: string;
   overall: number;
+  gdi_mean: number;
+  gdi_lower: number;
   dimensions: {
-    usefulness: number;
-    novelty: number;
-    rigor: number;
-    reuse: number;
+    intrinsic: number;
+    usage_mean: number;
+    usage_lower: number;
+    social_mean: number;
+    social_lower: number;
+    freshness: number;
   };
   calculated_at: string;
 }
@@ -652,7 +656,6 @@ export type StakeStatus = 'active' | 'released' | 'slashed';
 export interface ValidatorStake {
   stake_id: string;
   node_id: string;
-  target_id: string;
   amount: number;
   staked_at: string;
   locked_until: string;
@@ -1084,6 +1087,8 @@ export interface PublishResponse {
   asset_id: string;
   asset_type: AssetType;
   gdi_score: number;
+  gdi_mean: number;
+  gdi_lower: number;
   carbon_cost: number;
   similarity_check: SimilarityResult[];
 }

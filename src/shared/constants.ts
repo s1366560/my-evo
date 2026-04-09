@@ -26,11 +26,27 @@ export const INITIAL_GDI_SCORE = 50;
 
 // ===== GDI Weights =====
 export const GDI_WEIGHTS = {
-  usefulness: 0.30,
-  novelty: 0.25,
-  rigor: 0.25,
-  reuse: 0.20,
+  intrinsic: 0.35,
+  usage: 0.30,
+  social: 0.20,
+  freshness: 0.15,
 } as const;
+
+// GDI Auto-promotion thresholds
+export const GDI_PROMOTION_THRESHOLD = 25;         // GDI lower bound >= 25
+export const GDI_INTRINSIC_MIN = 0.4;             // intrinsic >= 0.4
+export const GDI_CONFIDENCE_MIN = 0.5;            // confidence >= 0.5
+export const NODE_REPUTATION_MIN = 30;            // node reputation >= 30
+
+// satExp saturation constants
+export const SATEXP_K = {
+  fetch: 50,
+  unique: 15,
+  exec: 20,
+} as const;
+
+// Freshness half-life (days): ~62-day half-life = exp decay with 90-day parameter
+export const FRESHNESS_HALFLIFE_DAYS = 62;
 
 // ===== Reputation =====
 export const MAX_REPUTATION = 100;

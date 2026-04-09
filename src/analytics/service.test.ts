@@ -912,9 +912,9 @@ describe('GDI Trends', () => {
 
     it('should detect rising trend from ascending scores', async () => {
       mockGdiPrisma.gDIScoreRecord.findMany.mockResolvedValue([
-        { overall: 40, usefulness: 40, novelty: 40, rigor: 40, reuse: 40, calculated_at: new Date('2026-03-01') },
-        { overall: 50, usefulness: 50, novelty: 50, rigor: 50, reuse: 50, calculated_at: new Date('2026-03-15') },
-        { overall: 60, usefulness: 60, novelty: 60, rigor: 60, reuse: 60, calculated_at: new Date('2026-03-29') },
+        { overall: 40, intrinsic: 0.4, usage_mean: 0.4, social_mean: 0.4, freshness: 0.4, calculated_at: new Date('2026-03-01') },
+        { overall: 50, intrinsic: 0.5, usage_mean: 0.5, social_mean: 0.5, freshness: 0.5, calculated_at: new Date('2026-03-15') },
+        { overall: 60, intrinsic: 0.6, usage_mean: 0.6, social_mean: 0.6, freshness: 0.6, calculated_at: new Date('2026-03-29') },
       ]);
 
       const result = await gdiTrends.calculateGDITrend('asset-1', '30d');
@@ -926,9 +926,9 @@ describe('GDI Trends', () => {
 
     it('should detect declining trend', async () => {
       mockGdiPrisma.gDIScoreRecord.findMany.mockResolvedValue([
-        { overall: 80, usefulness: 80, novelty: 80, rigor: 80, reuse: 80, calculated_at: new Date('2026-03-01') },
-        { overall: 60, usefulness: 60, novelty: 60, rigor: 60, reuse: 60, calculated_at: new Date('2026-03-15') },
-        { overall: 40, usefulness: 40, novelty: 40, rigor: 40, reuse: 40, calculated_at: new Date('2026-03-29') },
+        { overall: 80, intrinsic: 0.8, usage_mean: 0.8, social_mean: 0.8, freshness: 0.8, calculated_at: new Date('2026-03-01') },
+        { overall: 60, intrinsic: 0.6, usage_mean: 0.6, social_mean: 0.6, freshness: 0.6, calculated_at: new Date('2026-03-15') },
+        { overall: 40, intrinsic: 0.4, usage_mean: 0.4, social_mean: 0.4, freshness: 0.4, calculated_at: new Date('2026-03-29') },
       ]);
 
       const result = await gdiTrends.calculateGDITrend('asset-1', '30d');
@@ -962,7 +962,7 @@ describe('GDI Trends', () => {
     it('should classify asset above benchmark', async () => {
       mockGdiPrisma.asset.findUnique.mockResolvedValue({ gdi_score: 80 });
       mockGdiPrisma.gDIScoreRecord.findFirst.mockResolvedValue({
-        usefulness: 80, novelty: 80, rigor: 80, reuse: 80,
+        intrinsic: 0.8, usage_mean: 0.8, social_mean: 0.8, freshness: 0.8,
       });
       mockGdiPrisma.asset.findMany
         .mockResolvedValueOnce([])
@@ -985,30 +985,30 @@ describe('GDI Trends', () => {
 
     it('should identify dimensions below benchmark', async () => {
       mockGdiPrisma.gDIScoreRecord.findFirst.mockResolvedValue({
-        usefulness: 30,
-        novelty: 70,
-        rigor: 70,
-        reuse: 70,
+        intrinsic: 0.3,
+        usage_mean: 0.7,
+        social_mean: 0.7,
+        freshness: 0.7,
       });
       mockGdiPrisma.gDIScoreRecord.findMany.mockResolvedValue([
-        { usefulness: 50, novelty: 50, rigor: 50, reuse: 50, calculated_at: new Date() },
+        { intrinsic: 0.5, usage_mean: 0.5, social_mean: 0.5, freshness: 0.5, calculated_at: new Date() },
       ]);
 
       const result = await gdiTrends.identifyImprovementAreas('asset-1');
 
-      const usefulnessArea = result.find((a) => a.dimension === 'usefulness');
-      expect(usefulnessArea).toBeDefined();
-      expect(usefulnessArea!.gap).toBeGreaterThan(0);
-      expect(usefulnessArea!.priority).toBe('high');
+      const intrinsicArea = result.find((a) => a.dimension === 'intrinsic');
+      expect(intrinsicArea).toBeDefined();
+      expect(intrinsicArea!.gap).toBeGreaterThan(0);
+      expect(intrinsicArea!.priority).toBe('high');
     });
   });
 
   describe('getGDIHistory', () => {
     it('should return history with changeFromPrevious computed', async () => {
       mockGdiPrisma.gDIScoreRecord.findMany.mockResolvedValue([
-        { overall: 40, usefulness: 40, novelty: 40, rigor: 40, reuse: 40, calculated_at: new Date('2026-03-01') },
-        { overall: 50, usefulness: 50, novelty: 50, rigor: 50, reuse: 50, calculated_at: new Date('2026-03-15') },
-        { overall: 48, usefulness: 48, novelty: 48, rigor: 48, reuse: 48, calculated_at: new Date('2026-03-29') },
+        { overall: 40, intrinsic: 0.4, usage_mean: 0.4, social_mean: 0.4, freshness: 0.4, calculated_at: new Date('2026-03-01') },
+        { overall: 50, intrinsic: 0.5, usage_mean: 0.5, social_mean: 0.5, freshness: 0.5, calculated_at: new Date('2026-03-15') },
+        { overall: 48, intrinsic: 0.48, usage_mean: 0.48, social_mean: 0.48, freshness: 0.48, calculated_at: new Date('2026-03-29') },
       ]);
 
       const result = await gdiTrends.getGDIHistory('asset-1');
@@ -1022,7 +1022,7 @@ describe('GDI Trends', () => {
     it('should respect limit parameter', async () => {
       const manyRecords = Array.from({ length: 50 }, (_, i) => ({
         overall: 50 + i,
-        usefulness: 50, novelty: 50, rigor: 50, reuse: 50,
+        intrinsic: 0.5, usage_mean: 0.5, social_mean: 0.5, freshness: 0.5,
         calculated_at: new Date(Date.now() - i * 24 * 60 * 60 * 1000),
       }));
       mockGdiPrisma.gDIScoreRecord.findMany.mockResolvedValue(manyRecords);

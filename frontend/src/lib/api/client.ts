@@ -6,20 +6,6 @@ const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 class ApiClient {
-  /**
-   * Common options for all requests.
-   * Phase 1: no Authorization header — auth is Phase 2b.
-   * API Key is sent via httpOnly cookie (credentials: 'include').
-   */
-  private baseOptions(): RequestInit {
-    return {
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    };
-  }
-
   private buildUrl(path: string): string {
     // If path is absolute (starts with /), prepend BASE_URL
     if (path.startsWith('/')) {
@@ -73,9 +59,18 @@ class ApiClient {
   }
 
   getAssets(filters?: Parameters<typeof Endpoints.a2a.assetsWithFilters>[0]) {
-    return this.get<Asset[]>(
+    return this.get<{ items: Asset[] }>(
       Endpoints.a2a.assetsWithFilters(filters),
-    );
+    ).then((r) => {
+      if (!Array.isArray(r?.items)) {
+        throw new EvoMapError(
+          'Unexpected assets response shape — expected { items: Asset[] }',
+          0,
+          'INVALID_RESPONSE',
+        );
+      }
+      return r.items;
+    });
   }
 
   getAssetsRanked() {

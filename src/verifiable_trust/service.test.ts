@@ -62,7 +62,6 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.validatorStake.create.mockResolvedValue({
         stake_id: 'stake-1',
         node_id: 'node-1',
-        target_id: 'validator-1',
         amount: 100,
         staked_at: new Date(),
         locked_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
@@ -73,7 +72,7 @@ describe('Verifiable Trust Service', () => {
 
       expect(result.stake_id).toBe('stake-1');
       expect(result.node_id).toBe('node-1');
-      expect(result.target_id).toBe('validator-1');
+      expect(result.node_id).toBe('node-1');
       expect(result.amount).toBe(100);
       expect(result.status).toBe('active');
     });
@@ -107,7 +106,6 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.validatorStake.create.mockResolvedValue({
         stake_id: 'stake-1',
         node_id: 'node-1',
-        target_id: 'validator-1',
         amount: 200,
         staked_at: new Date(),
         locked_until: new Date(),
@@ -133,7 +131,6 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.validatorStake.create.mockResolvedValue({
         stake_id: 'stake-1',
         node_id: 'node-1',
-        target_id: 'validator-1',
         amount: 100,
         staked_at: new Date(),
         locked_until: new Date(),

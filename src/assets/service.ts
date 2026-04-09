@@ -11,6 +11,11 @@ import {
   PROMOTION_GDI_THRESHOLD,
   PROMOTION_REWARD,
   GDI_WEIGHTS,
+  SATEXP_K,
+  GDI_PROMOTION_THRESHOLD,
+  GDI_INTRINSIC_MIN,
+  GDI_CONFIDENCE_MIN,
+  NODE_REPUTATION_MIN,
 } from '../shared/constants';
 import {
   NotFoundError,
@@ -34,6 +39,29 @@ export function setPrisma(client: PrismaClient): void {
 }
 
 export { prisma };
+
+// ─── GDI Helper Functions ──────────────────────────────────────────────────────
+
+function satExp(x: number, k: number): number {
+  // Saturation exponential: x / (x + k)
+  return x / (x + k);
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+function wilsonLower(upvotes: number, downvotes: number): number {
+  // Wilson 95% lower bound on upvote proportion
+  const n = upvotes + downvotes;
+  if (n === 0) return 0.5;
+  const p = upvotes / n;
+  const z = 1.645; // 95% confidence
+  const denominator = 1 + (z * z) / n;
+  const center = p + (z * z) / (2 * n);
+  const margin = z * Math.sqrt((p * (1 - p) + (z * z) / (4 * n)) / n);
+  return Math.max(0, (center - margin) / denominator);
+}
 
 function getCarbonCost(assetType: AssetType): number {
   const costs: Record<string, number> = {
@@ -163,14 +191,28 @@ export async function publishAsset(nodeId: string, payload: PublishPayload): Pro
       to_version: 1,
       changes: `Created ${payload.asset_type}: ${payload.name}`,
       actor_id: nodeId,
+      node_id: nodeId,
     },
   });
+
+  // Compute and persist the initial GDI score
+  let gdi_mean = INITIAL_GDI_SCORE;
+  let gdi_lower = INITIAL_GDI_SCORE;
+  try {
+    const gdiResult = await calculateGDI(assetId);
+    gdi_mean = gdiResult.gdi_mean;
+    gdi_lower = gdiResult.gdi_lower;
+  } catch {
+    // calculateGDI may fail if the asset has no history yet — fall back to initial score
+  }
 
   return {
     status: 'ok',
     asset_id: asset.asset_id,
     asset_type: asset.asset_type as AssetType,
-    gdi_score: asset.gdi_score,
+    gdi_score: gdi_mean,
+    gdi_mean,
+    gdi_lower,
     carbon_cost: asset.carbon_cost,
     similarity_check: similarityResults,
   };
@@ -248,40 +290,105 @@ export async function revokeAsset(
   return { asset_id: assetId, status: 'revoked' };
 }
 
+/**
+ * Auto-promotion gate for assets.
+ *
+ * All FIVE conditions must be met simultaneously for promotion:
+ * 1. gdi_lower >= 25
+ * 2. intrinsic >= 0.4
+ * 3. confidence >= 0.5
+ * 4. source node reputation >= 30
+ * 5. validation consensus: NOT majority-failed
+ */
 export async function promoteAsset(
   assetId: string,
-): Promise<{ asset_id: string; status: string; gdi_score: number }> {
+): Promise<{ promoted: boolean; reason?: string }> {
   const asset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
   if (!asset) throw new NotFoundError('Asset', assetId);
-  if (asset.gdi_score < PROMOTION_GDI_THRESHOLD) {
-    throw new ValidationError(
-      `GDI score ${asset.gdi_score} is below promotion threshold ${PROMOTION_GDI_THRESHOLD}`,
-    );
-  }
+  if (asset.status === 'promoted') return { promoted: false, reason: 'already_promoted' };
+  if (asset.status === 'rejected') return { promoted: false, reason: 'already_rejected' };
 
-  await prisma.asset.update({ where: { asset_id: assetId }, data: { status: 'promoted' } });
+  // Fetch the latest GDI record (may be stale if older than 30 days)
+  const gdiRecord = await prisma.gDIScoreRecord.findUnique({ where: { asset_id: assetId } });
+  const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+  const needsRecalc = !gdiRecord
+    || (Date.now() - new Date(gdiRecord.updatedAt).getTime()) > THIRTY_DAYS_MS;
 
-  const node = await prisma.node.findUnique({ where: { node_id: asset.author_id } });
-  if (node) {
-    const newReputation = Math.min(100, node.reputation + 50);
-    const newBalance = node.credit_balance + PROMOTION_REWARD;
-    await prisma.node.update({
-      where: { node_id: asset.author_id },
-      data: { reputation: newReputation, credit_balance: newBalance },
-    });
-    await prisma.creditTransaction.create({
-      data: {
-        node_id: asset.author_id,
-        amount: PROMOTION_REWARD,
-        type: 'promotion_reward',
-        description: `Asset promoted: ${assetId}`,
-        balance_after: newBalance,
+  let gdi_lower = gdiRecord?.gdiLower ?? gdiRecord?.overall ?? 0;
+  let intrinsic = gdiRecord?.intrinsic ?? 0;
+  const confidence = asset.confidence ?? 1.0;
+
+  if (needsRecalc) {
+    const newScores = await calculateGDI(assetId);
+    gdi_lower = newScores.gdi_lower;
+    intrinsic = newScores.dimensions.intrinsic ?? 0;
+    // Upsert the updated scores so next call uses cached values
+    await prisma.gDIScoreRecord.upsert({
+      where: { asset_id: assetId },
+      create: {
+        asset_id: assetId,
+        overall: newScores.gdi_mean,
+        gdiMean: newScores.gdi_mean,
+        gdiLower: newScores.gdi_lower,
+        intrinsic: newScores.dimensions.intrinsic ?? 0,
+        usage_mean: newScores.dimensions.usage_mean ?? 0,
+        social_mean: newScores.dimensions.social_mean ?? 0,
+        freshness: newScores.dimensions.freshness ?? 0,
+      },
+      update: {
+        overall: newScores.gdi_mean,
+        gdiMean: newScores.gdi_mean,
+        gdiLower: newScores.gdi_lower,
+        intrinsic: newScores.dimensions.intrinsic ?? 0,
+        usage_mean: newScores.dimensions.usage_mean ?? 0,
+        social_mean: newScores.dimensions.social_mean ?? 0,
+        freshness: newScores.dimensions.freshness ?? 0,
       },
     });
-    await prisma.reputationEvent.create({
-      data: { node_id: asset.author_id, event_type: 'promoted', delta: 50, reason: `Asset promoted: ${assetId}` },
-    });
   }
+
+  // ─── CONDITION 1: GDI lower bound >= 25 ───
+  if (gdi_lower < GDI_PROMOTION_THRESHOLD) {
+    return { promoted: false, reason: `gdi_lower_${gdi_lower.toFixed(1)}_below_${GDI_PROMOTION_THRESHOLD}` };
+  }
+
+  // ─── CONDITION 2: intrinsic >= 0.4 ───
+  if (intrinsic < GDI_INTRINSIC_MIN) {
+    return { promoted: false, reason: `intrinsic_${intrinsic.toFixed(2)}_below_${GDI_INTRINSIC_MIN}` };
+  }
+
+  // ─── CONDITION 3: confidence >= 0.5 ───
+  if (confidence < GDI_CONFIDENCE_MIN) {
+    return { promoted: false, reason: `confidence_${confidence.toFixed(2)}_below_${GDI_CONFIDENCE_MIN}` };
+  }
+
+  // ─── CONDITION 4: node reputation >= 30 ───
+  const node = await prisma.node.findUnique({ where: { node_id: asset.author_id } });
+  if (!node || node.reputation < NODE_REPUTATION_MIN) {
+    return { promoted: false, reason: `node_reputation_${node?.reputation ?? 0}_below_${NODE_REPUTATION_MIN}` };
+  }
+
+  // ─── CONDITION 5: validation consensus not majority-failed ───
+  const disputes = await prisma.dispute.findMany({
+    where: { target_id: assetId, type: 'ASSET_QUALITY' },
+  });
+  if (disputes.length > 0) {
+    const fails = disputes.filter(
+      d => d.status === 'resolved' && Array.isArray(d.notes) && d.notes.includes('fail'),
+    ).length;
+    const passes = disputes.filter(
+      d => d.status === 'resolved' && Array.isArray(d.notes) && d.notes.includes('pass'),
+    ).length;
+    if (fails > passes) {
+      return { promoted: false, reason: 'validation_majority_failed' };
+    }
+  }
+
+  // ─── ALL CONDITIONS MET: promote ───
+  await prisma.asset.update({
+    where: { asset_id: assetId },
+    data: { status: 'promoted' },
+  });
 
   await prisma.evolutionEvent.create({
     data: {
@@ -289,12 +396,28 @@ export async function promoteAsset(
       event_type: 'promoted',
       from_version: asset.version,
       to_version: asset.version,
-      changes: 'Asset promoted by system',
+      changes: 'Asset promoted by system (auto-promotion gate)',
       actor_id: 'system',
     },
   });
 
-  return { asset_id: assetId, status: 'promoted', gdi_score: asset.gdi_score };
+  // Award credits to source node
+  await prisma.creditTransaction.create({
+    data: {
+      node_id: asset.author_id,
+      type: 'ASSET_PROMOTED',
+      amount: 100,
+      description: `Asset ${assetId} auto-promoted`,
+      balance_after: 0,
+    },
+  });
+
+  await prisma.node.update({
+    where: { node_id: asset.author_id },
+    data: { credit_balance: { increment: 100 } },
+  });
+
+  return { promoted: true };
 }
 
 export async function searchAssets(query: string): Promise<SearchResultItem[]> {
@@ -329,27 +452,141 @@ export async function calculateGDI(assetId: string): Promise<GDIScore> {
   const asset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
   if (!asset) throw new NotFoundError('Asset', assetId);
 
-  const usefulness = Math.min(100, (asset.downloads * 2) + (asset.rating * 10));
-  const novelty = Math.max(0, 100 - (asset.fork_count * 10));
-  const rigor = asset.gdi_score;
-  const reuse = Math.min(100, asset.downloads * 3);
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-  const overall =
-    usefulness * GDI_WEIGHTS.usefulness +
-    novelty * GDI_WEIGHTS.novelty +
-    rigor * GDI_WEIGHTS.rigor +
-    reuse * GDI_WEIGHTS.reuse;
+  // ─── DIMENSION 1: INTRINSIC (weight 35%) ─── fixed at publish time
+  const node = await prisma.node.findUnique({ where: { node_id: asset.author_id } });
+  const nodeRep = node?.reputation ?? 50;
 
+  const triggerCount = (asset.signals as string[])?.length ?? 0;
+  const summaryLen = (asset.description?.length ?? 0);
+
+  // Get blast_radius from asset metadata if stored
+  let blastFiles = 1, blastLines = 1;
+  if (asset.config && typeof asset.config === 'object') {
+    const meta = asset.config as Record<string, unknown>;
+    if (meta.blast_radius && typeof meta.blast_radius === 'object') {
+      const br = meta.blast_radius as Record<string, unknown>;
+      blastFiles = (br.files as number) ?? 1;
+      blastLines = (br.lines as number) ?? 1;
+    }
+  }
+
+  const confidence = clamp01(asset.confidence ?? 1.0);
+  const successStreak = clamp01((asset.execution_count ?? 0) / 10);
+  const blastRadiusSafety = Math.max(0, 1 - (blastFiles * blastLines) / 1000);
+  const triggerSpec = clamp01(triggerCount / 5);
+  const summaryQuality = clamp01(summaryLen / 200);
+  const nodeRepScore = clamp01(nodeRep / 100);
+
+  const intrinsic = (confidence + successStreak + blastRadiusSafety + triggerSpec + summaryQuality + nodeRepScore) / 6;
+
+  // ─── DIMENSION 2: USAGE (weight 30%) ─── rolling window
+  const fetchRecords = await prisma.assetDownload.findMany({
+    where: { asset_id: assetId, created_at: { gte: thirtyDaysAgo } },
+  });
+  const fetch30d = fetchRecords.length;
+  const unique30dSet = new Set(fetchRecords.map(r => r.node_id));
+  const unique30d = unique30dSet.size;
+  const exec90d = asset.execution_count ?? 0;
+
+  const usage_mean =
+    0.40 * satExp(fetch30d, SATEXP_K.fetch)
+    + 0.30 * satExp(unique30d, SATEXP_K.unique)
+    + 0.30 * satExp(exec90d, SATEXP_K.exec);
+  const usage_lower = usage_mean * (0.5 + 0.5 * clamp01(unique30d / 5));
+
+  // ─── DIMENSION 3: SOCIAL (weight 20%) ─── votes + validation + reproducibility
+  const votes = await prisma.assetVote.findMany({ where: { asset_id: assetId } });
+  const upvotes = votes.filter(v => v.vote_type === 'up').length;
+  const downvotes = votes.filter(v => v.vote_type === 'down').length;
+
+  const disputes = await prisma.dispute.findMany({ where: { target_id: assetId } });
+  const passes = disputes.filter(d => d.status === 'resolved' && Array.isArray(d.notes as string[]) && (d.notes as string[]).includes('pass')).length;
+  const fails = disputes.filter(d => d.status === 'resolved' && Array.isArray(d.notes as string[]) && (d.notes as string[]).includes('fail')).length;
+
+  const vote_mean = (upvotes + 1) / (upvotes + downvotes + 2);
+  const vote_lower = wilsonLower(upvotes, downvotes);
+
+  const val_total = passes + fails;
+  const val_mean = val_total > 0 ? passes / val_total : 0.5;
+  const val_lower = wilsonLower(passes, fails);
+
+  // Reproducibility from EvolutionEvents
+  const evts = await prisma.evolutionEvent.findMany({
+    where: { asset_id: assetId, created_at: { gte: ninetyDaysAgo } },
+  });
+  const crossNodeSet = new Set(evts.map(e => e.node_id ?? ''));
+  const crossNodeSuccess = evts.filter(e => e.outcome && (e.outcome as Record<string, unknown>)?.status === 'success').length;
+  const repro_rate = evts.length > 0 ? crossNodeSuccess / evts.length : 0;
+  const repro_mean = repro_rate;
+  const repro_lower = repro_rate;
+
+  const hasEvolutionEvent = evts.length > 0;
+  const bundle = hasEvolutionEvent ? 1 : 0.5;
+
+  const social_mean = 0.35 * vote_mean + 0.35 * val_mean + 0.20 * repro_mean + 0.10 * bundle;
+  const social_lower = 0.35 * vote_lower + 0.35 * val_lower + 0.20 * repro_lower + 0.10 * bundle;
+
+  // ─── DIMENSION 4: FRESHNESS (weight 15%) ───
+  const lastActivity = asset.last_verified_at ?? asset.updated_at ?? asset.created_at;
+  const daysSinceActivity = (now.getTime() - lastActivity.getTime()) / (24 * 60 * 60 * 1000);
+  const freshness = Math.exp(-daysSinceActivity / 90);
+
+  // ─── FINAL GDI SCORES ───
+  const gdi_mean = 100 * (
+    GDI_WEIGHTS.intrinsic * intrinsic
+    + GDI_WEIGHTS.usage * usage_mean
+    + GDI_WEIGHTS.social * social_mean
+    + GDI_WEIGHTS.freshness * freshness
+  );
+
+  const gdi_lower = 100 * (
+    GDI_WEIGHTS.intrinsic * intrinsic
+    + GDI_WEIGHTS.usage * usage_lower
+    + GDI_WEIGHTS.social * social_lower
+    + GDI_WEIGHTS.freshness * freshness
+  );
+
+  // Store detailed scores in GDIScoreRecord
   const gdiRecord = await prisma.gDIScoreRecord.create({
-    data: { asset_id: assetId, overall, usefulness, novelty, rigor, reuse },
+    data: {
+      asset_id: assetId,
+      overall: gdi_mean,
+      intrinsic,
+      usage_mean,
+      usage_lower,
+      social_mean,
+      social_lower,
+      freshness,
+    },
   });
 
-  await prisma.asset.update({ where: { asset_id: assetId }, data: { gdi_score: overall } });
+  // Update the asset's summary scores
+  await prisma.asset.update({
+    where: { asset_id: assetId },
+    data: {
+      gdi_score: gdi_mean,
+      gdi_mean,
+      gdi_lower,
+    },
+  });
 
   return {
     asset_id: assetId,
-    overall,
-    dimensions: { usefulness, novelty, rigor, reuse },
+    overall: gdi_mean,
+    gdi_mean,
+    gdi_lower,
+    dimensions: {
+      intrinsic,
+      usage_mean,
+      usage_lower,
+      social_mean,
+      social_lower,
+      freshness,
+    },
     calculated_at: gdiRecord.calculated_at.toISOString(),
   };
 }

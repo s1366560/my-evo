@@ -23,6 +23,7 @@ import {
   SIMILARITY_THRESHOLD,
   INITIAL_GDI_SCORE,
   PROMOTION_GDI_THRESHOLD,
+  GDI_PROMOTION_THRESHOLD,
 } from '../shared/constants';
 import type { AssetType } from '../shared/types';
 
@@ -43,6 +44,7 @@ const mockPrisma = {
   },
   evolutionEvent: {
     create: jest.fn(),
+    findMany: jest.fn(),
   },
   similarityRecord: {
     create: jest.fn(),
@@ -52,6 +54,17 @@ const mockPrisma = {
   },
   gDIScoreRecord: {
     create: jest.fn(),
+    findUnique: jest.fn(),
+    upsert: jest.fn(),
+  },
+  dispute: {
+    findMany: jest.fn(),
+  },
+  assetDownload: {
+    findMany: jest.fn(),
+  },
+  assetVote: {
+    findMany: jest.fn(),
   },
 } as any;
 
@@ -339,39 +352,172 @@ describe('Assets Service', () => {
   });
 
   describe('promoteAsset', () => {
-    it('should promote asset when GDI >= 70', async () => {
-      const mockAsset = {
-        asset_id: 'asset-1',
-        author_id: 'node-1',
-        gdi_score: 80,
-        version: 1,
-      };
+    const baseAsset = {
+      asset_id: 'asset-1',
+      author_id: 'node-1',
+      status: 'published',
+      confidence: 0.8,
+      version: 1,
+    };
 
-      const mockNode = { node_id: 'node-1', reputation: 50, credit_balance: 100 };
+    const goodNode = { node_id: 'node-1', reputation: 50, credit_balance: 100 };
 
-      mockPrisma.asset.findUnique.mockResolvedValue(mockAsset);
+    const goodGdiRecord = {
+      asset_id: 'asset-1',
+      overall: 45,
+      gdiLower: 30,
+      gdiMean: 45,
+      intrinsic: 0.6,
+      updatedAt: new Date(),
+    };
+
+    beforeEach(() => {
       mockPrisma.asset.update.mockResolvedValue({});
-      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
-      mockPrisma.reputationEvent.create.mockResolvedValue({});
       mockPrisma.evolutionEvent.create.mockResolvedValue({});
+    });
+
+    it('should promote when all 5 conditions are met', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue(baseAsset);
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(goodGdiRecord);
+      mockPrisma.node.findUnique.mockResolvedValue(goodNode);
+      mockPrisma.dispute.findMany.mockResolvedValue([]);
 
       const result = await promoteAsset('asset-1');
 
-      expect(result.status).toBe('promoted');
-      expect(result.gdi_score).toBe(80);
+      expect(result.promoted).toBe(true);
+      expect(result.reason).toBeUndefined();
+      expect(mockPrisma.asset.update).toHaveBeenCalledWith({
+        where: { asset_id: 'asset-1' },
+        data: { status: 'promoted' },
+      });
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ type: 'ASSET_PROMOTED', amount: 100 }),
+      });
+      expect(mockPrisma.node.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: { credit_balance: { increment: 100 } },
+      });
     });
 
-    it('should throw ValidationError when GDI < 70', async () => {
-      const mockAsset = { asset_id: 'asset-1', gdi_score: 50, version: 1 };
-      mockPrisma.asset.findUnique.mockResolvedValue(mockAsset);
+    it('should reject when gdi_lower < 25', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue(baseAsset);
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue({ ...goodGdiRecord, gdiLower: 20 });
+      mockPrisma.dispute.findMany.mockResolvedValue([]);
 
-      await expect(promoteAsset('asset-1')).rejects.toThrow(ValidationError);
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(false);
+      expect(result.reason).toMatch(/gdi_lower_/);
+      expect(mockPrisma.asset.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject when intrinsic < 0.4', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue(baseAsset);
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue({ ...goodGdiRecord, intrinsic: 0.3 });
+      mockPrisma.dispute.findMany.mockResolvedValue([]);
+
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(false);
+      expect(result.reason).toMatch(/intrinsic_/);
+    });
+
+    it('should reject when confidence < 0.5', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue({ ...baseAsset, confidence: 0.3 });
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(goodGdiRecord);
+      mockPrisma.dispute.findMany.mockResolvedValue([]);
+
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(false);
+      expect(result.reason).toMatch(/confidence_/);
+    });
+
+    it('should reject when node reputation < 30', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue(baseAsset);
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(goodGdiRecord);
+      mockPrisma.node.findUnique.mockResolvedValue({ ...goodNode, reputation: 20 });
+      mockPrisma.dispute.findMany.mockResolvedValue([]);
+
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(false);
+      expect(result.reason).toMatch(/node_reputation_/);
+    });
+
+    it('should reject when validation majority-failed', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue(baseAsset);
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(goodGdiRecord);
+      mockPrisma.node.findUnique.mockResolvedValue(goodNode);
+      mockPrisma.dispute.findMany.mockResolvedValue([
+        { status: 'resolved', notes: ['fail'] },
+        { status: 'resolved', notes: ['fail'] },
+        { status: 'resolved', notes: ['pass'] },
+      ]);
+
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(false);
+      expect(result.reason).toBe('validation_majority_failed');
+    });
+
+    it('should allow promotion when disputes exist but no majority failure', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue(baseAsset);
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(goodGdiRecord);
+      mockPrisma.node.findUnique.mockResolvedValue(goodNode);
+      mockPrisma.dispute.findMany.mockResolvedValue([
+        { status: 'resolved', notes: ['pass'] },
+        { status: 'resolved', notes: ['fail'] },
+      ]);
+
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(true);
+    });
+
+    it('should recalculate GDI when record is stale (older than 30 days)', async () => {
+      const staleRecord = { ...goodGdiRecord, updatedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) };
+      const assetWithSignals = { ...baseAsset, description: 'A good description for testing purposes here', signals: ['sig1', 'sig2'], config: {}, updated_at: new Date(), created_at: new Date(), last_verified_at: null };
+      mockPrisma.asset.findUnique.mockResolvedValue(assetWithSignals);
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(staleRecord);
+      mockPrisma.gDIScoreRecord.upsert.mockResolvedValue({});
+      mockPrisma.node.findUnique.mockResolvedValue(goodNode);
+      mockPrisma.dispute.findMany.mockResolvedValue([]);
+      mockPrisma.assetDownload.findMany.mockResolvedValue([]);
+      mockPrisma.assetVote.findMany.mockResolvedValue([]);
+      mockPrisma.evolutionEvent.findMany.mockResolvedValue([]);
+      mockPrisma.gDIScoreRecord.create.mockResolvedValue({ calculated_at: new Date() });
+      mockPrisma.asset.update.mockResolvedValue({});
+
+      const result = await promoteAsset('asset-1');
+
+      expect(mockPrisma.gDIScoreRecord.upsert).toHaveBeenCalled();
+      expect(result.promoted).toBe(true);
+    });
+
+    it('should return already_promoted for promoted assets', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue({ ...baseAsset, status: 'promoted' });
+
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(false);
+      expect(result.reason).toBe('already_promoted');
+    });
+
+    it('should return already_rejected for rejected assets', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue({ ...baseAsset, status: 'rejected' });
+
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(false);
+      expect(result.reason).toBe('already_rejected');
     });
 
     it('should throw NotFoundError for unknown asset', async () => {
       mockPrisma.asset.findUnique.mockResolvedValue(null);
+
       await expect(promoteAsset('unknown')).rejects.toThrow(NotFoundError);
     });
   });
@@ -409,6 +555,15 @@ describe('Assets Service', () => {
         rating: 4.5,
         fork_count: 2,
         gdi_score: 60,
+        confidence: 0.9,
+        execution_count: 5,
+        description: 'A comprehensive description that exceeds two hundred characters for the quality metric test',
+        signals: ['signal1', 'signal2', 'signal3'],
+        config: {},
+        author_id: 'node-1',
+        updated_at: new Date(),
+        created_at: new Date(),
+        last_verified_at: null,
       };
 
       const mockGdiRecord = {
@@ -422,16 +577,21 @@ describe('Assets Service', () => {
       };
 
       mockPrisma.asset.findUnique.mockResolvedValue(mockAsset);
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', reputation: 60 });
+      mockPrisma.assetDownload.findMany.mockResolvedValue([{ node_id: 'node-1' }]);
+      mockPrisma.assetVote.findMany.mockResolvedValue([{ vote_type: 'up' }]);
+      mockPrisma.dispute.findMany.mockResolvedValue([]);
+      mockPrisma.evolutionEvent.findMany.mockResolvedValue([]);
       mockPrisma.gDIScoreRecord.create.mockResolvedValue(mockGdiRecord);
       mockPrisma.asset.update.mockResolvedValue({});
 
       const result = await calculateGDI('asset-1');
 
       expect(result.asset_id).toBe('asset-1');
-      expect(result.dimensions).toHaveProperty('usefulness');
-      expect(result.dimensions).toHaveProperty('novelty');
-      expect(result.dimensions).toHaveProperty('rigor');
-      expect(result.dimensions).toHaveProperty('reuse');
+      expect(result.dimensions).toHaveProperty('intrinsic');
+      expect(result.dimensions).toHaveProperty('usage_mean');
+      expect(result.dimensions).toHaveProperty('social_mean');
+      expect(result.dimensions).toHaveProperty('freshness');
       expect(mockPrisma.asset.update).toHaveBeenCalled();
     });
 

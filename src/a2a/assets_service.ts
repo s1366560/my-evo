@@ -360,10 +360,12 @@ export async function getAssetAuditTrail(assetId: string): Promise<{
     })),
     score_history: scoreHistory.map((s) => ({
       overall: s.overall,
-      usefulness: s.usefulness,
-      novelty: s.novelty,
-      rigor: s.rigor,
-      reuse: s.reuse,
+      intrinsic: s.intrinsic,
+      usage_mean: s.usage_mean,
+      usage_lower: s.usage_lower,
+      social_mean: s.social_mean,
+      social_lower: s.social_lower,
+      freshness: s.freshness,
       calculated_at: s.calculated_at.toISOString(),
     })),
   };

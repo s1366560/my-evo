@@ -370,6 +370,12 @@ export async function buildApp() {
   const { memoryGraphRoutes } = await import('./memory_graph/routes');
   await app.register(memoryGraphRoutes, { prefix: '/api/v2/memory-graph' });
 
+  // ── Start GDI refresh worker (BullMQ, hourly batch) ──
+  const { startGDIRefreshWorker } = await import('./worker/gdi-refresh.js');
+  startGDIRefreshWorker().catch((err) => {
+    app.log.error('[GDI-Refresh] Worker failed to start:', err);
+  });
+
   return app;
 }
 
