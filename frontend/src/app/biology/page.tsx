@@ -40,10 +40,10 @@ function FitnessLandscapeGrid({ grid }: {
   }
   const getColor = (gdi: number, count: number) => {
     if (count === 0) return "var(--color-border)";
-    if (gdi >= 85) return "color-mix(in srgb, var(--color-gene-green) 80%, transparent)";
-    if (gdi >= 70) return "color-mix(in srgb, var(--color-capsule-blue) 70%, transparent)";
-    if (gdi >= 50) return "color-mix(in srgb, var(--color-recipe-amber) 60%, transparent)";
-    return "color-mix(in srgb, var(--color-destructive) 50%, transparent)";
+    if (gdi >= 85) return "color-mix(in oklab, var(--color-gene-green) 80%, transparent)";
+    if (gdi >= 70) return "color-mix(in oklab, var(--color-capsule-blue) 70%, transparent)";
+    if (gdi >= 50) return "color-mix(in oklab, var(--color-recipe-amber) 60%, transparent)";
+    return "color-mix(in oklab, var(--color-destructive) 50%, transparent)";
   };
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-background)] p-4">
@@ -65,19 +65,19 @@ function FitnessLandscapeGrid({ grid }: {
       <div className="mt-3 flex items-center gap-4 text-xs text-[var(--color-muted-foreground)]">
         <span className="font-medium">GDI ↓</span>
         <span className="flex items-center gap-1">
-          <span className="h-3 w-3 rounded" style={{ backgroundColor: "color-mix(in srgb, var(--color-gene-green) 80%, transparent)" }} />
+          <span className="h-3 w-3 rounded" style={{ backgroundColor: "color-mix(in oklab, var(--color-gene-green) 80%, transparent)" }} />
           <span>High (85+)</span>
         </span>
         <span className="flex items-center gap-1">
-          <span className="h-3 w-3 rounded" style={{ backgroundColor: "color-mix(in srgb, var(--color-capsule-blue) 70%, transparent)" }} />
+          <span className="h-3 w-3 rounded" style={{ backgroundColor: "color-mix(in oklab, var(--color-capsule-blue) 70%, transparent)" }} />
           <span>Medium (70+)</span>
         </span>
         <span className="flex items-center gap-1">
-          <span className="h-3 w-3 rounded" style={{ backgroundColor: "color-mix(in srgb, var(--color-recipe-amber) 60%, transparent)" }} />
+          <span className="h-3 w-3 rounded" style={{ backgroundColor: "color-mix(in oklab, var(--color-recipe-amber) 60%, transparent)" }} />
           <span>Low (50+)</span>
         </span>
         <span className="flex items-center gap-1">
-          <span className="h-3 w-3 rounded" style={{ backgroundColor: "color-mix(in srgb, var(--color-destructive) 50%, transparent)" }} />
+          <span className="h-3 w-3 rounded" style={{ backgroundColor: "color-mix(in oklab, var(--color-destructive) 50%, transparent)" }} />
           <span>Very Low</span>
         </span>
       </div>
@@ -96,7 +96,7 @@ function GeneDistribution({ assets }: { assets: Asset[] }) {
     Gene: "var(--color-gene-green)",
     Capsule: "var(--color-capsule-blue)",
     Recipe: "var(--color-recipe-amber)",
-    Organism: "color-mix(in srgb, var(--color-organism-purple, #a855f7) 100%, transparent)",
+    Organism: "color-mix(in oklab, var(--color-organism-purple, #a855f7) 100%, transparent)",
   };
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-background)] p-4">
@@ -115,7 +115,7 @@ function GeneDistribution({ assets }: { assets: Asset[] }) {
                 style={{
                   transform: `scaleX(${count / total})`,
                   transformOrigin: "left",
-                  backgroundColor: `color-mix(in srgb, ${colors[type] ?? "var(--color-border)"} 100%, transparent)`,
+                  backgroundColor: `color-mix(in oklab, ${colors[type] ?? "var(--color-border)"} 100%, transparent)`,
                 }}
               />
             </div>

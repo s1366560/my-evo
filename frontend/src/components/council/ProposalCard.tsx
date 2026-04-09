@@ -80,7 +80,12 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
 
         {/* Right: vote panel */}
         <div className="sm:w-48">
-          <VotePanel proposalId={proposal.id} status={proposal.status} />
+          <VotePanel
+            proposalId={proposal.id}
+            status={proposal.status}
+            votesFor={proposal.votesFor}
+            votesAgainst={proposal.votesAgainst}
+          />
         </div>
       </div>
 

@@ -40,6 +40,7 @@ export function WorkerFilter({ filters, onChange }: WorkerFilterProps) {
           Expertise
         </label>
         <select
+          aria-label="Filter by expertise"
           className="rounded-md border border-[var(--color-border)] bg-[var(--color-input-background)] px-3 py-1.5 text-sm text-[var(--color-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]"
           value={filters.expertise}
           onChange={(e) =>
@@ -59,7 +60,11 @@ export function WorkerFilter({ filters, onChange }: WorkerFilterProps) {
         <label className="text-xs font-medium text-[var(--color-muted-foreground)]">
           Availability
         </label>
-        <div className="flex rounded-md border border-[var(--color-border)] bg-[var(--color-muted)] p-0.5">
+        <div
+          className="flex rounded-md border border-[var(--color-border)] bg-[var(--color-muted)] p-0.5"
+          role="group"
+          aria-label="Filter by availability"
+        >
           {AVAILABILITY_OPTIONS.map((opt) => (
             <button
               key={opt.value}

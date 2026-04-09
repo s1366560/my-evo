@@ -61,13 +61,15 @@ export default function WorkerPoolPage() {
     minRating: 0,
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["workerpool", "workers"],
     queryFn: () => apiClient.getWorkerpool(),
   });
 
-  const workers = ((data as unknown as { workers?: unknown[] })?.workers ?? []) as Worker[];
-  const total = ((data as unknown as { workers?: unknown[] })?.workers?.length ?? 0);
+  // GET /api/v2/workerpool/ → { success, data: { workers: Worker[], meta: {...} } }
+  const wrapper = data as { data?: { workers?: Worker[] } } | null | undefined;
+  const workers: Worker[] = wrapper?.data?.workers ?? [];
+  const total = workers.length;
 
   const filteredWorkers = workers.filter((w) => {
     if (filters.availability !== "All" && w.availability !== filters.availability) {
@@ -88,6 +90,23 @@ export default function WorkerPoolPage() {
     return (
       <PageContainer>
         <WorkerSkeleton />
+      </PageContainer>
+    );
+  }
+
+  if (isError) {
+    return (
+      <PageContainer>
+        <div className="flex h-64 items-center justify-center">
+          <div className="rounded-xl border border-[var(--color-destructive)]/30 bg-[var(--color-destructive)]/5 p-6 text-center">
+            <p className="text-sm font-medium text-[var(--color-destructive)]">
+              Failed to load workers.
+            </p>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              Please try refreshing the page.
+            </p>
+          </div>
+        </div>
       </PageContainer>
     );
   }

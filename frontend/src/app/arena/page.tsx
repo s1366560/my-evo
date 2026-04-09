@@ -49,10 +49,12 @@ export default function ArenaPage() {
         </p>
       )}
       {!seasonsLoading && seasons && (
-        <div className="flex gap-4 border-b border-[var(--color-border)]">
+        <div className="flex gap-4 border-b border-[var(--color-border)]" role="tablist" aria-label="Arena tabs">
           {tab === "current" && (
-            <label className="mb-[-1px] border-b-2 border-[var(--color-gene-green)] bg-transparent pb-3 text-sm font-medium text-[var(--color-gene-green)] outline-none">
+            <label className="mb-[-1px] flex items-center gap-1 border-b-2 border-[var(--color-gene-green)] bg-transparent pb-3 text-sm font-medium text-[var(--color-gene-green)] outline-none">
+              <span className="text-xs text-[var(--color-muted-foreground)]" id="season-label">Season:</span>
               <select
+                aria-labelledby="season-label"
                 className="bg-transparent outline-none"
                 value={selectedSeasonId ?? activeSeason?.season_id ?? ""}
                 onChange={(e) => setSelectedSeasonId(e.target.value)}
@@ -68,6 +70,8 @@ export default function ArenaPage() {
           {tabs.map((t) => (
             <button
               key={t.key}
+              role="tab"
+              aria-selected={tab === t.key}
               onClick={() => setTab(t.key)}
               className={`border-b-2 pb-3 text-sm font-medium transition-colors ${
                 tab === t.key
@@ -93,7 +97,7 @@ export default function ArenaPage() {
       )}
 
       {/* Match History */}
-      <MatchHistory />
+      {!seasonsLoading && !seasonsError && <MatchHistory />}
     </div>
   );
 }

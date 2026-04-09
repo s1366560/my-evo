@@ -12,10 +12,46 @@ export default function LineagePage() {
   const params = useParams();
   const assetId = params.assetId as string;
 
-  const { data: lineage, isLoading } = useQuery({
+  const { data: lineage, isLoading, isError } = useQuery({
     queryKey: ["a2a", "asset", assetId, "lineage"],
     queryFn: () => apiClient.getAssetLineage(assetId),
   });
+
+  if (isError) {
+    return (
+      <div className="py-8 text-center">
+        <p className="text-[var(--color-muted-foreground)]">
+          Failed to load lineage data. Please try again.
+        </p>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-20 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!lineage) {
+    return (
+      <p className="text-[var(--color-muted-foreground)]">
+        Lineage data unavailable.
+      </p>
+    );
+  }
+
+  if (lineage.nodes.length === 0) {
+    return (
+      <p className="py-8 text-center text-[var(--color-muted-foreground)]">
+        No lineage data for this asset.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -36,23 +72,7 @@ export default function LineagePage() {
         </p>
       </div>
 
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full" />
-          ))}
-        </div>
-      ) : !lineage ? (
-        <p className="text-[var(--color-muted-foreground)]">
-          Lineage data unavailable.
-        </p>
-      ) : lineage.nodes.length === 0 ? (
-        <p className="py-8 text-center text-[var(--color-muted-foreground)]">
-          No lineage data for this asset.
-        </p>
-      ) : (
-        <LineageTree data={lineage} assetId={assetId} />
-      )}
+      <LineageTree data={lineage} assetId={assetId} />
     </div>
   );
 }

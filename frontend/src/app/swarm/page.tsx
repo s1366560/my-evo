@@ -10,7 +10,7 @@ import { QueryKeys } from "@/lib/api/query-keys";
 import type { SwarmMode } from "@/components/swarm/SwarmTaskCard";
 
 export default function SwarmPage() {
-  const { data: swarmData, isLoading } = useQuery({
+  const { data: swarmData, isLoading, isError } = useQuery({
     queryKey: QueryKeys.swarm.list(),
     queryFn: () => apiClient.getSwarmTasks(),
   });
@@ -39,6 +39,44 @@ export default function SwarmPage() {
         tasks: Math.max(1, Math.round(s.participant_count * 0.4)),
       }))
     : [];
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <PageContainer>
+        <div className="space-y-6">
+          <div>
+            <Skeleton className="mb-2 h-9 w-48" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {[1,2,3,4].map(i => <Skeleton key={i} className="h-20 rounded-lg" />)}
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-36" />)}
+          </div>
+        </div>
+      </PageContainer>
+    );
+  }
+
+  // Error state
+  if (isError) {
+    return (
+      <PageContainer>
+        <div className="flex h-64 items-center justify-center">
+          <div className="rounded-xl border border-[var(--color-destructive)]/30 bg-[var(--color-destructive)]/5 p-6 text-center">
+            <p className="text-sm font-medium text-[var(--color-destructive)]">
+              Failed to load swarm data.
+            </p>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              Please try refreshing the page.
+            </p>
+          </div>
+        </div>
+      </PageContainer>
+    );
+  }
 
   return (
     <PageContainer>

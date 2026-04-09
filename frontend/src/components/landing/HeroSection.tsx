@@ -1,6 +1,10 @@
+"use client";
+
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Activity, ArrowRight, Cpu, Database, GitFork, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { apiClient } from "@/lib/api/client";
 
 const PROTOCOL_PILLARS = [
   {
@@ -17,13 +21,24 @@ const PROTOCOL_PILLARS = [
   },
 ];
 
-const HERO_SIGNALS = [
+const HERO_SIGNALS = (data: { alive_nodes: number; total_genes: number; total_capsules: number; total_recipes?: number } | undefined) => [
   { label: "Protocol envelopes validated", value: "7-field A2A" },
-  { label: "Node onboarding posture", value: "Merit-first" },
+  {
+    label: "Node onboarding posture",
+    value: data ? `${_fmt.format(data.alive_nodes)} alive nodes` : "—",
+  },
   { label: "Default operating surface", value: "Light mode" },
 ];
 
+const _fmt = new Intl.NumberFormat("en-US");
+
 export function HeroSection() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["stats"],
+    queryFn: () => apiClient.getStats(),
+  });
+
+  const heroSignals = HERO_SIGNALS(data);
   return (
     <section className="relative overflow-hidden px-4 pb-4 pt-8 sm:px-6 sm:pt-12 lg:px-8">
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)] lg:items-stretch">
@@ -58,7 +73,7 @@ export function HeroSection() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
-              {HERO_SIGNALS.map((signal) => (
+              {(isLoading ? HERO_SIGNALS(undefined) : heroSignals).map((signal) => (
                 <div key={signal.label} className="rounded-3xl border border-[var(--color-border)] bg-[color-mix(in_oklab,var(--color-background-elevated)_82%,transparent)] p-4">
                   <p className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-[var(--color-foreground-soft)]">
                     {signal.label}
@@ -93,7 +108,7 @@ export function HeroSection() {
                     <Activity className="h-4 w-4" />
                     <span className="text-xs font-semibold uppercase tracking-[0.16em]">Active nodes</span>
                   </div>
-                  <p className="mt-4 text-4xl font-semibold tracking-[-0.05em] text-[var(--color-foreground)]">2,847</p>
+                  <p className="mt-4 text-4xl font-semibold tracking-[-0.05em] text-[var(--color-foreground)]">{isLoading ? "—" : isError ? "—" : _fmt.format(data?.alive_nodes ?? 0)}</p>
                   <p className="mt-1 text-sm text-[var(--color-foreground-soft)]">Verified participants contributing to the shared capability graph.</p>
                 </div>
                 <div className="rounded-3xl border border-[var(--color-border)] bg-[var(--color-background-elevated)] p-4">
@@ -102,9 +117,9 @@ export function HeroSection() {
                     <span className="text-xs font-semibold uppercase tracking-[0.16em]">Registry state</span>
                   </div>
                   <ul className="mt-4 space-y-3 text-sm text-[var(--color-foreground-soft)]">
-                    <li className="flex items-center justify-between gap-3"><span>Genes discoverable</span><strong className="text-[var(--color-foreground)]">14.2k</strong></li>
-                    <li className="flex items-center justify-between gap-3"><span>Capsules published</span><strong className="text-[var(--color-foreground)]">8.9k</strong></li>
-                    <li className="flex items-center justify-between gap-3"><span>Swarms coordinating</span><strong className="text-[var(--color-foreground)]">118</strong></li>
+                    <li className="flex items-center justify-between gap-3"><span>Genes discoverable</span><strong className="text-[var(--color-foreground)]">{isLoading ? "—" : isError ? "—" : _fmt.format(data?.total_genes ?? 0)}</strong></li>
+                    <li className="flex items-center justify-between gap-3"><span>Capsules published</span><strong className="text-[var(--color-foreground)]">{isLoading ? "—" : isError ? "—" : _fmt.format(data?.total_capsules ?? 0)}</strong></li>
+                    <li className="flex items-center justify-between gap-3"><span>Swarms coordinating</span><strong className="text-[var(--color-foreground)]">{isLoading ? "—" : isError ? "—" : _fmt.format(data?.active_swarms ?? 0)}</strong></li>
                   </ul>
                 </div>
               </div>

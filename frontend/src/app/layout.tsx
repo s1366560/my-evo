@@ -7,6 +7,8 @@ import {
 import "./globals.css";
 import { ThemeProvider } from "@/lib/theme-context";
 import { Providers } from "@/app/providers";
+import { NavBar } from "@/components/layout/NavBar";
+import { Footer } from "@/components/layout/Footer";
 
 const sans = IBM_Plex_Sans({
   subsets: ["latin"],
@@ -50,7 +52,13 @@ export default function RootLayout({
       </head>
       <body className={`${sans.variable} ${display.variable} ${mono.variable}`}>
         <Providers>
-          <ThemeProvider>{children}</ThemeProvider>
+          <ThemeProvider>
+            <div className="flex min-h-screen flex-col">
+              <NavBar />
+              <main className="flex-1">{children}</main>
+              <Footer />
+            </div>
+          </ThemeProvider>
         </Providers>
       </body>
     </html>

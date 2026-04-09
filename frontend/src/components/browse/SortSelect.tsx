@@ -25,7 +25,7 @@ const SORT_OPTIONS: { label: string; value: SortOption }[] = [
 export function AssetSort({ value, onChange }: AssetSortProps) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as SortOption)}>
-      <SelectTrigger className="w-44">
+      <SelectTrigger className="w-44" aria-label="Sort assets">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

@@ -10,7 +10,7 @@ import { QueryKeys } from "@/lib/api/query-keys";
 type TrustLevel = "unverified" | "verified" | "trusted";
 
 interface TrustBadgeProps {
-  nodeId: string;
+  nodeId: string | null;
 }
 
 const TRUST_CONFIG: Record<TrustLevel, { label: string; color: string; bg: string }> = {
@@ -33,8 +33,8 @@ const TRUST_CONFIG: Record<TrustLevel, { label: string; color: string; bg: strin
 
 export function TrustBadge({ nodeId }: TrustBadgeProps) {
   const { data, isLoading, error } = useQuery({
-    queryKey: QueryKeys.a2a.reputation(nodeId),
-    queryFn: () => apiClient.getReputation(nodeId),
+    queryKey: QueryKeys.a2a.reputation(nodeId!),
+    queryFn: () => apiClient.getReputation(nodeId!),
     enabled: !!nodeId,
   });
 

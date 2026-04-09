@@ -18,6 +18,7 @@
   --color-background-elevated: oklch(0.994 0.003 180);
   --color-foreground: oklch(0.24 0.018 204);
   --color-foreground-soft: oklch(0.46 0.017 208);
+  --color-muted-foreground: oklch(0.46 0.017 208);
   --color-border: oklch(0.9 0.012 196);
   --color-border-strong: oklch(0.8 0.02 196);
   --color-card-background: oklch(0.992 0.004 180 / 0.92);
@@ -31,14 +32,16 @@
   --color-surface-strong: oklch(0.952 0.018 186 / 0.95);
   --color-shadow: oklch(0.28 0.025 208 / 0.12);
 
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 32px;
-  --spacing-2xl: 48px;
-
   --radius: 1rem;
+}
+
+:root {
+  --evomap-spacing-xs: 4px;
+  --evomap-spacing-sm: 8px;
+  --evomap-spacing-md: 16px;
+  --evomap-spacing-lg: 24px;
+  --evomap-spacing-xl: 32px;
+  --evomap-spacing-2xl: 48px;
 }
 
 .dark {
@@ -46,6 +49,7 @@
   --color-background-elevated: oklch(0.22 0.02 224);
   --color-foreground: oklch(0.95 0.01 180);
   --color-foreground-soft: oklch(0.77 0.015 198);
+  --color-muted-foreground: oklch(0.77 0.015 198);
   --color-border: oklch(0.33 0.018 220);
   --color-border-strong: oklch(0.46 0.03 210);
   --color-card-background: oklch(0.23 0.02 224 / 0.92);
@@ -63,6 +67,7 @@
 html {
   color-scheme: light;
   scroll-behavior: smooth;
+  background-color: transparent;
 }
 
 html.dark {
@@ -75,6 +80,8 @@ html.dark {
 }
 
 body {
+  position: relative;
+  z-index: 0;
   min-height: 100vh;
   background:
     radial-gradient(circle at top left, color-mix(in oklab, var(--color-gene-green) 10%, transparent) 0, transparent 32%),

@@ -78,7 +78,7 @@ export function SwarmTaskCard({ task }: SwarmTaskCardProps) {
           style={{
             borderColor: modeColor,
             color: modeColor,
-            backgroundColor: `color-mix(in srgb, ${modeColor} 10%, transparent)`,
+            backgroundColor: `color-mix(in oklab, ${modeColor} 10%, transparent)`,
           }}
         >
           {task.mode}

@@ -6,6 +6,7 @@ import { apiClient } from "@/lib/api/client";
 import { QueryKeys } from "@/lib/api/query-keys";
 import { SkillCard } from "@/components/skills/SkillCard";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useDebounce } from "@/lib/hooks/useDebounce";
 
 function SkillsSkeleton() {
   return (
@@ -19,10 +20,11 @@ function SkillsSkeleton() {
 
 export default function SkillsPage() {
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
 
   const { data: skills, isLoading, isError } = useQuery({
-    queryKey: QueryKeys.a2a.skillSearch(search),
-    queryFn: () => apiClient.getSkills(search),
+    queryKey: QueryKeys.a2a.skillSearch(debouncedSearch),
+    queryFn: () => apiClient.getSkills(debouncedSearch),
   });
 
   return (
@@ -36,12 +38,13 @@ export default function SkillsPage() {
       </div>
 
       {/* Search bar */}
-      <div className="relative max-w-md">
+      <form role="search" aria-label="Search skills" className="relative max-w-md">
         <input
           type="search"
           placeholder="Search skills..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          aria-label="Search skills"
           className="h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-input-background)] px-4 pr-10 text-sm placeholder-[var(--color-muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)]"
         />
         <svg
@@ -49,10 +52,11 @@ export default function SkillsPage() {
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
-      </div>
+      </form>
 
       {/* Skill Grid */}
       {isLoading ? (

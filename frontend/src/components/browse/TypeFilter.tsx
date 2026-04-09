@@ -21,6 +21,8 @@ export function TypeFilter({ selected, onChange }: TypeFilterProps) {
       {TYPES.map(({ label, value }) => (
         <button
           key={value}
+          aria-pressed={selected === value}
+          aria-label={`Filter by ${label}`}
           onClick={() => onChange(value)}
           className={cn(
             "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",

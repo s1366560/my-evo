@@ -15,12 +15,12 @@ describe('design tokens', () => {
     });
 
     expect(SPACING).toEqual({
-      xs: 'var(--spacing-xs)',
-      sm: 'var(--spacing-sm)',
-      md: 'var(--spacing-md)',
-      lg: 'var(--spacing-lg)',
-      xl: 'var(--spacing-xl)',
-      '2xl': 'var(--spacing-2xl)',
+      xs: 'var(--evomap-spacing-xs)',
+      sm: 'var(--evomap-spacing-sm)',
+      md: 'var(--evomap-spacing-md)',
+      lg: 'var(--evomap-spacing-lg)',
+      xl: 'var(--evomap-spacing-xl)',
+      '2xl': 'var(--evomap-spacing-2xl)',
     });
   });
 

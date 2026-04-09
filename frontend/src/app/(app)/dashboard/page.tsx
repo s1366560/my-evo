@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useAuthStore } from "@/lib/stores/auth-store";
 import { apiClient, type ApiStats } from "@/lib/api/client";
 import { QueryKeys } from "@/lib/api/query-keys";
 import { CreditsCard } from "@/components/dashboard/CreditsCard";
@@ -10,11 +11,11 @@ import { TrustBadge } from "@/components/dashboard/TrustBadge";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// TODO: Replace with real nodeId from auth context once Phase 2b auth is wired
-const PLACEHOLDER_NODE_ID = "demo-node";
+// userId from auth store — null when not authenticated (Phase 2b)
+const getUserId = () => useAuthStore.getState().userId ?? null;
 
 export default function DashboardPage() {
-  const [nodeId] = useState<string>(PLACEHOLDER_NODE_ID);
+  const [nodeId] = useState<string | null>(getUserId);
 
   const { data: statsData, isLoading: statsLoading } = useQuery<ApiStats>({
     queryKey: QueryKeys.a2a.stats(),

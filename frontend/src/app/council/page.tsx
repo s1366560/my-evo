@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ProposalCard } from "@/components/council/ProposalCard";
 import { apiClient, CouncilProposal } from "@/lib/api/client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type ProposalStatus = "draft" | "active" | "passed" | "rejected";
 
@@ -41,7 +42,7 @@ function mapProposal(api: CouncilProposal): Proposal {
 
 export default function CouncilPage() {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["council-proposals"],
+    queryKey: ["council", "all"],
     queryFn: () => apiClient.getCouncilProposals(),
   });
 
@@ -56,7 +57,6 @@ export default function CouncilPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 px-4 pb-16 sm:px-6 lg:px-8">
-      {/* Header */}
       <div className="space-y-1">
         <h1 className="text-3xl font-bold tracking-tight text-[var(--color-foreground)]">
           Governance Council
@@ -67,7 +67,6 @@ export default function CouncilPage() {
         </p>
       </div>
 
-      {/* Stats row */}
       <div className="flex flex-wrap gap-4">
         {[
           { label: "Active", value: counts.active, color: "var(--color-capsule-blue)" },
@@ -87,26 +86,20 @@ export default function CouncilPage() {
         ))}
       </div>
 
-      {/* Loading skeleton */}
       {isLoading && (
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="h-36 animate-pulse rounded-xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-5"
-            />
+            <Skeleton key={i} className="h-36 rounded-xl p-5" />
           ))}
         </div>
       )}
 
-      {/* Error state */}
       {isError && (
         <div className="rounded-xl border border-[var(--color-destructive)] bg-[var(--color-destructive)]/5 p-6 text-center text-sm text-[var(--color-destructive)]">
           Failed to load proposals. Please try again later.
         </div>
       )}
 
-      {/* Proposals */}
       {!isLoading && !isError && (
         <div className="space-y-4">
           {proposals.length === 0 ? (

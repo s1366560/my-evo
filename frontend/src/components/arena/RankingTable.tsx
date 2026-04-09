@@ -73,6 +73,8 @@ export function RankingTable({ seasonId, pastSeasons, allTime }: RankingTablePro
     enabled: seasonId != null || allTime === true,
   });
 
+  // GET /api/v2/arena/rankings/:seasonId → { success, data: ArenaRanking[] }
+  // After handleResponse unwrapping: rankings is ArenaRanking[]
   const rows: RankEntry[] | undefined = (() => {
     if (pastSeasons && pastSeasons.length > 0 && !seasonId) {
       return pastSeasonsToMockRows(pastSeasons);
@@ -81,10 +83,10 @@ export function RankingTable({ seasonId, pastSeasons, allTime }: RankingTablePro
       return rankings.map((r) => ({
         rank: r.rank,
         name: r.node_name ?? r.node_id,
-        elo: r.score,
-        tier: eloToTier(r.score) as Tier,
-        wins: r.wins ?? 0,
-        losses: r.losses ?? 0,
+        elo: r.elo_rating,
+        tier: eloToTier(r.elo_rating) as Tier,
+        wins: r.wins,
+        losses: r.losses,
       }));
     }
     return undefined;

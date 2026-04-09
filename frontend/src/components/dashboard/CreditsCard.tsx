@@ -8,13 +8,13 @@ import { apiClient } from "@/lib/api/client";
 import { QueryKeys } from "@/lib/api/query-keys";
 
 interface CreditsCardProps {
-  nodeId: string;
+  nodeId: string | null;
 }
 
 export function CreditsCard({ nodeId }: CreditsCardProps) {
   const { data, isLoading, error } = useQuery({
-    queryKey: QueryKeys.a2a.credits(nodeId),
-    queryFn: () => apiClient.getCredits(nodeId),
+    queryKey: QueryKeys.a2a.credits(nodeId!),
+    queryFn: () => apiClient.getCredits(nodeId!),
     enabled: !!nodeId,
   });
 

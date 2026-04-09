@@ -107,7 +107,7 @@ export default function AssetDetailPage() {
 
       {/* Signals */}
       <div className="flex flex-wrap gap-2">
-        {asset.signals.map((s) => (
+        {asset.signals?.map((s) => (
           <Badge key={s} variant="outline" className="font-mono text-xs">
             {s}
           </Badge>

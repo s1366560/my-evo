@@ -83,8 +83,8 @@ export function PhylogeneticTree({ data, assetId }: PhylogeneticTreeProps) {
             ? `2px solid ${color}`
             : "1px solid var(--color-border)",
           backgroundColor: isHighlighted
-            ? `color-mix(in srgb, ${color} 15%, white)`
-            : "var(--color-card)",
+            ? `color-mix(in oklab, ${color} 15%, white)`
+            : "var(--color-card-background)",
           color: "var(--color-foreground)",
           fontSize: "11px",
           fontWeight: isHighlighted ? 600 : 400,
@@ -172,7 +172,7 @@ export function PhylogeneticTree({ data, assetId }: PhylogeneticTreeProps) {
                 ? ASSET_COLOR_MAP[phyloNode.type] ?? "var(--color-border)"
                 : "var(--color-border)";
             }}
-            maskColor="color-mix(in srgb, var(--color-background) 80%, transparent)"
+            maskColor="color-mix(in oklab, var(--color-background) 80%, transparent)"
           />
         </ReactFlow>
       </div>

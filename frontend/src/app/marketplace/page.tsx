@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { PriceFilter } from "@/components/marketplace/PriceFilter";
 import { AssetListingCard } from "@/components/marketplace/AssetListingCard";
 import { apiClient, MarketplaceListing } from "@/lib/api/client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type AssetType = "Gene" | "Capsule" | "Recipe";
 
@@ -43,7 +44,7 @@ export default function MarketplacePage() {
   });
 
   const listings = (result as { items?: MarketplaceListing[] } | null)?.items ?? [];
-  const assets: MappedAsset[] = listings.map(mapListing);
+  const assets = listings.map(mapListing);
 
   const filtered = assets.filter(
     (a) =>
@@ -73,10 +74,7 @@ export default function MarketplacePage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {isLoading &&
           [1, 2, 3, 4, 5, 6].map((i) => (
-            <div
-              key={i}
-              className="h-40 animate-pulse rounded-xl border border-[var(--color-border)] bg-[var(--color-card-background)]"
-            />
+              <Skeleton key={i} className="h-40 rounded-xl" />
           ))}
 
         {isError && (

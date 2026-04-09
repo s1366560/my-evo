@@ -9,7 +9,7 @@ import { apiClient } from "@/lib/api/client";
 import { QueryKeys } from "@/lib/api/query-keys";
 
 interface ReputationCardProps {
-  nodeId: string;
+  nodeId: string | null;
 }
 
 function getTier(score: number): { label: string; variant: "default" | "secondary" | "outline" } {
@@ -23,8 +23,8 @@ function getTier(score: number): { label: string; variant: "default" | "secondar
 
 export function ReputationCard({ nodeId }: ReputationCardProps) {
   const { data, isLoading, error } = useQuery({
-    queryKey: QueryKeys.a2a.reputation(nodeId),
-    queryFn: () => apiClient.getReputation(nodeId),
+    queryKey: QueryKeys.a2a.reputation(nodeId!),
+    queryFn: () => apiClient.getReputation(nodeId!),
     enabled: !!nodeId,
   });
 

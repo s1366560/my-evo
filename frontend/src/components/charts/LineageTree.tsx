@@ -46,8 +46,8 @@ export function LineageTree({ data, assetId }: LineageTreeProps) {
             ? "2px solid var(--color-gene-green)"
             : "1px solid var(--color-border)",
           backgroundColor: node.asset_id === assetId
-            ? "color-mix(in srgb, var(--color-gene-green) 15%, white)"
-            : "var(--color-card)",
+            ? "color-mix(in oklab, var(--color-gene-green) 15%, white)"
+            : "var(--color-card-background)",
           color: "var(--color-foreground)",
           fontSize: "12px",
           fontWeight: node.asset_id === assetId ? 600 : 400,
@@ -106,7 +106,7 @@ export function LineageTree({ data, assetId }: LineageTreeProps) {
         <Controls />
         <MiniMap
           nodeColor="var(--color-gene-green)"
-          maskColor="color-mix(in srgb, var(--color-background) 80%, transparent)"
+          maskColor="color-mix(in oklab, var(--color-background) 80%, transparent)"
         />
       </ReactFlow>
     </div>

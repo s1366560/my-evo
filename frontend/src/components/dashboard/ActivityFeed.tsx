@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiClient } from "@/lib/api/client";
 
 interface ActivityFeedProps {
-  nodeId: string;
+  nodeId: string | null;
 }
 
 const FALLBACK_ACTIVITIES = [
@@ -40,13 +40,13 @@ function formatTime(dateStr: string): string {
 export function ActivityFeed({ nodeId }: ActivityFeedProps) {
   const { data: creditsHistory, isLoading: creditsLoading } = useQuery({
     queryKey: ["credits", "history", nodeId],
-    queryFn: () => apiClient.getCreditsHistory(nodeId),
+    queryFn: () => apiClient.getCreditsHistory(nodeId!),
     enabled: !!nodeId,
   });
 
   const { data: repHistory, isLoading: repLoading } = useQuery({
     queryKey: ["reputation", "history", nodeId],
-    queryFn: () => apiClient.getReputationHistory(nodeId),
+    queryFn: () => apiClient.getReputationHistory(nodeId!),
     enabled: !!nodeId,
   });
 

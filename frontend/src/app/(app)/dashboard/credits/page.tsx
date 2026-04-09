@@ -1,17 +1,23 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api/client";
-
-const DEMO_NODE_ID = "demo-node";
+import { useAuthStore } from "@/lib/stores/auth-store";
+import { apiClient, type CreditTransaction } from "@/lib/api/client";
+import { Endpoints } from "@/lib/api/endpoints";
 
 export default function CreditsPage() {
+  const nodeId = useAuthStore((s) => s.userId);
+
   const { data: historyData, isLoading } = useQuery({
-    queryKey: ["credits", "history", DEMO_NODE_ID],
-    queryFn: () => apiClient.getCreditsHistory(DEMO_NODE_ID),
+    queryKey: ["a2a", "credits", "history", nodeId],
+    queryFn: () => apiClient.get<{ items: CreditTransaction[]; meta: { total: number } }>(
+      Endpoints.a2a.creditsHistory(nodeId!)
+    ),
+    enabled: !!nodeId,
   });
 
   const transactions = historyData?.items ?? [];
+  // balance may come from /a2a/credits/:nodeId — use meta.total as fallback for display
   const currentBalance = historyData?.meta?.total ?? 0;
 
   return (
@@ -64,7 +70,7 @@ export default function CreditsPage() {
                       {new Date(tx.created_at).toLocaleDateString()}
                     </td>
                     <td className="py-3 pr-4 text-[var(--color-card-foreground)]">{tx.description ?? tx.type}</td>
-                    <td className="py-3 pr-4 text-right font-medium text-[var(--color-gene-green)]">
+                    <td className="py-3 pr-4 text-right font-medium" style={{ color: tx.amount > 0 ? "var(--color-gene-green)" : "var(--color-destructive)" }}>
                       {tx.amount > 0 ? `+${tx.amount}` : tx.amount}
                     </td>
                     <td className="py-3 text-right text-[var(--color-card-foreground)]">
