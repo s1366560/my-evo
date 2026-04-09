@@ -114,5 +114,14 @@ export const Endpoints = {
     logout: '/account/logout',
     me: '/account/me',
     apiKeys: '/account/api-keys',
+    agents: '/account/agents',
+  },
+
+  // ── Claim module ─────────────────────────────────────────────────────────────
+  claim: {
+    /** GET /claim/:code */
+    getClaimInfo: (code: string) => `/claim/${code}`,
+    /** POST /claim/:code */
+    claimNode: (code: string) => `/claim/${code}`,
   },
 } as const;

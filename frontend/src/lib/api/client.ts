@@ -34,12 +34,16 @@ class ApiClient {
     body?: unknown,
   ): Promise<T> {
     const url = this.buildUrl(path);
+    const headers: Record<string, string> = {};
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+    }
     const options: RequestInit = {
-      ...this.baseOptions(),
+      credentials: 'include',
+      headers,
       method,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     };
-
     const response = await fetch(url, options);
     return handleResponse<T>(response);
   }
@@ -198,6 +202,48 @@ class ApiClient {
       Endpoints.account.me,
     );
   }
+
+  // ── Claim ─────────────────────────────────────────────────────────────────
+
+  getClaimInfo(code: string) {
+    return this.get<ClaimInfoResponse>(Endpoints.claim.getClaimInfo(code));
+  }
+
+  claimNode(code: string, body?: Record<string, unknown>) {
+    return this.post<ClaimResponse>(Endpoints.claim.claimNode(code), body);
+  }
+
+  // ── Account agents ─────────────────────────────────────────────────────────
+
+  getAccountAgents() {
+    return this.get<AgentNodeInfo[]>(Endpoints.account.agents);
+  }
+}
+
+// ── Claim types ───────────────────────────────────────────────────────────────
+
+export interface ClaimInfoResponse {
+  node_id: string;
+  model: string;
+  reputation: number;
+  credit_balance: number;
+  registered_at: string;
+  status: 'available' | 'claimed';
+}
+
+export interface ClaimResponse {
+  node_id: string;
+  model: string;
+  reputation: number;
+}
+
+export interface AgentNodeInfo {
+  node_id: string;
+  model: string;
+  status: string;
+  reputation: number;
+  credit_balance: number;
+  registered_at: string;
 }
 
 // ── Shared response types (mirrors backend shared/types.ts) ───────────────────

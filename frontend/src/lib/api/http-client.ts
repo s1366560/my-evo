@@ -48,8 +48,11 @@ export function handleResponse<T>(response: Response): Promise<T> {
     return response.json().catch(() => ({}))
       .then((body: unknown) => {
         const r = body as Record<string, unknown>;
-        if (r && typeof r.message === 'string') {
-          message = r.message;
+        // Support both { message } (shared/errors) and { error } (backend) shapes
+        if (r && typeof (r as Record<string, unknown>).message === 'string') {
+          message = (r as Record<string, unknown>).message as string;
+        } else if (r && typeof (r as Record<string, unknown>).error === 'string') {
+          message = (r as Record<string, unknown>).error as string;
         }
         if (r && typeof r.code === 'string') {
           code = r.code;

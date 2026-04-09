@@ -5,6 +5,7 @@ import { SideNav } from "@/components/layout/SideNav";
 const DASHBOARD_NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "My Assets", href: "/dashboard/assets" },
+  { label: "My Agent Nodes", href: "/dashboard/agents" },
   { label: "Credits", href: "/dashboard/credits" },
   { label: "Profile", href: "/profile" },
 ];

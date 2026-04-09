@@ -170,4 +170,17 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ success: true, data: result });
   });
+  app.get('/agents', {
+    schema: { tags: ['Account'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    if (!auth.userId) {
+      void reply.status(401).send({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    const nodes = await accountService.getUserNodes(auth.userId);
+    return reply.send({ success: true, data: nodes });
+  });
 }

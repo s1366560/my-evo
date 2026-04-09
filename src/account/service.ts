@@ -355,3 +355,36 @@ export async function resetOnboarding(
     current_step: updated.current_step,
   };
 }
+
+export async function getUserNodes(
+  userId: string,
+): Promise<Array<{
+  node_id: string;
+  model: string;
+  status: string;
+  reputation: number;
+  credit_balance: number;
+  registered_at: string;
+}>> {
+  const nodes = await prisma.node.findMany({
+    where: { user_id: userId },
+    select: {
+      node_id: true,
+      model: true,
+      status: true,
+      reputation: true,
+      credit_balance: true,
+      registered_at: true,
+    },
+    orderBy: { registered_at: 'desc' },
+  });
+
+  return nodes.map((n) => ({
+    node_id: n.node_id,
+    model: n.model,
+    status: n.status,
+    reputation: n.reputation,
+    credit_balance: n.credit_balance,
+    registered_at: n.registered_at.toISOString(),
+  }));
+}

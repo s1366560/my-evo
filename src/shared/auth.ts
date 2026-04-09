@@ -13,6 +13,7 @@ const prisma = new PrismaClient();
 
 export interface AuthResult {
   node_id: string;
+  userId?: string;
   trust_level: TrustLevel;
   auth_type: 'session' | 'node_secret' | 'api_key';
   scopes?: string[];
@@ -63,6 +64,7 @@ async function authenticateSession(
 
   return {
     node_id: session.user.node_id ?? `user-${session.user.id}`,
+    userId: session.user.id,
     trust_level: session.user.trust_level as TrustLevel,
     auth_type: 'session',
   };
@@ -106,6 +108,7 @@ async function authenticateApiKey(
 
   return {
     node_id: apiKey.user.node_id ?? `user-${apiKey.user.id}`,
+    userId: apiKey.user.id,
     trust_level: apiKey.user.trust_level as TrustLevel,
     auth_type: 'api_key',
     scopes: apiKey.scopes,

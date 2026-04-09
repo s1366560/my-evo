@@ -23,6 +23,7 @@ model Node {
   claim_code     String?
   referral_code  String?
   identity_doc   String?
+  user_id        String?
 
   creditTransactions CreditTransaction[]
   quarantineRecords  QuarantineRecord[]
@@ -30,8 +31,11 @@ model Node {
   trustAttestations  TrustAttestation[]
   onboardingState    OnboardingState?
 
+  user User? @relation(fields: [user_id], references: [id])
+
   @@index([status])
   @@index([trust_level])
+  @@index([user_id])
 }
 
 model Asset {
@@ -407,6 +411,7 @@ model User {
 
   sessions UserSession[]
   apiKeys   ApiKey[]
+  nodes     Node[]
 
   @@index([email])
 }
