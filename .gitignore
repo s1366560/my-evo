@@ -11,3 +11,4 @@ coverage/
 .gitnexus
 .next/
 .omx/
+test-results/
