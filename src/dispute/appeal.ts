@@ -1,6 +1,11 @@
 import { PrismaClient } from '@prisma/client';
-import { APPEAL_CONDITIONS } from './types';
-import { selectArbitrator } from './arbitrator-pool';
+import { ConflictError, NotFoundError, ValidationError } from '../shared/errors';
+import { APPEAL_CONDITIONS, ARBITRATOR_COUNT, isEvidenceRecordList } from './types';
+import {
+  diffArbitratorAssignments,
+  releaseArbitrators,
+  selectAndReserveArbitrators,
+} from './arbitrator-pool';
 
 let prisma = new PrismaClient();
 
@@ -21,7 +26,7 @@ export async function fileAppeal(
   disputeId: string,
   appellantId: string,
   grounds: string,
-  appealFee: number,
+  appealFee?: number,
   newEvidence?: unknown[],
 ): Promise<{ appeal_id: string; status: string }> {
   const dispute = await prisma.dispute.findUnique({
@@ -29,7 +34,13 @@ export async function fileAppeal(
   });
 
   if (!dispute) {
-    throw new Error(`Dispute not found: ${disputeId}`);
+    throw new NotFoundError('Dispute', disputeId);
+  }
+
+  const disputeStatus = dispute.status ?? 'filed';
+  const isResolved = dispute.resolved_at != null || ['resolved', 'dismissed'].includes(disputeStatus);
+  if (!isResolved) {
+    throw new ConflictError(`Only resolved disputes can be appealed (current status: ${disputeStatus})`);
   }
 
   // Check appeal conditions
@@ -38,7 +49,7 @@ export async function fileAppeal(
   });
 
   if (existingAppeals >= APPEAL_CONDITIONS.max_appeals_per_dispute) {
-    throw new Error(
+    throw new ConflictError(
       `Maximum appeals (${APPEAL_CONDITIONS.max_appeals_per_dispute}) already filed for this dispute`,
     );
   }
@@ -48,16 +59,28 @@ export async function fileAppeal(
     const windowMs = APPEAL_CONDITIONS.appeal_window_days * 24 * 60 * 60 * 1000;
     const expired = Date.now() - dispute.resolved_at.getTime() > windowMs;
     if (expired) {
-      throw new Error('Appeal window has expired (7 days from ruling)');
+      throw new ConflictError('Appeal window has expired (7 days from ruling)');
     }
   }
 
   // Check new evidence requirement
-  if (APPEAL_CONDITIONS.new_evidence_required) {
-    const hasEvidence = newEvidence && (newEvidence as unknown[]).length > 0;
-    if (!hasEvidence) {
-      throw new Error('New evidence is required for appeal');
+  if (newEvidence !== undefined) {
+    if (!isEvidenceRecordList(newEvidence)) {
+      throw new ValidationError('new_evidence must be an array of valid evidence objects');
     }
+  }
+
+  if (APPEAL_CONDITIONS.new_evidence_required) {
+    const hasEvidence = Array.isArray(newEvidence) && newEvidence.length > 0;
+    if (!hasEvidence) {
+      throw new ValidationError('New evidence is required for appeal');
+    }
+  }
+
+  const minimumAppealFee = (dispute.filing_fee ?? 0) * APPEAL_CONDITIONS.appeal_fee_multiplier;
+  const resolvedAppealFee = appealFee ?? minimumAppealFee;
+  if (!Number.isInteger(resolvedAppealFee) || resolvedAppealFee < minimumAppealFee) {
+    throw new ValidationError(`appeal_fee must be at least ${minimumAppealFee}`);
   }
 
   const appealId = `apl_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
@@ -69,7 +92,7 @@ export async function fileAppeal(
       appellant_id: appellantId,
       grounds,
       new_evidence: (newEvidence ?? []) as object[],
-      appeal_fee: appealFee,
+      appeal_fee: resolvedAppealFee,
       status: 'filed',
       filed_at: new Date(),
     },
@@ -84,7 +107,7 @@ export async function reviewAppeal(appealId: string): Promise<AppealResult> {
   });
 
   if (!appeal) {
-    throw new Error(`Appeal not found: ${appealId}`);
+    throw new NotFoundError('Appeal', appealId);
   }
 
   const dispute = await prisma.dispute.findUnique({
@@ -92,7 +115,7 @@ export async function reviewAppeal(appealId: string): Promise<AppealResult> {
   });
 
   if (!dispute) {
-    throw new Error(`Dispute not found: ${appeal.original_dispute_id}`);
+    throw new NotFoundError('Dispute', appeal.original_dispute_id);
   }
 
   // Evaluate appeal merit based on new evidence quality
@@ -153,7 +176,7 @@ export async function processAppealDecision(appealId: string): Promise<void> {
   });
 
   if (!appeal) {
-    throw new Error(`Appeal not found: ${appealId}`);
+    throw new NotFoundError('Appeal', appealId);
   }
 
   if (appeal.status === 'accepted') {
@@ -162,8 +185,29 @@ export async function processAppealDecision(appealId: string): Promise<void> {
       where: { dispute_id: appeal.original_dispute_id },
     });
 
-    if (dispute) {
-      const newArbitrators = await selectArbitrator(appeal.original_dispute_id, dispute.severity);
+    if (!dispute) {
+      throw new NotFoundError('Dispute', appeal.original_dispute_id);
+    }
+
+    const expectedCount = ARBITRATOR_COUNT[dispute.severity] ?? 3;
+    const previousArbitrators = ((dispute.arbitrators as string[]) ?? []);
+    const newArbitrators = await selectAndReserveArbitrators(
+      appeal.original_dispute_id,
+      dispute.severity,
+      previousArbitrators,
+    );
+    const { added, removed } = diffArbitratorAssignments(
+      previousArbitrators,
+      newArbitrators,
+    );
+    if (newArbitrators.length !== expectedCount) {
+      await releaseArbitrators(added);
+      throw new ConflictError(
+        `Need exactly ${expectedCount} eligible arbitrators, found ${newArbitrators.length}`,
+      );
+    }
+
+    try {
       await prisma.dispute.update({
         where: { dispute_id: appeal.original_dispute_id },
         data: {
@@ -172,7 +216,11 @@ export async function processAppealDecision(appealId: string): Promise<void> {
           review_started_at: new Date(),
         },
       });
+    } catch (error) {
+      await releaseArbitrators(added);
+      throw error;
     }
+    await releaseArbitrators(removed);
   } else if (appeal.status === 'rejected') {
     // No change needed; original ruling stands
   }
@@ -184,7 +232,7 @@ export async function escalateToCouncil(disputeId: string): Promise<{ council_se
   });
 
   if (!dispute) {
-    throw new Error(`Dispute not found: ${disputeId}`);
+    throw new NotFoundError('Dispute', disputeId);
   }
 
   const councilSessionId = `cns_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;

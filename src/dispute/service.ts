@@ -1,12 +1,107 @@
 import { PrismaClient } from '@prisma/client';
-import { NotFoundError } from '../shared/errors';
+import { ConflictError, NotFoundError, ValidationError } from '../shared/errors';
 import * as arbitratorPool from './arbitrator-pool';
 import * as evidenceChain from './evidence-chain';
 import * as autoRuling from './auto-ruling';
 import * as appealModule from './appeal';
-import type { DisputeRuling } from './types';
+import {
+  ARBITRATION_DEADLINE_DAYS,
+  ARBITRATOR_COUNT,
+  DEFENDANT_BAIL,
+  FILING_FEES,
+  type DisputeRuling,
+  type DisputeSeverity,
+  type DisputeStatus,
+  type DisputeType,
+  isEvidenceRecordList,
+} from './types';
 
 let prisma = new PrismaClient();
+
+const DISPUTE_TYPES: readonly DisputeType[] = [
+  'asset_quality',
+  'transaction',
+  'reputation_attack',
+  'governance',
+] as const;
+
+const DISPUTE_STATUSES: readonly DisputeStatus[] = [
+  'filed',
+  'under_review',
+  'hearing',
+  'resolved',
+  'dismissed',
+  'escalated',
+] as const;
+
+const DISPUTE_TRANSITIONS: Record<DisputeStatus, DisputeStatus[]> = {
+  filed: ['under_review', 'dismissed', 'escalated'],
+  under_review: ['under_review', 'hearing', 'resolved', 'dismissed', 'escalated'],
+  hearing: ['hearing', 'resolved', 'dismissed', 'escalated'],
+  resolved: ['escalated'],
+  dismissed: ['escalated'],
+  escalated: ['under_review', 'hearing', 'resolved', 'dismissed'],
+};
+
+function isDisputeType(value: string): value is DisputeType {
+  return DISPUTE_TYPES.includes(value as DisputeType);
+}
+
+function isDisputeStatus(value: string): value is DisputeStatus {
+  return DISPUTE_STATUSES.includes(value as DisputeStatus);
+}
+
+function normalizeSeverity(value: string): DisputeSeverity {
+  switch (value) {
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'critical':
+      return value;
+    default:
+      return 'medium';
+  }
+}
+
+function deriveSeverity(type: DisputeType): DisputeSeverity {
+  switch (type) {
+    case 'asset_quality':
+      return 'medium';
+    case 'transaction':
+    case 'reputation_attack':
+      return 'high';
+    case 'governance':
+      return 'critical';
+  }
+}
+
+function validateTextField(
+  field: 'title' | 'description',
+  value: string,
+  minLength: number,
+  maxLength: number,
+): void {
+  const trimmed = value.trim();
+  if (trimmed.length < minLength || trimmed.length > maxLength) {
+    throw new ValidationError(
+      `${field} must be between ${minLength} and ${maxLength} characters`,
+    );
+  }
+}
+
+function normalizeArbitrators(arbitrators: string[]): string[] {
+  const normalized = arbitrators
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  return [...new Set(normalized)];
+}
+
+function validateStatusTransition(currentStatus: string, nextStatus: DisputeStatus): void {
+  const normalizedCurrent = isDisputeStatus(currentStatus) ? currentStatus : 'filed';
+  if (!DISPUTE_TRANSITIONS[normalizedCurrent].includes(nextStatus)) {
+    throw new ConflictError(`Cannot move dispute from ${normalizedCurrent} to ${nextStatus}`);
+  }
+}
 
 export function setPrisma(client: PrismaClient): void {
   (prisma as unknown) = client;
@@ -66,15 +161,35 @@ export async function fileDispute(
     evidence?: unknown[];
     related_asset_id?: string;
     related_bounty_id?: string;
+    related_transaction_id?: string;
     filing_fee?: number;
   },
 ) {
+  if (!isDisputeType(data.type)) {
+    throw new ValidationError(
+      `type must be one of ${DISPUTE_TYPES.join(', ')}`,
+    );
+  }
+
+  if (plaintiffId === data.defendant_id) {
+    throw new ValidationError('plaintiff_id and defendant_id must be different');
+  }
+
+  if (data.evidence !== undefined && !isEvidenceRecordList(data.evidence)) {
+    throw new ValidationError('evidence must be an array of valid evidence objects');
+  }
+
+  validateTextField('title', data.title, 5, 200);
+  validateTextField('description', data.description, 10, 5000);
+
   const disputeId = `dsp_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const now = new Date();
+  const severity = deriveSeverity(data.type);
+  const filingFee = FILING_FEES[severity] ?? 25;
+  const escrowAmount = DEFENDANT_BAIL[severity] ?? 50;
+  const arbitrationDeadlineDays = ARBITRATION_DEADLINE_DAYS[severity] ?? 5;
   const deadline = new Date(now);
-  deadline.setDate(deadline.getDate() + 30);
-
-  const severity = data.related_asset_id ? 'medium' : 'low';
+  deadline.setDate(deadline.getDate() + arbitrationDeadlineDays);
 
   const dispute = await prisma.dispute.create({
     data: {
@@ -87,7 +202,9 @@ export async function fileDispute(
       evidence: (data.evidence ?? []) as object[],
       related_asset_id: data.related_asset_id,
       related_bounty_id: data.related_bounty_id,
-      filing_fee: data.filing_fee ?? 50,
+      related_transaction_id: data.related_transaction_id,
+      filing_fee: filingFee,
+      escrow_amount: escrowAmount,
       status: 'filed',
       severity,
       arbitrators: [],
@@ -112,16 +229,42 @@ export async function selectAndAssignArbitrators(
     throw new NotFoundError('Dispute', disputeId);
   }
 
-  const selected = await arbitratorPool.selectArbitrator(disputeId, dispute.severity);
+  validateStatusTransition(dispute.status, 'under_review');
 
-  await prisma.dispute.update({
-    where: { dispute_id: disputeId },
-    data: {
-      arbitrators: selected,
-      status: 'under_review',
-      review_started_at: new Date(),
-    },
-  });
+  const severity = normalizeSeverity(dispute.severity);
+  const expectedCount = ARBITRATOR_COUNT[severity] ?? 3;
+  const previousArbitrators = ((dispute.arbitrators as string[]) ?? []);
+  const selected = await arbitratorPool.selectAndReserveArbitrators(
+    disputeId,
+    severity,
+    previousArbitrators,
+  );
+  const { added, removed } = arbitratorPool.diffArbitratorAssignments(
+    previousArbitrators,
+    selected,
+  );
+
+  if (selected.length !== expectedCount) {
+    await arbitratorPool.releaseArbitrators(added);
+    throw new ConflictError(
+      `Need exactly ${expectedCount} eligible arbitrators, found ${selected.length}`,
+    );
+  }
+
+  try {
+    await prisma.dispute.update({
+      where: { dispute_id: disputeId },
+      data: {
+        arbitrators: selected,
+        status: 'under_review',
+        review_started_at: new Date(),
+      },
+    });
+  } catch (error) {
+    await arbitratorPool.releaseArbitrators(added);
+    throw error;
+  }
+  await arbitratorPool.releaseArbitrators(removed);
 
   return selected;
 }
@@ -135,16 +278,32 @@ export async function assignArbitrators(disputeId: string, arbitrators: string[]
     throw new NotFoundError('Dispute', disputeId);
   }
 
+  validateStatusTransition(dispute.status, 'under_review');
+
+  const normalized = normalizeArbitrators(arbitrators);
+  const severity = normalizeSeverity(dispute.severity);
+  const expectedCount = ARBITRATOR_COUNT[severity] ?? 3;
+
+  if (normalized.length !== expectedCount) {
+    throw new ValidationError(
+      `${severity} severity disputes require exactly ${expectedCount} arbitrators`,
+    );
+  }
+
   const now = new Date();
 
   const updated = await prisma.dispute.update({
     where: { dispute_id: disputeId },
     data: {
-      arbitrators,
-      status: 'review',
+      arbitrators: normalized,
+      status: 'under_review',
       review_started_at: now,
     },
   });
+  arbitratorPool.reconcileArbitratorWorkload(
+    ((dispute.arbitrators as string[]) ?? []),
+    normalized,
+  );
 
   return updated;
 }
@@ -162,8 +321,29 @@ export async function issueRuling(
     throw new NotFoundError('Dispute', disputeId);
   }
 
+  if (!ruling || typeof ruling !== 'object' || Array.isArray(ruling)) {
+    throw new ValidationError('ruling must be an object');
+  }
+
+  if (!isDisputeStatus(status) || status === 'filed') {
+    throw new ValidationError(
+      `status must be one of ${DISPUTE_STATUSES.filter((value) => value !== 'filed').join(', ')}`,
+    );
+  }
+
+  validateStatusTransition(dispute.status, status);
+
   const now = new Date();
-  const resolvedAt = status === 'resolved' ? now : null;
+  const resolvedAt =
+    status === 'resolved' || status === 'dismissed'
+      ? dispute.resolved_at ?? now
+      : dispute.resolved_at;
+  const reviewStartedAt =
+    status === 'under_review' ? dispute.review_started_at ?? now : dispute.review_started_at;
+  const hearingStartedAt =
+    status === 'hearing' || status === 'resolved' || status === 'dismissed'
+      ? dispute.hearing_started_at ?? now
+      : dispute.hearing_started_at;
 
   const updated = await prisma.dispute.update({
     where: { dispute_id: disputeId },
@@ -171,7 +351,8 @@ export async function issueRuling(
       ruling: ruling as object,
       status,
       resolved_at: resolvedAt,
-      hearing_started_at: dispute.hearing_started_at ?? now,
+      review_started_at: reviewStartedAt,
+      hearing_started_at: hearingStartedAt,
     },
   });
 
@@ -241,7 +422,7 @@ export async function fileAppeal(
   originalDisputeId: string,
   appellantId: string,
   grounds: string,
-  appealFee: number,
+  appealFee?: number,
   newEvidence?: unknown[],
 ) {
   return appealModule.fileAppeal(

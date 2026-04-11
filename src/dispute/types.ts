@@ -85,6 +85,15 @@ export type EvidenceType =
   | 'testimony'
   | 'api_response';
 
+export const EVIDENCE_TYPES: readonly EvidenceType[] = [
+  'screenshot',
+  'log',
+  'transaction_record',
+  'asset_hash',
+  'testimony',
+  'api_response',
+] as const;
+
 export interface Evidence {
   evidence_id: string;
   type: EvidenceType;
@@ -93,6 +102,35 @@ export interface Evidence {
   hash: string;
   submitted_at: string;
   verified: boolean;
+}
+
+function isValidEvidenceDate(value: unknown): value is string {
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
+}
+
+export function isEvidenceType(value: unknown): value is EvidenceType {
+  return typeof value === 'string' && EVIDENCE_TYPES.includes(value as EvidenceType);
+}
+
+export function isEvidenceRecord(value: unknown): value is Evidence {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Partial<Evidence>;
+  return (
+    typeof candidate.evidence_id === 'string'
+    && isEvidenceType(candidate.type)
+    && typeof candidate.submitted_by === 'string'
+    && typeof candidate.content === 'string'
+    && typeof candidate.hash === 'string'
+    && isValidEvidenceDate(candidate.submitted_at)
+    && typeof candidate.verified === 'boolean'
+  );
+}
+
+export function isEvidenceRecordList(value: unknown): value is Evidence[] {
+  return Array.isArray(value) && value.every(isEvidenceRecord);
 }
 
 export interface DisputeRuling {

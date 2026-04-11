@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { NotFoundError } from '../shared/errors';
 import {
   ARBITRATOR_CRITERIA,
   ARBITRATOR_COUNT,
@@ -13,6 +14,68 @@ export function setPrisma(client: PrismaClient): void {
 
 // In-memory tracking of arbitrator workload
 const arbitratorWorkload: Map<string, number> = new Map();
+let selectionQueue: Promise<void> = Promise.resolve();
+
+function normalizeArbitratorIds(arbitratorIds: string[]): string[] {
+  return [...new Set(arbitratorIds.map((value) => value.trim()).filter(Boolean))];
+}
+
+async function withSelectionLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = selectionQueue;
+  let release = (): void => undefined;
+  selectionQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+export function resetArbitratorWorkload(): void {
+  arbitratorWorkload.clear();
+}
+
+export function reserveArbitrators(arbitratorIds: string[]): void {
+  for (const arbitratorId of normalizeArbitratorIds(arbitratorIds)) {
+    arbitratorWorkload.set(
+      arbitratorId,
+      (arbitratorWorkload.get(arbitratorId) ?? 0) + 1,
+    );
+  }
+}
+
+export async function releaseArbitrators(arbitratorIds: string[]): Promise<void> {
+  for (const arbitratorId of normalizeArbitratorIds(arbitratorIds)) {
+    await releaseArbitrator(arbitratorId);
+  }
+}
+
+export function diffArbitratorAssignments(
+  previous: string[],
+  next: string[],
+): { added: string[]; removed: string[] } {
+  const previousSet = new Set(normalizeArbitratorIds(previous));
+  const nextSet = new Set(normalizeArbitratorIds(next));
+
+  return {
+    added: [...nextSet].filter((arbitratorId) => !previousSet.has(arbitratorId)),
+    removed: [...previousSet].filter((arbitratorId) => !nextSet.has(arbitratorId)),
+  };
+}
+
+export function reconcileArbitratorWorkload(previous: string[], next: string[]): void {
+  const { added, removed } = diffArbitratorAssignments(previous, next);
+
+  for (const arbitratorId of removed) {
+    void releaseArbitrator(arbitratorId);
+  }
+
+  reserveArbitrators(added);
+}
 
 function weightedRandomSelect(
   candidates: Array<{ node_id: string; weight: number }>,
@@ -89,12 +152,20 @@ export async function selectArbitrator(disputeId: string, severity = 'medium'): 
     }
   }
 
-  // Increment workload counters
-  for (const arb of selected) {
-    arbitratorWorkload.set(arb, (arbitratorWorkload.get(arb) ?? 0) + 1);
-  }
-
   return selected;
+}
+
+export async function selectAndReserveArbitrators(
+  disputeId: string,
+  severity = 'medium',
+  previousArbitrators: string[] = [],
+): Promise<string[]> {
+  return withSelectionLock(async () => {
+    const selected = await selectArbitrator(disputeId, severity);
+    const { added } = diffArbitratorAssignments(previousArbitrators, selected);
+    reserveArbitrators(added);
+    return selected;
+  });
 }
 
 export async function assignDispute(
@@ -106,7 +177,7 @@ export async function assignDispute(
   });
 
   if (!dispute) {
-    throw new Error(`Dispute not found: ${disputeId}`);
+    throw new NotFoundError('Dispute', disputeId);
   }
 
   const current = (dispute.arbitrators as string[]) ?? [];
@@ -117,12 +188,9 @@ export async function assignDispute(
         arbitrators: [...current, arbitratorId],
       },
     });
-  }
 
-  arbitratorWorkload.set(
-    arbitratorId,
-    (arbitratorWorkload.get(arbitratorId) ?? 0) + 1,
-  );
+    reserveArbitrators([arbitratorId]);
+  }
 }
 
 export async function releaseArbitrator(arbitratorId: string): Promise<void> {

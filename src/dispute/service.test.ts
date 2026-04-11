@@ -27,6 +27,31 @@ const mockPrisma = {
   },
 } as any;
 
+const validAppealEvidence = [
+  {
+    evidence_id: 'evd_1',
+    type: 'screenshot',
+    content: 'Screenshot of new evidence',
+    hash: 'sha256:abc123',
+    submitted_by: 'node-1',
+    submitted_at: '2026-01-01T00:00:00.000Z',
+    verified: false,
+  },
+];
+
+const validAppealEvidencePair = [
+  ...validAppealEvidence,
+  {
+    evidence_id: 'evd_2',
+    type: 'log',
+    content: 'System log proving the appeal claim',
+    hash: 'sha256:def456',
+    submitted_by: 'node-1',
+    submitted_at: '2026-01-01T01:00:00.000Z',
+    verified: true,
+  },
+];
+
 beforeAll(() => {
   service.setPrisma(mockPrisma as any);
   arbitratorPool.setPrisma(mockPrisma as any);
@@ -37,6 +62,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  arbitratorPool.resetArbitratorWorkload();
 });
 
 // ─── Dispute CRUD ───────────────────────────────────────────────────────────────
@@ -121,7 +147,7 @@ describe('Dispute Service', () => {
   });
 
   describe('fileDispute', () => {
-    it('should create a dispute with auto-assigned severity', async () => {
+    it('should create an asset-quality dispute with spec-aligned defaults', async () => {
       const mockDispute = {
         dispute_id: 'dsp_test123',
         type: 'asset_quality',
@@ -131,7 +157,8 @@ describe('Dispute Service', () => {
         description: 'The asset does not match description',
         status: 'filed',
         severity: 'medium',
-        filing_fee: 50,
+        filing_fee: 25,
+        escrow_amount: 50,
       };
 
       mockPrisma.dispute.create.mockResolvedValue(mockDispute);
@@ -145,13 +172,21 @@ describe('Dispute Service', () => {
 
       expect(result.status).toBe('filed');
       expect(result.severity).toBe('medium');
-      expect(mockPrisma.dispute.create).toHaveBeenCalled();
+      expect(mockPrisma.dispute.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          severity: 'medium',
+          filing_fee: 25,
+          escrow_amount: 50,
+          deadline: expect.any(Date),
+        }),
+      }));
     });
 
-    it('should set severity to low when no asset is related', async () => {
+    it('should derive high severity for transaction disputes', async () => {
       const mockDispute = {
         dispute_id: 'dsp_nw',
-        severity: 'low',
+        severity: 'high',
+        filing_fee: 50,
       };
 
       mockPrisma.dispute.create.mockResolvedValue(mockDispute);
@@ -161,25 +196,107 @@ describe('Dispute Service', () => {
         defendant_id: 'node-defendant',
         title: 'Bounty not delivered',
         description: 'Worker did not deliver',
-        filing_fee: 25,
       });
 
-      expect(result.severity).toBe('low');
+      expect(result.severity).toBe('high');
+      expect(mockPrisma.dispute.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          severity: 'high',
+          filing_fee: 50,
+          escrow_amount: 100,
+        }),
+      }));
+    });
+
+    it('should reject unsupported dispute types', async () => {
+      await expect(service.fileDispute('node-plaintiff', {
+        type: 'unsupported',
+        defendant_id: 'node-defendant',
+        title: 'Valid title',
+        description: 'This description is long enough to pass validation.',
+      })).rejects.toThrow('type must be one of');
+    });
+
+    it('should derive critical severity for governance disputes', async () => {
+      mockPrisma.dispute.create.mockResolvedValue({
+        dispute_id: 'dsp_governance',
+        severity: 'critical',
+        filing_fee: 100,
+        escrow_amount: 200,
+      });
+
+      const result = await service.fileDispute('node-plaintiff', {
+        type: 'governance',
+        defendant_id: 'node-defendant',
+        title: 'Governance dispute',
+        description: 'Council execution diverged from the approved governance proposal.',
+      });
+
+      expect(result.severity).toBe('critical');
+      expect(mockPrisma.dispute.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          severity: 'critical',
+          filing_fee: 100,
+          escrow_amount: 200,
+        }),
+      }));
+    });
+
+    it('should reject self-filed disputes', async () => {
+      await expect(service.fileDispute('node-same', {
+        type: 'asset_quality',
+        defendant_id: 'node-same',
+        title: 'Valid title',
+        description: 'This description is long enough to pass validation.',
+      })).rejects.toThrow('plaintiff_id and defendant_id must be different');
+    });
+
+    it('should reject non-array evidence payloads', async () => {
+      await expect(service.fileDispute('node-plaintiff', {
+        type: 'asset_quality',
+        defendant_id: 'node-defendant',
+        title: 'Valid title',
+        description: 'This description is long enough to pass validation.',
+        evidence: 'not-an-array' as unknown as unknown[],
+      })).rejects.toThrow('evidence must be an array of valid evidence objects');
+    });
+
+    it('should reject malformed evidence objects when filing a dispute', async () => {
+      await expect(service.fileDispute('node-plaintiff', {
+        type: 'asset_quality',
+        defendant_id: 'node-defendant',
+        title: 'Valid title',
+        description: 'This description is long enough to pass validation.',
+        evidence: [{
+          ...validAppealEvidence[0]!,
+          type: 'unknown-evidence-type',
+        }],
+      })).rejects.toThrow('evidence must be an array of valid evidence objects');
+    });
+
+    it('should reject titles that are too short', async () => {
+      await expect(service.fileDispute('node-plaintiff', {
+        type: 'asset_quality',
+        defendant_id: 'node-defendant',
+        title: 'bad',
+        description: 'This description is long enough to pass validation.',
+      })).rejects.toThrow('title must be between 5 and 200 characters');
     });
   });
 
   describe('assignArbitrators', () => {
-    it('should assign arbitrators and update status to review', async () => {
+    it('should assign arbitrators and update status to under_review', async () => {
       const mockDispute = {
         dispute_id: 'dsp_arb',
         arbitrators: [],
         status: 'filed',
+        severity: 'medium',
       };
 
       const updatedDispute = {
         ...mockDispute,
         arbitrators: ['arb-1', 'arb-2', 'arb-3'],
-        status: 'review',
+        status: 'under_review',
       };
 
       mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
@@ -188,7 +305,33 @@ describe('Dispute Service', () => {
       const result = await service.assignArbitrators('dsp_arb', ['arb-1', 'arb-2', 'arb-3']);
 
       expect(result.arbitrators).toHaveLength(3);
-      expect(result.status).toBe('review');
+      expect(result.status).toBe('under_review');
+    });
+
+    it('should reject arbitrator counts that do not match dispute severity', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_bad_count',
+        arbitrators: [],
+        status: 'filed',
+        severity: 'critical',
+      });
+
+      await expect(
+        service.assignArbitrators('dsp_bad_count', ['arb-1', 'arb-2', 'arb-3']),
+      ).rejects.toThrow('require exactly 5 arbitrators');
+    });
+
+    it('should reject invalid status transitions when reassigning arbitrators', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_resolved',
+        arbitrators: ['arb-1', 'arb-2', 'arb-3'],
+        status: 'resolved',
+        severity: 'medium',
+      });
+
+      await expect(
+        service.assignArbitrators('dsp_resolved', ['arb-1', 'arb-2', 'arb-3']),
+      ).rejects.toThrow('Cannot move dispute from resolved to under_review');
     });
 
     it('should throw NotFoundError for unknown dispute', async () => {
@@ -274,6 +417,75 @@ describe('Dispute Service', () => {
 
       await expect(service.selectAndAssignArbitrators('unknown')).rejects.toThrow('not found');
     });
+
+    it('should fall back to medium severity rules when dispute severity is unknown', async () => {
+      const mockDispute = {
+        dispute_id: 'dsp_unknown_severity',
+        plaintiff_id: 'plaintiff-1',
+        defendant_id: 'defendant-1',
+        severity: 'mystery',
+        arbitrators: [],
+        status: 'filed',
+      };
+
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+      mockPrisma.node.findMany.mockResolvedValue(
+        Array.from({ length: 3 }, (_, index) => ({
+          node_id: `arb-node-${index}`,
+          reputation: 80,
+          trust_level: 'trusted',
+          status: 'registered',
+        })),
+      );
+      mockPrisma.dispute.update.mockResolvedValue({
+        ...mockDispute,
+        arbitrators: ['arb-node-0', 'arb-node-1', 'arb-node-2'],
+        status: 'under_review',
+      });
+
+      const result = await service.selectAndAssignArbitrators('dsp_unknown_severity');
+
+      expect(result).toHaveLength(3);
+    });
+
+    it('should fail when no eligible arbitrators are available', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_none_available',
+        plaintiff_id: 'plaintiff-1',
+        defendant_id: 'defendant-1',
+        severity: 'medium',
+        arbitrators: [],
+        status: 'filed',
+      });
+      mockPrisma.node.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.selectAndAssignArbitrators('dsp_none_available'),
+      ).rejects.toThrow('Need exactly 3 eligible arbitrators, found 0');
+    });
+
+    it('should fail when only a partial arbitrator panel is available', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_partial_panel',
+        plaintiff_id: 'plaintiff-1',
+        defendant_id: 'defendant-1',
+        severity: 'high',
+        arbitrators: [],
+        status: 'filed',
+      });
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'arb-1', reputation: 90, trust_level: 'trusted', status: 'registered' },
+        { node_id: 'arb-2', reputation: 85, trust_level: 'trusted', status: 'registered' },
+        { node_id: 'arb-3', reputation: 80, trust_level: 'trusted', status: 'registered' },
+        { node_id: 'arb-4', reputation: 78, trust_level: 'trusted', status: 'registered' },
+      ]);
+
+      await expect(
+        service.selectAndAssignArbitrators('dsp_partial_panel'),
+      ).rejects.toThrow('Need exactly 5 eligible arbitrators, found 4');
+      expect(arbitratorPool.getArbitratorWorkload('arb-1')).toBe(0);
+      expect(arbitratorPool.getArbitratorWorkload('arb-2')).toBe(0);
+    });
   });
 
   describe('issueRuling', () => {
@@ -326,6 +538,56 @@ describe('Dispute Service', () => {
       mockPrisma.dispute.findUnique.mockResolvedValue(null);
 
       await expect(service.issueRuling('unknown', {}, 'resolved')).rejects.toThrow('not found');
+    });
+
+    it('should reject invalid ruling statuses', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_invalid_status',
+        status: 'under_review',
+        hearing_started_at: null,
+        review_started_at: new Date(),
+      });
+
+      await expect(
+        service.issueRuling('dsp_invalid_status', { verdict: 'plaintiff_wins' }, 'filed'),
+      ).rejects.toThrow('status must be one of');
+    });
+
+    it('should reject non-object rulings', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_non_object',
+        status: 'under_review',
+        hearing_started_at: null,
+        review_started_at: new Date(),
+      });
+
+      await expect(
+        service.issueRuling('dsp_non_object', [] as unknown as object, 'resolved'),
+      ).rejects.toThrow('ruling must be an object');
+    });
+
+    it('should preserve resolved_at when escalating a resolved dispute', async () => {
+      const resolvedAt = new Date('2026-01-01T00:00:00.000Z');
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_escalated',
+        status: 'resolved',
+        resolved_at: resolvedAt,
+        hearing_started_at: resolvedAt,
+        review_started_at: resolvedAt,
+      });
+      mockPrisma.dispute.update.mockResolvedValue({
+        dispute_id: 'dsp_escalated',
+        status: 'escalated',
+        resolved_at: resolvedAt,
+      });
+
+      await service.issueRuling('dsp_escalated', { verdict: 'plaintiff_wins' }, 'escalated');
+
+      expect(mockPrisma.dispute.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          resolved_at: resolvedAt,
+        }),
+      }));
     });
   });
 
@@ -457,7 +719,7 @@ describe('Dispute Service', () => {
         appellant_id: 'node-app',
         grounds: 'New evidence',
         status: 'accepted',
-        new_evidence: [{ test: 'ev' }],
+        new_evidence: validAppealEvidence,
       };
       const mockDispute = {
         dispute_id: 'dsp_proc',
@@ -472,6 +734,7 @@ describe('Dispute Service', () => {
       mockPrisma.node.findMany.mockResolvedValue([
         { node_id: 'arb-1', reputation: 80, trust_level: 'trusted', status: 'registered' },
         { node_id: 'arb-2', reputation: 75, trust_level: 'trusted', status: 'registered' },
+        { node_id: 'arb-3', reputation: 74, trust_level: 'trusted', status: 'registered' },
       ]);
 
       await expect(service.processAppealDecision('apl_proc')).resolves.not.toThrow();
@@ -915,11 +1178,47 @@ describe('Appeal Module', () => {
         'node-appellant',
         'New evidence was discovered after ruling',
         100,
-        [{ evidence_id: 'evd_new', type: 'screenshot', content: 'Screenshot of new evidence' }],
+        [{
+          ...validAppealEvidence[0]!,
+          evidence_id: 'evd_new',
+        }],
       );
 
       expect(result.appeal_id).toBe('apl_test');
       expect(result.status).toBe('filed');
+    });
+
+    it('should derive the appeal fee from the original filing fee when omitted', async () => {
+      const mockDispute = {
+        dispute_id: 'dsp_default_fee',
+        resolved_at: new Date(),
+        filing_fee: 25,
+        status: 'resolved',
+      };
+
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+      mockPrisma.appeal.count.mockResolvedValue(0);
+      mockPrisma.appeal.create.mockResolvedValue({
+        appeal_id: 'apl_default_fee',
+        status: 'filed',
+      });
+
+      await appealModule.fileAppeal(
+        'dsp_default_fee',
+        'node-appellant',
+        'New evidence was discovered after ruling',
+        undefined,
+        [{
+          ...validAppealEvidence[0]!,
+          evidence_id: 'evd_new',
+        }],
+      );
+
+      expect(mockPrisma.appeal.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          appeal_fee: 50,
+        }),
+      }));
     });
 
     it('should reject appeal when max appeals reached', async () => {
@@ -932,7 +1231,7 @@ describe('Appeal Module', () => {
       mockPrisma.appeal.count.mockResolvedValue(1); // already at max
 
       await expect(
-        appealModule.fileAppeal('dsp_max', 'node-app', 'Grounds', 100, [{ test: 'ev' }]),
+        appealModule.fileAppeal('dsp_max', 'node-app', 'Grounds', 100, validAppealEvidence),
       ).rejects.toThrow('Maximum appeals');
     });
 
@@ -961,8 +1260,61 @@ describe('Appeal Module', () => {
       mockPrisma.appeal.count.mockResolvedValue(0);
 
       await expect(
-        appealModule.fileAppeal('dsp_expired', 'node-app', 'Grounds', 100, [{ test: 'ev' }]),
+        appealModule.fileAppeal('dsp_expired', 'node-app', 'Grounds', 100, validAppealEvidence),
       ).rejects.toThrow('Appeal window has expired');
+    });
+
+    it('should reject appeals for unresolved disputes', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_unresolved',
+        resolved_at: null,
+        status: 'under_review',
+      });
+
+      await expect(
+        appealModule.fileAppeal('dsp_unresolved', 'node-app', 'Grounds', 100, validAppealEvidence),
+      ).rejects.toThrow('Only resolved disputes can be appealed');
+    });
+
+    it('should reject non-array new evidence payloads', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_bad_evidence',
+        resolved_at: new Date(),
+        status: 'resolved',
+      });
+
+      await expect(
+        appealModule.fileAppeal(
+          'dsp_bad_evidence',
+          'node-app',
+          'Grounds',
+          100,
+          'bad-evidence' as unknown as unknown[],
+        ),
+      ).rejects.toThrow('new_evidence must be an array of valid evidence objects');
+    });
+
+    it('should reject malformed new evidence objects', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_bad_evidence_shape',
+        resolved_at: new Date(),
+        status: 'resolved',
+        filing_fee: 50,
+      });
+      mockPrisma.appeal.count.mockResolvedValue(0);
+
+      await expect(
+        appealModule.fileAppeal(
+          'dsp_bad_evidence_shape',
+          'node-app',
+          'Grounds are detailed enough to justify an appeal review.',
+          100,
+          [{
+            ...validAppealEvidence[0]!,
+            submitted_at: 'not-a-real-date',
+          }],
+        ),
+      ).rejects.toThrow('new_evidence must be an array of valid evidence objects');
     });
   });
 
@@ -973,7 +1325,7 @@ describe('Appeal Module', () => {
         original_dispute_id: 'dsp_review',
         appellant_id: 'node-appellant',
         grounds: 'Significant new evidence that changes the outcome significantly',
-        new_evidence: [{ test: 'ev1' }, { test: 'ev2' }],
+        new_evidence: validAppealEvidencePair,
         status: 'filed',
       };
 
@@ -1000,7 +1352,7 @@ describe('Appeal Module', () => {
         original_dispute_id: 'dsp_reject',
         appellant_id: 'node-appellant',
         grounds: 'Brief grounds',
-        new_evidence: [{ test: 'ev' }],
+        new_evidence: validAppealEvidence,
         status: 'filed',
       };
 
@@ -1044,5 +1396,126 @@ describe('Appeal Module', () => {
 
       await expect(appealModule.escalateToCouncil('unknown')).rejects.toThrow('not found');
     });
+  });
+});
+
+describe('Dispute service facade wrappers', () => {
+  it('delegates fileAppeal through the service facade', async () => {
+    const spy = jest.spyOn(appealModule, 'fileAppeal').mockResolvedValueOnce({
+      appeal_id: 'apl_facade',
+      status: 'filed',
+    });
+
+    const result = await service.fileAppeal(
+      'dsp_facade',
+      'node-appellant',
+      'Grounds',
+      100,
+      validAppealEvidence,
+    );
+
+    expect(result.appeal_id).toBe('apl_facade');
+    expect(spy).toHaveBeenCalledWith(
+      'dsp_facade',
+      'node-appellant',
+      'Grounds',
+      100,
+      validAppealEvidence,
+    );
+    spy.mockRestore();
+  });
+
+  it('delegates reviewAppeal through the service facade', async () => {
+    const spy = jest.spyOn(appealModule, 'reviewAppeal').mockResolvedValueOnce({
+      appeal_id: 'apl_review',
+      status: 'accepted',
+      accepted: true,
+      reasoning: 'ok',
+      escalated: true,
+    });
+
+    const result = await service.reviewAppeal('apl_review');
+
+    expect(result.accepted).toBe(true);
+    expect(spy).toHaveBeenCalledWith('apl_review');
+    spy.mockRestore();
+  });
+});
+
+describe('Arbitrator pool helpers', () => {
+  it('does not double-count workload when assigning the same arbitrator twice', async () => {
+    mockPrisma.dispute.findUnique
+      .mockResolvedValueOnce({
+        dispute_id: 'dsp_repeat_assignment',
+        arbitrators: [],
+      })
+      .mockResolvedValueOnce({
+        dispute_id: 'dsp_repeat_assignment',
+        arbitrators: ['arb-1'],
+      });
+    mockPrisma.dispute.update.mockResolvedValue({
+      dispute_id: 'dsp_repeat_assignment',
+      arbitrators: ['arb-1'],
+    });
+
+    await arbitratorPool.assignDispute('dsp_repeat_assignment', 'arb-1');
+    await arbitratorPool.assignDispute('dsp_repeat_assignment', 'arb-1');
+
+    expect(mockPrisma.dispute.update).toHaveBeenCalledTimes(1);
+    expect(arbitratorPool.getArbitratorWorkload('arb-1')).toBe(1);
+  });
+
+  it('makes reserved arbitrators unavailable to the next auto-selection', async () => {
+    const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+
+    mockPrisma.dispute.findUnique.mockResolvedValue({
+      dispute_id: 'dsp_auto_reserve',
+      plaintiff_id: 'plaintiff-1',
+      defendant_id: 'defendant-1',
+    });
+    mockPrisma.node.findMany.mockResolvedValue([
+      { node_id: 'arb-1', reputation: 99, trust_level: 'trusted', status: 'registered' },
+      { node_id: 'arb-2', reputation: 98, trust_level: 'trusted', status: 'registered' },
+      { node_id: 'arb-3', reputation: 97, trust_level: 'trusted', status: 'registered' },
+      { node_id: 'arb-4', reputation: 96, trust_level: 'trusted', status: 'registered' },
+      { node_id: 'arb-5', reputation: 95, trust_level: 'trusted', status: 'registered' },
+      { node_id: 'arb-6', reputation: 94, trust_level: 'trusted', status: 'registered' },
+    ]);
+    arbitratorPool.reserveArbitrators(['arb-1', 'arb-2', 'arb-3']);
+    arbitratorPool.reserveArbitrators(['arb-1', 'arb-2', 'arb-3']);
+
+    const firstPanel = await arbitratorPool.selectAndReserveArbitrators('dsp_auto_reserve', 'medium');
+    const secondPanel = await arbitratorPool.selectArbitrator('dsp_auto_reserve', 'medium');
+
+    expect(firstPanel).toEqual(['arb-1', 'arb-2', 'arb-3']);
+    expect(secondPanel).toEqual(['arb-4', 'arb-5', 'arb-6']);
+
+    randomSpy.mockRestore();
+  });
+
+  it('rolls back reserved workload when auto-assignment persistence fails', async () => {
+    const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+
+    mockPrisma.dispute.findUnique.mockResolvedValue({
+      dispute_id: 'dsp_auto_rollback',
+      plaintiff_id: 'plaintiff-1',
+      defendant_id: 'defendant-1',
+      severity: 'medium',
+      arbitrators: [],
+      status: 'filed',
+    });
+    mockPrisma.node.findMany.mockResolvedValue([
+      { node_id: 'arb-1', reputation: 99, trust_level: 'trusted', status: 'registered' },
+      { node_id: 'arb-2', reputation: 98, trust_level: 'trusted', status: 'registered' },
+      { node_id: 'arb-3', reputation: 97, trust_level: 'trusted', status: 'registered' },
+    ]);
+    mockPrisma.dispute.update.mockRejectedValue(new Error('db write failed'));
+
+    await expect(service.selectAndAssignArbitrators('dsp_auto_rollback')).rejects.toThrow('db write failed');
+    expect(arbitratorPool.getArbitratorWorkload('arb-1')).toBe(0);
+    expect(arbitratorPool.getArbitratorWorkload('arb-2')).toBe(0);
+    expect(arbitratorPool.getArbitratorWorkload('arb-3')).toBe(0);
+
+    randomSpy.mockRestore();
   });
 });

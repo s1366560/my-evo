@@ -1,0 +1,205 @@
+import fastify, { type FastifyInstance } from 'fastify';
+import { disputeRoutes } from './routes';
+
+const mockFileDispute = jest.fn();
+const mockListDisputes = jest.fn();
+const mockGetDispute = jest.fn();
+const mockAssignArbitrators = jest.fn();
+const mockSelectAndAssignArbitrators = jest.fn();
+const mockIssueRuling = jest.fn();
+const mockAutoGenerateRuling = jest.fn();
+const mockFileAppeal = jest.fn();
+const mockListAppeals = jest.fn();
+const mockReviewAppeal = jest.fn();
+const mockProcessAppealDecision = jest.fn();
+const mockEscalateDisputeToCouncil = jest.fn();
+
+jest.mock('./service', () => ({
+  fileDispute: (...args: unknown[]) => mockFileDispute(...args),
+  listDisputes: (...args: unknown[]) => mockListDisputes(...args),
+  getDispute: (...args: unknown[]) => mockGetDispute(...args),
+  assignArbitrators: (...args: unknown[]) => mockAssignArbitrators(...args),
+  selectAndAssignArbitrators: (...args: unknown[]) => mockSelectAndAssignArbitrators(...args),
+  issueRuling: (...args: unknown[]) => mockIssueRuling(...args),
+  autoGenerateRuling: (...args: unknown[]) => mockAutoGenerateRuling(...args),
+  fileAppeal: (...args: unknown[]) => mockFileAppeal(...args),
+  listAppeals: (...args: unknown[]) => mockListAppeals(...args),
+  reviewAppeal: (...args: unknown[]) => mockReviewAppeal(...args),
+  processAppealDecision: (...args: unknown[]) => mockProcessAppealDecision(...args),
+  escalateDisputeToCouncil: (...args: unknown[]) => mockEscalateDisputeToCouncil(...args),
+}));
+
+jest.mock('../shared/auth', () => ({
+  requireAuth: () => async (request: { auth?: { node_id: string } }) => {
+    request.auth = { node_id: 'node-1' };
+  },
+}));
+
+function buildApp(): FastifyInstance {
+  return fastify({ logger: false });
+}
+
+describe('Dispute routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    mockListDisputes.mockResolvedValue({ items: [], total: 0 });
+    mockGetDispute.mockResolvedValue({ dispute_id: 'dsp-1' });
+    mockAssignArbitrators.mockResolvedValue({ dispute_id: 'dsp-1', arbitrators: ['arb-1', 'arb-2', 'arb-3'] });
+    mockSelectAndAssignArbitrators.mockResolvedValue(['arb-1', 'arb-2', 'arb-3']);
+    mockIssueRuling.mockResolvedValue({ dispute_id: 'dsp-1', status: 'resolved' });
+    mockAutoGenerateRuling.mockResolvedValue({ ruling_id: 'rul-1', dispute_id: 'dsp-1' });
+    mockFileAppeal.mockResolvedValue({ appeal_id: 'apl-1', status: 'filed' });
+    mockListAppeals.mockResolvedValue([{ appeal_id: 'apl-1' }]);
+    mockReviewAppeal.mockResolvedValue({ appeal_id: 'apl-1', accepted: true, escalated: true });
+    mockProcessAppealDecision.mockResolvedValue(undefined);
+    mockEscalateDisputeToCouncil.mockResolvedValue({ council_session_id: 'cns-1' });
+
+    app = buildApp();
+    await app.register(disputeRoutes, { prefix: '/api/v2/disputes' });
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('creates disputes without hard-coding legacy filing fees', async () => {
+    mockFileDispute.mockResolvedValue({ dispute_id: 'dsp-created' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes',
+      payload: {
+        type: 'transaction',
+        defendant_id: 'node-2',
+        title: 'Transaction dispute',
+        description: 'The delivery was not completed and the credits were not refunded.',
+        related_transaction_id: 'txn-1',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockFileDispute).toHaveBeenCalledWith('node-1', expect.objectContaining({
+      related_transaction_id: 'txn-1',
+      filing_fee: undefined,
+    }));
+  });
+
+  it('caps dispute list limits to the safe maximum', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/disputes?limit=999',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockListDisputes).toHaveBeenCalledWith(undefined, undefined, 100, 0);
+  });
+
+  it('rejects malformed pagination values', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/disputes?limit=10abc',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockListDisputes).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed assignment payloads before reaching the service layer', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/dsp-1/assign',
+      payload: {
+        arbitrators: 'arb-1',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockAssignArbitrators).not.toHaveBeenCalled();
+  });
+
+  it('auto-assigns arbitrators through the service layer', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/dsp-1/assign/auto',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockSelectAndAssignArbitrators).toHaveBeenCalledWith('dsp-1');
+  });
+
+  it('defaults manual rulings to resolved status when none is provided', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/dsp-1/ruling',
+      payload: {
+        ruling: { verdict: 'plaintiff_wins' },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockIssueRuling).toHaveBeenCalledWith('dsp-1', { verdict: 'plaintiff_wins' }, 'resolved');
+  });
+
+  it('rejects non-object ruling payloads', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/dsp-1/ruling',
+      payload: 'null',
+      headers: {
+        'content-type': 'application/json',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockIssueRuling).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-object appeal payloads', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/dsp-1/appeal',
+      payload: 'null',
+      headers: {
+        'content-type': 'application/json',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockFileAppeal).not.toHaveBeenCalled();
+  });
+
+  it('exposes appeal review and processing routes', async () => {
+    const reviewResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/appeals/apl-1/review',
+    });
+    const processResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/appeals/apl-1/process',
+    });
+
+    expect(reviewResponse.statusCode).toBe(200);
+    expect(processResponse.statusCode).toBe(200);
+    expect(mockReviewAppeal).toHaveBeenCalledWith('apl-1');
+    expect(mockProcessAppealDecision).toHaveBeenCalledWith('apl-1');
+  });
+
+  it('exposes dispute escalation and auto-ruling routes', async () => {
+    const escalateResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/dsp-1/escalate',
+    });
+    const autoRulingResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/dsp-1/ruling/auto',
+    });
+
+    expect(escalateResponse.statusCode).toBe(200);
+    expect(autoRulingResponse.statusCode).toBe(200);
+    expect(mockEscalateDisputeToCouncil).toHaveBeenCalledWith('dsp-1');
+    expect(mockAutoGenerateRuling).toHaveBeenCalledWith('dsp-1');
+  });
+});
