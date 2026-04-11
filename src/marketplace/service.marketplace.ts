@@ -9,6 +9,9 @@ import {
 
 let prisma = new PrismaClient();
 
+const SERVICE_REVIEW_TAG = 'service_review';
+const SERVICE_LISTING_STATUSES = ['active', 'paused', 'archived'] as const;
+
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
@@ -60,6 +63,16 @@ export interface ServiceTransaction {
   completed_at: string;
 }
 
+export interface ServiceReview {
+  review_id: string;
+  listing_id: string;
+  buyer_id: string;
+  rating: number;
+  review?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface MarketStats {
   total_listings: number;
   active_listings: number;
@@ -73,6 +86,114 @@ export interface Balance {
   credit_balance: number;
   total_earned: number;
   total_spent: number;
+}
+
+function toServiceListing(listing: {
+  listing_id: string;
+  seller_id: string;
+  title: string;
+  description: string;
+  category: string;
+  tags: string[];
+  price_type: string;
+  price_credits: number;
+  license_type: string;
+  status: string;
+  created_at: Date;
+}): ServiceListing {
+  return {
+    listing_id: listing.listing_id,
+    seller_id: listing.seller_id,
+    title: listing.title,
+    description: listing.description,
+    category: listing.category,
+    tags: listing.tags,
+    price_type: listing.price_type,
+    price_credits: listing.price_credits,
+    license_type: listing.license_type,
+    status: listing.status,
+    created_at: listing.created_at.toISOString(),
+  };
+}
+
+function getServiceReviewFilter(listingId: string): { tags: { hasEvery: string[] } } {
+  return {
+    tags: {
+      hasEvery: [SERVICE_REVIEW_TAG, `service:${listingId}`],
+    },
+  };
+}
+
+function getServiceReviewRatingTag(rating: number): string {
+  return `rating:${rating}`;
+}
+
+function normalizeServiceRating(rating: number): number {
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    throw new ValidationError('rating must be an integer between 1 and 5');
+  }
+  return rating;
+}
+
+function normalizeServiceStatus(status: string): typeof SERVICE_LISTING_STATUSES[number] {
+  if (!SERVICE_LISTING_STATUSES.includes(status as typeof SERVICE_LISTING_STATUSES[number])) {
+    throw new ValidationError('status must be one of active, paused, archived');
+  }
+  return status as typeof SERVICE_LISTING_STATUSES[number];
+}
+
+function getServiceReviewId(listingId: string, buyerId: string): string {
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${listingId}:${buyerId}`)
+    .digest('hex')
+    .slice(0, 24);
+  return `srvrev-${digest}`;
+}
+
+export async function searchServiceListings(params: {
+  query?: string;
+  category?: string;
+  limit?: number;
+  offset?: number;
+  include_inactive?: boolean;
+}): Promise<{ items: ServiceListing[]; total: number }> {
+  const limit = Math.max(1, Math.min(params.limit ?? 20, 100));
+  const offset = Math.max(0, params.offset ?? 0);
+  const query = params.query?.trim();
+  const where: Record<string, unknown> = {};
+
+  if (!params.include_inactive) {
+    where['status'] = 'active';
+  }
+
+  if (params.category?.trim()) {
+    where['category'] = params.category.trim();
+  }
+
+  if (query) {
+    where['OR'] = [
+      { title: { contains: query, mode: 'insensitive' } },
+      { description: { contains: query, mode: 'insensitive' } },
+      { category: { contains: query, mode: 'insensitive' } },
+      { tags: { has: query } },
+    ];
+  }
+
+  const [items, total] = await Promise.all([
+    prisma.serviceListing.findMany({
+      where,
+      take: limit,
+      skip: offset,
+      orderBy: { created_at: 'desc' },
+    }),
+    prisma.serviceListing.count({ where }),
+  ]);
+
+  return {
+    items: items.map((item) => toServiceListing(item)),
+    total,
+  };
 }
 
 export async function createServiceListing(
@@ -92,6 +213,13 @@ export async function createServiceListing(
     throw new ValidationError('price_credits is required for non-free listings');
   }
 
+  const seller = await prisma.node.findFirst({
+    where: { node_id: sellerId },
+  });
+  if (!seller) {
+    throw new NotFoundError('Seller node', sellerId);
+  }
+
   const listingId = `svc-${crypto.randomUUID()}`;
   const listing = await prisma.serviceListing.create({
     data: {
@@ -108,19 +236,7 @@ export async function createServiceListing(
     },
   });
 
-  return {
-    listing_id: listing.listing_id,
-    seller_id: listing.seller_id,
-    title: listing.title,
-    description: listing.description,
-    category: listing.category,
-    tags: listing.tags,
-    price_type: listing.price_type,
-    price_credits: listing.price_credits,
-    license_type: listing.license_type,
-    status: listing.status,
-    created_at: listing.created_at.toISOString(),
-  };
+  return toServiceListing(listing);
 }
 
 export async function purchaseService(
@@ -252,6 +368,156 @@ export async function getMyPurchases(
       disputed_at: p.disputed_at ? p.disputed_at.toISOString() : undefined,
     })),
     total,
+  };
+}
+
+export async function updateServiceListing(
+  sellerId: string,
+  listingId: string,
+  updates: {
+    title?: string;
+    description?: string;
+    category?: string;
+    tags?: string[];
+    price_credits?: number;
+    status?: string;
+    license_type?: 'open_source' | 'proprietary' | 'custom';
+  },
+): Promise<ServiceListing> {
+  const listing = await prisma.serviceListing.findFirst({
+    where: { listing_id: listingId },
+  });
+
+  if (!listing) {
+    throw new NotFoundError('ServiceListing', listingId);
+  }
+  if (listing.seller_id !== sellerId) {
+    throw new ForbiddenError('Only the seller can update this listing');
+  }
+
+  if (updates.title !== undefined && updates.title.trim().length === 0) {
+    throw new ValidationError('Title cannot be empty');
+  }
+  if (updates.description !== undefined && updates.description.trim().length === 0) {
+    throw new ValidationError('Description cannot be empty');
+  }
+  if (updates.category !== undefined && updates.category.trim().length === 0) {
+    throw new ValidationError('Category cannot be empty');
+  }
+  if (updates.price_credits !== undefined && updates.price_credits < 0) {
+    throw new ValidationError('price_credits cannot be negative');
+  }
+  if (updates.status !== undefined && updates.status.trim().length === 0) {
+    throw new ValidationError('status cannot be empty');
+  }
+  const normalizedStatus = updates.status !== undefined
+    ? normalizeServiceStatus(updates.status.trim())
+    : undefined;
+
+  const nextPrice = updates.price_credits ?? listing.price_credits;
+  const nextPriceType = nextPrice > 0
+    ? (listing.price_type === 'free' ? 'one_time' : listing.price_type)
+    : 'free';
+
+  const updated = await prisma.serviceListing.update({
+    where: { listing_id: listingId },
+    data: {
+      ...(updates.title !== undefined ? { title: updates.title.trim() } : {}),
+      ...(updates.description !== undefined ? { description: updates.description.trim() } : {}),
+      ...(updates.category !== undefined ? { category: updates.category.trim() } : {}),
+      ...(updates.tags !== undefined ? { tags: updates.tags } : {}),
+      ...(updates.price_credits !== undefined ? { price_credits: nextPrice, price_type: nextPriceType } : {}),
+      ...(normalizedStatus !== undefined ? { status: normalizedStatus } : {}),
+      ...(updates.license_type !== undefined ? { license_type: updates.license_type } : {}),
+    },
+  });
+
+  return toServiceListing(updated);
+}
+
+export async function rateService(
+  buyerId: string,
+  listingId: string,
+  rating: number,
+  review?: string,
+): Promise<ServiceReview> {
+  const normalizedRating = normalizeServiceRating(rating);
+  const [listing, purchase] = await Promise.all([
+    prisma.serviceListing.findFirst({
+      where: { listing_id: listingId },
+    }),
+    prisma.servicePurchase.findFirst({
+      where: { listing_id: listingId, buyer_id: buyerId, status: 'confirmed' },
+    }),
+  ]);
+
+  if (!listing) {
+    throw new NotFoundError('ServiceListing', listingId);
+  }
+  if (!purchase) {
+    throw new ForbiddenError('Only buyers with a confirmed purchase can rate this service');
+  }
+
+  const reviewId = getServiceReviewId(listingId, buyerId);
+  const tags = [
+    SERVICE_REVIEW_TAG,
+    `service:${listingId}`,
+    getServiceReviewRatingTag(normalizedRating),
+  ];
+  const body = review?.trim() || `Rating ${normalizedRating}/5`;
+  const title = `Review for ${listing.title}`;
+  const existingReview = await prisma.question.findFirst({
+    where: {
+      author: buyerId,
+      ...getServiceReviewFilter(listingId),
+    },
+  });
+
+  if (existingReview) {
+    const updated = await prisma.question.update({
+      where: { question_id: existingReview.question_id },
+      data: {
+        title,
+        body,
+        tags,
+      },
+    });
+
+    return {
+      review_id: updated.question_id,
+      listing_id: listingId,
+      buyer_id: buyerId,
+      rating: normalizedRating,
+      review: updated.body,
+      created_at: updated.created_at.toISOString(),
+      updated_at: updated.updated_at.toISOString(),
+    };
+  }
+
+  const created = await prisma.question.upsert({
+    where: { question_id: reviewId },
+    create: {
+      question_id: reviewId,
+      title,
+      body,
+      tags,
+      author: buyerId,
+    },
+    update: {
+      title,
+      body,
+      tags,
+    },
+  });
+
+  return {
+    review_id: created.question_id,
+    listing_id: listingId,
+    buyer_id: buyerId,
+    rating: normalizedRating,
+    review: created.body,
+    created_at: created.created_at.toISOString(),
+    updated_at: created.updated_at.toISOString(),
   };
 }
 

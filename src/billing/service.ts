@@ -4,7 +4,7 @@ import { ValidationError } from '../shared/errors';
 let prisma = new PrismaClient();
 
 export function setPrisma(client: PrismaClient): void {
-  (prisma as unknown) = client;
+  prisma = client;
 }
 
 export interface EarningsSummary {

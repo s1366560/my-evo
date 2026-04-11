@@ -423,6 +423,7 @@ export interface SearchableAsset {
 export interface SearchQuery {
   q: string;
   type?: 'gene' | 'capsule' | 'skill';
+  status?: 'published' | 'promoted';
   signals?: string[];
   tags?: string[];
   min_gdi?: number;
@@ -1071,6 +1072,7 @@ export interface ApiResponse<T> {
 // ===== Publish Payload =====
 export interface PublishPayload {
   sender_id: string;
+  source_message_id?: string;
   asset_type: AssetType;
   name: string;
   description: string;

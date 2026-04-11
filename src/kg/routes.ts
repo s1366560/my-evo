@@ -27,6 +27,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['KnowledgeGraph'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const body = request.body as {
       type: string;
       properties: Record<string, unknown>;
@@ -35,6 +36,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     const result = await kgService.createNode(
       body.type,
       body.properties,
+      auth.node_id,
     );
 
     return reply.status(201).send({ success: true, data: result });
@@ -112,10 +114,11 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
 
     for (const entity of entities) {
       try {
-        const node = await kgService.createNode(entity.type, {
-          ...entity.properties,
-          author_id: auth.node_id,
-        });
+        const node = await kgService.createNode(
+          entity.type,
+          entity.properties,
+          auth.node_id,
+        );
         results.push({ action: 'entity_created', id: node.id });
       } catch (err) {
         results.push({ action: 'entity_failed', error: (err as Error).message });

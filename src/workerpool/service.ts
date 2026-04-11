@@ -7,6 +7,7 @@ import {
 import {
   NotFoundError,
   ValidationError,
+  ConflictError,
 } from '../shared/errors';
 
 let prisma = new PrismaClient();
@@ -113,30 +114,77 @@ export async function assignTask(
   workerId: string,
   taskId: string,
 ) {
-  const worker = await prisma.worker.findUnique({
-    where: { node_id: workerId },
+  return prisma.$transaction(async (tx) => {
+    const [worker, task] = await Promise.all([
+      tx.worker.findUnique({
+        where: { node_id: workerId },
+      }),
+      tx.workerTask.findUnique({
+        where: { task_id: taskId },
+      }),
+    ]);
+
+    if (!worker) {
+      throw new NotFoundError('Worker', workerId);
+    }
+
+    if (!task) {
+      throw new NotFoundError('Task', taskId);
+    }
+
+    if (!worker.is_available) {
+      throw new ValidationError('Worker is not available');
+    }
+
+    if (worker.current_tasks >= worker.max_concurrent) {
+      throw new ValidationError('Worker has reached max concurrent tasks');
+    }
+
+    if (task.status !== 'available' || task.assigned_to) {
+      throw new ValidationError('Task is not available');
+    }
+
+    const reserved = await tx.worker.updateMany({
+      where: {
+        node_id: workerId,
+        is_available: true,
+        current_tasks: worker.current_tasks,
+      },
+      data: {
+        current_tasks: { increment: 1 },
+      },
+    });
+
+    if (reserved.count === 0) {
+      throw new ConflictError('Worker state changed; retry');
+    }
+
+    const assigned = await tx.workerTask.updateMany({
+      where: {
+        task_id: taskId,
+        status: 'available',
+        assigned_to: null,
+      },
+      data: {
+        assigned_to: workerId,
+        status: 'assigned',
+      },
+    });
+
+    if (assigned.count === 0) {
+      throw new ConflictError('Task state changed; retry');
+    }
+
+    const updatedWorker = await tx.worker.findUnique({
+      where: { node_id: workerId },
+    });
+
+    if (!updatedWorker) {
+      throw new NotFoundError('Worker', workerId);
+    }
+
+    return updatedWorker;
   });
-
-  if (!worker) {
-    throw new NotFoundError('Worker', workerId);
-  }
-
-  if (!worker.is_available) {
-    throw new ValidationError('Worker is not available');
-  }
-
-  if (worker.current_tasks >= worker.max_concurrent) {
-    throw new ValidationError('Worker has reached max concurrent tasks');
-  }
-
-  const updated = await prisma.worker.update({
-    where: { node_id: workerId },
-    data: {
-      current_tasks: worker.current_tasks + 1,
-    },
-  });
-
-  return updated;
 }
 
 export async function completeTask(
@@ -144,34 +192,87 @@ export async function completeTask(
   taskId: string,
   success: boolean,
 ) {
-  const worker = await prisma.worker.findUnique({
-    where: { node_id: workerId },
+  return prisma.$transaction(async (tx) => {
+    const [worker, task] = await Promise.all([
+      tx.worker.findUnique({
+        where: { node_id: workerId },
+      }),
+      tx.workerTask.findUnique({
+        where: { task_id: taskId },
+      }),
+    ]);
+
+    if (!worker) {
+      throw new NotFoundError('Worker', workerId);
+    }
+
+    if (!task) {
+      throw new NotFoundError('Task', taskId);
+    }
+
+    if (worker.current_tasks <= 0) {
+      throw new ValidationError('Worker has no tasks to complete');
+    }
+
+    if (task.assigned_to !== workerId || task.status !== 'assigned') {
+      throw new ValidationError('Task is not assigned to this worker');
+    }
+
+    const newTotal = worker.total_completed + 1;
+    const newSuccessCount = success
+      ? Math.round(worker.success_rate * worker.total_completed / 100) + 1
+      : Math.round(worker.success_rate * worker.total_completed / 100);
+    const newRate = (newSuccessCount / newTotal) * 100;
+
+    const completedWorker = await tx.worker.updateMany({
+      where: {
+        node_id: workerId,
+        current_tasks: worker.current_tasks,
+        total_completed: worker.total_completed,
+      },
+      data: {
+        current_tasks: { decrement: 1 },
+        total_completed: { increment: 1 },
+        success_rate: newRate,
+      },
+    });
+
+    if (completedWorker.count === 0) {
+      throw new ConflictError('Worker state changed; retry');
+    }
+
+    const updatedTask = await tx.workerTask.updateMany({
+      where: {
+        task_id: taskId,
+        assigned_to: workerId,
+        status: 'assigned',
+      },
+      data: success
+        ? {
+          status: 'completed',
+          completed_at: new Date(),
+        }
+        : {
+          status: 'available',
+          assigned_to: null,
+          completed_at: null,
+        },
+    });
+
+    if (updatedTask.count === 0) {
+      throw new ConflictError('Task state changed; retry');
+    }
+
+    const updatedWorker = await tx.worker.findUnique({
+      where: { node_id: workerId },
+    });
+
+    if (!updatedWorker) {
+      throw new NotFoundError('Worker', workerId);
+    }
+
+    return updatedWorker;
   });
-
-  if (!worker) {
-    throw new NotFoundError('Worker', workerId);
-  }
-
-  if (worker.current_tasks <= 0) {
-    throw new ValidationError('Worker has no tasks to complete');
-  }
-
-  const newTotal = worker.total_completed + 1;
-  const newSuccessCount = success
-    ? Math.round(worker.success_rate * worker.total_completed / 100) + 1
-    : Math.round(worker.success_rate * worker.total_completed / 100);
-  const newRate = (newSuccessCount / newTotal) * 100;
-
-  const updated = await prisma.worker.update({
-    where: { node_id: workerId },
-    data: {
-      current_tasks: worker.current_tasks - 1,
-      total_completed: newTotal,
-      success_rate: newRate,
-    },
-  });
-
-  return updated;
 }
 
 export async function deregisterWorker(nodeId: string) {
@@ -288,7 +389,8 @@ export async function getSpecialist(nodeId: string): Promise<Record<string, unkn
 }
 
 export async function rateSpecialist(
-  _taskId: string,
+  workerId: string,
+  taskId: string,
   _raterId: string,
   rating: number,
   _review?: string,
@@ -296,7 +398,15 @@ export async function rateSpecialist(
   if (rating < 1 || rating > 5) {
     throw new ValidationError('Rating must be between 1 and 5');
   }
-  // WorkerRating storage requires a WorkerRating model — validated above; no-op for MVP
+  if (!taskId || taskId.trim().length === 0) {
+    throw new ValidationError('task_id is required');
+  }
+
+  // WorkerTask does not currently track who requested/owns the task, so we
+  // cannot safely authorize third-party ratings yet.
+  throw new ValidationError(
+    'Specialist ratings require requester-linked worker tasks and are not yet supported for current tasks',
+  );
 }
 
 // ---- Worker Task endpoints ----

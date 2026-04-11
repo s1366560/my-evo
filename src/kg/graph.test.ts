@@ -66,7 +66,7 @@ describe('graph module', () => {
         status: 'draft',
       } as any);
 
-      const result = await graph.createNode('gene', { name: 'Test' });
+      const result = await graph.createNode('gene', { name: 'Test' }, 'node-1');
 
       expect(result.id).toBe('new-node');
       expect(result.type).toBe('gene');
@@ -76,10 +76,10 @@ describe('graph module', () => {
       jest.spyOn(neo4jClient, 'isConnected').mockResolvedValue(true);
       jest.spyOn(neo4jClient, 'createNode').mockResolvedValue(makeKgNode({ id: 'neo-node', type: 'capsule' }));
 
-      const result = await graph.createNode('capsule', { id: 'neo-node' });
+      const result = await graph.createNode('capsule', { id: 'neo-node' }, 'node-1');
 
       expect(result.id).toBe('neo-node');
-      expect(neo4jClient.createNode).toHaveBeenCalledWith('capsule', { id: 'neo-node' });
+      expect(neo4jClient.createNode).toHaveBeenCalledWith('capsule', { id: 'neo-node', author_id: 'node-1' });
     });
   });
 

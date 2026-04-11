@@ -17,8 +17,10 @@ import {
   DEFAULT_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
 } from '../shared/constants';
+import { ValidationError } from '../shared/errors';
 
 let prisma = new PrismaClient();
+const PUBLIC_SEARCH_STATUSES = new Set(['published', 'promoted']);
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
@@ -99,8 +101,12 @@ export async function search(query: SearchQuery): Promise<SearchResult> {
   );
   const offset = query.offset ?? 0;
 
+  if (query.status && !PUBLIC_SEARCH_STATUSES.has(query.status)) {
+    throw new ValidationError('status must be published or promoted');
+  }
+
   const where: Record<string, unknown> = {
-    status: 'published',
+    status: query.status ?? 'published',
   };
 
   if (query.type) {

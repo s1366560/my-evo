@@ -33,6 +33,7 @@ const mockPrisma = {
     findFirst: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   creditTransaction: {
     create: jest.fn(),
@@ -40,7 +41,18 @@ const mockPrisma = {
   asset: {
     findMany: jest.fn(),
     count: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn(),
   },
+  assetDownload: {
+    createMany: jest.fn(),
+  },
+  $transaction: jest.fn(async (operation: unknown) => {
+    if (typeof operation === 'function') {
+      return operation(mockPrisma);
+    }
+    return operation;
+  }),
   worker: {
     upsert: jest.fn(),
   },
@@ -389,6 +401,13 @@ describe('A2A Service', () => {
       expect(result.total).toBe(1);
       expect(result.assets).toHaveLength(1);
       expect(result.assets[0]!.asset_id).toBe('gene-1');
+      expect(mockPrisma.asset.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { in: ['published', 'promoted'] },
+          }),
+        }),
+      );
     });
 
     it('should filter by status and type', async () => {
@@ -401,6 +420,27 @@ describe('A2A Service', () => {
           where: expect.objectContaining({ status: 'promoted', asset_type: 'Gene' }),
         }),
       );
+    });
+
+    it('should scope non-public status filters to the requester node', async () => {
+      mockPrisma.asset.findMany.mockResolvedValue([]);
+      mockPrisma.asset.count.mockResolvedValue(0);
+
+      await listAssets({ status: 'draft', requester_node_id: 'node-1', author_id: 'node-9' });
+
+      expect(mockPrisma.asset.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: 'draft', author_id: 'node-1' }),
+        }),
+      );
+    });
+
+    it('should reject non-public status filters without requester context', async () => {
+      await expect(
+        listAssets({ status: 'draft' }),
+      ).rejects.toThrow('Non-public asset listing requires requester context');
+
+      expect(mockPrisma.asset.findMany).not.toHaveBeenCalled();
     });
   });
 
@@ -425,23 +465,69 @@ describe('A2A Service', () => {
       expect(firstAsset?.['content']).toBeUndefined(); // search_only strips content
     });
 
-    it('should charge credits for asset_ids fetch', async () => {
-      mockPrisma.asset.findMany.mockResolvedValue([
-        {
-          asset_id: 'gene-1', asset_type: 'Gene', name: 'Test Gene',
-          description: 'Test', status: 'promoted', author_id: 'node-1',
-          gdi_score: 75, downloads: 0, rating: 0,
-          signals: [], tags: [], created_at: new Date(), updated_at: new Date(),
-          content: 'some content', version: 1, parent_id: null, gene_ids: null, config: null,
+    it('should reject fetching non-public assets not owned by the requester', async () => {
+      mockPrisma.asset.findMany.mockResolvedValue([]);
+
+      await expect(
+        fetchAssets('node-1', { asset_ids: ['gene-1'] }),
+      ).rejects.toThrow('Asset not found: one or more requested assets');
+
+      expect(mockPrisma.asset.findMany).toHaveBeenCalledWith({
+        where: {
+          asset_id: { in: ['gene-1'] },
+          OR: [
+            { status: { in: ['published', 'promoted'] } },
+            { author_id: 'node-1' },
+          ],
         },
-      ]);
-      mockPrisma.node.findUnique.mockResolvedValue({ credit_balance: 100 });
-      mockPrisma.node.update.mockResolvedValue({});
+      });
+    });
+
+    it('should charge credits for asset_ids fetch', async () => {
+      mockPrisma.asset.findMany
+        .mockResolvedValueOnce([
+          {
+            asset_id: 'gene-1', asset_type: 'Gene', name: 'Test Gene',
+            description: 'Test', status: 'promoted', author_id: 'node-1',
+            gdi_score: 75, downloads: 0, rating: 0,
+            signals: [], tags: [], created_at: new Date(), updated_at: new Date(),
+            content: 'some content', version: 1, parent_id: null, gene_ids: null, config: null,
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            asset_id: 'gene-1', asset_type: 'Gene', name: 'Test Gene',
+            description: 'Test', status: 'promoted', author_id: 'node-1',
+            gdi_score: 75, downloads: 1, rating: 0,
+            signals: [], tags: [], created_at: new Date(), updated_at: new Date(),
+            content: 'some content', version: 1, parent_id: null, gene_ids: null, config: null,
+          },
+        ]);
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.node.findUnique.mockResolvedValue({ credit_balance: 99 });
       mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.asset.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.assetDownload.createMany.mockResolvedValue({});
 
       const result = await fetchAssets('node-1', { asset_ids: ['gene-1'] });
       expect(result.total_cost).toBe(1);
-      expect(mockPrisma.node.update).toHaveBeenCalled();
+      expect(mockPrisma.node.updateMany).toHaveBeenCalledWith({
+        where: { node_id: 'node-1', credit_balance: { gte: 1 } },
+        data: { credit_balance: { decrement: 1 } },
+      });
+      expect(mockPrisma.asset.updateMany).toHaveBeenCalledWith({
+        where: {
+          asset_id: 'gene-1',
+          OR: [
+            { status: { in: ['published', 'promoted'] } },
+            { author_id: 'node-1' },
+          ],
+        },
+        data: { downloads: { increment: 1 } },
+      });
+      expect(mockPrisma.assetDownload.createMany).toHaveBeenCalledWith({
+        data: [{ asset_id: 'gene-1', node_id: 'node-1' }],
+      });
     });
 
     it('should throw when insufficient credits', async () => {
@@ -454,6 +540,7 @@ describe('A2A Service', () => {
           content: 'x', version: 1, parent_id: null, gene_ids: null, config: null,
         },
       ]);
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 0 });
       mockPrisma.node.findUnique.mockResolvedValue({ credit_balance: 0 });
 
       await expect(fetchAssets('node-1', { asset_ids: ['gene-1'] }))

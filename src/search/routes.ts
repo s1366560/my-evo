@@ -7,16 +7,21 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
   app.get('/', {
     schema: { tags: ['Search'] },
   }, async (request, reply) => {
-    const { q, type, signals, tags, min_gdi, author_id, sort_by, limit, offset } =
+    const { q, type, status, signals, tags, min_gdi, author_id, sort_by, limit, offset } =
       request.query as Record<string, string | undefined>;
+    const normalizedStatus = status?.trim();
 
     if (!q || q.trim().length === 0) {
       throw new ValidationError('Search query "q" is required');
+    }
+    if (normalizedStatus && normalizedStatus !== 'published' && normalizedStatus !== 'promoted') {
+      throw new ValidationError('status must be published or promoted');
     }
 
     const result = await searchService.search({
       q,
       type: type as 'gene' | 'capsule' | 'skill' | undefined,
+      status: normalizedStatus as 'published' | 'promoted' | undefined,
       signals: signals ? signals.split(',') : undefined,
       tags: tags ? tags.split(',') : undefined,
       min_gdi: min_gdi ? Number(min_gdi) : undefined,

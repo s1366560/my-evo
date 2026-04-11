@@ -197,6 +197,9 @@ export async function buildApp() {
   const { readingRoutes } = await import('./reading/routes');
   await app.register(readingRoutes, { prefix: '/api/v2/reading' });
 
+  const { syncRoutes } = await import('./sync/routes');
+  await app.register(syncRoutes, { prefix: '/a2a/sync' });
+
   const { taskRoutes } = await import('./task/routes');
   await app.register(taskRoutes, { prefix: '/api/v2' });
 
@@ -236,7 +239,15 @@ export async function buildApp() {
   const { constitutionRoutes } = await import('./constitution/routes');
   await app.register(constitutionRoutes, { prefix: '/a2a/constitution' });
 
-  const { docsRoutes, readDocFile, SLUG_TO_FILE } = await import('./docs/routes');
+  const {
+    docsRoutes,
+    readDocFile,
+    SLUG_TO_FILE,
+    buildWikiFullText,
+    getWikiFullResponse,
+    getWikiIndexResponse,
+    getWikiPageResponse,
+  } = await import('./docs/routes');
   const { getConfig } = await import('./shared/config');
 
   // Root-level doc routes (registered before /docs prefix so they take precedence)
@@ -254,31 +265,37 @@ export async function buildApp() {
   // /api/docs/wiki-full — root level
   app.get('/api/docs/wiki-full', {
     schema: { tags: ['Docs'] },
-  }, async (_request, reply) => {
-    return reply.send({
-      success: true,
-      data: {
-        pages: [
-          { slug: 'getting-started', title: 'Getting Started', url: '/wiki/getting-started' },
-          { slug: 'publishing', title: 'Publishing Assets', url: '/wiki/publishing' },
-          { slug: 'gdi-scoring', title: 'GDI Scoring', url: '/wiki/gdi-scoring' },
-          { slug: 'credits', title: 'Credits Economy', url: '/wiki/credits' },
-        ],
-      },
-    });
+  }, async (request, reply) => {
+    const { lang, format } = request.query as { lang?: string; format?: string };
+    if (format === 'json') {
+      return reply.send(getWikiFullResponse(lang));
+    }
+    return reply.type('text/plain').send(buildWikiFullText(lang));
   });
 
   // /api/wiki/index — root level
   app.get('/api/wiki/index', {
     schema: { tags: ['Docs'] },
-  }, async (_request, reply) => {
-    return reply.send({
-      success: true,
-      data: {
-        title: 'EvoMap Wiki',
-        categories: ['Getting Started', 'Protocol', 'Assets', 'Governance', 'Marketplace'],
-      },
-    });
+  }, async (request, reply) => {
+    const { lang } = request.query as { lang?: string };
+    return reply.send(getWikiIndexResponse(getConfig().baseUrl, lang));
+  });
+
+  // /wiki — root level
+  app.get('/wiki', {
+    schema: { tags: ['Docs'] },
+  }, async (request, reply) => {
+    const { lang } = request.query as { lang?: string };
+    return reply.send(getWikiIndexResponse(getConfig().baseUrl, lang));
+  });
+
+  // /wiki/:page — root level
+  app.get('/wiki/:page', {
+    schema: { tags: ['Docs'] },
+  }, async (request, reply) => {
+    const { lang } = request.query as { lang?: string };
+    const { page } = request.params as { page: string };
+    return reply.send(getWikiPageResponse(getConfig().baseUrl, page, lang));
   });
 
   // /ai-nav — root level
@@ -371,7 +388,7 @@ export async function buildApp() {
   await app.register(memoryGraphRoutes, { prefix: '/api/v2/memory-graph' });
 
   // ── Start GDI refresh worker (BullMQ, hourly batch) ──
-  const { startGDIRefreshWorker } = await import('./worker/gdi-refresh.js');
+  const { startGDIRefreshWorker } = await import('./worker/gdi-refresh');
   startGDIRefreshWorker().catch((err) => {
     app.log.error('[GDI-Refresh] Worker failed to start:', err);
   });

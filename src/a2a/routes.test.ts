@@ -6,14 +6,21 @@
 import type { FastifyInstance } from 'fastify';
 import fastify from 'fastify';
 import { a2aRoutes } from './routes';
-import { ValidationError } from '../shared/errors';
+import { UnauthorizedError, ValidationError } from '../shared/errors';
 
 // ─── Mock auth middleware ───────────────────────────────────────────────────────
 
-const mockNodeId = 'node-test-001';
+let mockNodeId = 'node-test-001';
 
 // Store the original request auth setter to call from within the route
 let capturedRequest: { auth?: { node_id: string } } | null = null;
+const mockAuthenticate = jest.fn(async (request?: unknown) => {
+  const typedRequest = request as { headers?: Record<string, string | undefined> } | undefined;
+  if (typedRequest?.headers?.authorization === 'Bearer invalid') {
+    throw new UnauthorizedError('Invalid token');
+  }
+  return { node_id: mockNodeId };
+});
 
 const mockRequireAuth = () => async (request: { auth?: { node_id: string } }) => {
   request.auth = { node_id: mockNodeId };
@@ -23,20 +30,111 @@ const mockRequireAuth = () => async (request: { auth?: { node_id: string } }) =>
 // ─── Mock publishAsset ────────────────────────────────────────────────────────
 
 const mockPublishAsset = jest.fn();
+const mockCreateBounty = jest.fn();
+const mockWithdrawBid = jest.fn();
+const mockListAssets = jest.fn();
+const mockSearchServiceListings = jest.fn();
+const mockCreateServiceListing = jest.fn();
+const mockPurchaseService = jest.fn();
+const mockRateService = jest.fn();
+const mockUpdateServiceListing = jest.fn();
+const mockSetServiceMarketplacePrisma = jest.fn();
+const mockRateSkill = jest.fn();
+const mockDownloadSkill = jest.fn();
+const mockPublishSkillWithUpdates = jest.fn();
+const mockSetSkillStorePrisma = jest.fn();
+const mockSendSessionMessage = jest.fn();
+const mockJoinSession = jest.fn();
+const mockListSessions = jest.fn();
+const mockListSessionsForNode = jest.fn();
+const mockGetSessionBoard = jest.fn();
+const mockUpdateSessionBoard = jest.fn();
+const mockOrchestrateSession = jest.fn();
+const mockSubmitSessionResult = jest.fn();
+const mockGetSessionContext = jest.fn();
+const mockSetSessionPrisma = jest.fn();
+const mockSearchAssets = jest.fn();
+const mockSetSearchPrisma = jest.fn();
+const mockForkRecipe = jest.fn();
+const mockArchiveRecipe = jest.fn();
+const mockGetAssetDetail = jest.fn();
+const freshTimestamp = () => new Date().toISOString();
 
 jest.mock('../assets/service', () => ({
   ...jest.requireActual('../assets/service'),
   publishAsset: (...args: unknown[]) => mockPublishAsset(...args),
 }));
 
+jest.mock('../bounty/service', () => ({
+  ...jest.requireActual('../bounty/service'),
+  createBounty: (...args: unknown[]) => mockCreateBounty(...args),
+  withdrawBid: (...args: unknown[]) => mockWithdrawBid(...args),
+}));
+
+jest.mock('../marketplace/service.marketplace', () => ({
+  ...jest.requireActual('../marketplace/service.marketplace'),
+  setPrisma: (...args: unknown[]) => mockSetServiceMarketplacePrisma(...args),
+  searchServiceListings: (...args: unknown[]) => mockSearchServiceListings(...args),
+  createServiceListing: (...args: unknown[]) => mockCreateServiceListing(...args),
+  purchaseService: (...args: unknown[]) => mockPurchaseService(...args),
+  rateService: (...args: unknown[]) => mockRateService(...args),
+  updateServiceListing: (...args: unknown[]) => mockUpdateServiceListing(...args),
+}));
+
+jest.mock('../skill_store/service', () => ({
+  ...jest.requireActual('../skill_store/service'),
+  setPrisma: (...args: unknown[]) => mockSetSkillStorePrisma(...args),
+  rateSkill: (...args: unknown[]) => mockRateSkill(...args),
+  downloadSkill: (...args: unknown[]) => mockDownloadSkill(...args),
+  publishSkillWithUpdates: (...args: unknown[]) => mockPublishSkillWithUpdates(...args),
+}));
+
+jest.mock('../session/service', () => ({
+  ...jest.requireActual('../session/service'),
+  setPrisma: (...args: unknown[]) => mockSetSessionPrisma(...args),
+  sendMessage: (...args: unknown[]) => mockSendSessionMessage(...args),
+  joinSession: (...args: unknown[]) => mockJoinSession(...args),
+  listSessions: (...args: unknown[]) => mockListSessions(...args),
+  listSessionsForNode: (...args: unknown[]) => mockListSessionsForNode(...args),
+  getSessionBoard: (...args: unknown[]) => mockGetSessionBoard(...args),
+  updateSessionBoard: (...args: unknown[]) => mockUpdateSessionBoard(...args),
+  orchestrateSession: (...args: unknown[]) => mockOrchestrateSession(...args),
+  submitSessionResult: (...args: unknown[]) => mockSubmitSessionResult(...args),
+  getSessionContext: (...args: unknown[]) => mockGetSessionContext(...args),
+}));
+
+jest.mock('../search/service', () => ({
+  ...jest.requireActual('../search/service'),
+  setPrisma: (...args: unknown[]) => mockSetSearchPrisma(...args),
+  search: (...args: unknown[]) => mockSearchAssets(...args),
+}));
+
+jest.mock('../recipe/service', () => ({
+  ...jest.requireActual('../recipe/service'),
+  archiveRecipe: (...args: unknown[]) => mockArchiveRecipe(...args),
+  forkRecipe: (...args: unknown[]) => mockForkRecipe(...args),
+}));
+
+jest.mock('./service', () => ({
+  ...jest.requireActual('./service'),
+  listAssets: (...args: unknown[]) => mockListAssets(...args),
+}));
+
+jest.mock('./assets_service', () => ({
+  ...jest.requireActual('./assets_service'),
+  getAssetDetail: (...args: unknown[]) => mockGetAssetDetail(...args),
+}));
+
 jest.mock('../shared/auth', () => ({
   requireAuth: () => mockRequireAuth(),
+  authenticate: (request: unknown) => mockAuthenticate(request),
 }));
 
 // ─── App factory ───────────────────────────────────────────────────────────────
 
 function buildApp(): FastifyInstance {
   const app = fastify({ logger: false });
+  app.decorate('prisma', {} as any);
   return app;
 }
 
@@ -46,6 +144,7 @@ describe('POST /a2a/publish', () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
+    mockNodeId = 'node-test-001';
     app = buildApp();
     // Register with the same prefix as app.ts production config
     await app.register(a2aRoutes, { prefix: '/a2a' });
@@ -67,7 +166,7 @@ describe('POST /a2a/publish', () => {
         protocol_version: '1.0.0',
         message_type: 'publish',
         sender_id: mockNodeId,
-        timestamp: '2025-01-15T08:31:40Z',
+        timestamp: freshTimestamp(),
         payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
       },
     });
@@ -84,15 +183,76 @@ describe('POST /a2a/publish', () => {
       payload: {
         protocol: 'gep-a2a',
         protocol_version: '1.0.0',
+        message_id: 'msg_invalid_type',
         message_type: 'validate',
         sender_id: mockNodeId,
-        timestamp: '2025-01-15T08:31:40Z',
+        timestamp: freshTimestamp(),
         payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
       },
     });
     expect(res.statusCode).toBe(400);
     const body = JSON.parse(res.payload);
     expect(body.message).toContain('message_type');
+  });
+
+  it('should return 400 when message_id is missing', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'publish',
+        sender_id: mockNodeId,
+        timestamp: freshTimestamp(),
+        payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.payload);
+    expect(body.message).toContain('message_id');
+  });
+
+  it('should return 403 when sender_id does not match the authenticated node', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'publish',
+        message_id: 'msg_sender_mismatch',
+        sender_id: 'node-spoofed',
+        timestamp: freshTimestamp(),
+        payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mockPublishAsset).not.toHaveBeenCalled();
+  });
+
+  it('should return 400 when timestamp is stale', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'publish',
+        message_id: 'msg_stale',
+        sender_id: mockNodeId,
+        timestamp: '2020-01-15T08:31:40Z',
+        payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockPublishAsset).not.toHaveBeenCalled();
   });
 
   it('should return 400 when payload.assets is missing', async () => {
@@ -104,8 +264,9 @@ describe('POST /a2a/publish', () => {
         protocol: 'gep-a2a',
         protocol_version: '1.0.0',
         message_type: 'publish',
+        message_id: 'msg_missing_assets',
         sender_id: mockNodeId,
-        timestamp: '2025-01-15T08:31:40Z',
+        timestamp: freshTimestamp(),
         payload: {},
       },
     });
@@ -120,10 +281,19 @@ describe('POST /a2a/publish', () => {
       method: 'POST',
       url: '/a2a/publish',
       headers: { authorization: 'Bearer test' },
-      payload: { payload: { assets: [] } },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'publish',
+        message_id: 'msg_empty_assets',
+        sender_id: mockNodeId,
+        timestamp: freshTimestamp(),
+        payload: { assets: [] },
+      },
     });
 
     expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.payload).message).toContain('payload.assets');
   });
 
   it('should return 400 when Gene asset is missing', async () => {
@@ -135,8 +305,9 @@ describe('POST /a2a/publish', () => {
         protocol: 'gep-a2a',
         protocol_version: '1.0.0',
         message_type: 'publish',
+        message_id: 'msg_missing_gene',
         sender_id: mockNodeId,
-        timestamp: '2025-01-15T08:31:40Z',
+        timestamp: freshTimestamp(),
         payload: { assets: [{ type: 'Capsule', asset_id: 'sha256:capsule123' }] },
       },
     });
@@ -155,8 +326,9 @@ describe('POST /a2a/publish', () => {
         protocol: 'gep-a2a',
         protocol_version: '1.0.0',
         message_type: 'publish',
+        message_id: 'msg_bad_asset',
         sender_id: mockNodeId,
-        timestamp: '2025-01-15T08:31:40Z',
+        timestamp: freshTimestamp(),
         payload: { assets: [{ type: 'Gene', asset_id: 'just-a-hash' }] },
       },
     });
@@ -187,7 +359,7 @@ describe('POST /a2a/publish', () => {
         message_type: 'publish',
         message_id: 'msg_123',
         sender_id: mockNodeId,
-        timestamp: '2025-01-15T08:31:40Z',
+        timestamp: freshTimestamp(),
         payload: {
           assets: [
             {
@@ -221,6 +393,7 @@ describe('POST /a2a/publish', () => {
     expect(publishPayload.description).toBe('Retry with exponential backoff on timeout errors');
     expect(publishPayload.signals).toEqual(['repair', 'TimeoutError', 'NetworkError']);
     expect(publishPayload.gene_ids).toEqual(['sha256:abc123def456', 'sha256:capsule456']);
+    expect(publishPayload.source_message_id).toBe('msg_123');
   });
 
   it('should use asset_id as fallback name when summary is missing', async () => {
@@ -241,8 +414,9 @@ describe('POST /a2a/publish', () => {
         protocol: 'gep-a2a',
         protocol_version: '1.0.0',
         message_type: 'publish',
+        message_id: 'msg_fallback_name',
         sender_id: mockNodeId,
-        timestamp: '2025-01-15T08:31:40Z',
+        timestamp: freshTimestamp(),
         payload: { assets: [{ type: 'Gene', asset_id: 'sha256:onlyid', category: 'test' }] },
       },
     });
@@ -272,8 +446,9 @@ describe('POST /a2a/publish', () => {
         protocol: 'gep-a2a',
         protocol_version: '1.0.0',
         message_type: 'publish',
+        message_id: 'msg_validated_assets',
         sender_id: mockNodeId,
-        timestamp: '2025-01-15T08:31:40Z',
+        timestamp: freshTimestamp(),
         payload: {
           assets: [
             { type: 'Gene', asset_id: 'sha256:gene1', summary: 'Gene 1' },
@@ -300,8 +475,9 @@ describe('POST /a2a/publish', () => {
         protocol: 'gep-a2a',
         protocol_version: '1.0.0',
         message_type: 'publish',
+        message_id: 'msg_publish_error',
         sender_id: mockNodeId,
-        timestamp: '2025-01-15T08:31:40Z',
+        timestamp: freshTimestamp(),
         payload: { assets: [{ type: 'Gene', asset_id: 'sha256:gene1', summary: 'Test Gene' }] },
       },
     });
@@ -309,5 +485,1289 @@ describe('POST /a2a/publish', () => {
     expect(res.statusCode).toBe(400);
     const body = JSON.parse(res.payload);
     expect(body.message).toBe('Insufficient credits');
+  });
+});
+
+describe('GET /a2a/assets', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('rejects unauthenticated non-public asset listings', async () => {
+    mockAuthenticate.mockRejectedValueOnce(new UnauthorizedError());
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/assets?status=draft',
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(mockListAssets).not.toHaveBeenCalled();
+  });
+
+  it('scopes authenticated non-public asset listings to the caller even when author_id is provided', async () => {
+    mockListAssets.mockResolvedValue({ assets: [], total: 0 });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/assets?status=draft&author_id=node-other',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockListAssets).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'draft',
+      author_id: mockNodeId,
+      requester_node_id: mockNodeId,
+    }));
+  });
+});
+
+describe('A2A service marketplace routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should list services via marketplace search helper', async () => {
+    mockSearchServiceListings.mockResolvedValue({
+      items: [{ listing_id: 'svc-1', title: 'Review service' }],
+      total: 1,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/service/list?category=engineering&limit=5&offset=2',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(true);
+    expect(body.data).toEqual([{ listing_id: 'svc-1', title: 'Review service' }]);
+    expect(body.meta.total).toBe(1);
+    expect(mockSearchServiceListings).toHaveBeenCalledWith({
+      category: 'engineering',
+      limit: 5,
+      offset: 2,
+    });
+  });
+
+  it('should support legacy GET service search with q', async () => {
+    mockSearchServiceListings.mockResolvedValue({
+      items: [{ listing_id: 'svc-legacy' }],
+      total: 1,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/service/search?q=review&category=engineering&limit=3&offset=1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockSearchServiceListings).toHaveBeenCalledWith({
+      query: 'review',
+      category: 'engineering',
+      limit: 3,
+      offset: 1,
+    });
+  });
+
+  it('should reject invalid service list pagination before calling the helper', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/service/list?limit=abc',
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockSearchServiceListings).not.toHaveBeenCalled();
+  });
+
+  it('should publish a service via marketplace service', async () => {
+    mockCreateServiceListing.mockResolvedValue({
+      listing_id: 'svc-1',
+      status: 'active',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        title: 'Review service',
+        description: 'I review code',
+        price: 25,
+        category: 'engineering',
+        tags: ['typescript'],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.service_id).toBe('svc-1');
+    expect(body.data.status).toBe('active');
+    expect(mockCreateServiceListing).toHaveBeenCalledWith(mockNodeId, {
+      title: 'Review service',
+      description: 'I review code',
+      category: 'engineering',
+      tags: ['typescript'],
+      price_type: 'one_time',
+      price_credits: 25,
+      license_type: 'open_source',
+    });
+  });
+
+  it('should accept legacy publish payload aliases', async () => {
+    mockCreateServiceListing.mockResolvedValue({
+      listing_id: 'svc-legacy',
+      status: 'active',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sender_id: mockNodeId,
+        title: 'Legacy service',
+        description: 'Compat',
+        price_per_task: 15,
+        category: 'engineering',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockCreateServiceListing).toHaveBeenCalledWith(mockNodeId, {
+      title: 'Legacy service',
+      description: 'Compat',
+      category: 'engineering',
+      tags: [],
+      price_type: 'one_time',
+      price_credits: 15,
+      license_type: 'open_source',
+    });
+  });
+
+  it('should reject user-backed identities for marketplace publish', async () => {
+    mockNodeId = 'user-123';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        title: 'Review service',
+        description: 'I review code',
+        price: 25,
+        category: 'engineering',
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mockCreateServiceListing).not.toHaveBeenCalled();
+  });
+
+  it('should order a service via marketplace service', async () => {
+    mockPurchaseService.mockResolvedValue({
+      purchase_id: 'pur-1',
+      listing_id: 'svc-1',
+      status: 'pending',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/order',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        service_id: 'svc-1',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.order_id).toBe('pur-1');
+    expect(body.data.service_id).toBe('svc-1');
+    expect(body.data.status).toBe('pending');
+    expect(mockPurchaseService).toHaveBeenCalledWith(mockNodeId, 'svc-1');
+  });
+
+  it('should accept legacy listing_id on order requests', async () => {
+    mockPurchaseService.mockResolvedValue({
+      purchase_id: 'pur-legacy',
+      listing_id: 'svc-legacy',
+      status: 'pending',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/order',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sender_id: mockNodeId,
+        listing_id: 'svc-legacy',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockPurchaseService).toHaveBeenCalledWith(mockNodeId, 'svc-legacy');
+  });
+
+  it('should reject missing service_id on order requests', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/order',
+      headers: { authorization: 'Bearer test' },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockPurchaseService).not.toHaveBeenCalled();
+  });
+
+  it('should reject bodyless order requests with a validation error', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/order',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockPurchaseService).not.toHaveBeenCalled();
+  });
+
+  it('should rate a service via marketplace service', async () => {
+    mockRateService.mockResolvedValue({
+      review_id: 'srvrev-1',
+      rating: 5,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/rate',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        service_id: 'svc-1',
+        rating: 5,
+        review: 'Great',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.rated).toBe(true);
+    expect(body.data.review_id).toBe('srvrev-1');
+    expect(mockRateService).toHaveBeenCalledWith(mockNodeId, 'svc-1', 5, 'Great');
+  });
+
+  it('should accept legacy comment and listing_id fields when rating', async () => {
+    mockRateService.mockResolvedValue({
+      review_id: 'srvrev-legacy',
+      rating: 4,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/rate',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sender_id: mockNodeId,
+        listing_id: 'svc-legacy',
+        rating: 4,
+        comment: 'Legacy review',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockRateService).toHaveBeenCalledWith(mockNodeId, 'svc-legacy', 4, 'Legacy review');
+  });
+
+  it('should reject bodyless rating requests with a validation error', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/rate',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockRateService).not.toHaveBeenCalled();
+  });
+
+  it('should update a service via marketplace service', async () => {
+    mockUpdateServiceListing.mockResolvedValue({
+      listing_id: 'svc-1',
+      status: 'paused',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/update',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        service_id: 'svc-1',
+        title: 'Updated service',
+        description: 'Updated desc',
+        price: 10,
+        status: 'paused',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.service_id).toBe('svc-1');
+    expect(body.data.updated).toBe(true);
+    expect(body.data.status).toBe('paused');
+    expect(mockUpdateServiceListing).toHaveBeenCalledWith(mockNodeId, 'svc-1', {
+      title: 'Updated service',
+      description: 'Updated desc',
+      price_credits: 10,
+      status: 'paused',
+    });
+  });
+
+  it('should accept legacy update aliases', async () => {
+    mockUpdateServiceListing.mockResolvedValue({
+      listing_id: 'svc-legacy',
+      status: 'active',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/update',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sender_id: mockNodeId,
+        listing_id: 'svc-legacy',
+        price_per_task: 20,
+        status: 'active',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockUpdateServiceListing).toHaveBeenCalledWith(mockNodeId, 'svc-legacy', {
+      title: undefined,
+      description: undefined,
+      price_credits: 20,
+      status: 'active',
+    });
+  });
+
+  it('should reject invalid update statuses before calling the service', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/update',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        service_id: 'svc-1',
+        status: 'deleted',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockUpdateServiceListing).not.toHaveBeenCalled();
+  });
+
+  it('should reject bodyless update requests with a validation error', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/update',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockUpdateServiceListing).not.toHaveBeenCalled();
+  });
+});
+
+describe('A2A skill routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should rate a skill via skill store service', async () => {
+    mockRateSkill.mockResolvedValue({
+      skill_id: 'skill-1',
+      rater_id: mockNodeId,
+      rating: 5,
+      created_at: new Date('2026-01-01T00:00:00Z'),
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/skill/skill-1/rate',
+      headers: { authorization: 'Bearer test' },
+      payload: { rating: 5 },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.skill_id).toBe('skill-1');
+    expect(body.data.rating).toBe(5);
+    expect(mockRateSkill).toHaveBeenCalledWith('skill-1', mockNodeId, 5);
+  });
+
+  it('should reject unsupported review text when rating a skill', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/skill/skill-1/rate',
+      headers: { authorization: 'Bearer test' },
+      payload: { rating: 5, review: 'Great' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockRateSkill).not.toHaveBeenCalled();
+  });
+
+  it('should download a skill via skill store service', async () => {
+    mockDownloadSkill.mockResolvedValue({
+      skill_id: 'skill-1',
+      download_count: 7,
+      updated_at: new Date('2026-01-01T00:00:00Z'),
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/skill/skill-1/download',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.skill_id).toBe('skill-1');
+    expect(body.data.download_count).toBe(7);
+    expect(mockDownloadSkill).toHaveBeenCalledWith('skill-1', mockNodeId);
+  });
+
+  it('should publish a skill via skill store service and apply optional metadata updates', async () => {
+    mockPublishSkillWithUpdates.mockResolvedValue({
+      skill_id: 'skill-1',
+      status: 'published',
+      category: 'engineering',
+      price_credits: 25,
+      updated_at: new Date('2026-01-01T00:00:00Z'),
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/skill/skill-1/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: { category: 'engineering', price: 25 },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.skill_id).toBe('skill-1');
+    expect(body.data.status).toBe('published');
+    expect(mockPublishSkillWithUpdates).toHaveBeenCalledWith('skill-1', mockNodeId, {
+      category: 'engineering',
+      price_credits: 25,
+    });
+  });
+
+  it('should reject fractional publish prices at the route boundary', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/skill/skill-1/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: { category: 'engineering', price: 12.5 },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockPublishSkillWithUpdates).not.toHaveBeenCalled();
+  });
+});
+
+describe('A2A session alias routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should fetch a session board via session service', async () => {
+    mockGetSessionBoard.mockResolvedValue({
+      session_id: 'session-1',
+      board: { items: [{ id: 'item-1', type: 'note', content: 'hello' }], pinned: ['item-1'] },
+      updated_at: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/session/board?session_id=session-1',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.session_id).toBe('session-1');
+    expect(body.data.board.pinned).toEqual(['item-1']);
+    expect(mockGetSessionBoard).toHaveBeenCalledWith('session-1', mockNodeId);
+  });
+
+  it('should update a session board via session service', async () => {
+    mockUpdateSessionBoard.mockResolvedValue({
+      session_id: 'session-1',
+      action: 'add',
+      board: { items: [{ id: 'item-1', type: 'note', content: 'hello' }], pinned: [] },
+      updated_by: mockNodeId,
+      updated_at: '2026-01-01T00:00:00Z',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/session/board/update',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        session_id: 'session-1',
+        action: 'add',
+        item: { id: 'item-1', type: 'note', content: 'hello' },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockUpdateSessionBoard).toHaveBeenCalledWith(
+      'session-1',
+      mockNodeId,
+      'add',
+      { id: 'item-1', type: 'note', content: 'hello' },
+      undefined,
+    );
+  });
+
+  it('should orchestrate a session via session service', async () => {
+    mockOrchestrateSession.mockResolvedValue({
+      orchestration_id: 'orch-1',
+      session_id: 'session-1',
+      mode: 'parallel',
+      status: 'started',
+      started_by: mockNodeId,
+      started_at: '2026-01-01T00:00:00Z',
+      task_graph: [{ task_id: 'task-1' }],
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/session/orchestrate',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        session_id: 'session-1',
+        sender_id: mockNodeId,
+        mode: 'parallel',
+        task_graph: [{ task_id: 'task-1' }],
+        force_converge: true,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockOrchestrateSession).toHaveBeenCalledWith(
+      'session-1',
+      mockNodeId,
+      {
+        mode: 'parallel',
+        task_graph: [{ task_id: 'task-1' }],
+        reassign: undefined,
+        force_converge: true,
+        task_board_updates: undefined,
+      },
+    );
+  });
+
+  it('should list sessions for the authenticated node only', async () => {
+    mockListSessionsForNode.mockResolvedValue({
+      sessions: [{ id: 'session-1' }],
+      total: 1,
+      limit: 10,
+      offset: 2,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/session/list?status=active&limit=10&offset=2',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockListSessionsForNode).toHaveBeenCalledWith(mockNodeId, {
+      status: 'active',
+      limit: 10,
+      offset: 2,
+    });
+  });
+
+  it('should submit a session result via session service', async () => {
+    mockSubmitSessionResult.mockResolvedValue({
+      submission_id: 'sub-1',
+      session_id: 'session-1',
+      task_id: 'task-1',
+      result_asset_id: 'sha256:asset-1',
+      submitted_by: mockNodeId,
+      submitted_at: '2026-01-01T00:00:00Z',
+      summary: 'done',
+      result: { ok: true },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/session/submit',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        session_id: 'session-1',
+        sender_id: mockNodeId,
+        task_id: 'task-1',
+        result_asset_id: 'sha256:asset-1',
+        result: { ok: true },
+        summary: 'done',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockSubmitSessionResult).toHaveBeenCalledWith(
+      'session-1',
+      mockNodeId,
+      'task-1',
+      'sha256:asset-1',
+      { result: { ok: true }, summary: 'done' },
+    );
+  });
+
+  it('should reject empty session submit identifiers', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/session/submit',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        session_id: 'session-1',
+        sender_id: mockNodeId,
+        task_id: '',
+        result_asset_id: '',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockSubmitSessionResult).not.toHaveBeenCalled();
+  });
+
+  it('should fetch session context via session service', async () => {
+    mockGetSessionContext.mockResolvedValue({
+      session_id: 'session-1',
+      messages: [{ id: 'msg-1' }],
+      participants: [{ node_id: mockNodeId }],
+      shared_state: { phase: 'active' },
+      board: { items: [], pinned: [] },
+      orchestrations: [],
+      submissions: [],
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/a2a/session/context?session_id=session-1&node_id=${mockNodeId}&limit=5`,
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockGetSessionContext).toHaveBeenCalledWith('session-1', mockNodeId, 5);
+  });
+});
+
+describe('A2A bid routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should withdraw a bid via bounty service', async () => {
+    mockWithdrawBid.mockResolvedValue({
+      bid_id: 'bid-1',
+      bidder_id: mockNodeId,
+      status: 'withdrawn',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/bid/withdraw',
+      headers: { authorization: 'Bearer test' },
+      payload: { bid_id: 'bid-1' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.status).toBe('withdrawn');
+    expect(mockWithdrawBid).toHaveBeenCalledWith('bid-1', mockNodeId);
+  });
+
+  it('should reject missing bid_id before calling bounty service', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/bid/withdraw',
+      headers: { authorization: 'Bearer test' },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockWithdrawBid).not.toHaveBeenCalled();
+  });
+
+  it('should create a bid request without self-bidding', async () => {
+    mockCreateBounty.mockResolvedValue({
+      bounty_id: 'bounty-1',
+      creator_id: mockNodeId,
+      status: 'open',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/bid/place',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        amount: 50,
+        estimatedTime: '2h',
+        approach: 'Implement the feature cleanly',
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(mockCreateBounty).toHaveBeenCalledWith(
+      mockNodeId,
+      expect.stringContaining('Bid Request:'),
+      'Implement the feature cleanly',
+      [],
+      50,
+      expect.any(String),
+    );
+    expect(JSON.parse(res.payload).data.bid).toBeNull();
+  });
+
+  it('should reject bodyless bid placement requests', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/bid/place',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockCreateBounty).not.toHaveBeenCalled();
+  });
+});
+
+describe('A2A asset search routes', () => {
+  let app: FastifyInstance;
+  const mockAssetFindMany = jest.fn();
+  const mockAssetCount = jest.fn();
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    (app as any).prisma.asset = {
+      findMany: mockAssetFindMany,
+      count: mockAssetCount,
+    };
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should delegate published asset search to the search service', async () => {
+    mockSearchAssets.mockResolvedValue({
+      items: [{
+        id: 'asset-1',
+        type: 'gene',
+        name: 'Retry Gene',
+        description: 'desc',
+        signals: ['retry'],
+        tags: ['network'],
+        author_id: 'node-1',
+        gdi_score: 88,
+        downloads: 12,
+        rating: 4.5,
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-02T00:00:00.000Z',
+        metadata: { foo: 'bar' },
+      }],
+      total: 1,
+      facets: { by_type: { gene: 1 }, by_signal: {} },
+      query_time_ms: 3,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/assets/search?q=retry&type=gene&limit=5&offset=1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data).toEqual([{
+      asset_id: 'asset-1',
+      asset_type: 'gene',
+      name: 'Retry Gene',
+      description: 'desc',
+      signals: ['retry'],
+      tags: ['network'],
+      author_id: 'node-1',
+      gdi_score: 88,
+      downloads: 12,
+      rating: 4.5,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-02T00:00:00.000Z',
+    }]);
+    expect(body.data[0].metadata).toBeUndefined();
+    expect(body.meta.total).toBe(1);
+    expect(mockSearchAssets).toHaveBeenCalledWith({
+      q: 'retry',
+      type: 'gene',
+      status: undefined,
+      sort_by: undefined,
+      limit: 5,
+      offset: 1,
+    });
+  });
+
+  it('should keep promoted asset searches on the public search path', async () => {
+    mockSearchAssets.mockResolvedValue({
+      items: [{
+        id: 'asset-promoted',
+        type: 'gene',
+        name: 'Promoted Gene',
+        description: 'desc',
+        signals: ['retry'],
+        tags: ['network'],
+        author_id: 'node-1',
+        gdi_score: 92,
+        downloads: 20,
+        rating: 4.8,
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-02T00:00:00.000Z',
+        metadata: {},
+      }],
+      total: 1,
+      facets: { by_type: { gene: 1 }, by_signal: {} },
+      query_time_ms: 2,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/assets/search?q=retry&status=promoted',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockSearchAssets).toHaveBeenCalledWith({
+      q: 'retry',
+      type: undefined,
+      status: 'promoted',
+      sort_by: undefined,
+      limit: 20,
+      offset: 0,
+    });
+    expect(mockAuthenticate).not.toHaveBeenCalled();
+  });
+
+  it('should scope non-published asset searches to the authenticated author and return a public projection', async () => {
+    mockAssetFindMany.mockResolvedValue([{
+      asset_id: 'asset-2',
+      asset_type: 'gene',
+      name: 'Draft Gene',
+      description: 'private draft',
+      signals: ['retry'],
+      tags: ['draft'],
+      author_id: mockNodeId,
+      gdi_score: 61,
+      downloads: 0,
+      rating: 0,
+      status: 'draft',
+      content: 'secret body',
+      config: { hidden: true },
+      created_at: new Date('2026-01-03T00:00:00.000Z'),
+      updated_at: new Date('2026-01-04T00:00:00.000Z'),
+    }]);
+    mockAssetCount.mockResolvedValue(1);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/assets/search?q=retry&status=draft&type=gene&limit=5&offset=1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data).toEqual([{
+      asset_id: 'asset-2',
+      asset_type: 'gene',
+      name: 'Draft Gene',
+      description: 'private draft',
+      signals: ['retry'],
+      tags: ['draft'],
+      author_id: mockNodeId,
+      gdi_score: 61,
+      downloads: 0,
+      rating: 0,
+      created_at: '2026-01-03T00:00:00.000Z',
+      updated_at: '2026-01-04T00:00:00.000Z',
+    }]);
+    expect(mockAssetFindMany).toHaveBeenCalledWith({
+      where: {
+        status: 'draft',
+        author_id: mockNodeId,
+        asset_type: 'gene',
+        OR: [
+          { name: { contains: 'retry', mode: 'insensitive' } },
+          { description: { contains: 'retry', mode: 'insensitive' } },
+          { author_id: { contains: 'retry', mode: 'insensitive' } },
+          { signals: { has: 'retry' } },
+          { tags: { has: 'retry' } },
+        ],
+      },
+      orderBy: { updated_at: 'desc' },
+      take: 5,
+      skip: 1,
+    });
+    expect(mockAssetCount).toHaveBeenCalledWith({
+      where: {
+        status: 'draft',
+        author_id: mockNodeId,
+        asset_type: 'gene',
+        OR: [
+          { name: { contains: 'retry', mode: 'insensitive' } },
+          { description: { contains: 'retry', mode: 'insensitive' } },
+          { author_id: { contains: 'retry', mode: 'insensitive' } },
+          { signals: { has: 'retry' } },
+          { tags: { has: 'retry' } },
+        ],
+      },
+    });
+  });
+
+  it('should reject unauthenticated non-published asset searches', async () => {
+    mockAuthenticate.mockRejectedValueOnce(new UnauthorizedError());
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/assets/search?q=retry&status=draft',
+    });
+
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('A2A ranked asset routes', () => {
+  let app: FastifyInstance;
+  const mockAssetFindMany = jest.fn();
+  const mockAssetCount = jest.fn();
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    (app as any).prisma.asset = {
+      findMany: mockAssetFindMany,
+      count: mockAssetCount,
+    };
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should load ranked assets directly from the database ordering by gdi score', async () => {
+    mockAssetFindMany.mockResolvedValue([{
+      asset_id: 'asset-1',
+      asset_type: 'gene',
+      name: 'Ranked Asset',
+      description: 'desc',
+      status: 'published',
+      author_id: 'node-1',
+      gdi_score: 99,
+      downloads: 3,
+      rating: 4.8,
+      signals: ['memory'],
+      tags: ['memory'],
+      version: 1,
+      fork_count: 0,
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      updated_at: new Date('2026-01-02T00:00:00.000Z'),
+      content: 'secret body',
+      config: { hidden: true },
+      gene_ids: ['g1'],
+    }]);
+    mockAssetCount.mockResolvedValue(1);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/assets/ranked?type=gene&limit=5&offset=1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockAssetFindMany).toHaveBeenCalledWith({
+      where: { status: 'published', asset_type: 'gene' },
+      orderBy: [{ gdi_score: 'desc' }, { updated_at: 'desc' }],
+      take: 5,
+      skip: 1,
+    });
+    expect(mockAssetCount).toHaveBeenCalledWith({
+      where: { status: 'published', asset_type: 'gene' },
+    });
+
+    const body = JSON.parse(res.payload);
+    expect(body.data[0]).toEqual(expect.objectContaining({
+      asset_id: 'asset-1',
+      status: 'published',
+      name: 'Ranked Asset',
+    }));
+    expect(body.data[0].content).toBeUndefined();
+    expect(body.data[0].config).toBeUndefined();
+    expect(body.data[0].gene_ids).toBeUndefined();
+  });
+});
+
+describe('A2A asset detail routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('keeps public asset detail readable when optional auth is invalid', async () => {
+    mockGetAssetDetail.mockResolvedValue({ asset_id: 'asset-1', name: 'Asset 1' });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/assets/asset-1',
+      headers: { authorization: 'Bearer invalid' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockGetAssetDetail).toHaveBeenCalledWith('asset-1', false, undefined);
+  });
+});
+
+describe('A2A organism routes', () => {
+  let app: FastifyInstance;
+  const mockOrganismFindUnique = jest.fn();
+  const mockOrganismUpdate = jest.fn();
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    (app as any).prisma.organism = {
+      findUnique: mockOrganismFindUnique,
+      update: mockOrganismUpdate,
+    };
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('rejects organism updates for non-owners', async () => {
+    mockOrganismFindUnique.mockResolvedValue({
+      organism_id: 'org-1',
+      recipe: { author_id: 'node-other' },
+    });
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/a2a/organism/org-1',
+      headers: { authorization: 'Bearer test' },
+      payload: { status: 'running' },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mockOrganismUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('A2A event polling routes', () => {
+  let app: FastifyInstance;
+  const mockProjectTaskFindMany = jest.fn();
+  const mockWorkerTaskFindMany = jest.fn();
+  const mockSwarmSubtaskFindMany = jest.fn();
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    (app as any).prisma.projectTask = { findMany: mockProjectTaskFindMany };
+    (app as any).prisma.workerTask = { findMany: mockWorkerTaskFindMany };
+    (app as any).prisma.swarmSubtask = { findMany: mockSwarmSubtaskFindMany };
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should return real task events for the authenticated node', async () => {
+    mockProjectTaskFindMany.mockResolvedValue([{
+      task_id: 'project-task-1',
+      title: 'Project Task',
+      status: 'in_progress',
+      updated_at: new Date('2026-01-01T00:00:00Z'),
+    }]);
+    mockWorkerTaskFindMany.mockResolvedValue([{
+      task_id: 'worker-task-1',
+      title: 'Worker Task',
+      status: 'assigned',
+      skills: ['typescript'],
+      created_at: new Date('2026-01-02T00:00:00Z'),
+    }]);
+    mockSwarmSubtaskFindMany.mockResolvedValue([{
+      subtask_id: 'swarm-subtask-1',
+      swarm_id: 'swarm-1',
+      title: 'Swarm Task',
+      status: 'assigned',
+      assigned_at: new Date('2026-01-03T00:00:00Z'),
+      task: { title: 'Main Swarm' },
+    }]);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/events/poll',
+      headers: { authorization: 'Bearer test' },
+      payload: { node_id: mockNodeId, limit: 10 },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.node_id).toBe(mockNodeId);
+    expect(body.data.events).toEqual([
+      expect.objectContaining({
+        event_id: 'swarm-subtask:swarm-subtask-1',
+        event_type: 'swarm_subtask_available',
+      }),
+      expect.objectContaining({
+        event_id: 'worker-task:worker-task-1',
+        event_type: 'task_assigned',
+      }),
+      expect.objectContaining({
+        event_id: 'project-task:project-task-1',
+        event_type: 'task_assigned',
+      }),
+    ]);
+  });
+});
+
+describe('A2A recipe fork routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('should archive recipes via the recipe service', async () => {
+    mockArchiveRecipe.mockResolvedValue({
+      recipe_id: 'recipe-1',
+      status: 'archived',
+      author_id: mockNodeId,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/recipe/recipe-1/archive',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockArchiveRecipe).toHaveBeenCalledWith('recipe-1', mockNodeId);
+  });
+
+  it('should fork recipes via the recipe service', async () => {
+    mockForkRecipe.mockResolvedValue({
+      recipe_id: 'fork-1',
+      title: 'Original (fork)',
+      status: 'draft',
+      author_id: mockNodeId,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/recipe/recipe-1/fork',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data).toEqual({
+      recipe_id: 'fork-1',
+      title: 'Original (fork)',
+      status: 'draft',
+      author_id: mockNodeId,
+      original_recipe_id: 'recipe-1',
+    });
+    expect(mockForkRecipe).toHaveBeenCalledWith('recipe-1', mockNodeId);
   });
 });

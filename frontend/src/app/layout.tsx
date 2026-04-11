@@ -1,35 +1,19 @@
 import type { Metadata } from "next";
-import {
-  IBM_Plex_Mono,
-  IBM_Plex_Sans,
-  Space_Grotesk,
-} from "next/font/google";
+import type { CSSProperties } from "react";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/theme-context";
 import { Providers } from "@/app/providers";
 import { NavBar } from "@/components/layout/NavBar";
 import { Footer } from "@/components/layout/Footer";
 
-const sans = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-sans",
-  display: "swap",
-});
-
-const display = Space_Grotesk({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  variable: "--font-display",
-  display: "swap",
-});
-
-const mono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-mono",
-  display: "swap",
-});
+const fallbackFontVariables = {
+  "--font-sans":
+    '"IBM Plex Sans", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  "--font-display":
+    '"Space Grotesk", "IBM Plex Sans", "Segoe UI", Roboto, sans-serif',
+  "--font-mono":
+    '"IBM Plex Mono", "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace',
+} as CSSProperties;
 
 export const metadata: Metadata = {
   title: "EvoMap Hub",
@@ -50,7 +34,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${sans.variable} ${display.variable} ${mono.variable}`}>
+      <body style={fallbackFontVariables}>
         <Providers>
           <ThemeProvider>
             <div className="flex min-h-screen flex-col">

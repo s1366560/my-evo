@@ -6,7 +6,9 @@ const {
   readUrl,
   generateQuestions,
   extractEntities,
+  clearReadingBuffer,
   getReadingSession,
+  getTrendingReadings,
   listReadingSessions,
   createSession,
   deleteSession,
@@ -32,6 +34,7 @@ describe('Reading Service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    clearReadingBuffer();
   });
 
   describe('readUrl', () => {
@@ -59,6 +62,14 @@ describe('Reading Service', () => {
 
     it('should throw ValidationError for invalid URL format', async () => {
       await expect(readUrl('not-a-url')).rejects.toThrow(ValidationError);
+    });
+
+    it('should reject non-http protocols', async () => {
+      await expect(readUrl('file:///tmp/private.txt')).rejects.toThrow(ValidationError);
+    });
+
+    it('should reject private or loopback URLs', async () => {
+      await expect(readUrl('http://127.0.0.1/private')).rejects.toThrow(ValidationError);
     });
 
     it('should truncate content to RESULT_CONTENT_LIMIT', async () => {
@@ -220,6 +231,42 @@ describe('Reading Service', () => {
       const entities2 = extractEntities('completely different');
 
       expect(entities1).toEqual(entities2);
+    });
+  });
+
+  describe('getTrendingReadings', () => {
+    it('should aggregate repeated URLs by hit count', async () => {
+      await readUrl('https://example.com/alpha');
+      await readUrl('https://example.com/beta');
+      await readUrl('https://example.com/alpha');
+
+      const trending = getTrendingReadings();
+
+      expect(trending[0]!.url).toBe('https://example.com/alpha');
+      expect(trending[0]!.hits).toBe(2);
+      expect(trending[0]!.hostname).toBe('example.com');
+    });
+
+    it('should respect the requested limit', async () => {
+      await readUrl('https://example.com/alpha');
+      await readUrl('https://example.com/beta');
+
+      const trending = getTrendingReadings(1);
+
+      expect(trending).toHaveLength(1);
+    });
+
+    it('should scope trending data to the requesting reader', async () => {
+      await readUrl('https://example.com/alpha', 'reader-1');
+      await readUrl('https://example.com/beta', 'reader-2');
+
+      const readerOneTrending = getTrendingReadings('reader-1', 10);
+      const readerTwoTrending = getTrendingReadings('reader-2', 10);
+
+      expect(readerOneTrending).toHaveLength(1);
+      expect(readerOneTrending[0]!.url).toBe('https://example.com/alpha');
+      expect(readerTwoTrending).toHaveLength(1);
+      expect(readerTwoTrending[0]!.url).toBe('https://example.com/beta');
     });
   });
 

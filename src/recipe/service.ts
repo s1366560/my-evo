@@ -167,6 +167,67 @@ export async function publishRecipe(recipeId: string, authorId: string) {
   return updated;
 }
 
+export async function archiveRecipe(recipeId: string, authorId: string) {
+  const recipe = await prisma.recipe.findUnique({
+    where: { recipe_id: recipeId },
+  });
+
+  if (!recipe) {
+    throw new NotFoundError('Recipe', recipeId);
+  }
+
+  if (recipe.author_id !== authorId) {
+    throw new ForbiddenError('Only the author can archive a recipe');
+  }
+
+  if (recipe.status !== 'published' && recipe.status !== 'draft') {
+    throw new ValidationError('Only published or draft recipes can be archived');
+  }
+
+  return prisma.recipe.update({
+    where: { recipe_id: recipeId },
+    data: {
+      status: 'archived',
+      updated_at: new Date(),
+    },
+  });
+}
+
+export async function forkRecipe(recipeId: string, authorId: string) {
+  const recipe = await prisma.recipe.findUnique({
+    where: { recipe_id: recipeId },
+  });
+
+  if (!recipe) {
+    throw new NotFoundError('Recipe', recipeId);
+  }
+
+  const canFork = recipe.status === 'published'
+    || (recipe.status === 'draft' && recipe.author_id === authorId);
+
+  if (!canFork) {
+    throw new ForbiddenError('Only published recipes or your own drafts can be forked');
+  }
+
+  const now = new Date();
+  return prisma.recipe.create({
+    data: {
+      recipe_id: crypto.randomUUID(),
+      title: `${recipe.title} (fork)`,
+      description: recipe.description,
+      genes: recipe.genes as import('@prisma/client').Prisma.InputJsonValue,
+      price_per_execution: recipe.price_per_execution,
+      max_concurrent: recipe.max_concurrent,
+      input_schema: recipe.input_schema as import('@prisma/client').Prisma.InputJsonValue,
+      output_schema: recipe.output_schema as import('@prisma/client').Prisma.InputJsonValue,
+      status: 'draft',
+      author_id: authorId,
+      created_at: now,
+      updated_at: now,
+    },
+  });
+}
+
 export async function deleteRecipe(recipeId: string, authorId: string) {
   const recipe = await prisma.recipe.findUnique({
     where: { recipe_id: recipeId },

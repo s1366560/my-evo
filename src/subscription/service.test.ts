@@ -50,6 +50,21 @@ const mockPrisma = {
     findMany: jest.fn(),
     count: jest.fn(),
   },
+  asset: {
+    count: jest.fn(),
+  },
+  directMessage: {
+    count: jest.fn(),
+  },
+  arenaMatch: {
+    count: jest.fn(),
+  },
+  circle: {
+    count: jest.fn(),
+  },
+  memoryNode: {
+    count: jest.fn(),
+  },
 } as any;
 
 // Helper to set subscription plan in mocks
@@ -75,6 +90,11 @@ describe('Subscription Service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.asset.count.mockResolvedValue(0);
+    mockPrisma.directMessage.count.mockResolvedValue(0);
+    mockPrisma.arenaMatch.count.mockResolvedValue(0);
+    mockPrisma.circle.count.mockResolvedValue(0);
+    mockPrisma.memoryNode.count.mockResolvedValue(0);
   });
 
   // =====================
@@ -576,6 +596,28 @@ describe('Subscription Service', () => {
       expect(result.unlimited).toBe(false);
       expect(result.limit).toBe(50000);
     });
+
+    it('should calculate publish usage from persisted assets', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1' });
+      mockPrisma.subscription.findUnique.mockResolvedValue({ plan: 'free' });
+      mockPrisma.asset.count.mockResolvedValue(4);
+
+      const result = await checkLimit('node-1', 'publish');
+
+      expect(result.limit).toBe(5);
+      expect(result.remaining).toBe(1);
+      expect(result.allowed).toBe(true);
+      expect(mockPrisma.asset.count).toHaveBeenCalledWith({
+        where: {
+          author_id: 'node-1',
+          status: 'published',
+          created_at: expect.objectContaining({
+            gte: expect.any(Date),
+            lt: expect.any(Date),
+          }),
+        },
+      });
+    });
   });
 
   describe('incrementUsage', () => {
@@ -599,6 +641,18 @@ describe('Subscription Service', () => {
       const result = await incrementUsage('node-1', 'publish');
       expect(result.unlimited).toBe(true);
     });
+
+    it('should return persisted usage for DB-backed resources', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1' });
+      mockPrisma.subscription.findUnique.mockResolvedValue({ plan: 'free' });
+      mockPrisma.asset.count.mockResolvedValue(2);
+
+      const result = await incrementUsage('node-1', 'publish');
+
+      expect(result.used).toBe(2);
+      expect(result.remaining).toBe(3);
+      expect(result.period).toBe('daily');
+    });
   });
 
   describe('resetMonthlyUsage', () => {
@@ -607,6 +661,7 @@ describe('Subscription Service', () => {
     });
 
     it('should resolve without error for valid nodeId', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1' });
       await expect(resetMonthlyUsage('node-1')).resolves.toBeUndefined();
     });
   });
@@ -624,12 +679,25 @@ describe('Subscription Service', () => {
     it('should return usage stats with correct plan limits', async () => {
       mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1' });
       mockPrisma.subscription.findUnique.mockResolvedValue({ plan: 'premium' });
+      mockPrisma.asset.count
+        .mockResolvedValueOnce(7)
+        .mockResolvedValueOnce(3);
+      mockPrisma.directMessage.count.mockResolvedValue(12);
       const result = await getUsageStats('node-1');
       expect(result.node_id).toBe('node-1');
       expect(result.records.length).toBe(8);
       const apiRecord = result.records.find((r) => r.resource === 'api_calls');
+      const publishRecord = result.records.find((r) => r.resource === 'publish');
+      const kgRecord = result.records.find((r) => r.resource === 'kg_entities');
+      const dmRecord = result.records.find((r) => r.resource === 'dm_messages');
       expect(apiRecord?.limit).toBe(100000);
       expect(apiRecord?.unlimited).toBe(false);
+      expect(publishRecord?.used).toBe(7);
+      expect(publishRecord?.period).toBe('daily');
+      expect(kgRecord?.used).toBe(3);
+      expect(dmRecord?.used).toBe(12);
+      expect(result.period_start <= publishRecord!.window_start).toBe(true);
+      expect(result.period_end >= publishRecord!.window_end).toBe(true);
     });
 
     it('should set unlimited flag for ultra plan resources', async () => {

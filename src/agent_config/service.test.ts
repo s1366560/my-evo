@@ -232,6 +232,33 @@ describe('Agent Config Service', () => {
       expect(result.allowed).toBe(false);
       expect(result.violated_constraint).toBe('max_content_length');
     });
+
+    it('should enforce the per-minute rate limit on the server side', () => {
+      upsertAgentConfig('rate-agent');
+      updateAgentConstraints('rate-agent', {
+        max_rate_per_minute: 1,
+        max_rate_per_hour: 10,
+        max_rate_per_day: 10,
+      });
+
+      expect(enforceConstraint('rate-agent', 'publish').allowed).toBe(true);
+      const second = enforceConstraint('rate-agent', 'publish');
+
+      expect(second.allowed).toBe(false);
+      expect(second.violated_constraint).toBe('rate_limit_per_minute');
+    });
+
+    it('should reject requests below the minimum trust level', () => {
+      upsertAgentConfig('trust-agent');
+      updateAgentConstraints('trust-agent', {
+        min_trust_level: 'trusted',
+      });
+
+      const result = enforceConstraint('trust-agent', 'publish', { trust_level: 'verified' });
+
+      expect(result.allowed).toBe(false);
+      expect(result.violated_constraint).toBe('min_trust_level');
+    });
   });
 
   // ===== applyPreference =====

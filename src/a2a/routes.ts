@@ -1,7 +1,8 @@
-import type { FastifyInstance } from 'fastify';
-import { requireAuth } from '../shared/auth';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { PrismaClient } from '@prisma/client';
+import { authenticate, requireAuth } from '../shared/auth';
 import { PROTOCOL_NAME, PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from '../shared/constants';
-import { EvoMapError } from '../shared/errors';
+import { EvoMapError, ForbiddenError, ValidationError } from '../shared/errors';
 import { getConfig } from '../shared/config';
 import * as a2aService from './service';
 import * as assetsService from './assets_service';
@@ -9,8 +10,90 @@ import { publishAsset } from '../assets/service';
 import type { HelloPayload, HeartbeatPayload } from '../shared/types';
 
 const HUB_NODE_ID = 'evomap-hub-001';
+const PUBLISH_MESSAGE_MAX_AGE_MS = 15 * 60 * 1000;
+const PUBLISH_MESSAGE_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 export async function a2aRoutes(app: FastifyInstance): Promise<void> {
+  const SERVICE_STATUSES = ['active', 'paused', 'archived'] as const;
+
+  async function getOptionalAuth(request: FastifyRequest) {
+    const hasCredentials = Boolean(
+      request.headers.authorization
+      || request.cookies?.session_token
+      || request.headers['x-session-token'],
+    );
+
+    if (!hasCredentials) {
+      return undefined;
+    }
+
+    try {
+      return await authenticate(request);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function getServiceMarketplaceModule() {
+    const serviceMarketplace = await import('../marketplace/service.marketplace');
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
+    if (prisma) {
+      serviceMarketplace.setPrisma(prisma);
+    }
+    return serviceMarketplace;
+  }
+
+  async function getSkillStoreModule() {
+    const skillStore = await import('../skill_store/service');
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
+    if (prisma) {
+      skillStore.setPrisma(prisma);
+    }
+    return skillStore;
+  }
+
+  async function getSessionModule() {
+    const sessionService = await import('../session/service');
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
+    if (prisma) {
+      sessionService.setPrisma(prisma);
+    }
+    return sessionService;
+  }
+
+  async function getSearchModule() {
+    const searchService = await import('../search/service');
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
+    if (prisma) {
+      searchService.setPrisma(prisma);
+    }
+    return searchService;
+  }
+
+  function requireMarketplaceNodeId(nodeId: string): string {
+    if (!nodeId || nodeId.startsWith('user-')) {
+      throw new ForbiddenError('Marketplace A2A routes require a node-backed identity');
+    }
+    return nodeId;
+  }
+
+  function toA2AAssetSearchResult(asset: Record<string, unknown>) {
+    return {
+      asset_id: asset.asset_id,
+      asset_type: asset.asset_type,
+      name: asset.name,
+      description: asset.description,
+      signals: asset.signals,
+      tags: asset.tags,
+      author_id: asset.author_id,
+      gdi_score: asset.gdi_score,
+      downloads: asset.downloads,
+      rating: asset.rating,
+      created_at: asset.created_at instanceof Date ? asset.created_at.toISOString() : asset.created_at,
+      updated_at: asset.updated_at instanceof Date ? asset.updated_at.toISOString() : asset.updated_at,
+    };
+  }
+
   app.post('/hello', {
     schema: { tags: ['A2A'] },
   }, async (request, reply) => {
@@ -133,14 +216,31 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     if (!body.protocol_version || typeof body.protocol_version !== 'string') {
       throw new EvoMapError('protocol_version field is required', 'VALIDATION_ERROR', 400);
     }
+    if (!body.message_id || typeof body.message_id !== 'string') {
+      throw new EvoMapError('message_id field is required', 'VALIDATION_ERROR', 400);
+    }
     if (body.message_type !== 'publish') {
       throw new EvoMapError('message_type must be "publish"', 'VALIDATION_ERROR', 400);
     }
     if (!body.sender_id || typeof body.sender_id !== 'string') {
       throw new EvoMapError('sender_id field is required', 'VALIDATION_ERROR', 400);
     }
+    if (body.sender_id !== auth.node_id) {
+      throw new ForbiddenError('sender_id must match authenticated node');
+    }
     if (!body.timestamp || typeof body.timestamp !== 'string') {
       throw new EvoMapError('timestamp field is required', 'VALIDATION_ERROR', 400);
+    }
+    const timestampMs = Date.parse(body.timestamp);
+    if (Number.isNaN(timestampMs)) {
+      throw new EvoMapError('timestamp must be a valid ISO-8601 string', 'VALIDATION_ERROR', 400);
+    }
+    const now = Date.now();
+    if (
+      timestampMs < now - PUBLISH_MESSAGE_MAX_AGE_MS
+      || timestampMs > now + PUBLISH_MESSAGE_MAX_FUTURE_SKEW_MS
+    ) {
+      throw new EvoMapError('timestamp is outside the accepted freshness window', 'VALIDATION_ERROR', 400);
     }
 
     const assets = body.payload?.assets;
@@ -164,6 +264,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
     const publishPayload = {
       sender_id: auth.node_id,
+      source_message_id: body.message_id,
       asset_type: (String(geneAsset['type'] ?? 'Gene').toLowerCase()) as 'gene' | 'capsule' | 'recipe',
       name: String(geneAsset['summary'] ?? assetId),
       description: String(geneAsset['summary'] ?? ''),
@@ -195,11 +296,16 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['A2A'] },
   }, async (request, reply) => {
     const { status, type, author_id, limit, offset } = request.query as Record<string, string | undefined>;
+    const requestedStatus = status?.trim();
+    const isPublicStatus = !requestedStatus || requestedStatus === 'published' || requestedStatus === 'promoted';
+    const auth = isPublicStatus ? undefined : await authenticate(request);
+    const effectiveAuthorId = isPublicStatus ? author_id : auth!.node_id;
 
     const result = await a2aService.listAssets({
-      status,
+      status: requestedStatus,
       type,
-      author_id,
+      author_id: effectiveAuthorId,
+      requester_node_id: auth?.node_id,
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
     });
@@ -331,7 +437,11 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
-    const body = request.body as {
+    const body = ((request.body as {
+      amount: number;
+      estimatedTime: string;
+      approach: string;
+    } | undefined) ?? {}) as {
       amount: number;
       estimatedTime: string;
       approach: string;
@@ -339,8 +449,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     if (!body.amount || !body.estimatedTime || !body.approach) {
       throw new EvoMapError('amount, estimatedTime, and approach are required', 'VALIDATION_ERROR', 400);
     }
-    // Create a bounty then place a bid on it immediately
-    const { createBounty, placeBid } = await import('../bounty/service');
+    const { createBounty } = await import('../bounty/service');
     const bounty = await createBounty(
       auth.node_id,
       `Bid Request: ${body.approach.slice(0, 80)}`,
@@ -349,8 +458,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       body.amount,
       new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     );
-    const bid = await placeBid(bounty.bounty_id, auth.node_id, body.amount, body.estimatedTime, body.approach);
-    return reply.status(201).send({ success: true, data: { bounty, bid } });
+    return reply.status(201).send({ success: true, data: { bounty, bid: null } });
   });
 
   app.post('/bid/:bountyId', {
@@ -359,7 +467,11 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const { bountyId } = request.params as { bountyId: string };
-    const body = request.body as {
+    const body = ((request.body as {
+      proposedAmount: number;
+      estimatedTime: string;
+      approach: string;
+    } | undefined) ?? {}) as {
       proposedAmount: number;
       estimatedTime: string;
       approach: string;
@@ -385,11 +497,24 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /a2a/bid/withdraw — withdraw a bid
   app.post('/bid/withdraw', {
-    schema: { tags: ['Bounty'] },
+    schema: {
+      tags: ['Bounty'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['bid_id'],
+        properties: {
+          bid_id: { type: 'string' },
+        },
+      },
+    },
     preHandler: requireAuth(),
   }, async (request) => {
+    const auth = request.auth!;
     const body = request.body as { bid_id: string };
-    return { success: true, data: { bid_id: body.bid_id, status: 'withdrawn' } };
+    const { withdrawBid } = await import('../bounty/service');
+    const bid = await withdrawBid(body.bid_id, auth.node_id);
+    return { success: true, data: bid };
   });
 
   // ---------------------------------------------------------------------------
@@ -400,7 +525,13 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
-    const body = request.body as {
+    const body = ((request.body as {
+      title: string;
+      description: string;
+      requirements?: string[];
+      amount: number;
+      deadline: string;
+    } | undefined) ?? {}) as {
       title: string;
       description: string;
       requirements?: string[];
@@ -556,29 +687,36 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       tags: ['SkillStore'],
       body: {
         type: 'object',
+        additionalProperties: false,
         properties: {
-          rating: { type: 'number' },
-          review: { type: 'string' },
+          rating: { type: 'integer', minimum: 1, maximum: 5 },
         },
         required: ['rating'],
       },
+    },
+    preValidation: async (request) => {
+      const body = request.body as Record<string, unknown> | undefined;
+      if (body) {
+        const unsupportedKeys = Object.keys(body).filter((key) => key !== 'rating');
+        if (unsupportedKeys.length > 0) {
+          throw new ValidationError(`Unsupported fields: ${unsupportedKeys.join(', ')}`);
+        }
+      }
     },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
     const params = request.params as { skillId: string };
-    const body = request.body as { rating: number; review?: string };
-    if (body.rating < 1 || body.rating > 5) {
-      throw new EvoMapError('rating must be between 1 and 5', 'VALIDATION_ERROR', 400);
-    }
+    const body = request.body as { rating: number };
+    const skillStore = await getSkillStoreModule();
+    const result = await skillStore.rateSkill(params.skillId, auth.node_id, body.rating);
     return {
       success: true,
       data: {
-        skill_id: params.skillId,
-        rating: body.rating,
-        review: body.review ?? '',
-        rated_by: auth.node_id,
-        rated_at: new Date().toISOString(),
+        skill_id: result.skill_id,
+        rating: result.rating,
+        rated_by: result.rater_id,
+        rated_at: result.created_at.toISOString(),
       },
     };
   });
@@ -588,34 +726,54 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['SkillStore'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    const auth = request.auth!;
     const params = request.params as { skillId: string };
+    const skillStore = await getSkillStoreModule();
+    const result = await skillStore.downloadSkill(params.skillId, auth.node_id);
     return {
       success: true,
       data: {
-        skill_id: params.skillId,
-        download_url: `/skills/${params.skillId}/bundle.zip`,
-        expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+        skill_id: result.skill_id,
+        download_count: result.download_count,
+        downloaded_at: new Date().toISOString(),
+        skill: result,
       },
     };
   });
 
   // POST /a2a/skill/:skillId/publish — publish a skill
   app.post('/skill/:skillId/publish', {
-    schema: { tags: ['SkillStore'] },
+    schema: {
+      tags: ['SkillStore'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          category: { type: 'string' },
+          price: { type: 'integer', minimum: 0 },
+        },
+      },
+    },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
     const params = request.params as { skillId: string };
-    const body = request.body as { category?: string; price?: number };
+    const body = (request.body as { category?: string; price?: number } | undefined) ?? {};
+    const skillStore = await getSkillStoreModule();
+    const result = await skillStore.publishSkillWithUpdates(params.skillId, auth.node_id, {
+      ...(body.category !== undefined ? { category: body.category } : {}),
+      ...(body.price !== undefined ? { price_credits: body.price } : {}),
+    });
     return {
       success: true,
       data: {
-        skill_id: params.skillId,
-        status: 'published',
+        skill_id: result.skill_id,
+        status: result.status,
         published_by: auth.node_id,
-        published_at: new Date().toISOString(),
-        category: body.category ?? 'general',
-        price: body.price ?? 0,
+        published_at: result.updated_at.toISOString(),
+        category: result.category,
+        price: result.price_credits,
+        skill: result,
       },
     };
   });
@@ -638,70 +796,288 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /a2a/service/list — list available services
   app.get('/service/list', {
-    schema: { tags: ['Marketplace'] },
+    schema: {
+      tags: ['Marketplace'],
+      querystring: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          category: { type: 'string' },
+          limit: { type: 'integer', minimum: 1, maximum: 100 },
+          offset: { type: 'integer', minimum: 0 },
+        },
+      },
+    },
   }, async (request, reply) => {
-    const query = request.query as { category?: string; limit?: string; offset?: string };
-    const { prisma } = app as unknown as { prisma: { serviceListing?: { findMany: Function } } };
-    const limit = query.limit ? parseInt(query.limit, 10) : 20;
-    const offset = query.offset ? parseInt(query.offset, 10) : 0;
-    const where = query.category ? { category: query.category } : {};
-    const listings = (prisma as { serviceListing?: { findMany: Function } }).serviceListing
-      ? await (prisma as { serviceListing: { findMany: Function } }).serviceListing.findMany({ where, take: limit, skip: offset })
-      : [];
-    return reply.send({ success: true, data: listings });
+    const query = request.query as { category?: string; limit?: number; offset?: number };
+    const serviceMarketplace = await getServiceMarketplaceModule();
+    const result = await serviceMarketplace.searchServiceListings({
+      category: query.category,
+      limit: query.limit ?? 20,
+      offset: query.offset ?? 0,
+    });
+    return reply.send({ success: true, data: result.items, meta: { total: result.total } });
   });
 
   // POST /a2a/service/search — search services
-  app.post('/service/search', {
-    schema: { tags: ['Marketplace'] },
+  app.get('/service/search', {
+    schema: {
+      tags: ['Marketplace'],
+      querystring: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          q: { type: 'string' },
+          category: { type: 'string' },
+          limit: { type: 'integer', minimum: 1, maximum: 100 },
+          offset: { type: 'integer', minimum: 0 },
+        },
+      },
+    },
   }, async (request) => {
-    const body = request.body as { query?: string; category?: string };
-    return { success: true, data: { items: [], total: 0 } };
+    const query = request.query as { q?: string; category?: string; limit?: number; offset?: number };
+    const serviceMarketplace = await getServiceMarketplaceModule();
+    const result = await serviceMarketplace.searchServiceListings({
+      query: query.q,
+      category: query.category,
+      limit: query.limit,
+      offset: query.offset,
+    });
+    return { success: true, data: result };
+  });
+
+  app.post('/service/search', {
+    schema: {
+      tags: ['Marketplace'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          query: { type: 'string' },
+          q: { type: 'string' },
+          category: { type: 'string' },
+          limit: { type: 'integer', minimum: 1, maximum: 100 },
+          offset: { type: 'integer', minimum: 0 },
+          sender_id: { type: 'string' },
+        },
+      },
+    },
+  }, async (request) => {
+    const body = request.body as { query?: string; q?: string; category?: string; limit?: number; offset?: number };
+    const serviceMarketplace = await getServiceMarketplaceModule();
+    const result = await serviceMarketplace.searchServiceListings({
+      query: body.query ?? body.q,
+      category: body.category,
+      limit: body.limit,
+      offset: body.offset,
+    });
+    return { success: true, data: result };
   });
 
   // POST /a2a/service/publish — publish a service
   app.post('/service/publish', {
-    schema: { tags: ['Marketplace'] },
+    schema: {
+      tags: ['Marketplace'],
+      body: {
+        type: 'object',
+        required: ['title', 'description', 'category'],
+        additionalProperties: false,
+        properties: {
+          title: { type: 'string', minLength: 1 },
+          description: { type: 'string', minLength: 1 },
+          price: { type: 'number', minimum: 0 },
+          price_per_task: { type: 'number', minimum: 0 },
+          category: { type: 'string', minLength: 1 },
+          tags: { type: 'array', items: { type: 'string' } },
+          sender_id: { type: 'string' },
+        },
+      },
+    },
     preHandler: requireAuth(),
   }, async (request) => {
-    const body = request.body as { title: string; description: string; price: number; category: string };
-    return { success: true, data: { service_id: `svc-${Date.now()}`, status: 'published' } };
+    const auth = request.auth!;
+    const sellerId = requireMarketplaceNodeId(auth.node_id);
+    const body = request.body as {
+      title: string;
+      description: string;
+      price?: number;
+      price_per_task?: number;
+      category: string;
+      tags?: string[];
+    };
+    const price = body.price_per_task ?? body.price ?? 0;
+    const serviceMarketplace = await getServiceMarketplaceModule();
+    const listing = await serviceMarketplace.createServiceListing(sellerId, {
+      title: body.title,
+      description: body.description,
+      category: body.category,
+      tags: body.tags ?? [],
+      price_type: price > 0 ? 'one_time' : 'free',
+      price_credits: price > 0 ? price : 0,
+      license_type: 'open_source',
+    });
+    return {
+      success: true,
+      data: {
+        service_id: listing.listing_id,
+        status: listing.status,
+        listing,
+      },
+    };
   });
 
   // POST /a2a/service/order — order a service
   app.post('/service/order', {
-    schema: { tags: ['Marketplace'] },
+    schema: {
+      tags: ['Marketplace'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          service_id: { type: 'string', minLength: 1 },
+          listing_id: { type: 'string', minLength: 1 },
+          sender_id: { type: 'string' },
+        },
+      },
+    },
     preHandler: requireAuth(),
   }, async (request) => {
-    const body = request.body as { service_id: string };
-    return { success: true, data: { order_id: `ord-${Date.now()}`, status: 'pending' } };
+    const auth = request.auth!;
+    const buyerId = requireMarketplaceNodeId(auth.node_id);
+    const body = (request.body as { service_id?: string; listing_id?: string } | undefined) ?? {};
+    const listingId = body.listing_id ?? body.service_id;
+    if (!listingId) {
+      throw new EvoMapError('service_id is required', 'VALIDATION_ERROR', 400);
+    }
+    const serviceMarketplace = await getServiceMarketplaceModule();
+    const purchase = await serviceMarketplace.purchaseService(buyerId, listingId);
+    return {
+      success: true,
+      data: {
+        order_id: purchase.purchase_id,
+        service_id: purchase.listing_id,
+        status: purchase.status,
+        purchase,
+      },
+    };
   });
 
   // POST /a2a/service/rate — rate a service
   app.post('/service/rate', {
-    schema: { tags: ['Marketplace'] },
+    schema: {
+      tags: ['Marketplace'],
+      body: {
+        type: 'object',
+        required: ['rating'],
+        additionalProperties: false,
+        properties: {
+          service_id: { type: 'string', minLength: 1 },
+          listing_id: { type: 'string', minLength: 1 },
+          rating: { type: 'integer', minimum: 1, maximum: 5 },
+          review: { type: 'string' },
+          comment: { type: 'string' },
+          sender_id: { type: 'string' },
+        },
+      },
+    },
     preHandler: requireAuth(),
   }, async (request) => {
-    const body = request.body as { service_id: string; rating: number; review?: string };
-    return { success: true, data: { rated: true } };
+    const auth = request.auth!;
+    const buyerId = requireMarketplaceNodeId(auth.node_id);
+    const body = ((request.body as {
+      service_id?: string;
+      listing_id?: string;
+      rating: number;
+      review?: string;
+      comment?: string;
+    } | undefined) ?? {}) as {
+      service_id?: string;
+      listing_id?: string;
+      rating: number;
+      review?: string;
+      comment?: string;
+    };
+    const listingId = body.listing_id ?? body.service_id;
+    if (!listingId) {
+      throw new EvoMapError('service_id is required', 'VALIDATION_ERROR', 400);
+    }
+    const serviceMarketplace = await getServiceMarketplaceModule();
+    const result = await serviceMarketplace.rateService(
+      buyerId,
+      listingId,
+      body.rating,
+      body.comment ?? body.review,
+    );
+    return {
+      success: true,
+      data: {
+        rated: true,
+        review_id: result.review_id,
+        rating: result.rating,
+      },
+    };
   });
 
   // POST /a2a/service/update — update a service listing
   app.post('/service/update', {
-    schema: { tags: ['Marketplace'] },
+    schema: {
+      tags: ['Marketplace'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          service_id: { type: 'string', minLength: 1 },
+          listing_id: { type: 'string', minLength: 1 },
+          title: { type: 'string', minLength: 1 },
+          description: { type: 'string', minLength: 1 },
+          price: { type: 'number', minimum: 0 },
+          price_per_task: { type: 'number', minimum: 0 },
+          status: { type: 'string', enum: [...SERVICE_STATUSES] },
+          sender_id: { type: 'string' },
+        },
+      },
+    },
     preHandler: requireAuth(),
   }, async (request) => {
-    const body = request.body as {
-      service_id: string;
+    const auth = request.auth!;
+    const sellerId = requireMarketplaceNodeId(auth.node_id);
+    const body = ((request.body as {
+      service_id?: string;
+      listing_id?: string;
       title?: string;
       description?: string;
       price?: number;
+      price_per_task?: number;
+      status?: string;
+    } | undefined) ?? {}) as {
+      service_id?: string;
+      listing_id?: string;
+      title?: string;
+      description?: string;
+      price?: number;
+      price_per_task?: number;
       status?: string;
     };
-    if (!body.service_id) {
+    const listingId = body.listing_id ?? body.service_id;
+    if (!listingId) {
       throw new EvoMapError('service_id is required', 'VALIDATION_ERROR', 400);
     }
-    return { success: true, data: { service_id: body.service_id, updated: true } };
+    const serviceMarketplace = await getServiceMarketplaceModule();
+    const listing = await serviceMarketplace.updateServiceListing(sellerId, listingId, {
+      title: body.title,
+      description: body.description,
+      price_credits: body.price_per_task ?? body.price,
+      status: body.status,
+    });
+    return {
+      success: true,
+      data: {
+        service_id: listing.listing_id,
+        updated: true,
+        status: listing.status,
+        listing,
+      },
+    };
   });
 
   // ---------------------------------------------------------------------------
@@ -714,18 +1090,81 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     if (!q) {
       return reply.status(400).send({ success: false, error: 'q (query) is required' });
     }
-    const result = await a2aService.listAssets({
-      status,
-      type,
-      limit: limit ? Number(limit) : 20,
-      offset: offset ? Number(offset) : 0,
+    const parsedLimit = limit ? Number(limit) : 20;
+    const parsedOffset = offset ? Number(offset) : 0;
+    const requestedStatus = status?.trim();
+
+    const isPublicStatus = !requestedStatus
+      || requestedStatus === 'published'
+      || requestedStatus === 'promoted';
+
+    if (isPublicStatus) {
+      const searchService = await getSearchModule();
+      const result = await searchService.search({
+        q,
+        type: type as 'gene' | 'capsule' | 'skill' | undefined,
+        status: requestedStatus as 'published' | 'promoted' | undefined,
+        sort_by: sort as 'relevance' | 'gdi' | 'downloads' | 'rating' | 'newest' | undefined,
+        limit: parsedLimit,
+        offset: parsedOffset,
+      });
+      return reply.send({
+        success: true,
+        data: result.items.map((item) => ({
+          ...toA2AAssetSearchResult({
+            asset_id: item.id,
+            asset_type: item.type,
+            name: item.name,
+            description: item.description,
+            signals: item.signals,
+            tags: item.tags,
+            author_id: item.author_id,
+            gdi_score: item.gdi_score,
+            downloads: item.downloads,
+            rating: item.rating,
+            created_at: item.created_at,
+            updated_at: item.updated_at,
+            }),
+        })),
+        meta: {
+          total: result.total,
+          query: q,
+          facets: result.facets,
+          query_time_ms: result.query_time_ms,
+        },
+      });
+    }
+
+    const auth = await authenticate(request);
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma!;
+    const where: Record<string, unknown> = {
+      status: requestedStatus,
+      author_id: auth.node_id,
+      ...(type ? { asset_type: type } : {}),
+      OR: [
+        { name: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { author_id: { contains: q, mode: 'insensitive' } },
+        { signals: { has: q } },
+        { tags: { has: q } },
+      ],
+    };
+
+    const [assets, total] = await Promise.all([
+      prisma.asset.findMany({
+        where,
+        orderBy: { updated_at: 'desc' },
+        take: parsedLimit,
+        skip: parsedOffset,
+      }),
+      prisma.asset.count({ where }),
+    ]);
+
+    return reply.send({
+      success: true,
+      data: assets.map((asset) => toA2AAssetSearchResult(asset as unknown as Record<string, unknown>)),
+      meta: { total, query: q },
     });
-    // Basic keyword filter on in-memory result (replace with pgvector in production)
-    const filtered = result.assets.filter(
-      (a) =>
-        JSON.stringify(a).toLowerCase().includes(q.toLowerCase()),
-    );
-    return reply.send({ success: true, data: filtered, meta: { total: filtered.length, query: q } });
   });
 
   // ---------------------------------------------------------------------------
@@ -735,19 +1174,25 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['A2A'] },
   }, async (request, reply) => {
     const { type, limit, offset } = request.query as Record<string, string | undefined>;
-    const result = await a2aService.listAssets({
-      type,
-      status: 'published',
-      limit: limit ? Number(limit) : 20,
-      offset: offset ? Number(offset) : 0,
-    });
-    // Sort by gdi_score descending (placeholder — in production this would be a DB sort)
-    const ranked = [...result.assets].sort((a, b) => {
-      const scoreA = (a as Record<string, unknown>).gdi_score as number ?? 0;
-      const scoreB = (b as Record<string, unknown>).gdi_score as number ?? 0;
-      return scoreB - scoreA;
-    });
-    return reply.send({ success: true, data: ranked, meta: { total: result.total } });
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
+    const take = limit ? Math.min(Number(limit), 50) : 20;
+    const skip = offset ? Number(offset) : 0;
+    const where: Record<string, unknown> = { status: 'published' };
+    if (type) {
+      where.asset_type = type;
+    }
+
+    const [ranked, total] = await Promise.all([
+      prisma!.asset.findMany({
+        where,
+        orderBy: [{ gdi_score: 'desc' }, { updated_at: 'desc' }],
+        take,
+        skip,
+      }),
+      prisma!.asset.count({ where }),
+    ]);
+
+    return reply.send({ success: true, data: ranked.map((asset) => assetsService.toPublicAsset(asset)), meta: { total } });
   });
 
   // ---------------------------------------------------------------------------
@@ -849,15 +1294,125 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /a2a/events/poll — poll for new events
   app.post('/events/poll', {
-    schema: { tags: ['A2A'] },
-  }, async () => ({
-    success: true,
-    data: {
-      events: [],
-      next_poll_id: `poll-${Date.now()}`,
-      elapsed_ms: 0,
+    schema: {
+      tags: ['A2A'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['node_id'],
+        properties: {
+          node_id: { type: 'string', minLength: 1 },
+          timeout_ms: { type: 'integer', minimum: 0, maximum: 10_000 },
+          limit: { type: 'integer', minimum: 1, maximum: 100 },
+        },
+      },
     },
-  }));
+    preHandler: requireAuth(),
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      node_id: string;
+      timeout_ms?: number;
+      limit?: number;
+    };
+
+    if (body.node_id !== auth.node_id) {
+      throw new ForbiddenError('node_id must match authenticated node');
+    }
+
+    const startedAt = Date.now();
+    const polledAt = new Date();
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma!;
+    const limit = Math.min(body.limit ?? 20, 100);
+
+    const [projectTasks, workerTasks, swarmSubtasks] = await Promise.all([
+      prisma.projectTask.findMany({
+        where: {
+          assignee_id: auth.node_id,
+          status: { not: 'completed' },
+        },
+        orderBy: { updated_at: 'desc' },
+        take: limit,
+      }),
+      prisma.workerTask.findMany({
+        where: {
+          assigned_to: auth.node_id,
+          status: { not: 'completed' },
+        },
+        orderBy: { created_at: 'desc' },
+        take: limit,
+      }),
+      prisma.swarmSubtask.findMany({
+        where: {
+          assigned_to: auth.node_id,
+          status: { not: 'completed' },
+        },
+        orderBy: { assigned_at: 'desc' },
+        take: limit,
+        include: {
+          task: {
+            select: {
+              title: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const events = [
+      ...projectTasks.map((task) => ({
+        event_id: `project-task:${task.task_id}`,
+        event_type: 'task_assigned',
+        source: 'project_task',
+        timestamp: task.updated_at.toISOString(),
+        payload: {
+          task_id: task.task_id,
+          title: task.title,
+          status: task.status,
+          signals: [] as string[],
+        },
+      })),
+      ...workerTasks.map((task) => ({
+        event_id: `worker-task:${task.task_id}`,
+        event_type: 'task_assigned',
+        source: 'worker_task',
+        timestamp: task.created_at.toISOString(),
+        payload: {
+          task_id: task.task_id,
+          title: task.title,
+          status: task.status,
+          signals: task.skills,
+        },
+      })),
+      ...swarmSubtasks.map((subtask) => ({
+        event_id: `swarm-subtask:${subtask.subtask_id}`,
+        event_type: 'swarm_subtask_available',
+        source: 'swarm_subtask',
+        timestamp: (subtask.assigned_at ?? polledAt).toISOString(),
+        payload: {
+          task_id: subtask.subtask_id,
+          parent_task_id: subtask.swarm_id,
+          title: subtask.title,
+          swarm_title: subtask.task.title,
+          status: subtask.status,
+          swarm_role: 'solver',
+        },
+      })),
+    ]
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, limit);
+
+    return {
+      success: true,
+      data: {
+        node_id: auth.node_id,
+        polled_at: polledAt.toISOString(),
+        events,
+        next_poll_id: polledAt.toISOString(),
+        elapsed_ms: Date.now() - startedAt,
+      },
+    };
+  });
 
   // ---------------------------------------------------------------------------
   app.post('/dialog', {
@@ -1105,14 +1660,11 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Recipe'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    const auth = request.auth!;
     const params = request.params as { recipeId: string };
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
-    const updated = await prisma.recipe.update({
-      where: { recipe_id: params.recipeId },
-      data: { status: 'archived' },
-    });
-    return { success: true, data: updated };
+    const { archiveRecipe } = await import('../recipe/service');
+    const recipe = await archiveRecipe(params.recipeId, auth.node_id);
+    return { success: true, data: recipe };
   });
 
   // POST /a2a/recipe/:id/fork — fork a recipe
@@ -1122,14 +1674,13 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   }, async (request) => {
     const auth = request.auth!;
     const params = request.params as { recipeId: string };
+    const { forkRecipe } = await import('../recipe/service');
+    const forkedRecipe = await forkRecipe(params.recipeId, auth.node_id);
     return {
       success: true,
       data: {
-        recipe_id: `forked-${Date.now()}`,
+        ...forkedRecipe,
         original_recipe_id: params.recipeId,
-        forked_by: auth.node_id,
-        status: 'draft',
-        forked_at: new Date().toISOString(),
       },
     };
   });
@@ -1216,8 +1767,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Recipe'] },
   }, async (request, reply) => {
     const query = request.query as { executor_node_id?: string; limit?: string; offset?: string };
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma!;
     const limit = query.limit ? parseInt(query.limit, 10) : 20;
     const offset = query.offset ? parseInt(query.offset, 10) : 0;
     const where: Record<string, unknown> = { status: { in: ['assembling', 'running'] } };
@@ -1240,18 +1790,35 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Recipe'] },
     preHandler: requireAuth(),
   }, async (request, reply) => {
+    const auth = request.auth!;
     const params = request.params as { organismId: string };
-    const body = request.body as {
+    const body = ((request.body as {
+      status?: string;
+      genes_expressed?: number;
+      current_position?: number;
+      ttl_seconds?: number;
+    } | undefined) ?? {}) as {
       status?: string;
       genes_expressed?: number;
       current_position?: number;
       ttl_seconds?: number;
     };
-    const { PrismaClient } = await import('@prisma/client');
     const { NotFoundError: SNotFoundError } = await import('../shared/errors');
-    const prisma = new PrismaClient();
-    const organism = await prisma.organism.findUnique({ where: { organism_id: params.organismId } });
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma!;
+    const organism = await prisma.organism.findUnique({
+      where: { organism_id: params.organismId },
+      include: {
+        recipe: {
+          select: {
+            author_id: true,
+          },
+        },
+      },
+    });
     if (!organism) throw new SNotFoundError('Organism', params.organismId);
+    if (organism.recipe.author_id !== auth.node_id) {
+      throw new ForbiddenError('Not allowed to update this organism');
+    }
     const updateData: Record<string, unknown> = { updated_at: new Date() };
     if (body.status !== undefined) updateData.status = body.status;
     if (body.genes_expressed !== undefined) updateData.genes_expressed = body.genes_expressed;
@@ -1334,8 +1901,8 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     if (!body.sessionId || !body.content) {
       throw new EvoMapError('sessionId and content are required', 'VALIDATION_ERROR', 400);
     }
-    const { sendMessage } = await import('../session/service');
-    const msg = await sendMessage(
+    const sessionService = await getSessionModule();
+    const msg = await sessionService.sendMessage(
       body.sessionId,
       auth.node_id,
       (body.type ?? 'system') as 'subtask_result' | 'query' | 'response' | 'vote' | 'signal' | 'system' | 'operation',
@@ -1354,8 +1921,8 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     if (!body.sessionId) {
       throw new EvoMapError('sessionId is required', 'VALIDATION_ERROR', 400);
     }
-    const { joinSession } = await import('../session/service');
-    const session = await joinSession(body.sessionId, auth.node_id);
+    const sessionService = await getSessionModule();
+    const session = await sessionService.joinSession(body.sessionId, auth.node_id);
     return { success: true, data: session };
   });
 
@@ -1366,13 +1933,12 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const query = request.query as { status?: string; limit?: string; offset?: string };
-    const { listSessions } = await import('../session/service');
-    const result = await listSessions({
+    const sessionService = await getSessionModule();
+    const result = await sessionService.listSessionsForNode(auth.node_id, {
       status: query.status as 'creating' | 'active' | 'paused' | 'completed' | 'cancelled' | 'error' | 'expired' | undefined,
       limit: query.limit ? parseInt(query.limit, 10) : 20,
       offset: query.offset ? parseInt(query.offset, 10) : 0,
     });
-    void auth;
     return reply.send({
       success: true,
       data: result.sessions,
@@ -1386,26 +1952,46 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       tags: ['Session'],
       querystring: {
         type: 'object',
+        required: ['session_id'],
         properties: {
           session_id: { type: 'string' },
         },
       },
     },
+    preHandler: requireAuth(),
   }, async (request) => {
-    const query = request.query as { session_id?: string };
-    return {
-      success: true,
-      data: {
-        session_id: query.session_id ?? null,
-        board: { items: [], pinned: [] },
-        updated_at: new Date().toISOString(),
-      },
-    };
+    const auth = request.auth!;
+    const query = request.query as { session_id: string };
+    const sessionService = await getSessionModule();
+    const board = await sessionService.getSessionBoard(query.session_id, auth.node_id);
+    return { success: true, data: board };
   });
 
   // POST /a2a/session/board/update — update shared board
   app.post('/session/board/update', {
-    schema: { tags: ['Session'] },
+    schema: {
+      tags: ['Session'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['session_id', 'action'],
+        properties: {
+          session_id: { type: 'string' },
+          action: { type: 'string', enum: ['add', 'remove', 'pin', 'unpin'] },
+          item: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['id', 'type', 'content'],
+            properties: {
+              id: { type: 'string' },
+              type: { type: 'string' },
+              content: { type: 'string' },
+            },
+          },
+          item_id: { type: 'string' },
+        },
+      },
+    },
     preHandler: requireAuth(),
   }, async (request) => {
     const auth = request.auth!;
@@ -1415,62 +2001,124 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       item?: { id: string; type: string; content: string };
       item_id?: string;
     };
-    return {
-      success: true,
-      data: {
-        session_id: body.session_id,
-        action: body.action,
-        updated_by: auth.node_id,
-        updated_at: new Date().toISOString(),
-      },
-    };
+    const sessionService = await getSessionModule();
+    const result = await sessionService.updateSessionBoard(
+      body.session_id,
+      auth.node_id,
+      body.action,
+      body.item,
+      body.item_id,
+    );
+    return { success: true, data: result };
   });
 
   // POST /a2a/session/orchestrate — orchestrate a multi-agent session
   app.post('/session/orchestrate', {
-    schema: { tags: ['Session'] },
+    schema: {
+      tags: ['Session'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['session_id'],
+        properties: {
+          session_id: { type: 'string' },
+          sender_id: { type: 'string' },
+          mode: { type: 'string', enum: ['sequential', 'parallel', 'hierarchical'] },
+          task_graph: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['task_id'],
+              properties: {
+                task_id: { type: 'string' },
+                depends_on: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+              },
+            },
+          },
+          reassign: {},
+          force_converge: { type: 'boolean' },
+          task_board_updates: {},
+        },
+      },
+    },
     preHandler: requireAuth(),
   }, async (request) => {
     const auth = request.auth!;
     const body = request.body as {
       session_id: string;
-      mode: 'sequential' | 'parallel' | 'hierarchical';
+      sender_id?: string;
+      mode?: 'sequential' | 'parallel' | 'hierarchical';
       task_graph?: Array<{ task_id: string; depends_on?: string[] }>;
+      reassign?: Record<string, unknown>;
+      force_converge?: boolean;
+      task_board_updates?: unknown;
     };
-    void auth;
-    return {
-      success: true,
-      data: {
-        orchestration_id: `orch-${Date.now()}`,
-        session_id: body.session_id,
+    if (body.sender_id !== undefined && body.sender_id !== auth.node_id) {
+      throw new ForbiddenError('sender_id must match authenticated node');
+    }
+    const sessionService = await getSessionModule();
+    const result = await sessionService.orchestrateSession(
+      body.session_id,
+      auth.node_id,
+      {
         mode: body.mode,
-        status: 'started',
-        started_at: new Date().toISOString(),
+        task_graph: body.task_graph,
+        reassign: body.reassign,
+        force_converge: body.force_converge,
+        task_board_updates: body.task_board_updates,
       },
-    };
+    );
+    return { success: true, data: result };
   });
 
   // POST /a2a/session/submit — submit session result
   app.post('/session/submit', {
-    schema: { tags: ['Session'] },
+    schema: {
+      tags: ['Session'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['session_id', 'task_id', 'result_asset_id'],
+        properties: {
+          session_id: { type: 'string', minLength: 1 },
+          sender_id: { type: 'string' },
+          task_id: { type: 'string', minLength: 1 },
+          result_asset_id: { type: 'string', minLength: 1 },
+          result: {},
+          summary: { type: 'string' },
+        },
+      },
+    },
     preHandler: requireAuth(),
   }, async (request) => {
     const auth = request.auth!;
     const body = request.body as {
       session_id: string;
+      sender_id?: string;
+      task_id: string;
+      result_asset_id: string;
       result: unknown;
       summary?: string;
     };
-    void body;
-    return {
-      success: true,
-      data: {
-        submission_id: `sub-${Date.now()}`,
-        session_id: body.session_id,
-        submitted_by: auth.node_id,
-        submitted_at: new Date().toISOString(),
+    if (body.sender_id !== undefined && body.sender_id !== auth.node_id) {
+      throw new ForbiddenError('sender_id must match authenticated node');
+    }
+    const sessionService = await getSessionModule();
+    const result = await sessionService.submitSessionResult(
+      body.session_id,
+      auth.node_id,
+      body.task_id,
+      body.result_asset_id,
+      {
+        result: body.result,
+        summary: body.summary,
       },
-    };
+    );
+    return { success: true, data: result };
   });
 
   // GET /a2a/session/context — get session context/memory
@@ -1479,24 +2127,28 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       tags: ['Session'],
       querystring: {
         type: 'object',
+        required: ['session_id'],
         properties: {
           session_id: { type: 'string' },
+          node_id: { type: 'string' },
           limit: { type: 'string' },
         },
       },
     },
+    preHandler: requireAuth(),
   }, async (request) => {
-    const query = request.query as { session_id?: string; limit?: string };
-    void query;
-    return {
-      success: true,
-      data: {
-        session_id: query.session_id ?? null,
-        messages: [],
-        participants: [],
-        shared_state: {},
-      },
-    };
+    const auth = request.auth!;
+    const query = request.query as { session_id: string; node_id?: string; limit?: string };
+    if (query.node_id !== undefined && query.node_id !== auth.node_id) {
+      throw new ForbiddenError('node_id must match authenticated node');
+    }
+    const limit = query.limit ? parseInt(query.limit, 10) : 20;
+    if (!Number.isFinite(limit) || limit < 1) {
+      throw new EvoMapError('limit must be a positive integer', 'VALIDATION_ERROR', 400);
+    }
+    const sessionService = await getSessionModule();
+    const context = await sessionService.getSessionContext(query.session_id, auth.node_id, limit);
+    return { success: true, data: context };
   });
 
   // ─── C. Dispute aliases ───────────────────────────────────────────────────────
@@ -1652,7 +2304,8 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { asset_id } = request.params as { asset_id: string };
     const { detailed } = request.query as { detailed?: string };
-    const result = await assetsService.getAssetDetail(asset_id, detailed === 'true');
+    const auth = await getOptionalAuth(request);
+    const result = await assetsService.getAssetDetail(asset_id, detailed === 'true', auth?.node_id);
     return reply.send({ success: true, data: result });
   });
 
@@ -1723,12 +2376,22 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
   // 15. POST /assets/:id/vote [auth]
   app.post('/assets/:id/vote', {
-    schema: { tags: ['Assets'] },
+    schema: {
+      tags: ['Assets'],
+      body: {
+        type: 'object',
+        properties: {
+          direction: { type: 'string', enum: ['up', 'down'] },
+        },
+        required: ['direction'],
+        additionalProperties: false,
+      },
+    },
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
     const { id } = request.params as { id: string };
-    const body = request.body as { direction: 'up' | 'down' };
+    const body = (request.body ?? {}) as { direction?: 'up' | 'down' };
     if (!body.direction || !['up', 'down'].includes(body.direction)) {
       throw new EvoMapError('direction must be "up" or "down"', 'VALIDATION_ERROR', 400);
     }
@@ -1748,12 +2411,23 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
   // 17. POST /assets/:id/reviews [auth]
   app.post('/assets/:id/reviews', {
-    schema: { tags: ['Assets'] },
+    schema: {
+      tags: ['Assets'],
+      body: {
+        type: 'object',
+        properties: {
+          rating: { type: 'integer', minimum: 1, maximum: 5 },
+          comment: { type: 'string' },
+        },
+        required: ['rating', 'comment'],
+        additionalProperties: false,
+      },
+    },
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
     const { id } = request.params as { id: string };
-    const body = request.body as { rating?: number; comment: string };
+    const body = (request.body ?? {}) as { rating?: number; comment?: string };
     if (!body.comment) {
       throw new EvoMapError('comment is required', 'VALIDATION_ERROR', 400);
     }
@@ -1763,16 +2437,26 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
   // 18. PUT /assets/:id/reviews/:reviewId [auth]
   app.put('/assets/:id/reviews/:reviewId', {
-    schema: { tags: ['Assets'] },
+    schema: {
+      tags: ['Assets'],
+      body: {
+        type: 'object',
+        properties: {
+          comment: { type: 'string' },
+        },
+        required: ['comment'],
+        additionalProperties: false,
+      },
+    },
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
     const { id, reviewId } = request.params as { id: string; reviewId: string };
-    const body = request.body as { comment: string };
+    const body = (request.body ?? {}) as { comment?: string };
     if (!body.comment) {
       throw new EvoMapError('comment is required', 'VALIDATION_ERROR', 400);
     }
-    const result = await assetsService.updateReview(auth.node_id, reviewId, body.comment);
+    const result = await assetsService.updateReview(auth.node_id, id, reviewId, body.comment);
     return reply.send({ success: true, data: result });
   });
 
@@ -1782,8 +2466,8 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
-    const { reviewId } = request.params as { id: string; reviewId: string };
-    const result = await assetsService.deleteReview(auth.node_id, reviewId);
+    const { id, reviewId } = request.params as { id: string; reviewId: string };
+    const result = await assetsService.deleteReview(auth.node_id, id, reviewId);
     return reply.send({ success: true, data: result });
   });
 

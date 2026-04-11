@@ -82,6 +82,26 @@ describe('Search Service', () => {
       );
     });
 
+    it('should apply status filter when provided', async () => {
+      mockPrisma.asset.findMany.mockResolvedValue([]);
+
+      await search({ q: 'test', status: 'promoted' });
+
+      expect(mockPrisma.asset.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: 'promoted' }),
+        }),
+      );
+    });
+
+    it('should reject non-public status filters', async () => {
+      await expect(
+        search({ q: 'test', status: 'draft' as 'published' }),
+      ).rejects.toThrow('status must be published or promoted');
+
+      expect(mockPrisma.asset.findMany).not.toHaveBeenCalled();
+    });
+
     it('should apply signals filter', async () => {
       mockPrisma.asset.findMany.mockResolvedValue([]);
 

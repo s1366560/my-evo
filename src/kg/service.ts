@@ -11,6 +11,8 @@ import { NotFoundError, ValidationError } from '../shared/errors';
 
 let prisma = new PrismaClient();
 
+const KG_ENTITY_TAG = 'kg:entity';
+
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
@@ -114,10 +116,18 @@ export async function queryGraph(
 export async function createNode(
   type: string,
   properties: Record<string, unknown>,
+  authorId: string,
 ): Promise<KgNode> {
   if (!type) {
     throw new ValidationError('Node type is required');
   }
+  if (!authorId) {
+    throw new ValidationError('authorId is required');
+  }
+
+  const inputTags = Array.isArray(properties.tags)
+    ? (properties.tags as string[])
+    : [];
 
   const asset = await prisma.asset.create({
     data: {
@@ -126,8 +136,8 @@ export async function createNode(
       name: (properties.name as string) ?? 'Untitled',
       description: (properties.description as string) ?? '',
       signals: (properties.signals as string[]) ?? [],
-      tags: (properties.tags as string[]) ?? [],
-      author_id: (properties.author_id as string) ?? 'system',
+      tags: Array.from(new Set([...inputTags, KG_ENTITY_TAG])),
+      author_id: authorId,
       status: 'draft',
       gdi_score: 0,
     },

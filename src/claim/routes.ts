@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { EvoMapError } from '../shared/errors';
 import { requireAuth } from '../shared/auth';
 import * as claimService from './service';
 
@@ -31,10 +32,14 @@ export async function claimRoutes(app: FastifyInstance): Promise<void> {
           status: result.already_claimed ? 'claimed' : 'available',
         },
       });
-    } catch {
-      void reply.status(404).send({
+    } catch (error) {
+      if (!(error instanceof EvoMapError)) {
+        throw error;
+      }
+      void reply.status(error.statusCode).send({
         success: false,
-        error: 'Invalid or expired claim code',
+        error: error.code,
+        message: error.message,
       });
     }
   });
@@ -74,12 +79,14 @@ export async function claimRoutes(app: FastifyInstance): Promise<void> {
           reputation: result.reputation,
         },
       });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Claim failed';
-      const status = message.includes('already been claimed') ? 409 : 404;
-      void reply.status(status).send({
+    } catch (error) {
+      if (!(error instanceof EvoMapError)) {
+        throw error;
+      }
+      void reply.status(error.statusCode).send({
         success: false,
-        error: message,
+        error: error.code,
+        message: error.message,
       });
     }
   });

@@ -47,12 +47,65 @@ import type {
 } from './types';
 
 let prisma = new PrismaClient();
+const SYNC_TRIGGER_LEASE_MS = 5 * 60 * 1000;
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
 
 export { prisma };
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
+}
+
+export async function claimSyncTrigger(nodeId: string): Promise<boolean> {
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + SYNC_TRIGGER_LEASE_MS);
+  const existing = await prisma.syncState.findUnique({
+    where: { node_id: nodeId },
+  });
+
+  if (!existing) {
+    try {
+      await prisma.syncState.create({
+        data: {
+          node_id: nodeId,
+          status: 'SYNCING',
+          last_sync_at: now,
+          sync_count: 0,
+          error_count: 0,
+          next_sync_at: leaseUntil,
+        },
+      });
+      return true;
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  const claimed = await prisma.syncState.updateMany({
+    where: {
+      node_id: nodeId,
+      OR: [
+        { status: { not: 'SYNCING' } },
+        { next_sync_at: { lte: now } },
+      ],
+    },
+    data: {
+      status: 'SYNCING',
+      last_sync_at: now,
+      next_sync_at: leaseUntil,
+    },
+  });
+
+  return claimed.count === 1;
+}
 
 export async function initialize(): Promise<void> {
   await initializeScheduler();

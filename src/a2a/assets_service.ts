@@ -1,13 +1,34 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import {
   PROMOTION_GDI_THRESHOLD,
   DEFAULT_SEARCH_LIMIT,
   MAX_SEARCH_LIMIT,
 } from '../shared/constants';
-import { NotFoundError, ValidationError } from '../shared/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../shared/errors';
 
 let prisma = new PrismaClient();
+type AssetDbClient = PrismaClient | Prisma.TransactionClient;
+type ReadableAsset = {
+  asset_id: string;
+  author_id: string;
+  name: string;
+  status: string;
+  content?: string | null;
+  config?: unknown;
+  created_at: Date;
+  updated_at: Date;
+  asset_type: string;
+  description: string;
+  gdi_score: number;
+  downloads: number;
+  rating: number;
+  signals: string[];
+  tags: string[];
+  version: number;
+  fork_count: number;
+  parent_id?: string | null;
+};
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
@@ -19,6 +40,236 @@ export { prisma };
 
 const dailyCache = new Map<string, { assets: unknown[]; expiresAt: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const REVIEW_TAG = 'review';
+
+function getAssetReviewTag(assetId: string): string {
+  return `asset:${assetId}`;
+}
+
+function getReviewRatingTag(rating: number): string {
+  return `rating:${rating}`;
+}
+
+function getReviewFilter(assetId: string): { tags: { hasEvery: string[] } } {
+  return {
+    tags: {
+      hasEvery: [REVIEW_TAG, getAssetReviewTag(assetId)],
+    },
+  };
+}
+
+function parseReviewRating(tags: string[]): number {
+  const ratingTag = tags.find((tag) => tag.startsWith('rating:'));
+  if (!ratingTag) {
+    return 0;
+  }
+
+  const parsed = Number.parseInt(ratingTag.slice('rating:'.length), 10);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : 0;
+}
+
+function parseReviewedAssetId(tags: string[]): string | null {
+  const assetTag = tags.find((tag) => tag.startsWith('asset:'));
+  return assetTag ? assetTag.slice('asset:'.length) : null;
+}
+
+function normalizeReviewRating(rating: number): number {
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    throw new ValidationError('rating must be an integer between 1 and 5');
+  }
+  return rating;
+}
+
+function isPublicAssetStatus(status: string): boolean {
+  return status === 'published' || status === 'promoted';
+}
+
+function canReadAsset(
+  asset: { status: string; author_id: string },
+  requesterNodeId?: string,
+): boolean {
+  return isPublicAssetStatus(asset.status)
+    || (requesterNodeId !== undefined && asset.author_id === requesterNodeId);
+}
+
+function isUniqueConstraintError(error: unknown): error is { code: string } {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
+}
+
+function isSerializationFailure(error: unknown): error is { code: string } {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2034';
+}
+
+async function runSerializableTransaction<T>(
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      if (!isSerializationFailure(error) || attempt === 2) {
+        throw error;
+      }
+    }
+  }
+
+  throw new ConflictError('Asset rating update conflicted; retry');
+}
+
+function buildSemanticTerms(query: string): string[] {
+  const rawTerms = [query, ...query.split(/\s+/)]
+    .map((term) => term.trim())
+    .filter((term) => term.length > 0);
+
+  return Array.from(new Set(rawTerms.flatMap((term) => [term, term.toLowerCase()])));
+}
+
+function buildSemanticClauses(query: string): Prisma.AssetWhereInput[] {
+  const terms = buildSemanticTerms(query);
+  const clauses: Prisma.AssetWhereInput[] = [
+    { name: { contains: query, mode: 'insensitive' } },
+    { description: { contains: query, mode: 'insensitive' } },
+  ];
+
+  if (terms.length > 0) {
+    clauses.push(
+      { signals: { hasSome: terms } },
+      { tags: { hasSome: terms } },
+    );
+  }
+
+  return clauses;
+}
+
+async function ensureFetchedBeforeReview(
+  nodeId: string,
+  assetId: string,
+  db: AssetDbClient = prisma,
+): Promise<void> {
+  const fetchRecord = await db.assetDownload.findFirst({
+    where: {
+      node_id: nodeId,
+      asset_id: assetId,
+    },
+  });
+
+  if (!fetchRecord) {
+    throw new ValidationError('Asset must be fetched before reviewing');
+  }
+}
+
+async function ensurePublicAssetInteraction(
+  assetId: string,
+  db: AssetDbClient = prisma,
+): Promise<ReadableAsset> {
+  return ensureReadableAsset(assetId, undefined, db);
+}
+
+async function ensureReadableAsset(
+  assetId: string,
+  requesterNodeId?: string,
+  db: AssetDbClient = prisma,
+): Promise<ReadableAsset> {
+  const asset = await db.asset.findUnique({ where: { asset_id: assetId } });
+  if (!asset || !canReadAsset(asset, requesterNodeId)) {
+    throw new NotFoundError('Asset', assetId);
+  }
+
+  return asset;
+}
+
+export function toPublicAsset(
+  asset: {
+    asset_id: string;
+    asset_type: string;
+    name: string;
+    description: string;
+    status: string;
+    author_id: string;
+    gdi_score: number;
+    downloads: number;
+    rating: number;
+    signals: string[];
+    tags: string[];
+    version: number;
+    fork_count: number;
+    created_at: Date;
+    updated_at: Date;
+  },
+): Record<string, unknown> {
+  return {
+    asset_id: asset.asset_id,
+    asset_type: asset.asset_type,
+    name: asset.name,
+    description: asset.description,
+    status: asset.status,
+    author_id: asset.author_id,
+    gdi_score: asset.gdi_score,
+    downloads: asset.downloads,
+    rating: asset.rating,
+    signals: asset.signals,
+    tags: asset.tags,
+    version: asset.version,
+    fork_count: asset.fork_count,
+    created_at: asset.created_at.toISOString(),
+    updated_at: asset.updated_at.toISOString(),
+  };
+}
+
+async function recomputeAssetRating(
+  assetId: string,
+  db: AssetDbClient = prisma,
+): Promise<number> {
+  const [reviews, votes] = await Promise.all([
+    db.question.findMany({
+      where: getReviewFilter(assetId),
+      select: { tags: true },
+    }),
+    db.assetVote.findMany({
+      where: { asset_id: assetId },
+      select: { vote_type: true },
+    }),
+  ]);
+
+  const reviewRatings = reviews
+    .map((review) => parseReviewRating(review.tags))
+    .filter((rating) => rating > 0);
+  const reviewAverage = reviewRatings.length > 0
+    ? reviewRatings.reduce((sum, rating) => sum + rating, 0) / reviewRatings.length
+    : null;
+
+  const upvotes = votes.filter((vote) => vote.vote_type === 'up').length;
+  const voteAverage = votes.length > 0 ? 1 + (upvotes / votes.length) * 4 : null;
+
+  let weightedTotal = 0;
+  let weight = 0;
+
+  if (reviewAverage !== null) {
+    weightedTotal += reviewAverage * reviewRatings.length;
+    weight += reviewRatings.length;
+  }
+
+  if (voteAverage !== null) {
+    weightedTotal += voteAverage * votes.length;
+    weight += votes.length;
+  }
+
+  const rating = weight > 0 ? Number((weightedTotal / weight).toFixed(2)) : 0;
+  await db.asset.update({
+    where: { asset_id: assetId },
+    data: { rating },
+  });
+
+  return rating;
+}
 
 // ─── Asset: Semantic Search ───────────────────────────────────────────────────
 
@@ -31,27 +282,33 @@ export async function semanticSearch(params: {
 }): Promise<{ assets: unknown[]; total: number }> {
   const limit = Math.min(params.limit ?? DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
   const offset = params.offset ?? 0;
+  const query = params.q.trim();
+  const outcome = params.outcome?.trim();
 
-  const where: Record<string, unknown> = { status: { in: ['published', 'promoted'] } };
-  if (params.type) where['asset_type'] = params.type;
+  if (!query) {
+    throw new ValidationError('q (query) is required');
+  }
 
-  const assets = await prisma.asset.findMany({
-    where,
-    skip: offset,
-    take: limit,
-    orderBy: { gdi_score: 'desc' },
-  });
+  const where: Prisma.AssetWhereInput = {
+    status: { in: ['published', 'promoted'] },
+    ...(params.type ? { asset_type: params.type } : {}),
+    AND: [
+      { OR: buildSemanticClauses(query) },
+      ...(outcome ? [{ OR: buildSemanticClauses(outcome) }] : []),
+    ],
+  };
 
-  // Simple keyword filter (replace with pgvector in production)
-  const query = params.q.toLowerCase();
-  const filtered = assets.filter(
-    (a) =>
-      JSON.stringify([a.name, a.description, ...a.signals, ...a.tags])
-        .toLowerCase()
-        .includes(query),
-  );
+  const [assets, total] = await Promise.all([
+    prisma.asset.findMany({
+      where,
+      skip: offset,
+      take: limit,
+      orderBy: { gdi_score: 'desc' },
+    }),
+    prisma.asset.count({ where }),
+  ]);
 
-  return { assets: filtered, total: filtered.length };
+  return { assets: assets.map((asset) => toPublicAsset(asset)), total };
 }
 
 // ─── Asset: Graph Search ───────────────────────────────────────────────────────
@@ -76,7 +333,7 @@ export async function graphSearch(params: {
     orderBy: { gdi_score: 'desc' },
   });
 
-  return { assets };
+  return { assets: assets.map((asset) => toPublicAsset(asset)) };
 }
 
 // ─── Asset: Explore (high GDI, low exposure) ─────────────────────────────────
@@ -98,7 +355,7 @@ export async function exploreAssets(params: {
     prisma.asset.count({ where: { status: { in: ['published', 'promoted'] } } }),
   ]);
 
-  return { assets, total };
+  return { assets: assets.map((asset) => toPublicAsset(asset)), total };
 }
 
 // ─── Asset: Recommended (personalized) ───────────────────────────────────────
@@ -138,7 +395,7 @@ export async function recommendedAssets(params: {
     }),
   ]);
 
-  return { assets, total };
+  return { assets: assets.map((asset) => toPublicAsset(asset)), total };
 }
 
 // ─── Asset: Daily Discovery ───────────────────────────────────────────────────
@@ -157,8 +414,9 @@ export async function dailyDiscovery(limit = 10): Promise<{ assets: unknown[]; d
     take: limit,
   });
 
-  dailyCache.set(today, { assets, expiresAt: Date.now() + CACHE_TTL_MS });
-  return { assets, date: today };
+  const publicAssets = assets.map((asset) => toPublicAsset(asset));
+  dailyCache.set(today, { assets: publicAssets, expiresAt: Date.now() + CACHE_TTL_MS });
+  return { assets: publicAssets, date: today };
 }
 
 // ─── Asset: Categories ────────────────────────────────────────────────────────
@@ -198,11 +456,11 @@ export async function assetCategories(): Promise<{
 export async function getAssetDetail(
   assetId: string,
   detailed = false,
+  requesterNodeId?: string,
 ): Promise<unknown> {
-  const asset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
-  if (!asset) throw new NotFoundError('Asset', assetId);
+  const asset = await ensureReadableAsset(assetId, requesterNodeId);
 
-  if (detailed) {
+  if (detailed && requesterNodeId === asset.author_id) {
     return {
       ...asset,
       created_at: asset.created_at.toISOString(),
@@ -232,12 +490,17 @@ export async function getAssetDetail(
 // ─── Asset: Related ────────────────────────────────────────────────────────────
 
 export async function getRelatedAssets(assetId: string, limit = 10): Promise<{ assets: unknown[] }> {
-  const asset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
-  if (!asset) throw new NotFoundError('Asset', assetId);
+  const asset = await ensurePublicAssetInteraction(assetId);
 
   const [parentRelated, signalRelated] = await Promise.all([
     asset.parent_id
-      ? prisma.asset.findMany({ where: { asset_id: asset.parent_id }, take: 1 })
+      ? prisma.asset.findMany({
+        where: {
+          asset_id: asset.parent_id,
+          status: { in: ['published', 'promoted'] },
+        },
+        take: 1,
+      })
       : Promise.resolve([]),
     prisma.asset.findMany({
       where: {
@@ -250,22 +513,24 @@ export async function getRelatedAssets(assetId: string, limit = 10): Promise<{ a
     }),
   ]);
 
-  return { assets: [...parentRelated, ...signalRelated].slice(0, limit) };
+  return { assets: [...parentRelated, ...signalRelated].slice(0, limit).map((entry) => toPublicAsset(entry)) };
 }
 
 // ─── Asset: Branches ──────────────────────────────────────────────────────────
 
 export async function getAssetBranches(assetId: string): Promise<{ branches: unknown[] }> {
+  await ensurePublicAssetInteraction(assetId);
   const branches = await prisma.asset.findMany({
     where: { parent_id: assetId, status: { in: ['published', 'promoted'] } },
     orderBy: { gdi_score: 'desc' },
   });
-  return { branches };
+  return { branches: branches.map((branch) => toPublicAsset(branch)) };
 }
 
 // ─── Asset: Timeline ──────────────────────────────────────────────────────────
 
 export async function getAssetTimeline(assetId: string): Promise<{ events: unknown[] }> {
+  await ensurePublicAssetInteraction(assetId);
   const events = await prisma.evolutionEvent.findMany({
     where: { asset_id: assetId },
     orderBy: { timestamp: 'desc' },
@@ -290,8 +555,12 @@ export async function verifyAsset(assetId: string): Promise<{
   valid: boolean;
   checks: Array<{ name: string; passed: boolean; detail?: string }>;
 }> {
-  const asset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
-  if (!asset) throw new NotFoundError('Asset', assetId);
+  const asset = await ensurePublicAssetInteraction(assetId);
+  const historyEvents = await prisma.evolutionEvent.findMany({
+    where: { asset_id: assetId },
+    orderBy: { timestamp: 'desc' },
+    take: 1,
+  });
 
   const checks = [
     {
@@ -321,8 +590,10 @@ export async function verifyAsset(assetId: string): Promise<{
     },
     {
       name: 'has_history',
-      passed: false, // placeholder — would check evolution_events
-      detail: 'Evolution history not available in current implementation',
+      passed: historyEvents.length > 0,
+      detail: historyEvents.length > 0
+        ? `Latest event: ${historyEvents[0]!.event_type}`
+        : 'No evolution history found',
     },
   ];
 
@@ -336,6 +607,7 @@ export async function getAssetAuditTrail(assetId: string): Promise<{
   events: unknown[];
   score_history: unknown[];
 }> {
+  await ensurePublicAssetInteraction(assetId);
   const [events, scoreHistory] = await Promise.all([
     prisma.evolutionEvent.findMany({
       where: { asset_id: assetId },
@@ -378,11 +650,14 @@ export async function getChainAssets(chainId: string): Promise<{ assets: unknown
   if (!chain) throw new NotFoundError('CapabilityChain', chainId);
 
   const assets = await prisma.asset.findMany({
-    where: { asset_id: { in: chain.chain } },
+    where: {
+      asset_id: { in: chain.chain },
+      status: { in: ['published', 'promoted'] },
+    },
     orderBy: { created_at: 'asc' },
   });
 
-  return { assets };
+  return { assets: assets.map((asset) => toPublicAsset(asset)) };
 }
 
 // ─── Asset: My Usage ──────────────────────────────────────────────────────────
@@ -396,23 +671,49 @@ export async function getMyUsage(nodeId: string): Promise<{
   const node = await prisma.node.findUnique({ where: { node_id: nodeId } });
   if (!node) throw new NotFoundError('Node', nodeId);
 
-  const [txs, totalDownloads] = await Promise.all([
+  const [txs, downloads, votes, reviews] = await Promise.all([
     prisma.creditTransaction.findMany({
       where: { node_id: nodeId, amount: { lt: 0 } },
       select: { amount: true },
     }),
-    prisma.asset.count({
-      where: { author_id: nodeId, status: { in: ['published', 'promoted'] } },
+    prisma.assetDownload.findMany({
+      where: { node_id: nodeId },
+      select: { asset_id: true },
+    }),
+    prisma.assetVote.findMany({
+      where: { node_id: nodeId },
+      select: { asset_id: true },
+    }),
+    prisma.question.findMany({
+      where: {
+        author: nodeId,
+        tags: { has: REVIEW_TAG },
+      },
+      select: { tags: true },
     }),
   ]);
 
   const creditsSpent = Math.abs(txs.reduce((sum, t) => sum + t.amount, 0));
+  const ratedAssetIds = new Set<string>();
+
+  for (const vote of votes) {
+    ratedAssetIds.add(vote.asset_id);
+  }
+
+  for (const review of reviews) {
+    const reviewedAssetId = parseReviewedAssetId(review.tags);
+    if (reviewedAssetId) {
+      ratedAssetIds.add(reviewedAssetId);
+    }
+  }
+
+  const usedAssetIds = new Set(downloads.map((download) => download.asset_id));
 
   return {
-    assets_used: totalDownloads,
+    assets_used: usedAssetIds.size,
     credits_spent: creditsSpent,
-    downloads: totalDownloads,
-    rated_assets: 0, // placeholder — no rating model yet
+    downloads: downloads.length,
+    rated_assets: ratedAssetIds.size,
   };
 }
 
@@ -423,19 +724,28 @@ export async function voteAsset(
   assetId: string,
   direction: 'up' | 'down',
 ): Promise<{ asset_id: string; new_rating: number }> {
-  const asset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
-  if (!asset) throw new NotFoundError('Asset', assetId);
+  return runSerializableTransaction(async (tx) => {
+    const asset = await ensurePublicAssetInteraction(assetId, tx);
+    if (asset.author_id === nodeId) throw new ForbiddenError('Authors cannot rate their own assets');
 
-  // Simple placeholder: adjust rating by direction
-  const delta = direction === 'up' ? 0.1 : -0.1;
-  const newRating = Math.max(0, Math.min(5, (asset.rating || 0) + delta));
+    await tx.assetVote.upsert({
+      where: {
+        asset_id_node_id: {
+          asset_id: assetId,
+          node_id: nodeId,
+        },
+      },
+      update: { vote_type: direction },
+      create: {
+        asset_id: assetId,
+        node_id: nodeId,
+        vote_type: direction,
+      },
+    });
 
-  await prisma.asset.update({
-    where: { asset_id: assetId },
-    data: { rating: newRating },
+    const newRating = await recomputeAssetRating(assetId, tx);
+    return { asset_id: assetId, new_rating: newRating };
   });
-
-  return { asset_id: assetId, new_rating: newRating };
 }
 
 // ─── Review: List ─────────────────────────────────────────────────────────────
@@ -445,10 +755,30 @@ export async function listReviews(
   limit = 20,
   offset = 0,
 ): Promise<{ reviews: unknown[]; total: number }> {
-  // Placeholder: no dedicated Review model yet
+  await ensurePublicAssetInteraction(assetId);
+
+  const where = getReviewFilter(assetId);
+  const [reviews, total] = await Promise.all([
+    prisma.question.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.question.count({ where }),
+  ]);
+
   return {
-    reviews: [],
-    total: 0,
+    reviews: reviews.map((review) => ({
+      review_id: review.question_id,
+      asset_id: assetId,
+      node_id: review.author,
+      rating: parseReviewRating(review.tags),
+      comment: review.body,
+      created_at: review.created_at.toISOString(),
+      updated_at: review.updated_at.toISOString(),
+    })),
+    total,
   };
 }
 
@@ -460,51 +790,78 @@ export async function submitReview(
   rating: number,
   comment: string,
 ): Promise<{ review_id: string }> {
-  const asset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
-  if (!asset) throw new NotFoundError('Asset', assetId);
+  const normalizedRating = normalizeReviewRating(rating);
+  const trimmedComment = comment.trim();
+  if (!trimmedComment) throw new ValidationError('comment is required');
 
-  const reviewId = uuidv4();
-  // Store as a question-like record as placeholder
-  await prisma.question.create({
-    data: {
-      question_id: reviewId,
-      title: `Review for ${assetId}`,
-      body: comment,
-      tags: ['review'],
-      author: nodeId,
-      state: 'approved',
-      safety_score: 1.0,
-      safety_flags: [],
-      bounty: 0,
-      views: 0,
-      answer_count: 0,
-    },
+  const reviewId = `review:${assetId}:${nodeId}`;
+  return runSerializableTransaction(async (tx) => {
+    const asset = await ensurePublicAssetInteraction(assetId, tx);
+    if (asset.author_id === nodeId) throw new ForbiddenError('Authors cannot rate their own assets');
+
+    await ensureFetchedBeforeReview(nodeId, assetId, tx);
+    const existingReview = await tx.question.findFirst({
+      where: {
+        author: nodeId,
+        ...getReviewFilter(assetId),
+      },
+    });
+    if (existingReview) {
+      throw new ValidationError('Review already exists for this asset');
+    }
+
+    try {
+      await tx.question.create({
+        data: {
+          question_id: reviewId,
+          title: `Review for ${asset.name}`,
+          body: trimmedComment,
+          tags: [REVIEW_TAG, getAssetReviewTag(assetId), getReviewRatingTag(normalizedRating)],
+          author: nodeId,
+          state: 'approved',
+          safety_score: 1.0,
+          safety_flags: [],
+          bounty: 0,
+          views: 0,
+          answer_count: 0,
+        },
+      });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new ValidationError('Review already exists for this asset');
+      }
+      throw error;
+    }
+
+    await recomputeAssetRating(assetId, tx);
+
+    return { review_id: reviewId };
   });
-
-  // Update asset rating average
-  const allReviews = await prisma.question.findMany({
-    where: { tags: { has: 'review' }, author: nodeId },
-    select: { body: true },
-  });
-  void allReviews;
-
-  return { review_id: reviewId };
 }
 
 // ─── Review: Update ───────────────────────────────────────────────────────────
 
 export async function updateReview(
   nodeId: string,
+  assetId: string,
   reviewId: string,
   comment: string,
 ): Promise<{ review_id: string }> {
-  const review = await prisma.question.findUnique({ where: { question_id: reviewId } });
-  if (!review) throw new NotFoundError('Review', reviewId);
-  if (review.author !== nodeId) throw new ValidationError('Only the author can edit this review');
+  const review = await prisma.question.findFirst({
+    where: {
+      question_id: reviewId,
+      author: nodeId,
+      ...getReviewFilter(assetId),
+    },
+  });
+  if (!review) {
+    throw new NotFoundError('Review', reviewId);
+  }
+  if (!comment.trim()) throw new ValidationError('comment is required');
 
   await prisma.question.update({
     where: { question_id: reviewId },
-    data: { body: comment },
+    data: { body: comment.trim() },
   });
 
   return { review_id: reviewId };
@@ -514,14 +871,25 @@ export async function updateReview(
 
 export async function deleteReview(
   nodeId: string,
+  assetId: string,
   reviewId: string,
 ): Promise<{ deleted: boolean }> {
-  const review = await prisma.question.findUnique({ where: { question_id: reviewId } });
-  if (!review) throw new NotFoundError('Review', reviewId);
-  if (review.author !== nodeId) throw new ValidationError('Only the author can delete this review');
+  return runSerializableTransaction(async (tx) => {
+    const review = await tx.question.findFirst({
+      where: {
+        question_id: reviewId,
+        author: nodeId,
+        ...getReviewFilter(assetId),
+      },
+    });
+    if (!review) {
+      throw new NotFoundError('Review', reviewId);
+    }
 
-  await prisma.question.delete({ where: { question_id: reviewId } });
-  return { deleted: true };
+    await tx.question.delete({ where: { question_id: reviewId } });
+    await recomputeAssetRating(assetId, tx);
+    return { deleted: true };
+  });
 }
 
 // ─── Asset: Self-Revoke ────────────────────────────────────────────────────────
@@ -692,7 +1060,6 @@ export async function getValidationReports(
   assetId?: string,
   limit = 20,
 ): Promise<{ reports: unknown[] }> {
-  // Placeholder: no dedicated ValidationReport model yet
   const reports = await prisma.hallucinationCheck.findMany({
     where: assetId ? { asset_id: assetId } : {},
     orderBy: { created_at: 'desc' },
@@ -752,7 +1119,6 @@ export async function getEvolutionEvents(params: {
 // ─── Lessons ──────────────────────────────────────────────────────────────────
 
 export async function getLessons(limit = 20): Promise<{ lessons: unknown[] }> {
-  // Placeholder: derive from highly-rated promoted assets
   const assets = await prisma.asset.findMany({
     where: { status: 'promoted', rating: { gt: 3 } },
     orderBy: { rating: 'desc' },

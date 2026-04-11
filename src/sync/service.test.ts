@@ -6,6 +6,7 @@ import type { ChangeVersion, ConflictRecord } from './types';
 
 const {
   initialize,
+  claimSyncTrigger,
   triggerPeriodicSync,
   getNodeSyncStatus,
   syncNodeAssets,
@@ -21,7 +22,7 @@ const {
 } = service;
 
 const mockPrisma = {
-  syncState: { findUnique: jest.fn(), upsert: jest.fn() },
+  syncState: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), upsert: jest.fn() },
   asset: { findMany: jest.fn(), findUnique: jest.fn() },
   evolutionEvent: { groupBy: jest.fn() },
   syncLog: { create: jest.fn(), findMany: jest.fn() },
@@ -56,6 +57,48 @@ describe('Sync Service', () => {
       const { initializeScheduler } = require('./scheduler');
       await initialize();
       expect(initializeScheduler).toHaveBeenCalled();
+    });
+  });
+
+  describe('claimSyncTrigger', () => {
+    it('creates a sync lease for nodes without prior state', async () => {
+      mockPrisma.syncState.findUnique.mockResolvedValue(null);
+      mockPrisma.syncState.create.mockResolvedValue({});
+
+      const claimed = await claimSyncTrigger('node-1');
+
+      expect(claimed).toBe(true);
+      expect(mockPrisma.syncState.create).toHaveBeenCalled();
+    });
+
+    it('rejects overlapping sync claims while a lease is active', async () => {
+      mockPrisma.syncState.findUnique.mockResolvedValue({
+        node_id: 'node-1',
+        status: 'SYNCING',
+        next_sync_at: new Date(Date.now() + 60_000),
+      });
+      mockPrisma.syncState.updateMany.mockResolvedValue({ count: 0 });
+
+      const claimed = await claimSyncTrigger('node-1');
+
+      expect(claimed).toBe(false);
+    });
+
+    it('treats a concurrent unique-key collision as an already-claimed lease', async () => {
+      mockPrisma.syncState.findUnique.mockResolvedValue(null);
+      mockPrisma.syncState.create.mockRejectedValue({ code: 'P2002' });
+      mockPrisma.syncState.updateMany.mockResolvedValue({ count: 0 });
+
+      const claimed = await claimSyncTrigger('node-1');
+
+      expect(claimed).toBe(false);
+    });
+
+    it('rethrows unexpected sync lease creation errors', async () => {
+      mockPrisma.syncState.findUnique.mockResolvedValue(null);
+      mockPrisma.syncState.create.mockRejectedValue(new Error('db unavailable'));
+
+      await expect(claimSyncTrigger('node-1')).rejects.toThrow('db unavailable');
     });
   });
 

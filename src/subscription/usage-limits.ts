@@ -17,6 +17,8 @@ export interface UsageRecord {
   used: number;
   limit: number;
   period: 'daily' | 'monthly' | 'hourly';
+  window_start: string;
+  window_end: string;
   reset_at: string;
   remaining: number;
   unlimited: boolean;
@@ -30,6 +32,8 @@ export interface UsageStats {
 }
 
 let prisma = new PrismaClient();
+
+const KG_ENTITY_TAG = 'kg:entity';
 
 export function setPrisma(client: PrismaClient): void {
   (prisma as unknown) = client;
@@ -68,6 +72,28 @@ const PLAN_LIMITS: Record<string, Record<ResourceType, number>> = {
   },
 };
 
+const DEFAULT_PLAN_LIMITS: Record<ResourceType, number> = {
+  api_calls: 0,
+  publish: 0,
+  kg_entities: 0,
+  kg_relations: 0,
+  arena_battles: 0,
+  sandbox_minutes: 0,
+  dm_messages: 0,
+  circle_participation: 0,
+};
+
+const RESOURCE_PERIODS: Record<ResourceType, UsageRecord['period']> = {
+  api_calls: 'daily',
+  publish: 'daily',
+  kg_entities: 'daily',
+  kg_relations: 'daily',
+  arena_battles: 'daily',
+  sandbox_minutes: 'daily',
+  dm_messages: 'daily',
+  circle_participation: 'monthly',
+};
+
 function getResetTime(period: 'daily' | 'monthly' | 'hourly'): Date {
   const now = new Date();
   switch (period) {
@@ -78,6 +104,118 @@ function getResetTime(period: 'daily' | 'monthly' | 'hourly'): Date {
     case 'monthly':
       return new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
   }
+}
+
+function getPlanLimits(plan: string): Record<ResourceType, number> {
+  return PLAN_LIMITS[plan] ?? PLAN_LIMITS['free'] ?? DEFAULT_PLAN_LIMITS;
+}
+
+function getPeriodWindow(period: UsageRecord['period']): { start: Date; end: Date } {
+  const now = new Date();
+
+  switch (period) {
+    case 'hourly': {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), 0, 0, 0);
+      return { start, end: getResetTime('hourly') };
+    }
+    case 'daily': {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      return { start, end: getResetTime('daily') };
+    }
+    case 'monthly': {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      return { start, end: getResetTime('monthly') };
+    }
+  }
+}
+
+async function countIfAvailable(
+  delegate: { count?: (args: unknown) => Promise<number> } | undefined,
+  args: unknown,
+): Promise<number> {
+  if (!delegate?.count) {
+    return 0;
+  }
+  return delegate.count(args);
+}
+
+async function getCurrentUsage(nodeId: string, resource: ResourceType): Promise<number> {
+  const period = RESOURCE_PERIODS[resource];
+  const { start, end } = getPeriodWindow(period);
+  const db = prisma as unknown as {
+    asset?: { count?: (args: unknown) => Promise<number> };
+    memoryNode?: { count?: (args: unknown) => Promise<number> };
+    arenaMatch?: { count?: (args: unknown) => Promise<number> };
+    directMessage?: { count?: (args: unknown) => Promise<number> };
+    circle?: { count?: (args: unknown) => Promise<number> };
+  };
+
+  switch (resource) {
+    case 'publish':
+      return countIfAvailable(db.asset, {
+        where: {
+          author_id: nodeId,
+          status: 'published',
+          created_at: { gte: start, lt: end },
+        },
+      });
+    case 'kg_entities':
+      return countIfAvailable(db.asset, {
+        where: {
+          author_id: nodeId,
+          tags: { has: KG_ENTITY_TAG },
+          created_at: { gte: start, lt: end },
+        },
+      });
+    case 'arena_battles':
+      return countIfAvailable(db.arenaMatch, {
+        where: {
+          created_at: { gte: start, lt: end },
+          OR: [{ challenger: nodeId }, { defender: nodeId }],
+        },
+      });
+    case 'dm_messages':
+      return countIfAvailable(db.directMessage, {
+        where: {
+          from_id: nodeId,
+          created_at: { gte: start, lt: end },
+        },
+      });
+    case 'circle_participation':
+      return countIfAvailable(db.circle, {
+        where: {
+          creator_id: nodeId,
+          created_at: { gte: start, lt: end },
+        },
+      });
+    case 'api_calls':
+    case 'kg_relations':
+    case 'sandbox_minutes':
+    default:
+      return 0;
+  }
+}
+
+function buildUsageRecord(
+  nodeId: string,
+  resource: ResourceType,
+  used: number,
+  limit: number,
+): UsageRecord {
+  const period = RESOURCE_PERIODS[resource];
+  const { start, end } = getPeriodWindow(period);
+  return {
+    node_id: nodeId,
+    resource,
+    used,
+    limit,
+    period,
+    window_start: start.toISOString(),
+    window_end: end.toISOString(),
+    reset_at: getResetTime(period).toISOString(),
+    remaining: limit === -1 ? -1 : Math.max(0, limit - used),
+    unlimited: limit === -1,
+  };
 }
 
 async function getNodePlan(nodeId: string): Promise<string> {
@@ -99,19 +237,20 @@ export async function checkLimit(
   if (!node) throw new NotFoundError('Node', nodeId);
 
   const plan = await getNodePlan(nodeId);
-  const planLimit = (PLAN_LIMITS[plan] ?? PLAN_LIMITS['free'] ?? { api_calls: 0, publish: 0, kg_entities: 0, kg_relations: 0, arena_battles: 0, sandbox_minutes: 0, dm_messages: 0, circle_participation: 0 })[resource] ?? 0;
+  const planLimit = getPlanLimits(plan)[resource] ?? 0;
+  const period = RESOURCE_PERIODS[resource];
 
   if (planLimit === -1) {
     return {
       allowed: true,
       remaining: -1,
       limit: -1,
-      reset_at: getResetTime('daily').toISOString(),
+      reset_at: getResetTime(period).toISOString(),
       unlimited: true,
     };
   }
 
-  const usedCount = 0; // Placeholder - real implementation would query UsageLog
+  const usedCount = await getCurrentUsage(nodeId, resource);
   const remaining = Math.max(0, planLimit - usedCount);
   const allowed = remaining >= amount;
 
@@ -119,7 +258,7 @@ export async function checkLimit(
     allowed,
     remaining,
     limit: planLimit,
-    reset_at: getResetTime('daily').toISOString(),
+    reset_at: getResetTime(period).toISOString(),
     unlimited: false,
   };
 }
@@ -136,7 +275,9 @@ export async function incrementUsage(
   if (!node) throw new NotFoundError('Node', nodeId);
 
   const plan = await getNodePlan(nodeId);
-  const planLimit = (PLAN_LIMITS[plan] ?? PLAN_LIMITS['free'] ?? { api_calls: 0, publish: 0, kg_entities: 0, kg_relations: 0, arena_battles: 0, sandbox_minutes: 0, dm_messages: 0, circle_participation: 0 })[resource] ?? 0;
+  const planLimit = getPlanLimits(plan)[resource] ?? 0;
+  const period = RESOURCE_PERIODS[resource];
+  const { start, end } = getPeriodWindow(period);
 
   if (planLimit === -1) {
     return {
@@ -144,32 +285,26 @@ export async function incrementUsage(
       resource,
       used: 0,
       limit: -1,
-      period: 'daily',
-      reset_at: getResetTime('daily').toISOString(),
+      period,
+      window_start: start.toISOString(),
+      window_end: end.toISOString(),
+      reset_at: getResetTime(period).toISOString(),
       remaining: -1,
       unlimited: true,
     };
   }
 
   const limit = planLimit;
-  const used = 0; // Placeholder
-  const remaining = Math.max(0, limit - used);
+  const used = await getCurrentUsage(nodeId, resource);
 
-  return {
-    node_id: nodeId,
-    resource,
-    used,
-    limit,
-    period: 'daily',
-    reset_at: getResetTime('daily').toISOString(),
-    remaining,
-    unlimited: false,
-  };
+  return buildUsageRecord(nodeId, resource, used, limit);
 }
 
 export async function resetMonthlyUsage(nodeId: string): Promise<void> {
   if (!nodeId) throw new ValidationError('nodeId is required');
-  // Placeholder: in production, reset UsageLog entries for the current month
+  const node = await prisma.node.findUnique({ where: { node_id: nodeId } });
+  if (!node) throw new NotFoundError('Node', nodeId);
+  // Usage is derived from period-bounded source tables, so there is no separate log to clear.
 }
 
 export async function getUsageStats(nodeId: string): Promise<UsageStats> {
@@ -179,7 +314,7 @@ export async function getUsageStats(nodeId: string): Promise<UsageStats> {
   if (!node) throw new NotFoundError('Node', nodeId);
 
   const plan = await getNodePlan(nodeId);
-  const planLimits = PLAN_LIMITS[plan] ?? PLAN_LIMITS['free'] ?? { api_calls: 0, publish: 0, kg_entities: 0, kg_relations: 0, arena_battles: 0, sandbox_minutes: 0, dm_messages: 0, circle_participation: 0 };
+  const planLimits = getPlanLimits(plan);
   const now = new Date();
   const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
@@ -195,24 +330,23 @@ export async function getUsageStats(nodeId: string): Promise<UsageStats> {
     'circle_participation',
   ];
 
-  const records: UsageRecord[] = resources.map((resource) => {
-    const limit = planLimits[resource] ?? 0;
-    return {
-      node_id: nodeId,
-      resource,
-      used: 0,
-      limit,
-      period: 'daily',
-      reset_at: getResetTime('daily').toISOString(),
-      remaining: limit === -1 ? -1 : Math.max(0, limit),
-      unlimited: limit === -1,
-    };
-  });
+  const usages = await Promise.all(resources.map(async (resource) => ({
+    resource,
+    used: await getCurrentUsage(nodeId, resource),
+  })));
+  const records: UsageRecord[] = usages.map(({ resource, used }) =>
+    buildUsageRecord(nodeId, resource, used, planLimits[resource] ?? 0));
 
   return {
     node_id: nodeId,
-    period_start: periodStart.toISOString(),
-    period_end: periodEnd.toISOString(),
+    period_start: records.reduce(
+      (earliest, record) => record.window_start < earliest ? record.window_start : earliest,
+      records[0]?.window_start ?? periodStart.toISOString(),
+    ),
+    period_end: records.reduce(
+      (latest, record) => record.window_end > latest ? record.window_end : latest,
+      records[0]?.window_end ?? periodEnd.toISOString(),
+    ),
     records,
   };
 }

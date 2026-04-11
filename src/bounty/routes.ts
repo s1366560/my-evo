@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
-import { EvoMapError } from '../shared/errors';
+import { EvoMapError, ValidationError } from '../shared/errors';
 import * as service from './service';
 
 export async function bountyRoutes(app: FastifyInstance) {
@@ -10,7 +10,13 @@ export async function bountyRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const body = request.body as {
+    const body = ((request.body as {
+      title: string;
+      description: string;
+      requirements: string[];
+      amount: number;
+      deadline: string;
+    } | undefined) ?? {}) as {
       title: string;
       description: string;
       requirements: string[];
@@ -41,7 +47,13 @@ export async function bountyRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const body = request.body as {
+    const body = ((request.body as {
+      title: string;
+      description: string;
+      requirements: string[];
+      amount: number;
+      deadline: string;
+    } | undefined) ?? {}) as {
       title: string;
       description: string;
       requirements: string[];
@@ -71,7 +83,13 @@ export async function bountyRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const body = request.body as {
+    const body = ((request.body as {
+      title: string;
+      description: string;
+      requirements: string[];
+      amount: number;
+      deadline: string;
+    } | undefined) ?? {}) as {
       title: string;
       description: string;
       requirements: string[];
@@ -127,6 +145,7 @@ export async function bountyRoutes(app: FastifyInstance) {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    const auth = request.auth!;
     const params = request.params as { bountyId: string };
     const body = request.body as { bidId: string };
 
@@ -134,7 +153,7 @@ export async function bountyRoutes(app: FastifyInstance) {
       throw new EvoMapError('bidId is required', 'VALIDATION_ERROR', 400);
     }
 
-    const bounty = await service.acceptBid(params.bountyId, body.bidId);
+    const bounty = await service.acceptBid(params.bountyId, body.bidId, auth.node_id);
     return { success: true, data: bounty };
   });
 
@@ -167,6 +186,7 @@ export async function bountyRoutes(app: FastifyInstance) {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    const auth = request.auth!;
     const params = request.params as { bountyId: string };
     const body = request.body as {
       accepted: boolean;
@@ -179,6 +199,7 @@ export async function bountyRoutes(app: FastifyInstance) {
 
     const bounty = await service.reviewDeliverable(
       params.bountyId,
+      auth.node_id,
       body.accepted,
       body.comments,
     );
@@ -239,26 +260,24 @@ export async function bountyRoutes(app: FastifyInstance) {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    const auth = request.auth!;
     const params = request.params as { bountyId: string };
-    const bounty = await service.getBounty(params.bountyId);
+    const bounty = await service.getBounty(params.bountyId, auth.node_id);
     return { success: true, data: bounty };
   });
 
   app.get('/my', {
     schema: {
       tags: ['Bounty'],
-      querystring: {
-        type: 'object',
-        properties: {
-          lang: { type: 'string' },
-        },
-      },
     },
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
     const query = request.query as { lang?: string };
-    const result = await service.listBountiesByCreator(auth.node_id, query.lang);
+    if (query.lang !== undefined) {
+      throw new ValidationError('lang filter is not supported for bounty listings');
+    }
+    const result = await service.listBountiesByCreator(auth.node_id);
     return {
       success: true,
       data: result.bounties,
@@ -270,12 +289,13 @@ export async function bountyRoutes(app: FastifyInstance) {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    const auth = request.auth!;
     const params = request.params as { bountyId: string };
     const body = request.body as { bid_id?: string };
     if (!body.bid_id) {
       throw new EvoMapError('bid_id is required', 'VALIDATION_ERROR', 400);
     }
-    const bounty = await service.acceptBid(params.bountyId, body.bid_id);
+    const bounty = await service.acceptBid(params.bountyId, body.bid_id, auth.node_id);
     return { success: true, data: bounty };
   });
 }

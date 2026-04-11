@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { ConflictError, NotFoundError } from '../shared/errors';
 
 let prisma = new PrismaClient();
 
@@ -23,7 +24,7 @@ export async function getClaimInfo(claimCode: string): Promise<ClaimResult> {
   });
 
   if (!node) {
-    throw new Error(`Claim code not found: ${claimCode}`);
+    throw new NotFoundError('Claim code', claimCode);
   }
 
   return {
@@ -45,11 +46,11 @@ export async function claimNode(
   });
 
   if (!node) {
-    throw new Error('Invalid or expired claim code');
+    throw new NotFoundError('Claim code', claimCode);
   }
 
   if (node.user_id) {
-    throw new Error('This node has already been claimed');
+    throw new ConflictError('This node has already been claimed');
   }
 
   const updated = await prisma.node.update({

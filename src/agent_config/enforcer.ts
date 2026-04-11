@@ -9,13 +9,13 @@ import type {
 } from './schemas';
 import {
   ValidationError,
-  ForbiddenError,
   NotFoundError,
 } from '../shared/errors';
 
 // ===== In-memory store (replace with DB in production) =====
 const agentConfigs = new Map<string, AgentConfig>();
 const auditLogs: AuditLog[] = [];
+const actionWindows = new Map<string, number[]>();
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -212,13 +212,15 @@ export function enforceConstraint(
 
   const { constraints } = config;
 
-  // Check rate limit (simplified - in production use Redis sliding window)
   const now = new Date();
-  const minuteKey = `${agentId}:${action}:${now.getMinutes()}`;
-  const minuteCount = parseInt(sessionStorage.getItem(minuteKey) ?? '0', 10);
+  const nowMs = now.getTime();
+  const windowKey = `${agentId}:${action}`;
+  const retained = (actionWindows.get(windowKey) ?? [])
+    .filter((timestamp) => nowMs - timestamp < 24 * 60 * 60 * 1000);
+  const minuteCount = retained.filter((timestamp) => nowMs - timestamp < 60 * 1000).length;
+  const hourCount = retained.filter((timestamp) => nowMs - timestamp < 60 * 60 * 1000).length;
+  const dayCount = retained.length;
 
-  // Note: sessionStorage is browser-only; in production use Redis
-  // For server-side: maintain in-memory counter map
   if (minuteCount >= constraints.max_rate_per_minute) {
     const log = createAuditLog(agentId, 'constraint_enforce', {
       action,
@@ -232,6 +234,38 @@ export function enforceConstraint(
       allowed: false,
       violated_constraint: 'rate_limit_per_minute',
       message: `Rate limit exceeded: ${minuteCount}/${constraints.max_rate_per_minute} per minute`,
+    };
+  }
+
+  if (hourCount >= constraints.max_rate_per_hour) {
+    const log = createAuditLog(agentId, 'constraint_enforce', {
+      action,
+      constraint: 'rate_limit_per_hour',
+      current: hourCount,
+      limit: constraints.max_rate_per_hour,
+      context,
+    }, 'denied');
+    auditLogs.push(log);
+    return {
+      allowed: false,
+      violated_constraint: 'rate_limit_per_hour',
+      message: `Rate limit exceeded: ${hourCount}/${constraints.max_rate_per_hour} per hour`,
+    };
+  }
+
+  if (dayCount >= constraints.max_rate_per_day) {
+    const log = createAuditLog(agentId, 'constraint_enforce', {
+      action,
+      constraint: 'rate_limit_per_day',
+      current: dayCount,
+      limit: constraints.max_rate_per_day,
+      context,
+    }, 'denied');
+    auditLogs.push(log);
+    return {
+      allowed: false,
+      violated_constraint: 'rate_limit_per_day',
+      message: `Rate limit exceeded: ${dayCount}/${constraints.max_rate_per_day} per day`,
     };
   }
 
@@ -273,6 +307,35 @@ export function enforceConstraint(
       message: `Current time ${currentTime} is outside allowed windows`,
     };
   }
+
+  const trustOrder: Record<AgentConfig['constraints']['min_trust_level'], number> = {
+    unverified: 0,
+    verified: 1,
+    trusted: 2,
+  };
+  const rawTrust = context?.trust_level;
+  const currentTrust: AgentConfig['constraints']['min_trust_level'] =
+    rawTrust === 'verified' || rawTrust === 'trusted' || rawTrust === 'unverified'
+      ? rawTrust
+      : 'unverified';
+  if (trustOrder[currentTrust] < trustOrder[constraints.min_trust_level]) {
+    const log = createAuditLog(agentId, 'constraint_enforce', {
+      action,
+      constraint: 'min_trust_level',
+      current_trust_level: currentTrust,
+      required_trust_level: constraints.min_trust_level,
+      context,
+    }, 'denied');
+    auditLogs.push(log);
+    return {
+      allowed: false,
+      violated_constraint: 'min_trust_level',
+      message: `Trust level ${currentTrust} is below required ${constraints.min_trust_level}`,
+    };
+  }
+
+  retained.push(nowMs);
+  actionWindows.set(windowKey, retained);
 
   return { allowed: true };
 }
@@ -382,11 +445,5 @@ export function deleteAgentConfig(agentId: string): void {
 export function _resetTestState(): void {
   agentConfigs.clear();
   auditLogs.length = 0;
+  actionWindows.clear();
 }
-
-// Stub for sessionStorage (browser API not available in Node)
-const sessionStorage = {
-  store: new Map<string, string>(),
-  getItem(k: string) { return this.store.get(k) ?? null; },
-  setItem(k: string, v: string) { this.store.set(k, v); },
-};

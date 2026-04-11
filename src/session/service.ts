@@ -9,6 +9,7 @@ import {
   NotFoundError,
   ValidationError,
   ForbiddenError,
+  ConflictError,
 } from '../shared/errors';
 import type {
   SessionStatus,
@@ -48,6 +49,211 @@ interface SessionMessageData {
   content: string;
   vector_clock: Record<string, number>;
   timestamp: string;
+}
+
+interface SessionBoardItemData {
+  id: string;
+  type: string;
+  content: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SessionBoardData {
+  items: SessionBoardItemData[];
+  pinned: string[];
+}
+
+interface SessionOrchestrationData {
+  orchestration_id: string;
+  session_id: string;
+  mode?: 'sequential' | 'parallel' | 'hierarchical';
+  task_graph?: Array<{ task_id: string; depends_on?: string[] }>;
+  reassign?: Record<string, unknown>;
+  force_converge?: boolean;
+  task_board_updates?: unknown;
+  status: 'started';
+  started_by: string;
+  started_at: string;
+}
+
+interface SessionSubmissionData {
+  submission_id: string;
+  session_id: string;
+  task_id: string;
+  result_asset_id: string;
+  result?: unknown;
+  summary?: string;
+  submitted_by: string;
+  submitted_at: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function getSessionMembers(session: { members: unknown }): SessionMemberData[] {
+  return Array.isArray(session.members)
+    ? session.members as unknown as SessionMemberData[]
+    : [];
+}
+
+function getSessionMessages(session: { messages: unknown }): SessionMessageData[] {
+  return Array.isArray(session.messages)
+    ? session.messages as unknown as SessionMessageData[]
+    : [];
+}
+
+function getSessionContextRecord(context: unknown): Record<string, unknown> {
+  return asRecord(context);
+}
+
+function getBoardFromContext(context: Record<string, unknown>): SessionBoardData {
+  const board = asRecord(context.board);
+  const items = Array.isArray(board.items)
+    ? board.items.filter((item): item is SessionBoardItemData =>
+      typeof item === 'object' && item !== null,
+    )
+    : [];
+  const pinned = Array.isArray(board.pinned)
+    ? board.pinned.filter((item): item is string => typeof item === 'string')
+    : [];
+
+  return {
+    items,
+    pinned: pinned.filter((itemId) => items.some((item) => item.id === itemId)),
+  };
+}
+
+function getSharedStateFromContext(context: Record<string, unknown>): Record<string, unknown> {
+  return asRecord(context.shared_state);
+}
+
+function getOrchestrationsFromContext(context: Record<string, unknown>): SessionOrchestrationData[] {
+  return Array.isArray(context.orchestrations)
+    ? context.orchestrations.filter((entry): entry is SessionOrchestrationData =>
+      typeof entry === 'object' && entry !== null,
+    )
+    : [];
+}
+
+function getSubmissionsFromContext(context: Record<string, unknown>): SessionSubmissionData[] {
+  return Array.isArray(context.submissions)
+    ? context.submissions.filter((entry): entry is SessionSubmissionData =>
+      typeof entry === 'object' && entry !== null,
+    )
+    : [];
+}
+
+async function loadSession(sessionId: string) {
+  const session = await prisma.collaborationSession.findUnique({
+    where: { id: sessionId },
+  });
+
+  if (!session) {
+    throw new NotFoundError('Session', sessionId);
+  }
+
+  return session;
+}
+
+function requireActiveSession(session: { status: string }): void {
+  if (session.status !== 'active') {
+    throw new ValidationError('Session is not active');
+  }
+}
+
+function requireSessionMember(
+  session: { members: unknown },
+  nodeId: string,
+  errorMessage: string,
+): SessionMemberData[] {
+  const members = getSessionMembers(session);
+  const isMember = members.some((member) => member.node_id === nodeId && member.is_active);
+
+  if (!isMember) {
+    throw new ForbiddenError(errorMessage);
+  }
+
+  return members;
+}
+
+function canReadSession(
+  session: { creator_id: string; status: string; members: unknown },
+  nodeId: string,
+): boolean {
+  const isActiveMember = getSessionMembers(session)
+    .some((member) => member.node_id === nodeId && member.is_active);
+
+  if (isActiveMember) {
+    return true;
+  }
+
+  return session.creator_id === nodeId
+    && ['completed', 'cancelled', 'error', 'expired'].includes(session.status);
+}
+
+function requireSessionReader(
+  session: { creator_id: string; status: string; members: unknown },
+  nodeId: string,
+  errorMessage: string,
+): void {
+  if (!canReadSession(session, nodeId)) {
+    throw new ForbiddenError(errorMessage);
+  }
+}
+
+function getNextUpdatedAt(previous: Date, now: Date): Date {
+  return new Date(Math.max(now.getTime(), previous.getTime() + 1));
+}
+
+async function saveSessionContext(
+  session: { id: string; updated_at: Date },
+  context: Record<string, unknown>,
+  now: Date,
+): Promise<void> {
+  const nextUpdatedAt = getNextUpdatedAt(session.updated_at, now);
+  const result = await prisma.collaborationSession.updateMany({
+    where: {
+      id: session.id,
+      updated_at: session.updated_at,
+    },
+    data: {
+      context: context as Prisma.InputJsonValue,
+      updated_at: nextUpdatedAt,
+    },
+  });
+
+  if (result.count === 0) {
+    throw new ConflictError('Session context changed; retry');
+  }
+}
+
+async function saveSessionState(
+  session: { id: string; updated_at: Date },
+  data: Record<string, unknown>,
+  now: Date,
+): Promise<Awaited<ReturnType<typeof loadSession>>> {
+  const nextUpdatedAt = getNextUpdatedAt(session.updated_at, now);
+  const result = await prisma.collaborationSession.updateMany({
+    where: {
+      id: session.id,
+      updated_at: session.updated_at,
+    },
+    data: {
+      ...data,
+      updated_at: nextUpdatedAt,
+    },
+  });
+
+  if (result.count === 0) {
+    throw new ConflictError('Session changed; retry');
+  }
+
+  return loadSession(session.id);
 }
 
 export async function createSession(
@@ -142,16 +348,10 @@ export async function joinSession(
     [nodeId]: 0,
   };
 
-  const updated = await prisma.collaborationSession.update({
-    where: { id: sessionId },
-    data: {
-      members: updatedMembers as unknown as Prisma.InputJsonValue,
-      vector_clock: updatedClock,
-      updated_at: now,
-    },
-  });
-
-  return updated;
+  return saveSessionState(session, {
+    members: updatedMembers as unknown as Prisma.InputJsonValue,
+    vector_clock: updatedClock,
+  }, now);
 }
 
 export async function leaveSession(
@@ -183,16 +383,10 @@ export async function leaveSession(
   const activeMembers = updatedMembers.filter((m) => m.is_active);
   const newStatus: SessionStatus = activeMembers.length === 0 ? 'cancelled' : (session.status as SessionStatus);
 
-  const updated = await prisma.collaborationSession.update({
-    where: { id: sessionId },
-    data: {
-      members: updatedMembers as unknown as Prisma.InputJsonValue,
-      status: newStatus,
-      updated_at: now,
-    },
-  });
-
-  return updated;
+  return saveSessionState(session, {
+    members: updatedMembers as unknown as Prisma.InputJsonValue,
+    status: newStatus,
+  }, now);
 }
 
 export async function sendMessage(
@@ -241,14 +435,10 @@ export async function sendMessage(
   const existingMessages = (session.messages as unknown) as SessionMessageData[];
   const updatedMessages = [...existingMessages, message];
 
-  const updated = await prisma.collaborationSession.update({
-    where: { id: sessionId },
-    data: {
-      messages: updatedMessages as unknown as Prisma.InputJsonValue,
-      vector_clock: updatedClock,
-      updated_at: now,
-    },
-  });
+  const updated = await saveSessionState(session, {
+    messages: updatedMessages as unknown as Prisma.InputJsonValue,
+    vector_clock: updatedClock,
+  }, now);
 
   return { session: updated, message };
 }
@@ -369,26 +559,14 @@ export async function heartbeat(
     i === memberIndex ? { ...m, last_heartbeat: now.toISOString() } : m,
   );
 
-  const updated = await prisma.collaborationSession.update({
-    where: { id: sessionId },
-    data: {
-      members: updatedMembers as unknown as Prisma.InputJsonValue,
-      updated_at: now,
-    },
-  });
-
-  return updated;
+  return saveSessionState(session, {
+    members: updatedMembers as unknown as Prisma.InputJsonValue,
+  }, now);
 }
 
-export async function getSession(sessionId: string) {
-  const session = await prisma.collaborationSession.findUnique({
-    where: { id: sessionId },
-  });
-
-  if (!session) {
-    throw new NotFoundError('Session', sessionId);
-  }
-
+export async function getSession(sessionId: string, nodeId: string) {
+  const session = await loadSession(sessionId);
+  requireSessionReader(session, nodeId, 'Only session participants can access this session');
   return session;
 }
 
@@ -411,6 +589,316 @@ export async function listSessions(input: ListSessionsInput) {
   ]);
 
   return { sessions, total, limit, offset };
+}
+
+export async function listSessionsForNode(
+  nodeId: string,
+  input: ListSessionsInput,
+) {
+  const { status, limit = 20, offset = 0 } = input;
+
+  const where: Record<string, unknown> = {};
+  if (status) {
+    where.status = status;
+  }
+
+  const sessionMemberships = await prisma.collaborationSession.findMany({
+    where,
+    orderBy: { created_at: 'desc' },
+    select: {
+      id: true,
+      creator_id: true,
+      status: true,
+      members: true,
+    },
+  });
+
+  const memberSessionIds = sessionMemberships
+    .filter((session) =>
+      canReadSession(session, nodeId),
+    )
+    .map((session) => session.id);
+
+  const pagedSessionIds = memberSessionIds.slice(offset, offset + limit);
+  if (pagedSessionIds.length === 0) {
+    return {
+      sessions: [],
+      total: memberSessionIds.length,
+      limit,
+      offset,
+    };
+  }
+
+  const pagedSessions = await prisma.collaborationSession.findMany({
+    where: {
+      id: {
+        in: pagedSessionIds,
+      },
+    },
+  });
+
+  const sessionsById = new Map(pagedSessions.map((session) => [session.id, session]));
+  const readableSessions = pagedSessionIds
+    .map((sessionId) => sessionsById.get(sessionId))
+    .filter((session): session is typeof pagedSessions[number] => Boolean(session))
+    .filter((session) => canReadSession(session, nodeId));
+
+  return {
+    sessions: readableSessions,
+    total: sessionMemberships.filter((session) => canReadSession(session, nodeId)).length,
+    limit,
+    offset,
+  };
+}
+
+export async function getSessionBoard(sessionId: string, nodeId: string) {
+  const session = await loadSession(sessionId);
+  requireSessionReader(session, nodeId, 'Only session readers can access the session board');
+
+  const context = getSessionContextRecord(session.context);
+  return {
+    session_id: sessionId,
+    board: getBoardFromContext(context),
+    updated_at: session.updated_at.toISOString(),
+  };
+}
+
+export async function updateSessionBoard(
+  sessionId: string,
+  nodeId: string,
+  action: 'add' | 'remove' | 'pin' | 'unpin',
+  item?: { id: string; type: string; content: string },
+  itemId?: string,
+) {
+  const session = await loadSession(sessionId);
+  requireActiveSession(session);
+  requireSessionMember(session, nodeId, 'Only session members can update the session board');
+
+  const context = getSessionContextRecord(session.context);
+  const board = getBoardFromContext(context);
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  switch (action) {
+    case 'add': {
+      if (!item?.id || !item.type || !item.content) {
+        throw new ValidationError('item with id, type, and content is required for add');
+      }
+
+      const existingIndex = board.items.findIndex((entry) => entry.id === item.id);
+      const existingItem = existingIndex >= 0 ? board.items[existingIndex] : undefined;
+      const nextItem: SessionBoardItemData = existingItem
+        ? {
+          id: existingItem.id,
+          type: item.type,
+          content: item.content,
+          created_by: existingItem.created_by,
+          created_at: existingItem.created_at,
+          updated_at: nowIso,
+        }
+        : {
+          id: item.id,
+          type: item.type,
+          content: item.content,
+          created_by: nodeId,
+          created_at: nowIso,
+          updated_at: nowIso,
+        };
+
+      if (existingIndex >= 0) {
+        board.items[existingIndex] = nextItem;
+      } else {
+        board.items.push(nextItem);
+      }
+      break;
+    }
+    case 'remove': {
+      if (!itemId) {
+        throw new ValidationError('item_id is required for remove');
+      }
+      if (!board.items.some((entry) => entry.id === itemId)) {
+        throw new ValidationError('item_id must reference an existing board item');
+      }
+      board.items = board.items.filter((entry) => entry.id !== itemId);
+      board.pinned = board.pinned.filter((entry) => entry !== itemId);
+      break;
+    }
+    case 'pin': {
+      if (!itemId) {
+        throw new ValidationError('item_id is required for pin');
+      }
+      if (!board.items.some((entry) => entry.id === itemId)) {
+        throw new ValidationError('item_id must reference an existing board item');
+      }
+      if (!board.pinned.includes(itemId)) {
+        board.pinned.push(itemId);
+      }
+      break;
+    }
+    case 'unpin': {
+      if (!itemId) {
+        throw new ValidationError('item_id is required for unpin');
+      }
+      board.pinned = board.pinned.filter((entry) => entry !== itemId);
+      break;
+    }
+    default:
+      throw new ValidationError('Invalid board action');
+  }
+
+  context.board = board;
+  await saveSessionContext(session, context, now);
+
+  return {
+    session_id: sessionId,
+    action,
+    board,
+    updated_by: nodeId,
+    updated_at: nowIso,
+  };
+}
+
+export async function orchestrateSession(
+  sessionId: string,
+  nodeId: string,
+  input: {
+    mode?: 'sequential' | 'parallel' | 'hierarchical';
+    task_graph?: Array<{ task_id: string; depends_on?: string[] }>;
+    reassign?: Record<string, unknown>;
+    force_converge?: boolean;
+    task_board_updates?: unknown;
+  },
+) {
+  const session = await loadSession(sessionId);
+  requireActiveSession(session);
+  requireSessionMember(session, nodeId, 'Only session members can orchestrate the session');
+
+  const context = getSessionContextRecord(session.context);
+  const orchestrations = getOrchestrationsFromContext(context);
+  const sharedState = getSharedStateFromContext(context);
+  const now = new Date();
+  const orchestratorId = typeof sharedState.orchestrator_id === 'string'
+    ? sharedState.orchestrator_id
+    : session.creator_id;
+
+  if (nodeId !== orchestratorId) {
+    throw new ForbiddenError('Only the session orchestrator can orchestrate the session');
+  }
+
+  if (
+    input.mode === undefined
+    && input.task_graph === undefined
+    && input.reassign === undefined
+    && input.force_converge === undefined
+    && input.task_board_updates === undefined
+  ) {
+    throw new ValidationError('At least one orchestration directive is required');
+  }
+
+  const orchestration: SessionOrchestrationData = {
+    orchestration_id: uuidv4(),
+    session_id: sessionId,
+    status: 'started',
+    started_by: nodeId,
+    started_at: now.toISOString(),
+    ...(input.mode !== undefined ? { mode: input.mode } : {}),
+    ...(input.task_graph !== undefined ? { task_graph: input.task_graph } : {}),
+    ...(input.reassign !== undefined ? { reassign: input.reassign } : {}),
+    ...(input.force_converge !== undefined ? { force_converge: input.force_converge } : {}),
+    ...(input.task_board_updates !== undefined ? { task_board_updates: input.task_board_updates } : {}),
+  };
+
+  context.orchestrations = [...orchestrations, orchestration];
+  context.shared_state = {
+    ...sharedState,
+    current_orchestration_id: orchestration.orchestration_id,
+    orchestrator_id: orchestratorId,
+    ...(input.mode !== undefined ? { orchestration_mode: input.mode } : {}),
+    ...(input.force_converge ? { force_converge_requested_at: now.toISOString() } : {}),
+  };
+
+  await saveSessionContext(session, context, now);
+
+  return orchestration;
+}
+
+export async function submitSessionResult(
+  sessionId: string,
+  nodeId: string,
+  taskId: string,
+  resultAssetId: string,
+  options?: {
+    result?: unknown;
+    summary?: string;
+  },
+) {
+  const session = await loadSession(sessionId);
+  requireActiveSession(session);
+  requireSessionMember(session, nodeId, 'Only session members can submit session results');
+
+  const context = getSessionContextRecord(session.context);
+  const submissions = getSubmissionsFromContext(context);
+  const sharedState = getSharedStateFromContext(context);
+  const now = new Date();
+  const normalizedTaskId = taskId.trim();
+  const normalizedResultAssetId = resultAssetId.trim();
+  const normalizedSummary = options?.summary?.trim();
+  const summary = normalizedSummary ? normalizedSummary : null;
+
+  if (!normalizedTaskId || !normalizedResultAssetId) {
+    throw new ValidationError('task_id and result_asset_id are required');
+  }
+
+  const submission: SessionSubmissionData = {
+    submission_id: uuidv4(),
+    session_id: sessionId,
+    task_id: normalizedTaskId,
+    result_asset_id: normalizedResultAssetId,
+    submitted_by: nodeId,
+    submitted_at: now.toISOString(),
+    ...(options?.result !== undefined ? { result: options.result } : {}),
+    ...(summary ? { summary } : {}),
+  };
+
+  context.submissions = [...submissions, submission];
+  context.shared_state = {
+    ...sharedState,
+    latest_submission_id: submission.submission_id,
+    latest_submission_by: nodeId,
+    latest_submission_task_id: normalizedTaskId,
+    latest_submission_asset_id: normalizedResultAssetId,
+    latest_submission_summary: summary,
+  };
+
+  await saveSessionContext(session, context, now);
+
+  return submission;
+}
+
+export async function getSessionContext(
+  sessionId: string,
+  nodeId: string,
+  limit = 20,
+) {
+  const session = await loadSession(sessionId);
+  requireSessionReader(
+    session,
+    nodeId,
+    'Only session readers can access the session context',
+  );
+  const participants = getSessionMembers(session);
+  const context = getSessionContextRecord(session.context);
+  const normalizedLimit = Math.max(1, Math.min(limit, 100));
+
+  return {
+    session_id: sessionId,
+    messages: getSessionMessages(session).slice(-normalizedLimit),
+    participants: participants.filter((member) => member.is_active),
+    shared_state: getSharedStateFromContext(context),
+    board: getBoardFromContext(context),
+    orchestrations: getOrchestrationsFromContext(context).slice(-normalizedLimit),
+    submissions: getSubmissionsFromContext(context).slice(-normalizedLimit),
+  };
 }
 
 export async function expireSessions() {

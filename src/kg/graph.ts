@@ -5,12 +5,16 @@ import * as postgresService from './service';
 export async function createNode(
   nodeType: string,
   properties: Record<string, unknown>,
+  authorId: string,
 ): Promise<KgNode> {
   const connected = await neo4jClient.isConnected().catch(() => false);
   if (connected) {
-    return neo4jClient.createNode(nodeType, properties);
+    return neo4jClient.createNode(nodeType, {
+      ...properties,
+      author_id: authorId,
+    });
   }
-  return postgresService.createNode(nodeType, properties);
+  return postgresService.createNode(nodeType, properties, authorId);
 }
 
 export async function createRelationship(

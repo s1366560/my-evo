@@ -7,9 +7,26 @@ const mockPrisma = {
     findUnique: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
     delete: jest.fn(),
     count: jest.fn(),
   },
+  workerTask: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn(),
+    count: jest.fn(),
+  },
+  question: {
+    upsert: jest.fn(),
+  },
+  $transaction: jest.fn((ops) => {
+    if (Array.isArray(ops)) {
+      return Promise.all(ops);
+    }
+    return ops(mockPrisma);
+  }),
 } as any;
 
 beforeAll(() => {
@@ -213,24 +230,49 @@ describe('Worker Pool Service', () => {
   });
 
   describe('assignTask', () => {
-    it('should increment current_tasks for a worker', async () => {
-      mockPrisma.worker.findUnique.mockResolvedValue({
-        node_id: 'w1',
-        is_available: true,
-        max_concurrent: 3,
-        current_tasks: 1,
+    it('should increment current_tasks and assign the worker task', async () => {
+      mockPrisma.worker.findUnique
+        .mockResolvedValueOnce({
+          node_id: 'w1',
+          is_available: true,
+          max_concurrent: 3,
+          current_tasks: 1,
+        })
+        .mockResolvedValueOnce({
+          node_id: 'w1',
+          is_available: true,
+          max_concurrent: 3,
+          current_tasks: 2,
+        });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        status: 'available',
+        assigned_to: null,
       });
-      mockPrisma.worker.update.mockResolvedValue({
-        node_id: 'w1',
-        current_tasks: 2,
-      });
+      mockPrisma.worker.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.workerTask.updateMany.mockResolvedValue({ count: 1 });
 
       const result = await service.assignTask('w1', 'task-1');
-      expect(mockPrisma.worker.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { current_tasks: 2 },
-        }),
-      );
+      expect(mockPrisma.worker.updateMany).toHaveBeenCalledWith({
+        where: {
+          node_id: 'w1',
+          is_available: true,
+          current_tasks: 1,
+        },
+        data: { current_tasks: { increment: 1 } },
+      });
+      expect(mockPrisma.workerTask.updateMany).toHaveBeenCalledWith({
+        where: {
+          task_id: 'task-1',
+          status: 'available',
+          assigned_to: null,
+        },
+        data: {
+          assigned_to: 'w1',
+          status: 'assigned',
+        },
+      });
+      expect(result.current_tasks).toBe(2);
     });
 
     it('should reject unavailable worker', async () => {
@@ -239,6 +281,11 @@ describe('Worker Pool Service', () => {
         is_available: false,
         max_concurrent: 3,
         current_tasks: 0,
+      });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        status: 'available',
+        assigned_to: null,
       });
 
       await expect(
@@ -253,34 +300,111 @@ describe('Worker Pool Service', () => {
         max_concurrent: 3,
         current_tasks: 3,
       });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        status: 'available',
+        assigned_to: null,
+      });
 
       await expect(
         service.assignTask('w1', 'task-1'),
       ).rejects.toThrow('max concurrent tasks');
     });
+
+    it('should reject assigning unavailable tasks', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue({
+        node_id: 'w1',
+        is_available: true,
+        max_concurrent: 3,
+        current_tasks: 1,
+      });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        status: 'assigned',
+        assigned_to: 'w2',
+      });
+
+      await expect(service.assignTask('w1', 'task-1')).rejects.toThrow('Task is not available');
+      expect(mockPrisma.worker.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should reject raced worker updates with conflict', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue({
+        node_id: 'w1',
+        is_available: true,
+        max_concurrent: 3,
+        current_tasks: 1,
+      });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        status: 'available',
+        assigned_to: null,
+      });
+      mockPrisma.worker.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.assignTask('w1', 'task-1')).rejects.toThrow('Worker state changed; retry');
+    });
+
+    it('should reject raced task updates with conflict', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue({
+        node_id: 'w1',
+        is_available: true,
+        max_concurrent: 3,
+        current_tasks: 1,
+      });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        status: 'available',
+        assigned_to: null,
+      });
+      mockPrisma.worker.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.workerTask.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.assignTask('w1', 'task-1')).rejects.toThrow('Task state changed; retry');
+    });
   });
 
   describe('completeTask', () => {
-    it('should decrement current_tasks and update success_rate on success', async () => {
-      mockPrisma.worker.findUnique.mockResolvedValue({
-        node_id: 'w1',
-        current_tasks: 2,
-        total_completed: 10,
-        success_rate: 80,
+    it('should decrement current_tasks, update success_rate, and complete the worker task', async () => {
+      mockPrisma.worker.findUnique
+        .mockResolvedValueOnce({
+          node_id: 'w1',
+          current_tasks: 2,
+          total_completed: 10,
+          success_rate: 80,
+        })
+        .mockResolvedValueOnce({
+          node_id: 'w1',
+          current_tasks: 1,
+          total_completed: 11,
+          success_rate: 81.8,
+        });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        assigned_to: 'w1',
+        status: 'assigned',
       });
-      mockPrisma.worker.update.mockResolvedValue({
-        node_id: 'w1',
-        current_tasks: 1,
-        total_completed: 11,
-        success_rate: 81.8,
-      });
+      mockPrisma.worker.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.workerTask.updateMany.mockResolvedValue({ count: 1 });
 
       const result = await service.completeTask('w1', 'task-1', true);
-      expect(mockPrisma.worker.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ current_tasks: 1 }),
-        }),
-      );
+      expect(mockPrisma.worker.updateMany).toHaveBeenCalledWith({
+        where: {
+          node_id: 'w1',
+          current_tasks: 2,
+          total_completed: 10,
+        },
+        data: {
+          current_tasks: { decrement: 1 },
+          total_completed: { increment: 1 },
+          success_rate: 81.81818181818183,
+        },
+      });
+      expect(mockPrisma.workerTask.updateMany).toHaveBeenCalledWith({
+        where: { task_id: 'task-1', assigned_to: 'w1', status: 'assigned' },
+        data: expect.objectContaining({ status: 'completed' }),
+      });
+      expect(result.current_tasks).toBe(1);
     });
 
     it('should reject worker with no tasks', async () => {
@@ -290,10 +414,107 @@ describe('Worker Pool Service', () => {
         total_completed: 5,
         success_rate: 80,
       });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        assigned_to: 'w1',
+        status: 'assigned',
+      });
 
       await expect(
         service.completeTask('w1', 'task-1', true),
       ).rejects.toThrow('no tasks to complete');
+    });
+
+    it('should requeue the task on failed completion', async () => {
+      mockPrisma.worker.findUnique
+        .mockResolvedValueOnce({
+          node_id: 'w1',
+          current_tasks: 1,
+          total_completed: 10,
+          success_rate: 80,
+        })
+        .mockResolvedValueOnce({
+          node_id: 'w1',
+          current_tasks: 0,
+          total_completed: 11,
+          success_rate: 72.7,
+        });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        assigned_to: 'w1',
+        status: 'assigned',
+      });
+      mockPrisma.worker.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.workerTask.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.completeTask('w1', 'task-1', false);
+
+      expect(mockPrisma.workerTask.updateMany).toHaveBeenCalledWith({
+        where: { task_id: 'task-1', assigned_to: 'w1', status: 'assigned' },
+        data: {
+          status: 'available',
+          assigned_to: null,
+          completed_at: null,
+        },
+      });
+    });
+
+    it('should reject completion for tasks assigned to another worker', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue({
+        node_id: 'w1',
+        current_tasks: 1,
+        total_completed: 10,
+        success_rate: 80,
+      });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        assigned_to: 'w2',
+        status: 'assigned',
+      });
+
+      await expect(service.completeTask('w1', 'task-1', true)).rejects.toThrow(
+        'Task is not assigned to this worker',
+      );
+      expect(mockPrisma.worker.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should reject raced worker completions with conflict', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue({
+        node_id: 'w1',
+        current_tasks: 1,
+        total_completed: 10,
+        success_rate: 80,
+      });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        assigned_to: 'w1',
+        status: 'assigned',
+      });
+      mockPrisma.worker.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.completeTask('w1', 'task-1', true)).rejects.toThrow(
+        'Worker state changed; retry',
+      );
+    });
+
+    it('should reject raced task completions with conflict', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue({
+        node_id: 'w1',
+        current_tasks: 1,
+        total_completed: 10,
+        success_rate: 80,
+      });
+      mockPrisma.workerTask.findUnique.mockResolvedValue({
+        task_id: 'task-1',
+        assigned_to: 'w1',
+        status: 'assigned',
+      });
+      mockPrisma.worker.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.workerTask.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.completeTask('w1', 'task-1', true)).rejects.toThrow(
+        'Task state changed; retry',
+      );
     });
   });
 
@@ -492,33 +713,50 @@ describe('Worker Pool Service', () => {
   });
 
   describe('rateSpecialist', () => {
-    it('should accept valid rating', async () => {
-      await expect(service.rateSpecialist('task-1', 'rater-1', 3)).resolves.toBeUndefined();
+    it('rejects ratings until worker tasks carry requester ownership', async () => {
+      await expect(
+        service.rateSpecialist('worker-1', 'task-1', 'rater-1', 3, 'Solid work'),
+      ).rejects.toThrow(
+        'Specialist ratings require requester-linked worker tasks and are not yet supported for current tasks',
+      );
+      expect(mockPrisma.question.upsert).not.toHaveBeenCalled();
     });
 
-    it('should accept rating=1', async () => {
-      await expect(service.rateSpecialist('task-1', 'rater-1', 1)).resolves.toBeUndefined();
+    it('still validates lower-bound ratings before rejecting unsupported persistence', async () => {
+      await expect(service.rateSpecialist('worker-1', 'task-1', 'rater-1', 1)).rejects.toThrow(
+        'Specialist ratings require requester-linked worker tasks and are not yet supported for current tasks',
+      );
     });
 
-    it('should accept rating=5', async () => {
-      await expect(service.rateSpecialist('task-1', 'rater-1', 5)).resolves.toBeUndefined();
+    it('still validates upper-bound ratings before rejecting unsupported persistence', async () => {
+      await expect(service.rateSpecialist('worker-1', 'task-1', 'rater-1', 5)).rejects.toThrow(
+        'Specialist ratings require requester-linked worker tasks and are not yet supported for current tasks',
+      );
     });
 
     it('should reject rating=0', async () => {
-      await expect(service.rateSpecialist('task-1', 'rater-1', 0)).rejects.toThrow(
+      await expect(service.rateSpecialist('worker-1', 'task-1', 'rater-1', 0)).rejects.toThrow(
         'Rating must be between 1 and 5',
       );
     });
 
     it('should reject rating=6', async () => {
-      await expect(service.rateSpecialist('task-1', 'rater-1', 6)).rejects.toThrow(
+      await expect(service.rateSpecialist('worker-1', 'task-1', 'rater-1', 6)).rejects.toThrow(
         'Rating must be between 1 and 5',
       );
     });
 
     it('should reject negative rating', async () => {
-      await expect(service.rateSpecialist('task-1', 'rater-1', -1)).rejects.toThrow(
+      await expect(service.rateSpecialist('worker-1', 'task-1', 'rater-1', -1)).rejects.toThrow(
         'Rating must be between 1 and 5',
+      );
+    });
+
+    it('rejects ratings even when task ids look valid', async () => {
+      await expect(
+        service.rateSpecialist('worker-1', 'task-1', 'rater-1', 4),
+      ).rejects.toThrow(
+        'Specialist ratings require requester-linked worker tasks and are not yet supported for current tasks',
       );
     });
   });

@@ -149,13 +149,14 @@ export async function sessionRoutes(app: FastifyInstance) {
     schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    const auth = request.auth!;
     const query = request.query as {
       status?: string;
       limit?: string;
       offset?: string;
     };
 
-    const result = await service.listSessions({
+    const result = await service.listSessionsForNode(auth.node_id, {
       status: query.status as 'creating' | 'active' | 'paused' | 'completed' | 'cancelled' | 'error' | 'expired' | undefined,
       limit: query.limit ? parseInt(query.limit, 10) : 20,
       offset: query.offset ? parseInt(query.offset, 10) : 0,
@@ -176,8 +177,9 @@ export async function sessionRoutes(app: FastifyInstance) {
     schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    const auth = request.auth!;
     const params = request.params as { sessionId: string };
-    const session = await service.getSession(params.sessionId);
+    const session = await service.getSession(params.sessionId, auth.node_id);
     return { success: true, data: session };
   });
 }

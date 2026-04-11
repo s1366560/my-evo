@@ -146,8 +146,12 @@ export async function workerPoolRoutes(app: FastifyInstance) {
       rating: number;
       review?: string;
     };
+    if (!body.task_id) {
+      throw new EvoMapError('task_id is required', 'VALIDATION_ERROR', 400);
+    }
     await service.rateSpecialist(
       params.nodeId,
+      body.task_id,
       auth.node_id,
       body.rating,
       body.review,

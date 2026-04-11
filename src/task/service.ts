@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
-import { NotFoundError, ValidationError } from '../shared/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../shared/errors';
+import { MAX_SUBTASKS, TITLE_MAX_LENGTH } from '../shared/constants';
 
 let prisma = new PrismaClient();
 
@@ -76,23 +77,41 @@ export async function createTask(
 export async function updateTask(
   projectId: string,
   taskId: string,
+  actorId: string,
   updates: { title?: string; description?: string; status?: string; assignee_id?: string | null },
 ): Promise<ProjectTaskOutput> {
-  const task = await prisma.projectTask.findFirst({
-    where: { task_id: taskId, project_id: projectId },
-  });
-  if (!task) {
-    throw new NotFoundError('Task', taskId);
+  if (updates.assignee_id !== undefined) {
+    throw new ValidationError('assignee_id cannot be updated via this endpoint');
   }
-  const updated = await prisma.projectTask.update({
-    where: { id: task.id },
+  if (updates.status !== undefined) {
+    throw new ValidationError('status changes must use claim, complete, or release endpoints');
+  }
+  const updatedTask = await prisma.projectTask.updateMany({
+    where: {
+      task_id: taskId,
+      project_id: projectId,
+      assignee_id: actorId,
+    },
     data: {
       ...(updates.title !== undefined && { title: updates.title }),
       ...(updates.description !== undefined && { description: updates.description }),
-      ...(updates.status !== undefined && { status: updates.status }),
-      ...(updates.assignee_id !== undefined && { assignee_id: updates.assignee_id }),
     },
   });
+  if (updatedTask.count === 0) {
+    const task = await prisma.projectTask.findFirst({
+      where: { task_id: taskId, project_id: projectId },
+    });
+    if (!task) {
+      throw new NotFoundError('Task', taskId);
+    }
+    throw new ForbiddenError('Only the task assignee can update this task');
+  }
+  const updated = await prisma.projectTask.findFirst({
+    where: { task_id: taskId, project_id: projectId },
+  });
+  if (!updated) {
+    throw new NotFoundError('Task', taskId);
+  }
   return mapTask(updated);
 }
 
@@ -110,10 +129,19 @@ export async function claimTask(
   if (task.assignee_id) {
     throw new ValidationError('Task is already assigned');
   }
-  const updated = await prisma.projectTask.update({
-    where: { id: task.id },
+  const claimed = await prisma.projectTask.updateMany({
+    where: { id: task.id, assignee_id: null, status: 'open' },
     data: { assignee_id: nodeId, status: 'in_progress' },
   });
+  if (claimed.count === 0) {
+    throw new ConflictError('Task state changed; retry');
+  }
+  const updated = await prisma.projectTask.findFirst({
+    where: { id: task.id },
+  });
+  if (!updated) {
+    throw new NotFoundError('Task', taskId);
+  }
   return mapTask(updated);
 }
 
@@ -131,10 +159,22 @@ export async function completeTask(
   if (task.assignee_id !== nodeId) {
     throw new ValidationError('Only the assignee can complete this task');
   }
-  const updated = await prisma.projectTask.update({
-    where: { id: task.id },
+  if (task.status !== 'in_progress') {
+    throw new ValidationError('Task is not in progress');
+  }
+  const completed = await prisma.projectTask.updateMany({
+    where: { id: task.id, assignee_id: nodeId, status: 'in_progress' },
     data: { status: 'completed' },
   });
+  if (completed.count === 0) {
+    throw new ConflictError('Task state changed; retry');
+  }
+  const updated = await prisma.projectTask.findFirst({
+    where: { id: task.id },
+  });
+  if (!updated) {
+    throw new NotFoundError('Task', taskId);
+  }
   return mapTask(updated);
 }
 
@@ -187,10 +227,22 @@ export async function releaseTask(
   if (task.assignee_id !== nodeId) {
     throw new ValidationError('Only the assignee can release this task');
   }
-  const updated = await prisma.projectTask.update({
-    where: { id: task.id },
+  if (task.status !== 'in_progress') {
+    throw new ValidationError('Task is not in progress');
+  }
+  const released = await prisma.projectTask.updateMany({
+    where: { id: task.id, assignee_id: nodeId, status: 'in_progress' },
     data: { assignee_id: null, status: 'open' },
   });
+  if (released.count === 0) {
+    throw new ConflictError('Task state changed; retry');
+  }
+  const updated = await prisma.projectTask.findFirst({
+    where: { id: task.id },
+  });
+  if (!updated) {
+    throw new NotFoundError('Task', taskId);
+  }
   return mapTask(updated);
 }
 
@@ -244,23 +296,43 @@ export async function submitTaskAnswer(
 export async function acceptSubmission(
   taskId: string,
   submissionId: string,
+  actorId: string,
 ): Promise<SubmissionOutput> {
-  const parts = taskId.split(':');
-  if (parts.length !== 2) {
-    throw new ValidationError('Invalid taskId format, expected projectId:taskId');
-  }
-  const [, tId] = parts;
-  const submission = await prisma.taskSubmission.findFirst({
-    where: { submission_id: submissionId, task_id: tId },
+  const { projectId, scopedTaskId } = parseCompositeTaskId(taskId);
+  return prisma.$transaction(async (tx) => {
+    await touchAssignedTask(
+      tx,
+      projectId,
+      scopedTaskId,
+      actorId,
+      'Only the task assignee can accept submissions',
+      new Date(),
+    );
+    const updated = await tx.taskSubmission.updateMany({
+      where: {
+        submission_id: submissionId,
+        task_id: scopedTaskId,
+        status: 'pending',
+      },
+      data: { status: 'accepted' },
+    });
+    if (updated.count === 0) {
+      const submission = await tx.taskSubmission.findFirst({
+        where: { submission_id: submissionId, task_id: scopedTaskId },
+      });
+      if (!submission) {
+        throw new NotFoundError('Submission', submissionId);
+      }
+      throw new ConflictError('Submission state changed; retry');
+    }
+    const acceptedSubmission = await tx.taskSubmission.findFirst({
+      where: { submission_id: submissionId, task_id: scopedTaskId },
+    });
+    if (!acceptedSubmission) {
+      throw new NotFoundError('Submission', submissionId);
+    }
+    return mapSubmission(acceptedSubmission);
   });
-  if (!submission) {
-    throw new NotFoundError('Submission', submissionId);
-  }
-  const updated = await prisma.taskSubmission.update({
-    where: { id: submission.id },
-    data: { status: 'accepted' },
-  });
-  return mapSubmission(updated);
 }
 
 export async function getSubmissions(taskId: string): Promise<SubmissionOutput[]> {
@@ -296,7 +368,249 @@ export async function getAssetById(assetId: string): Promise<{ asset_id: string 
   return asset;
 }
 
+export interface TaskDecompositionOutput {
+  original_task_id: string;
+  decomposition_id: string;
+  sub_tasks: Array<{
+    sub_task_id: string;
+    title: string;
+    status: string;
+    proposed_by: string;
+  }>;
+  estimated_parallelism: number;
+  proposed_at: string;
+}
+
+export interface TaskCommitmentOutput {
+  task_id: string;
+  node_id: string;
+  deadline: string;
+  committed_by: string;
+  committed_at: string;
+}
+
+export async function proposeTaskDecomposition(
+  taskId: string,
+  proposerId: string,
+  subTaskTitles: string[],
+  estimatedParallelism?: number,
+): Promise<TaskDecompositionOutput> {
+  const { projectId, scopedTaskId } = parseCompositeTaskId(taskId);
+  const normalizedSubtasks = subTaskTitles
+    .map((title) => title.trim())
+    .filter((title) => title.length > 0);
+
+  if (normalizedSubtasks.length === 0) {
+    throw new ValidationError('At least one subtask title is required');
+  }
+  if (normalizedSubtasks.length > MAX_SUBTASKS) {
+    throw new ValidationError(`Subtasks count must be 1-${MAX_SUBTASKS}`);
+  }
+  if (normalizedSubtasks.some((title) => title.length > TITLE_MAX_LENGTH)) {
+    throw new ValidationError(`Subtask titles must be <= ${TITLE_MAX_LENGTH} characters`);
+  }
+  if (
+    estimatedParallelism !== undefined
+    && (!Number.isInteger(estimatedParallelism) || estimatedParallelism < 1)
+  ) {
+    throw new ValidationError('estimated_parallelism must be a positive integer');
+  }
+
+  const swarmId = crypto.randomUUID();
+  const proposedAt = new Date();
+  const resolvedParallelism = Math.max(
+    1,
+    Math.min(
+      estimatedParallelism ?? normalizedSubtasks.length,
+      normalizedSubtasks.length,
+    ),
+  );
+
+  const created = await prisma.$transaction(async (tx) => {
+    const task = await touchAssignedTask(
+      tx,
+      projectId,
+      scopedTaskId,
+      proposerId,
+      'Only the task assignee can propose a decomposition',
+      proposedAt,
+      'Task must be in progress before proposing a decomposition',
+    );
+    const swarm = await tx.swarmTask.create({
+      data: {
+        swarm_id: swarmId,
+        title: `Decomposition for ${task.title}`,
+        description: task.description,
+        status: 'in_progress',
+        creator_id: proposerId,
+        workers: [],
+        cost: 0,
+        timeout_ms: 60 * 60 * 1000,
+        result: {
+          source_task_id: taskId,
+          estimated_parallelism: resolvedParallelism,
+          proposed_by: proposerId,
+        },
+        created_at: proposedAt,
+      },
+    });
+
+    const subtasks = await Promise.all(
+      normalizedSubtasks.map((title) => tx.swarmSubtask.create({
+        data: {
+          subtask_id: crypto.randomUUID(),
+          swarm_id: swarmId,
+          title,
+          description: `Subtask for ${taskId}`,
+          status: 'pending',
+        },
+      })),
+    );
+    return { swarm, subtasks };
+  });
+
+  return {
+    original_task_id: taskId,
+    decomposition_id: swarmId,
+    sub_tasks: created.subtasks.map((subtask) => ({
+      sub_task_id: subtask.subtask_id,
+      title: subtask.title,
+      status: subtask.status,
+      proposed_by: proposerId,
+    })),
+    estimated_parallelism: resolvedParallelism,
+    proposed_at: proposedAt.toISOString(),
+  };
+}
+
+export async function setTaskCommitment(
+  taskId: string,
+  nodeId: string,
+  deadline: string,
+): Promise<TaskCommitmentOutput> {
+  const { projectId, scopedTaskId } = parseCompositeTaskId(taskId);
+  const normalizedDeadline = new Date(deadline);
+  if (Number.isNaN(normalizedDeadline.getTime())) {
+    throw new ValidationError('deadline must be a valid ISO-8601 timestamp');
+  }
+
+  const committedAt = new Date();
+  const questionId = `task-commitment:${taskId}:${nodeId}`;
+  const record = await prisma.$transaction(async (tx) => {
+    const task = await touchAssignedTask(
+      tx,
+      projectId,
+      scopedTaskId,
+      nodeId,
+      'Only the task assignee can commit to this task',
+      committedAt,
+      'Task must be in progress before setting a commitment',
+    );
+    const title = `Task commitment for ${task.title}`;
+    const body = JSON.stringify({
+      task_id: taskId,
+      node_id: nodeId,
+      deadline: normalizedDeadline.toISOString(),
+      committed_by: nodeId,
+      committed_at: committedAt.toISOString(),
+    });
+
+    return tx.question.upsert({
+      where: { question_id: questionId },
+      update: {
+        title,
+        body,
+        tags: ['task_commitment', `task_commitment:${taskId}`],
+        author: nodeId,
+        state: 'hidden',
+        safety_flags: [],
+      },
+      create: {
+        question_id: questionId,
+        title,
+        body,
+        tags: ['task_commitment', `task_commitment:${taskId}`],
+        author: nodeId,
+        state: 'hidden',
+        safety_score: 1,
+        safety_flags: [],
+        bounty: 0,
+        views: 0,
+        answer_count: 0,
+      },
+    });
+  });
+
+  return {
+    task_id: taskId,
+    node_id: nodeId,
+    deadline: normalizedDeadline.toISOString(),
+    committed_by: nodeId,
+    committed_at: ('updated_at' in record && record.updated_at instanceof Date
+      ? record.updated_at
+      : committedAt).toISOString(),
+  };
+}
+
 // ---- Mappers ----
+
+function parseCompositeTaskId(taskId: string): { projectId: string; scopedTaskId: string } {
+  const parts = taskId.split(':');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new ValidationError('Invalid taskId format, expected projectId:taskId');
+  }
+
+  return {
+    projectId: parts[0],
+    scopedTaskId: parts[1],
+  };
+}
+
+async function touchAssignedTask(
+  tx: Pick<PrismaClient, 'projectTask'>,
+  projectId: string,
+  scopedTaskId: string,
+  actorId: string,
+  forbiddenMessage: string,
+  touchedAt: Date,
+  invalidStatusMessage = 'Task must be in progress',
+) {
+  const touched = await tx.projectTask.updateMany({
+    where: {
+      project_id: projectId,
+      task_id: scopedTaskId,
+      assignee_id: actorId,
+      status: 'in_progress',
+    },
+    data: {
+      updated_at: touchedAt,
+    },
+  });
+
+  if (touched.count === 0) {
+    const task = await tx.projectTask.findFirst({
+      where: { project_id: projectId, task_id: scopedTaskId },
+    });
+    if (!task) {
+      throw new NotFoundError('Task', scopedTaskId);
+    }
+    if (task.assignee_id !== actorId) {
+      throw new ForbiddenError(forbiddenMessage);
+    }
+    if (task.status !== 'in_progress') {
+      throw new ValidationError(invalidStatusMessage);
+    }
+    throw new ConflictError('Task state changed; retry');
+  }
+
+  const task = await tx.projectTask.findFirst({
+    where: { project_id: projectId, task_id: scopedTaskId },
+  });
+  if (!task) {
+    throw new NotFoundError('Task', scopedTaskId);
+  }
+  return task;
+}
 
 function mapTask(t: {
   id: string;

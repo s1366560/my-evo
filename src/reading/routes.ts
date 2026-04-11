@@ -3,6 +3,26 @@ import { requireAuth } from '../shared/auth';
 import * as readingService from './service';
 
 export async function readingRoutes(app: FastifyInstance): Promise<void> {
+  // Analyze a URL and generate reading artifacts
+  app.post('/analyze', {
+    schema: {
+      tags: ['Reading'],
+      body: {
+        type: 'object',
+        properties: {
+          url: { type: 'string' },
+        },
+        required: ['url'],
+      },
+    },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = (request.body ?? {}) as { url?: string };
+    const result = await readingService.readUrl(body.url ?? '', auth.node_id);
+    return reply.send({ success: true, data: result });
+  });
+
   // List sessions
   app.get('/sessions', {
     schema: { tags: ['Reading'] },
@@ -15,12 +35,24 @@ export async function readingRoutes(app: FastifyInstance): Promise<void> {
 
   // Create session
   app.post('/sessions', {
-    schema: { tags: ['Reading'] },
+    schema: {
+      tags: ['Reading'],
+      body: {
+        type: 'object',
+        properties: {
+          asset_ids: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+        additionalProperties: false,
+      },
+    },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const body = request.body as { asset_ids?: string[] };
-    const session = await readingService.createSession(auth.node_id, body.asset_ids);
+    const body = (request.body ?? {}) as { asset_ids?: string[] };
+    const session = await readingService.createSession(auth.node_id, body.asset_ids ?? []);
     return reply.status(201).send({ success: true, data: session });
   });
 
@@ -51,16 +83,27 @@ export async function readingRoutes(app: FastifyInstance): Promise<void> {
 
   // Record reading
   app.post('/sessions/:sessionId/read', {
-    schema: { tags: ['Reading'] },
+    schema: {
+      tags: ['Reading'],
+      body: {
+        type: 'object',
+        properties: {
+          asset_id: { type: 'string' },
+          questions_asked: { type: 'number' },
+        },
+        required: ['asset_id'],
+        additionalProperties: false,
+      },
+    },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const { sessionId } = request.params as { sessionId: string };
-    const body = request.body as { asset_id: string; questions_asked?: number };
+    const body = (request.body ?? {}) as { asset_id?: string; questions_asked?: number };
     const session = await readingService.recordRead(
       sessionId,
       auth.node_id,
-      body.asset_id,
+      body.asset_id ?? '',
       body.questions_asked,
     );
     return reply.send({ success: true, data: session });
@@ -74,5 +117,18 @@ export async function readingRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const stats = await readingService.getStats(auth.node_id);
     return reply.send({ success: true, data: stats });
+  });
+
+  // Get recent trending reading analyses
+  app.get('/trending', {
+    schema: { tags: ['Reading'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { limit } = request.query as { limit?: string | number };
+    const parsedLimit = typeof limit === 'string' ? Number.parseInt(limit, 10) : Number(limit ?? 10);
+    const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 10;
+    const trending = readingService.getTrendingReadings(auth.node_id, safeLimit);
+    return reply.send({ success: true, data: trending });
   });
 }

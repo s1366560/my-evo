@@ -147,16 +147,21 @@ describe('Knowledge Graph Service', () => {
         description: 'Desc',
         signals: ['sig-1'],
         author_id: 'node-1',
-      });
+      }, 'node-1');
 
       expect(result.id).toBe('new-1');
       expect(result.type).toBe('gene');
       expect(result.properties.name).toBe('Test Node');
       expect(result.properties.signals).toEqual(['sig-1']);
+      expect(mockPrisma.asset.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tags: ['kg:entity'],
+        }),
+      });
     });
 
     it('should throw ValidationError when type is empty', async () => {
-      await expect(createNode('', { name: 'Test' })).rejects.toThrow(
+      await expect(createNode('', { name: 'Test' }, 'node-1')).rejects.toThrow(
         ValidationError,
       );
     });
@@ -167,15 +172,55 @@ describe('Knowledge Graph Service', () => {
         name: 'Untitled',
         description: '',
         signals: [],
+        tags: ['kg:entity'],
         author_id: 'system',
       });
 
       mockPrisma.asset.create.mockResolvedValue(created);
 
-      const result = await createNode('gene', {});
+      const result = await createNode('gene', {}, 'node-1');
 
       expect(result.properties.name).toBe('Untitled');
       expect(result.properties.description).toBe('');
+    });
+
+    it('should preserve provided tags and append the KG entity tag once', async () => {
+      const created = makeAsset({
+        asset_id: 'new-3',
+        tags: ['custom', 'kg:entity'],
+      });
+
+      mockPrisma.asset.create.mockResolvedValue(created);
+
+      await createNode('gene', {
+        tags: ['custom', 'kg:entity'],
+      }, 'node-1');
+
+      expect(mockPrisma.asset.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tags: ['custom', 'kg:entity'],
+        }),
+      });
+    });
+
+    it('should ignore spoofed author_id and use the authenticated author id', async () => {
+      const created = makeAsset({
+        asset_id: 'new-4',
+        author_id: 'node-auth',
+        tags: ['kg:entity'],
+      });
+
+      mockPrisma.asset.create.mockResolvedValue(created);
+
+      await createNode('gene', {
+        author_id: 'spoofed-node',
+      }, 'node-auth');
+
+      expect(mockPrisma.asset.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          author_id: 'node-auth',
+        }),
+      });
     });
   });
 

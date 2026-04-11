@@ -134,7 +134,7 @@ export async function questionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { questionId: string; answerId: string };
-    await service.upvoteAnswer(params.answerId);
+    await service.upvoteAnswer(params.questionId, params.answerId);
     return { success: true, data: { message: 'Answer upvoted' } };
   });
 
@@ -143,7 +143,7 @@ export async function questionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { questionId: string; answerId: string };
-    await service.downvoteAnswer(params.answerId);
+    await service.downvoteAnswer(params.questionId, params.answerId);
     return { success: true, data: { message: 'Answer downvoted' } };
   });
 
@@ -153,7 +153,7 @@ export async function questionRoutes(app: FastifyInstance) {
   }, async (request) => {
     const auth = request.auth!;
     const params = request.params as { questionId: string; answerId: string };
-    await service.acceptAnswer(params.answerId, auth.node_id);
+    await service.acceptAnswer(params.questionId, params.answerId, auth.node_id);
     return { success: true, data: { message: 'Answer accepted' } };
   });
 }

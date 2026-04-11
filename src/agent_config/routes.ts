@@ -17,7 +17,27 @@ import {
   checkAgentConstraints,
   saveAgentConfig,
 } from './service';
-import { ValidationError } from '../shared/errors';
+import { authenticate } from '../shared/auth';
+import { ForbiddenError, ValidationError } from '../shared/errors';
+
+async function requireTrustedNode(request: Parameters<typeof authenticate>[0]) {
+  const auth = await authenticate(request);
+  if (auth.trust_level !== 'trusted' || auth.auth_type !== 'node_secret') {
+    throw new ForbiddenError('Trusted agent required');
+  }
+  return auth;
+}
+
+async function requireAgentOwner(
+  request: Parameters<typeof authenticate>[0],
+  agentId: string,
+) {
+  const auth = await authenticate(request);
+  if (auth.node_id !== agentId) {
+    throw new ForbiddenError('Cannot manage another agent config');
+  }
+  return auth;
+}
 
 export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
   // ===== Permission Registry =====
@@ -25,6 +45,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
   app.post('/agent-config/permissions', {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
+    await requireTrustedNode(request);
     const body = request.body as {
       name: string;
       scope: string;
@@ -46,6 +67,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
   app.post('/agent-config/constraints', {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
+    await requireTrustedNode(request);
     const body = request.body as {
       name: string;
       type: string;
@@ -69,6 +91,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
   app.post('/agent-config/preferences', {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
+    await requireTrustedNode(request);
     const body = request.body as {
       name: string;
       type: string;
@@ -92,12 +115,13 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
   app.post('/agent-config', {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
-    const body = request.body as { agent_id: string };
-    if (!body.agent_id) {
-      throw new ValidationError('agent_id is required');
+    const auth = await authenticate(request);
+    const body = request.body as { agent_id?: string };
+    if (body.agent_id && body.agent_id !== auth.node_id) {
+      throw new ForbiddenError('Cannot create another agent config');
     }
-    upsertAgentConfig(body.agent_id);
-    const config = getAgentConfig(body.agent_id);
+    upsertAgentConfig(auth.node_id);
+    const config = getAgentConfig(auth.node_id);
     return reply.status(201).send({ success: true, data: config });
   });
 
@@ -105,6 +129,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
+    await requireAgentOwner(request, agentId);
     const config = getAgentConfig(agentId);
     return reply.send({ success: true, data: config });
   });
@@ -113,6 +138,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
+    await requireAgentOwner(request, agentId);
     const config = getDefaultConfig(agentId);
     return reply.send({ success: true, data: config });
   });
@@ -121,6 +147,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
+    await requireAgentOwner(request, agentId);
     const body = request.body as Record<string, unknown>;
     const fullConfig = { ...body, agent_id: agentId } as Parameters<typeof validateConfig>[0];
     const validated = validateConfig(fullConfig);
@@ -140,6 +167,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
+    await requireAgentOwner(request, agentId);
     deleteAgentConfig(agentId);
     return reply.send({ success: true, message: 'Agent config deleted' });
   });
@@ -150,6 +178,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
+    await requireAgentOwner(request, agentId);
     const body = request.body as {
       permissions: string[];
       denied_permissions?: string[];
@@ -171,6 +200,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
+    await requireAgentOwner(request, agentId);
     const body = request.body as Record<string, unknown>;
     const updated = updateAgentConstraints(agentId, body as Parameters<typeof updateAgentConstraints>[1]);
     return reply.send({ success: true, data: updated });
@@ -182,6 +212,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
+    await requireAgentOwner(request, agentId);
     const body = request.body as Record<string, unknown>;
     const updated = updateAgentPreferences(agentId, body as Parameters<typeof updateAgentPreferences>[1]);
     return reply.send({ success: true, data: updated });
@@ -193,6 +224,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
+    const auth = await requireAgentOwner(request, agentId);
     const body = request.body as { action: string; context?: Record<string, unknown> };
     if (!body.action) {
       throw new ValidationError('action is required');
@@ -208,7 +240,14 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const constraintResult = checkAgentConstraints(agentId, body.action, body.context);
+    const sanitizedContext = { ...(body.context ?? {}) };
+    delete sanitizedContext.content_length;
+
+    const constraintResult = checkAgentConstraints(agentId, body.action, {
+      ...sanitizedContext,
+      trust_level: auth.trust_level,
+      content_length: Buffer.byteLength(JSON.stringify(sanitizedContext), 'utf8'),
+    });
     if (!constraintResult) {
       return reply.status(429).send({
         success: false,
@@ -228,6 +267,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
+    await requireAgentOwner(request, agentId);
     const { limit } = request.query as { limit?: string };
     const logs = getAuditLogs(agentId, limit ? parseInt(limit, 10) : 100);
     return reply.send({ success: true, data: logs });
@@ -236,8 +276,9 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
   app.get('/agent-config/audit', {
     schema: { tags: ['AgentConfig'] },
   }, async (request, reply) => {
+    const auth = await authenticate(request);
     const { limit } = request.query as { limit?: string };
-    const logs = getAuditLogs(undefined, limit ? parseInt(limit, 10) : 100);
+    const logs = getAuditLogs(auth.node_id, limit ? parseInt(limit, 10) : 100);
     return reply.send({ success: true, data: logs });
   });
 }

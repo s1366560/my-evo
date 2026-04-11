@@ -15,6 +15,7 @@ import {
   ValidationError,
   InsufficientCreditsError,
   SimilarityViolationError,
+  ConflictError,
 } from '../shared/errors';
 import {
   CARBON_COST_GENE,
@@ -34,10 +35,12 @@ const mockPrisma = {
     findUnique: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   node: {
     findUnique: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   creditTransaction: {
     create: jest.fn(),
@@ -62,10 +65,17 @@ const mockPrisma = {
   },
   assetDownload: {
     findMany: jest.fn(),
+    create: jest.fn(),
   },
   assetVote: {
     findMany: jest.fn(),
   },
+  $transaction: jest.fn(async (operation: unknown) => {
+    if (typeof operation === 'function') {
+      return operation(mockPrisma);
+    }
+    return operation;
+  }),
 } as any;
 
 describe('Assets Service', () => {
@@ -149,10 +159,12 @@ describe('Assets Service', () => {
         carbon_cost: CARBON_COST_GENE,
       };
 
-      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce(mockNode)
+        .mockResolvedValueOnce({ ...mockNode, credit_balance: 495 });
       mockPrisma.asset.findMany.mockResolvedValue([]);
       mockPrisma.asset.create.mockResolvedValue(mockAsset);
-      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.evolutionEvent.create.mockResolvedValue({});
 
@@ -162,9 +174,9 @@ describe('Assets Service', () => {
       expect(result.asset_type).toBe('gene');
       expect(result.gdi_score).toBe(INITIAL_GDI_SCORE);
       expect(result.carbon_cost).toBe(CARBON_COST_GENE);
-      expect(mockPrisma.node.update).toHaveBeenCalledWith(
+      expect(mockPrisma.node.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { credit_balance: 500 - CARBON_COST_GENE, gene_count: { increment: 1 } },
+          data: { credit_balance: { decrement: CARBON_COST_GENE }, gene_count: { increment: 1 } },
         }),
       );
     });
@@ -172,16 +184,18 @@ describe('Assets Service', () => {
     it('should increment gene_count when publishing a gene', async () => {
       const mockNode = { node_id: 'node-1', credit_balance: 500, reputation: 50 };
       const mockAsset = { asset_id: 'asset-1', asset_type: 'gene', name: 'Gene', description: '', gdi_score: 60, carbon_cost: 5 };
-      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce(mockNode)
+        .mockResolvedValueOnce({ ...mockNode, credit_balance: 495 });
       mockPrisma.asset.findMany.mockResolvedValue([]);
       mockPrisma.asset.create.mockResolvedValue(mockAsset);
-      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.evolutionEvent.create.mockResolvedValue({});
 
       await publishAsset('node-1', { ...validPayload, asset_type: 'gene' });
 
-      expect(mockPrisma.node.update).toHaveBeenCalledWith(
+      expect(mockPrisma.node.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ gene_count: { increment: 1 } }),
         }),
@@ -191,20 +205,126 @@ describe('Assets Service', () => {
     it('should increment capsule_count when publishing a capsule', async () => {
       const mockNode = { node_id: 'node-1', credit_balance: 500, reputation: 50 };
       const mockAsset = { asset_id: 'asset-1', asset_type: 'capsule', name: 'Capsule', description: '', gdi_score: 60, carbon_cost: 10 };
-      mockPrisma.node.findUnique.mockResolvedValue(mockNode);
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce(mockNode)
+        .mockResolvedValueOnce({ ...mockNode, credit_balance: 490 });
       mockPrisma.asset.findMany.mockResolvedValue([]);
       mockPrisma.asset.create.mockResolvedValue(mockAsset);
-      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.evolutionEvent.create.mockResolvedValue({});
 
       await publishAsset('node-1', { ...validPayload, asset_type: 'capsule' });
 
-      expect(mockPrisma.node.update).toHaveBeenCalledWith(
+      expect(mockPrisma.node.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ capsule_count: { increment: 1 } }),
         }),
       );
+    });
+
+    it('should deduplicate repeated publishes by source message id', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValueOnce({
+        asset_id: 'deduped-asset',
+        asset_type: 'gene',
+        name: 'Test Gene',
+        description: 'A test gene',
+        content: 'function test() {}',
+        signals: ['test'],
+        tags: [],
+        author_id: 'node-1',
+        gdi_score: 61,
+        carbon_cost: 5,
+        parent_id: null,
+        gene_ids: null,
+        config: null,
+      });
+
+      const result = await publishAsset('node-1', {
+        ...validPayload,
+        source_message_id: 'msg-1',
+      });
+
+      expect(result.asset_id).toBe('deduped-asset');
+      expect(mockPrisma.asset.create).not.toHaveBeenCalled();
+      expect(mockPrisma.node.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should reject publishes when the transactional debit loses the balance race', async () => {
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 500, reputation: 50 })
+        .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 2, reputation: 50 });
+      mockPrisma.asset.findMany.mockResolvedValue([]);
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(publishAsset('node-1', validPayload)).rejects.toThrow(InsufficientCreditsError);
+      expect(mockPrisma.asset.create).not.toHaveBeenCalled();
+    });
+
+    it('should fail if the charged node record disappears inside the transaction', async () => {
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 500, reputation: 50 })
+        .mockResolvedValueOnce(null);
+      mockPrisma.asset.findMany.mockResolvedValue([]);
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
+
+      await expect(publishAsset('node-1', validPayload)).rejects.toThrow(NotFoundError);
+      expect(mockPrisma.asset.create).not.toHaveBeenCalled();
+    });
+
+    it('should return the existing asset when a concurrent duplicate publish hits a unique constraint', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', credit_balance: 500, reputation: 50 });
+      mockPrisma.asset.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          asset_id: 'deduped-asset',
+          asset_type: 'gene',
+          name: 'Test Gene',
+          description: 'A test gene',
+          content: 'function test() {}',
+          signals: ['test'],
+          tags: [],
+          author_id: 'node-1',
+          gdi_score: 61,
+          carbon_cost: 5,
+          parent_id: null,
+          gene_ids: null,
+          config: null,
+        });
+      mockPrisma.asset.findMany.mockResolvedValue([]);
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.asset.create.mockRejectedValue({ code: 'P2002' });
+
+      const result = await publishAsset('node-1', {
+        ...validPayload,
+        source_message_id: 'msg-duplicate',
+      });
+
+      expect(result.asset_id).toBe('deduped-asset');
+    });
+
+    it('should reject reusing a message id for a different payload', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValueOnce({
+        asset_id: 'deduped-asset',
+        asset_type: 'gene',
+        name: 'Old Gene',
+        description: 'A different gene',
+        content: 'different content',
+        signals: ['old'],
+        tags: [],
+        author_id: 'node-1',
+        gdi_score: 61,
+        carbon_cost: 5,
+        parent_id: null,
+        gene_ids: null,
+        config: null,
+      });
+
+      await expect(publishAsset('node-1', {
+        ...validPayload,
+        source_message_id: 'msg-conflict',
+      })).rejects.toThrow(ConflictError);
     });
 
     it('should throw ValidationError for missing name', async () => {
@@ -237,6 +357,7 @@ describe('Assets Service', () => {
       ]);
 
       await expect(publishAsset('node-1', validPayload)).rejects.toThrow(SimilarityViolationError);
+      expect(mockPrisma.similarityRecord.create).not.toHaveBeenCalled();
     });
   });
 
@@ -263,20 +384,37 @@ describe('Assets Service', () => {
 
       const mockNode = { node_id: 'node-1', credit_balance: 100 };
 
-      mockPrisma.asset.findUnique.mockResolvedValue(mockAsset);
+      mockPrisma.asset.findUnique
+        .mockResolvedValueOnce(mockAsset)
+        .mockResolvedValueOnce({ ...mockAsset, downloads: 11 });
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.node.findUnique.mockResolvedValue(mockNode);
-      mockPrisma.asset.update.mockResolvedValue({ ...mockAsset, downloads: 11 });
-      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.asset.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.assetDownload.create.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
 
       const result = (await fetchAsset('node-1', 'asset-1')) as Record<string, unknown>;
 
       expect(result.downloads).toBe(11);
-      expect(mockPrisma.node.update).toHaveBeenCalledWith(
+      expect(mockPrisma.asset.updateMany).toHaveBeenCalledWith({
+        where: {
+          asset_id: 'asset-1',
+          OR: [
+            { status: { in: ['published', 'promoted'] } },
+            { author_id: 'node-1' },
+          ],
+        },
+        data: { downloads: { increment: 1 } },
+      });
+      expect(mockPrisma.node.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { credit_balance: 99 },
+          where: { node_id: 'node-1', credit_balance: { gte: 1 } },
+          data: { credit_balance: { decrement: 1 } },
         }),
       );
+      expect(mockPrisma.assetDownload.create).toHaveBeenCalledWith({
+        data: { asset_id: 'asset-1', node_id: 'node-1' },
+      });
     });
 
     it('should throw NotFoundError for unknown asset', async () => {
@@ -285,13 +423,24 @@ describe('Assets Service', () => {
     });
 
     it('should throw InsufficientCreditsError when balance is 0', async () => {
-      const mockAsset = { asset_id: 'asset-1', downloads: 5 };
+      const mockAsset = { asset_id: 'asset-1', downloads: 5, author_id: 'node-2', status: 'published' };
       const mockNode = { node_id: 'node-1', credit_balance: 0 };
 
       mockPrisma.asset.findUnique.mockResolvedValue(mockAsset);
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 0 });
       mockPrisma.node.findUnique.mockResolvedValue(mockNode);
 
       await expect(fetchAsset('node-1', 'asset-1')).rejects.toThrow(InsufficientCreditsError);
+    });
+
+    it('should hide non-public assets from non-authors', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue({
+        asset_id: 'asset-1',
+        author_id: 'node-2',
+        status: 'draft',
+      });
+
+      await expect(fetchAsset('node-1', 'asset-1')).rejects.toThrow(NotFoundError);
     });
   });
 

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import {
   BOUNTY_CANCEL_FEE_RATE,
 } from '../shared/constants';
@@ -8,6 +8,7 @@ import {
   ValidationError,
   InsufficientCreditsError,
   ForbiddenError,
+  ConflictError,
 } from '../shared/errors';
 import type { BountyStatus } from '../shared/types';
 import type {
@@ -22,10 +23,35 @@ import type {
 let prisma = new PrismaClient();
 
 export function setPrisma(client: PrismaClient): void {
-  (prisma as unknown) = client;
+  prisma = client;
 }
 
 export { prisma };
+
+function isSerializationFailure(error: unknown): error is { code: string } {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2034';
+}
+
+async function runSerializableTransaction<T>(
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      if (!isSerializationFailure(error) || attempt === 2) {
+        throw error;
+      }
+    }
+  }
+
+  throw new ConflictError('Bounty state changed; retry');
+}
 
 export async function createBounty(
   creatorId: string,
@@ -39,18 +65,6 @@ export async function createBounty(
     throw new ValidationError('Bounty amount must be positive');
   }
 
-  const node = await prisma.node.findUnique({
-    where: { node_id: creatorId },
-  });
-
-  if (!node) {
-    throw new NotFoundError('Node', creatorId);
-  }
-
-  if (node.credit_balance < amount) {
-    throw new InsufficientCreditsError(amount, node.credit_balance);
-  }
-
   const bountyId = uuidv4();
   const now = new Date();
   const deadlineDate = new Date(deadline);
@@ -59,14 +73,30 @@ export async function createBounty(
     throw new ValidationError('Deadline must be in the future');
   }
 
-  const [updatedNode, bounty] = await prisma.$transaction([
-    prisma.node.update({
-      where: { node_id: creatorId },
-      data: {
-        credit_balance: node.credit_balance - amount,
+  return runSerializableTransaction(async (tx) => {
+    const debited = await tx.node.updateMany({
+      where: {
+        node_id: creatorId,
+        credit_balance: { gte: amount },
       },
-    }),
-    prisma.bounty.create({
+      data: {
+        credit_balance: { decrement: amount },
+      },
+    });
+
+    const updatedNode = await tx.node.findUnique({
+      where: { node_id: creatorId },
+    });
+
+    if (!updatedNode) {
+      throw new NotFoundError('Node', creatorId);
+    }
+
+    if (debited.count === 0) {
+      throw new InsufficientCreditsError(amount, updatedNode.credit_balance);
+    }
+
+    const bounty = await tx.bounty.create({
       data: {
         bounty_id: bountyId,
         title,
@@ -78,21 +108,21 @@ export async function createBounty(
         deadline: deadlineDate,
         created_at: now,
       },
-    }),
-  ]);
+    });
 
-  await prisma.creditTransaction.create({
-    data: {
-      node_id: creatorId,
-      amount: -amount,
-      type: 'bounty_lock',
-      description: `Bounty created: ${title}`,
-      balance_after: updatedNode.credit_balance,
-      timestamp: now,
-    },
+    await tx.creditTransaction.create({
+      data: {
+        node_id: creatorId,
+        amount: -amount,
+        type: 'bounty_lock',
+        description: `Bounty created: ${title}`,
+        balance_after: updatedNode.credit_balance,
+        timestamp: now,
+      },
+    });
+
+    return bounty;
   });
-
-  return bounty;
 }
 
 export async function placeBid(
@@ -102,45 +132,46 @@ export async function placeBid(
   estimatedTime: string,
   approach: string,
 ) {
-  const bounty = await prisma.bounty.findUnique({
-    where: { bounty_id: bountyId },
-  });
-
-  if (!bounty) {
-    throw new NotFoundError('Bounty', bountyId);
-  }
-
-  if (bounty.status !== 'open') {
-    throw new ValidationError('Bounty must be open to place bids');
-  }
-
-  if (bounty.creator_id === bidderId) {
-    throw new ValidationError('Cannot bid on own bounty');
-  }
-
   if (proposedAmount <= 0) {
     throw new ValidationError('Bid amount must be positive');
   }
 
-  const bid = await prisma.bountyBid.create({
-    data: {
-      bid_id: uuidv4(),
-      bounty_id: bountyId,
-      bidder_id: bidderId,
-      proposed_amount: proposedAmount,
-      estimated_time: estimatedTime,
-      approach,
-      status: 'pending',
-      submitted_at: new Date(),
-    },
-  });
+  return runSerializableTransaction(async (tx) => {
+    const bounty = await tx.bounty.findUnique({
+      where: { bounty_id: bountyId },
+    });
 
-  return bid;
+    if (!bounty) {
+      throw new NotFoundError('Bounty', bountyId);
+    }
+
+    if (bounty.status !== 'open') {
+      throw new ValidationError('Bounty must be open to place bids');
+    }
+
+    if (bounty.creator_id === bidderId) {
+      throw new ValidationError('Cannot bid on own bounty');
+    }
+
+    return tx.bountyBid.create({
+      data: {
+        bid_id: uuidv4(),
+        bounty_id: bountyId,
+        bidder_id: bidderId,
+        proposed_amount: proposedAmount,
+        estimated_time: estimatedTime,
+        approach,
+        status: 'pending',
+        submitted_at: new Date(),
+      },
+    });
+  });
 }
 
 export async function acceptBid(
   bountyId: string,
   bidId: string,
+  requesterId: string,
 ) {
   const bounty = await prisma.bounty.findUnique({
     where: { bounty_id: bountyId },
@@ -149,6 +180,10 @@ export async function acceptBid(
 
   if (!bounty) {
     throw new NotFoundError('Bounty', bountyId);
+  }
+
+  if (bounty.creator_id !== requesterId) {
+    throw new ForbiddenError('Only the bounty creator can accept bids');
   }
 
   if (bounty.status !== 'open') {
@@ -164,27 +199,85 @@ export async function acceptBid(
     throw new ValidationError('Bid is not in pending status');
   }
 
-  const now = new Date();
+  const updatedBounty = await runSerializableTransaction(async (tx) => {
+    const accepted = await tx.bountyBid.updateMany({
+      where: { bid_id: bidId, bounty_id: bountyId, status: 'pending' },
+      data: { status: 'accepted' },
+    });
 
-  await prisma.bountyBid.updateMany({
-    where: { bounty_id: bountyId, bid_id: { not: bidId } },
-    data: { status: 'rejected' },
+    if (accepted.count === 0) {
+      throw new ConflictError('Bid state changed; retry');
+    }
+
+    const claimed = await tx.bounty.updateMany({
+      where: { bounty_id: bountyId, status: 'open' as BountyStatus },
+      data: { status: 'claimed' as BountyStatus },
+    });
+
+    if (claimed.count === 0) {
+      throw new ConflictError('Bounty state changed; retry');
+    }
+
+    await tx.bountyBid.updateMany({
+      where: { bounty_id: bountyId, bid_id: { not: bidId }, status: 'pending' },
+      data: { status: 'rejected' },
+    });
+
+    return tx.bounty.findUnique({
+      where: { bounty_id: bountyId },
+      include: { bids: true },
+    });
   });
 
-  await prisma.bountyBid.update({
-    where: { bid_id: bidId },
-    data: { status: 'accepted' },
-  });
-
-  const updatedBounty = await prisma.bounty.update({
-    where: { bounty_id: bountyId },
-    data: {
-      status: 'claimed' as BountyStatus,
-    },
-    include: { bids: true },
-  });
+  if (!updatedBounty) {
+    throw new NotFoundError('Bounty', bountyId);
+  }
 
   return updatedBounty;
+}
+
+export async function withdrawBid(
+  bidId: string,
+  bidderId: string,
+) {
+  const bid = await prisma.bountyBid.findUnique({
+    where: { bid_id: bidId },
+  });
+
+  if (!bid) {
+    throw new NotFoundError('Bid', bidId);
+  }
+
+  if (bid.bidder_id !== bidderId) {
+    throw new ForbiddenError('Only the bidder can withdraw a bid');
+  }
+
+  if (bid.status !== 'pending') {
+    throw new ValidationError('Only pending bids can be withdrawn');
+  }
+
+  const updated = await prisma.bountyBid.updateMany({
+    where: {
+      bid_id: bidId,
+      bidder_id: bidderId,
+      status: 'pending',
+    },
+    data: { status: 'withdrawn' },
+  });
+
+  if (updated.count === 0) {
+    throw new ConflictError('Bid state changed; retry');
+  }
+
+  const withdrawnBid = await prisma.bountyBid.findUnique({
+    where: { bid_id: bidId },
+  });
+
+  if (!withdrawnBid) {
+    throw new NotFoundError('Bid', bidId);
+  }
+
+  return withdrawnBid;
 }
 
 export async function submitDeliverable(
@@ -193,187 +286,238 @@ export async function submitDeliverable(
   content: string,
   attachments: string[],
 ) {
-  const bounty = await prisma.bounty.findUnique({
-    where: { bounty_id: bountyId },
-    include: { bids: true },
+  return runSerializableTransaction(async (tx) => {
+    const bounty = await tx.bounty.findUnique({
+      where: { bounty_id: bountyId },
+      include: { bids: true },
+    });
+
+    if (!bounty) {
+      throw new NotFoundError('Bounty', bountyId);
+    }
+
+    if (bounty.status !== 'claimed') {
+      throw new ValidationError('Bounty must be claimed to submit deliverable');
+    }
+
+    const acceptedBid = bounty.bids.find(
+      (b: { status: string; bidder_id: string }) => b.status === 'accepted' && b.bidder_id === workerId,
+    );
+    if (!acceptedBid) {
+      throw new ForbiddenError('Only the accepted bidder can submit deliverable');
+    }
+
+    const deliverable = {
+      deliverable_id: uuidv4(),
+      bounty_id: bountyId,
+      worker_id: workerId,
+      content,
+      attachments,
+      submitted_at: new Date().toISOString(),
+      review_status: 'pending',
+    };
+
+    const updated = await tx.bounty.updateMany({
+      where: {
+        bounty_id: bountyId,
+        status: 'claimed' as BountyStatus,
+      },
+      data: {
+        status: 'submitted' as BountyStatus,
+        deliverable: deliverable as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    if (updated.count === 0) {
+      throw new ConflictError('Bounty state changed; retry');
+    }
+
+    const updatedBounty = await tx.bounty.findUnique({
+      where: { bounty_id: bountyId },
+    });
+
+    if (!updatedBounty) {
+      throw new NotFoundError('Bounty', bountyId);
+    }
+
+    return { bounty: updatedBounty, deliverable };
   });
-
-  if (!bounty) {
-    throw new NotFoundError('Bounty', bountyId);
-  }
-
-  if (bounty.status !== 'claimed') {
-    throw new ValidationError('Bounty must be claimed to submit deliverable');
-  }
-
-  const acceptedBid = bounty.bids.find(
-    (b: { status: string; bidder_id: string }) => b.status === 'accepted' && b.bidder_id === workerId,
-  );
-  if (!acceptedBid) {
-    throw new ForbiddenError('Only the accepted bidder can submit deliverable');
-  }
-
-  const deliverable = {
-    deliverable_id: uuidv4(),
-    bounty_id: bountyId,
-    worker_id: workerId,
-    content,
-    attachments,
-    submitted_at: new Date().toISOString(),
-    review_status: 'pending',
-  };
-
-  const updatedBounty = await prisma.bounty.update({
-    where: { bounty_id: bountyId },
-    data: {
-      status: 'submitted' as BountyStatus,
-      deliverable: deliverable as unknown as import('@prisma/client').Prisma.InputJsonValue,
-    },
-  });
-
-  return { bounty: updatedBounty, deliverable };
 }
 
 export async function reviewDeliverable(
   bountyId: string,
+  reviewerId: string,
   accepted: boolean,
   comments?: string,
 ) {
-  const bounty = await prisma.bounty.findUnique({
-    where: { bounty_id: bountyId },
-  });
+  return runSerializableTransaction(async (tx) => {
+    const bounty = await tx.bounty.findUnique({
+      where: { bounty_id: bountyId },
+    });
 
-  if (!bounty) {
-    throw new NotFoundError('Bounty', bountyId);
-  }
-
-  if (bounty.status !== 'submitted') {
-    throw new ValidationError('Bounty must be in submitted status to review');
-  }
-
-  const now = new Date();
-
-  if (accepted) {
-    const deliverable = bounty.deliverable as Record<string, unknown> | null;
-    const workerId = (deliverable?.worker_id as string) ?? '';
-
-    if (workerId) {
-      const worker = await prisma.node.findUnique({
-        where: { node_id: workerId },
-      });
-
-      if (worker) {
-        await prisma.$transaction([
-          prisma.node.update({
-            where: { node_id: workerId },
-            data: { credit_balance: worker.credit_balance + bounty.amount },
-          }),
-          prisma.creditTransaction.create({
-            data: {
-              node_id: workerId,
-              amount: bounty.amount,
-              type: 'bounty_pay',
-              description: `Bounty payment: ${bounty.title}`,
-              balance_after: worker.credit_balance + bounty.amount,
-              timestamp: now,
-            },
-          }),
-        ]);
-      }
+    if (!bounty) {
+      throw new NotFoundError('Bounty', bountyId);
     }
 
+    if (bounty.creator_id !== reviewerId) {
+      throw new ForbiddenError('Only the bounty creator can review deliverables');
+    }
+
+    if (bounty.status !== 'submitted') {
+      throw new ValidationError('Bounty must be in submitted status to review');
+    }
+
+    const now = new Date();
+    const deliverable = bounty.deliverable as Record<string, unknown> | null;
     const updatedDeliverable = {
-      ...(bounty.deliverable as Record<string, unknown>),
-      review_status: 'approved',
+      ...(deliverable ?? {}),
+      review_status: accepted ? 'approved' : 'rejected',
       review_comments: comments ?? null,
     };
 
-    const updatedBounty = await prisma.bounty.update({
-      where: { bounty_id: bountyId },
+    const updated = await tx.bounty.updateMany({
+      where: {
+        bounty_id: bountyId,
+        status: 'submitted' as BountyStatus,
+      },
       data: {
-        status: 'accepted' as BountyStatus,
-        deliverable: updatedDeliverable as unknown as import('@prisma/client').Prisma.InputJsonValue,
-        completed_at: now,
+        status: (accepted ? 'accepted' : 'claimed') as BountyStatus,
+        deliverable: updatedDeliverable as unknown as Prisma.InputJsonValue,
+        ...(accepted ? { completed_at: now } : {}),
       },
     });
 
+    if (updated.count === 0) {
+      throw new ConflictError('Bounty state changed; retry');
+    }
+
+    if (accepted) {
+      const workerId = (deliverable?.worker_id as string) ?? '';
+      if (!workerId) {
+        throw new ValidationError('Deliverable worker is missing');
+      }
+
+      const worker = await tx.node.findUnique({
+        where: { node_id: workerId },
+      });
+
+      if (!worker) {
+        throw new NotFoundError('Node', workerId);
+      }
+
+      const updatedWorker = await tx.node.update({
+        where: { node_id: workerId },
+        data: {
+          credit_balance: {
+            increment: bounty.amount,
+          },
+        },
+      });
+
+      await tx.creditTransaction.create({
+        data: {
+          node_id: workerId,
+          amount: bounty.amount,
+          type: 'bounty_pay',
+          description: `Bounty payment: ${bounty.title}`,
+          balance_after: updatedWorker.credit_balance,
+          timestamp: now,
+        },
+      });
+    }
+
+    const updatedBounty = await tx.bounty.findUnique({
+      where: { bounty_id: bountyId },
+    });
+
+    if (!updatedBounty) {
+      throw new NotFoundError('Bounty', bountyId);
+    }
+
     return updatedBounty;
-  }
-
-  const updatedDeliverable = {
-    ...(bounty.deliverable as Record<string, unknown>),
-    review_status: 'rejected',
-    review_comments: comments ?? null,
-  };
-
-  const updatedBounty = await prisma.bounty.update({
-    where: { bounty_id: bountyId },
-    data: {
-      status: 'claimed' as BountyStatus,
-      deliverable: updatedDeliverable as unknown as import('@prisma/client').Prisma.InputJsonValue,
-    },
   });
-
-  return updatedBounty;
 }
 
 export async function cancelBounty(
   bountyId: string,
   creatorId: string,
 ) {
-  const bounty = await prisma.bounty.findUnique({
-    where: { bounty_id: bountyId },
+  return runSerializableTransaction(async (tx) => {
+    const bounty = await tx.bounty.findUnique({
+      where: { bounty_id: bountyId },
+    });
+
+    if (!bounty) {
+      throw new NotFoundError('Bounty', bountyId);
+    }
+
+    if (bounty.creator_id !== creatorId) {
+      throw new ForbiddenError('Only the creator can cancel a bounty');
+    }
+
+    if (bounty.status === 'cancelled') {
+      return bounty;
+    }
+
+    const cancellableStatuses: BountyStatus[] = ['open', 'claimed'];
+    if (!cancellableStatuses.includes(bounty.status as BountyStatus)) {
+      throw new ValidationError('Bounty cannot be cancelled in current status');
+    }
+
+    const now = new Date();
+    const cancelled = await tx.bounty.updateMany({
+      where: {
+        bounty_id: bountyId,
+        creator_id: creatorId,
+        status: { in: cancellableStatuses },
+      },
+      data: {
+        status: 'cancelled' as BountyStatus,
+        completed_at: now,
+      },
+    });
+
+    if (cancelled.count !== 1) {
+      const current = await tx.bounty.findUnique({ where: { bounty_id: bountyId } });
+      if (current?.status === 'cancelled') {
+        return current;
+      }
+      throw new ConflictError('Bounty state changed; retry');
+    }
+
+    const fee = Math.ceil(bounty.amount * BOUNTY_CANCEL_FEE_RATE);
+    const refund = bounty.amount - fee;
+
+    if (refund > 0) {
+      const creator = await tx.node.findUnique({ where: { node_id: creatorId } });
+      if (creator) {
+        const updatedNode = await tx.node.update({
+          where: { node_id: creatorId },
+          data: { credit_balance: { increment: refund } },
+        });
+        await tx.creditTransaction.create({
+          data: {
+            node_id: creatorId,
+            amount: refund,
+            type: 'bounty_refund',
+            description: `Bounty cancelled (fee: ${fee}): ${bounty.title}`,
+            balance_after: updatedNode.credit_balance,
+            timestamp: now,
+          },
+        });
+      }
+    }
+
+    const updatedBounty = await tx.bounty.findUnique({
+      where: { bounty_id: bountyId },
+    });
+
+    if (!updatedBounty) {
+      throw new NotFoundError('Bounty', bountyId);
+    }
+
+    return updatedBounty;
   });
-
-  if (!bounty) {
-    throw new NotFoundError('Bounty', bountyId);
-  }
-
-  if (bounty.creator_id !== creatorId) {
-    throw new ForbiddenError('Only the creator can cancel a bounty');
-  }
-
-  const cancellableStatuses: BountyStatus[] = ['open', 'claimed'];
-  if (!cancellableStatuses.includes(bounty.status as BountyStatus)) {
-    throw new ValidationError('Bounty cannot be cancelled in current status');
-  }
-
-  const fee = Math.ceil(bounty.amount * BOUNTY_CANCEL_FEE_RATE);
-  const refund = bounty.amount - fee;
-  const now = new Date();
-
-  const creator = await prisma.node.findUnique({
-    where: { node_id: creatorId },
-  });
-
-  if (creator) {
-    await prisma.$transaction([
-      prisma.node.update({
-        where: { node_id: creatorId },
-        data: { credit_balance: creator.credit_balance + refund },
-      }),
-      prisma.creditTransaction.create({
-        data: {
-          node_id: creatorId,
-          amount: refund,
-          type: 'bounty_refund',
-          description: `Bounty cancelled (fee: ${fee}): ${bounty.title}`,
-          balance_after: creator.credit_balance + refund,
-          timestamp: now,
-        },
-      }),
-    ]);
-  }
-
-  const updatedBounty = await prisma.bounty.update({
-    where: { bounty_id: bountyId },
-    data: {
-      status: 'cancelled' as BountyStatus,
-      completed_at: now,
-    },
-  });
-
-  return updatedBounty;
 }
 
 export async function expireBounties() {
@@ -386,40 +530,65 @@ export async function expireBounties() {
     },
   });
 
-  for (const bounty of expired) {
-    const creator = await prisma.node.findUnique({
-      where: { node_id: bounty.creator_id },
-    });
+  let expiredCount = 0;
 
-    if (creator) {
-      await prisma.$transaction([
-        prisma.node.update({
+  for (const bounty of expired) {
+    const didExpire = await runSerializableTransaction(async (tx) => {
+      const current = await tx.bounty.findUnique({
+        where: { bounty_id: bounty.bounty_id },
+      });
+
+      if (!current || current.status !== 'open' || current.deadline >= now) {
+        return false;
+      }
+
+      const updated = await tx.bounty.updateMany({
+        where: {
+          bounty_id: bounty.bounty_id,
+          status: 'open',
+          deadline: { lt: now },
+        },
+        data: {
+          status: 'expired' as BountyStatus,
+          completed_at: now,
+        },
+      });
+
+      if (updated.count !== 1) {
+        return false;
+      }
+
+      const creator = await tx.node.findUnique({ where: { node_id: bounty.creator_id } });
+      if (creator) {
+        const updatedNode = await tx.node.update({
           where: { node_id: bounty.creator_id },
-          data: { credit_balance: creator.credit_balance + bounty.amount },
-        }),
-        prisma.creditTransaction.create({
+          data: { credit_balance: { increment: bounty.amount } },
+        });
+
+        await tx.creditTransaction.create({
           data: {
             node_id: bounty.creator_id,
             amount: bounty.amount,
             type: 'bounty_refund',
             description: `Bounty expired: ${bounty.title}`,
-            balance_after: creator.credit_balance + bounty.amount,
+            balance_after: updatedNode.credit_balance,
             timestamp: now,
           },
-        }),
-      ]);
-    }
+        });
+      }
 
-    await prisma.bounty.update({
-      where: { bounty_id: bounty.bounty_id },
-      data: { status: 'expired' as BountyStatus, completed_at: now },
+      return true;
     });
+
+    if (didExpire) {
+      expiredCount += 1;
+    }
   }
 
-  return { expired_count: expired.length };
+  return { expired_count: expiredCount };
 }
 
-export async function getBounty(bountyId: string) {
+export async function getBounty(bountyId: string, requesterId: string) {
   const bounty = await prisma.bounty.findUnique({
     where: { bounty_id: bountyId },
     include: { bids: true },
@@ -429,7 +598,19 @@ export async function getBounty(bountyId: string) {
     throw new NotFoundError('Bounty', bountyId);
   }
 
-  return bounty;
+  if (bounty.creator_id === requesterId) {
+    return bounty;
+  }
+
+  const deliverable = bounty.deliverable as Record<string, unknown> | null;
+  const workerId = (deliverable?.worker_id as string) ?? null;
+  const requesterBids = bounty.bids.filter((bid) => bid.bidder_id === requesterId);
+
+  return {
+    ...bounty,
+    bids: requesterBids,
+    deliverable: workerId === requesterId ? bounty.deliverable : null,
+  };
 }
 
 export async function listBounties(input: ListBountiesInput) {
@@ -449,12 +630,19 @@ export async function listBounties(input: ListBountiesInput) {
     prisma.bounty.count({ where }),
   ]);
 
-  return { bounties, total, limit, offset };
+  return {
+    bounties: bounties.map((bounty) => ({
+      ...bounty,
+      deliverable: null,
+    })),
+    total,
+    limit,
+    offset,
+  };
 }
 
-export async function listBountiesByCreator(creatorId: string, lang?: string) {
+export async function listBountiesByCreator(creatorId: string) {
   const where: Record<string, unknown> = { creator_id: creatorId };
-  // lang filter not implemented — Bounty model has no language field
   const bounties = await prisma.bounty.findMany({
     where,
     orderBy: { created_at: 'desc' },

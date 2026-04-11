@@ -152,6 +152,50 @@ interface UpdateSkillData {
   source_capsules?: string[];
 }
 
+function buildSkillUpdateData(updates: UpdateSkillData): Prisma.SkillUpdateInput {
+  const data: Prisma.SkillUpdateInput = {};
+
+  if (updates.name !== undefined) {
+    data.name = updates.name.trim();
+  }
+  if (updates.description !== undefined) {
+    data.description = updates.description.trim();
+  }
+  if (updates.category !== undefined) {
+    const category = updates.category.trim();
+    if (!category) {
+      throw new ValidationError('category is required');
+    }
+    data.category = category;
+  }
+  if (updates.price_credits !== undefined) {
+    if (!Number.isInteger(updates.price_credits) || updates.price_credits < 0) {
+      throw new ValidationError('price_credits must be a non-negative integer');
+    }
+    data.price_credits = updates.price_credits;
+  }
+  if (updates.code_template !== undefined) {
+    data.code_template = updates.code_template;
+  }
+  if (updates.parameters !== undefined) {
+    data.parameters = updates.parameters as unknown as Prisma.InputJsonValue;
+  }
+  if (updates.steps !== undefined) {
+    data.steps = updates.steps;
+  }
+  if (updates.examples !== undefined) {
+    data.examples = updates.examples;
+  }
+  if (updates.tags !== undefined) {
+    data.tags = updates.tags;
+  }
+  if (updates.source_capsules !== undefined) {
+    data.source_capsules = updates.source_capsules;
+  }
+
+  return data;
+}
+
 export async function updateSkill(
   skillId: string,
   authorId: string,
@@ -173,28 +217,7 @@ export async function updateSkill(
 
   const updated = await prisma.skill.update({
     where: { skill_id: skillId },
-    data: {
-      ...(updates.name !== undefined && { name: updates.name.trim() }),
-      ...(updates.description !== undefined && {
-        description: updates.description.trim(),
-      }),
-      ...(updates.category !== undefined && { category: updates.category.trim() }),
-      ...(updates.price_credits !== undefined && {
-        price_credits: updates.price_credits,
-      }),
-      ...(updates.code_template !== undefined && {
-        code_template: updates.code_template,
-      }),
-      ...(updates.parameters !== undefined && {
-        parameters: updates.parameters as unknown as Prisma.InputJsonValue,
-      }),
-      ...(updates.steps !== undefined && { steps: updates.steps }),
-      ...(updates.examples !== undefined && { examples: updates.examples }),
-      ...(updates.tags !== undefined && { tags: updates.tags }),
-      ...(updates.source_capsules !== undefined && {
-        source_capsules: updates.source_capsules,
-      }),
-    },
+    data: buildSkillUpdateData(updates),
   });
 
   return updated as unknown as Skill;
@@ -257,6 +280,44 @@ export async function publishSkill(
   });
 
   return updated as unknown as Skill;
+}
+
+export async function publishSkillWithUpdates(
+  skillId: string,
+  authorId: string,
+  updates: UpdateSkillData = {},
+): Promise<Skill> {
+  const updateData = buildSkillUpdateData(updates);
+
+  const published = await prisma.$transaction(async (tx) => {
+    const skill = await tx.skill.findUnique({ where: { skill_id: skillId } });
+
+    if (!skill) {
+      throw new NotFoundError('Skill', skillId);
+    }
+
+    if (skill.deleted_at) {
+      throw new NotFoundError('Skill', skillId);
+    }
+
+    if (skill.author_id !== authorId) {
+      throw new ValidationError('You can only publish your own skills');
+    }
+
+    if (skill.status === 'published') {
+      throw new ValidationError('Skill is already published');
+    }
+
+    return tx.skill.update({
+      where: { skill_id: skillId },
+      data: {
+        ...updateData,
+        status: 'published',
+      },
+    });
+  });
+
+  return published as unknown as Skill;
 }
 
 // ------------------------------------------------------------------

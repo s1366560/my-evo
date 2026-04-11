@@ -7,7 +7,7 @@ import {
   GDI_CONFIDENCE_MIN,
   NODE_REPUTATION_MIN,
   PROMOTION_REWARD,
-} from '../shared/constants.js';
+} from '../shared/constants';
 
 const prisma = new PrismaClient();
 

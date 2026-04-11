@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const BASE = "http://localhost:3002";
+const BASE = "http://127.0.0.1:3102";
 const API = "http://localhost:3001";
 
 /** Inject authenticated auth-store state before navigation (zustand persist → localStorage) */

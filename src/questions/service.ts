@@ -2,9 +2,74 @@ import { PrismaClient } from '@prisma/client';
 import { NotFoundError, ValidationError } from '../shared/errors';
 
 let prisma = new PrismaClient();
+const RESERVED_INTERNAL_TAGS = new Set([
+  'review',
+  'service_review',
+  'worker_review',
+  'task_commitment',
+]);
+const RESERVED_TAG_PREFIXES = [
+  'asset:',
+  'service:',
+  'rating:',
+  'worker_review:',
+  'worker_task:',
+  'task_commitment:',
+];
 
 export function setPrisma(client: PrismaClient): void {
   (prisma as unknown) = client;
+}
+
+function hasReservedReviewTag(tags: string[]): boolean {
+  return tags.some((tag) => {
+    const normalized = tag.trim();
+    return RESERVED_INTERNAL_TAGS.has(normalized)
+      || RESERVED_TAG_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  });
+}
+
+function sanitizeQuestionTags(tags: string[]): string[] {
+  const normalizedTags = tags
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0);
+
+  if (hasReservedReviewTag(normalizedTags)) {
+    throw new ValidationError('review tags are reserved');
+  }
+
+  return normalizedTags;
+}
+
+function requirePublicQuestion<T extends { question_id: string; tags: string[] }>(
+  question: T | null,
+): T {
+  const tags = Array.isArray(question?.tags) ? question.tags : [];
+  if (!question || hasReservedReviewTag(tags)) {
+    throw new NotFoundError('Question', question?.question_id ?? 'unknown');
+  }
+
+  return question;
+}
+
+async function getPublicAnswer(questionId: string, answerId: string) {
+  const answer = await prisma.questionAnswer.findUnique({
+    where: { answer_id: answerId },
+    include: {
+      question: true,
+    },
+  });
+
+  const questionTags = Array.isArray(answer?.question?.tags) ? answer.question.tags : [];
+  if (
+    !answer
+    || answer.question_id !== questionId
+    || hasReservedReviewTag(questionTags)
+  ) {
+    throw new NotFoundError('Answer', answerId);
+  }
+
+  return answer;
 }
 
 export async function listQuestions(
@@ -14,6 +79,7 @@ export async function listQuestions(
   sort: 'newest' | 'votes' | 'unanswered' = 'newest',
 ) {
   const where: Record<string, unknown> = {};
+  where.NOT = Array.from(RESERVED_INTERNAL_TAGS).map((tag) => ({ tags: { has: tag } }));
   if (filters.state) {
     where.state = filters.state;
   }
@@ -43,14 +109,10 @@ export async function listQuestions(
 }
 
 export async function getQuestion(questionId: string) {
-  const question = await prisma.question.findUnique({
+  const question = requirePublicQuestion(await prisma.question.findUnique({
     where: { question_id: questionId },
     include: { answers: { orderBy: { created_at: 'asc' } } },
-  });
-
-  if (!question) {
-    throw new NotFoundError('Question', questionId);
-  }
+  }));
 
   // Increment view count
   await prisma.question.update({
@@ -70,13 +132,14 @@ export async function createQuestion(
 ) {
   const questionId = crypto.randomUUID();
   const now = new Date();
+  const safeTags = sanitizeQuestionTags(tags);
 
   const question = await prisma.question.create({
     data: {
       question_id: questionId,
       title,
       body,
-      tags,
+      tags: safeTags,
       author,
       state: 'parsed',
       safety_score: 1.0,
@@ -97,24 +160,24 @@ export async function updateQuestion(
   author: string,
   updates: { title?: string; body?: string; tags?: string[]; bounty?: number },
 ) {
-  const question = await prisma.question.findUnique({
+  const question = requirePublicQuestion(await prisma.question.findUnique({
     where: { question_id: questionId },
-  });
-
-  if (!question) {
-    throw new NotFoundError('Question', questionId);
-  }
+  }));
 
   if (question.author !== author) {
     throw new ValidationError('Only the author can update this question');
   }
+
+  const nextTags = updates.tags !== undefined
+    ? sanitizeQuestionTags(updates.tags)
+    : question.tags;
 
   const updated = await prisma.question.update({
     where: { question_id: questionId },
     data: {
       title: updates.title ?? question.title,
       body: updates.body ?? question.body,
-      tags: updates.tags ?? question.tags,
+      tags: nextTags,
       bounty: updates.bounty ?? question.bounty,
       updated_at: new Date(),
     },
@@ -124,13 +187,9 @@ export async function updateQuestion(
 }
 
 export async function deleteQuestion(questionId: string, author: string) {
-  const question = await prisma.question.findUnique({
+  const question = requirePublicQuestion(await prisma.question.findUnique({
     where: { question_id: questionId },
-  });
-
-  if (!question) {
-    throw new NotFoundError('Question', questionId);
-  }
+  }));
 
   if (question.author !== author) {
     throw new ValidationError('Only the author can delete this question');
@@ -142,13 +201,9 @@ export async function deleteQuestion(questionId: string, author: string) {
 }
 
 export async function listAnswers(questionId: string, limit = 20, offset = 0) {
-  const question = await prisma.question.findUnique({
+  requirePublicQuestion(await prisma.question.findUnique({
     where: { question_id: questionId },
-  });
-
-  if (!question) {
-    throw new NotFoundError('Question', questionId);
-  }
+  }));
 
   const [items, total] = await Promise.all([
     prisma.questionAnswer.findMany({
@@ -166,19 +221,15 @@ export async function listAnswers(questionId: string, limit = 20, offset = 0) {
 }
 
 export async function createAnswer(questionId: string, author: string, body: string) {
-  const question = await prisma.question.findUnique({
+  const question = requirePublicQuestion(await prisma.question.findUnique({
     where: { question_id: questionId },
-  });
-
-  if (!question) {
-    throw new NotFoundError('Question', questionId);
-  }
+  }));
 
   const answerId = crypto.randomUUID();
   const now = new Date();
 
-  const [answer] = await prisma.$transaction([
-    prisma.questionAnswer.create({
+  const answer = await prisma.$transaction(async (tx) => {
+    const createdAnswer = await tx.questionAnswer.create({
       data: {
         answer_id: answerId,
         question_id: questionId,
@@ -189,68 +240,51 @@ export async function createAnswer(questionId: string, author: string, body: str
         downvotes: 0,
         created_at: now,
       },
-    }),
-    prisma.question.update({
+    });
+    await tx.question.update({
       where: { question_id: questionId },
-      data: { answer_count: question.answer_count + 1 },
-    }),
-  ]);
+      data: { answer_count: { increment: 1 } },
+    });
+    return createdAnswer;
+  });
 
   return answer;
 }
 
-export async function upvoteAnswer(answerId: string) {
-  const answer = await prisma.questionAnswer.findUnique({
-    where: { answer_id: answerId },
-  });
-
-  if (!answer) {
-    throw new NotFoundError('Answer', answerId);
-  }
+export async function upvoteAnswer(questionId: string, answerId: string) {
+  const answer = await getPublicAnswer(questionId, answerId);
 
   await prisma.questionAnswer.update({
     where: { answer_id: answerId },
-    data: { upvotes: answer.upvotes + 1 },
+    data: { upvotes: { increment: 1 } },
   });
 }
 
-export async function downvoteAnswer(answerId: string) {
-  const answer = await prisma.questionAnswer.findUnique({
-    where: { answer_id: answerId },
-  });
-
-  if (!answer) {
-    throw new NotFoundError('Answer', answerId);
-  }
+export async function downvoteAnswer(questionId: string, answerId: string) {
+  const answer = await getPublicAnswer(questionId, answerId);
 
   await prisma.questionAnswer.update({
     where: { answer_id: answerId },
-    data: { downvotes: answer.downvotes + 1 },
+    data: { downvotes: { increment: 1 } },
   });
 }
 
-export async function acceptAnswer(answerId: string, questionAuthor: string) {
-  const answer = await prisma.questionAnswer.findUnique({
-    where: { answer_id: answerId },
-    include: { question: true },
-  });
-
-  if (!answer) {
-    throw new NotFoundError('Answer', answerId);
-  }
+export async function acceptAnswer(questionId: string, answerId: string, questionAuthor: string) {
+  const answer = await getPublicAnswer(questionId, answerId);
 
   if (answer.question.author !== questionAuthor) {
     throw new ValidationError('Only the question author can accept an answer');
   }
 
-  // Unaccept any previously accepted answer
-  await prisma.questionAnswer.updateMany({
-    where: { question_id: answer.question_id, accepted: true },
-    data: { accepted: false },
-  });
+  await prisma.$transaction(async (tx) => {
+    await tx.questionAnswer.updateMany({
+      where: { question_id: answer.question_id, accepted: true },
+      data: { accepted: false },
+    });
 
-  await prisma.questionAnswer.update({
-    where: { answer_id: answerId },
-    data: { accepted: true },
+    await tx.questionAnswer.update({
+      where: { answer_id: answerId },
+      data: { accepted: true },
+    });
   });
 }

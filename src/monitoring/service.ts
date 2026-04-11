@@ -20,6 +20,23 @@ const alerts: Array<{
   metric_value: number;
 }> = [];
 
+function getOptionalComponentHealth(
+  component: 'redis' | 'queue',
+  configured: boolean,
+): ComponentHealth {
+  if (!configured) {
+    return {
+      status: 'up',
+      message: `${component} is not configured`,
+    };
+  }
+
+  return {
+    status: 'up',
+    message: `${component} is configured; active connectivity probe is not enabled`,
+  };
+}
+
 export async function recordMetric(
   name: string,
   value: number,
@@ -69,10 +86,16 @@ export async function getMetrics(
 }
 
 export async function checkHealth(): Promise<HealthStatus> {
+  const redisConfigured = Boolean(process.env.REDIS_URL);
+  const queueConfigured = Boolean(
+    process.env.QUEUE_URL
+    ?? process.env.QUEUE_REDIS_URL
+    ?? process.env.BULLMQ_REDIS_URL,
+  );
   const checks: HealthStatus['checks'] = {
     database: { status: 'up' },
-    redis: { status: 'up' },
-    queue: { status: 'up' },
+    redis: getOptionalComponentHealth('redis', redisConfigured),
+    queue: getOptionalComponentHealth('queue', queueConfigured),
   };
 
   try {
@@ -88,18 +111,6 @@ export async function checkHealth(): Promise<HealthStatus> {
       message: 'Database connection failed',
     };
   }
-
-  checks.redis = {
-    status: 'up',
-    latency_ms: 1,
-    message: 'Mock check - Redis not yet connected',
-  };
-
-  checks.queue = {
-    status: 'up',
-    latency_ms: 1,
-    message: 'Mock check - Queue not yet connected',
-  };
 
   const allUp = Object.values(checks).every(
     (c) => c.status === 'up',

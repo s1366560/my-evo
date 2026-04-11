@@ -861,6 +861,126 @@ describe('Recipe Service Entry', () => {
     });
   });
 
+  describe('archiveRecipe', () => {
+    it('should archive a published recipe for its author', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'r-1', author_id: 'node-1', status: 'published' });
+      mockPrisma.recipe.update.mockResolvedValue({ recipe_id: 'r-1', status: 'archived' });
+
+      const result = await service.archiveRecipe('r-1', 'node-1');
+      expect(result.status).toBe('archived');
+    });
+
+    it('should reject non-authors', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'r-1', author_id: 'node-1', status: 'published' });
+
+      await expect(service.archiveRecipe('r-1', 'node-2')).rejects.toThrow(ForbiddenError);
+    });
+
+    it('should reject archiving already archived recipes', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'r-1', author_id: 'node-1', status: 'archived' });
+
+      await expect(service.archiveRecipe('r-1', 'node-1')).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe('forkRecipe', () => {
+    it('should fork a published recipe into a new draft', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({
+        recipe_id: 'r-1',
+        title: 'Original Recipe',
+        description: 'Desc',
+        genes: [],
+        price_per_execution: 5,
+        max_concurrent: 2,
+        input_schema: null,
+        output_schema: null,
+        status: 'published',
+        author_id: 'node-1',
+      });
+      mockPrisma.recipe.create.mockResolvedValue({
+        recipe_id: 'r-2',
+        title: 'Original Recipe (fork)',
+        status: 'draft',
+        author_id: 'node-2',
+      });
+
+      const result = await service.forkRecipe('r-1', 'node-2');
+
+      expect(result.recipe_id).toBe('r-2');
+      expect(result.status).toBe('draft');
+      expect(result.author_id).toBe('node-2');
+      expect(mockPrisma.recipe.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            title: 'Original Recipe (fork)',
+            status: 'draft',
+            author_id: 'node-2',
+          }),
+        }),
+      );
+    });
+
+    it('should allow authors to fork their own drafts', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({
+        recipe_id: 'r-1',
+        title: 'Draft Recipe',
+        description: 'Desc',
+        genes: [],
+        price_per_execution: 5,
+        max_concurrent: 2,
+        input_schema: null,
+        output_schema: null,
+        status: 'draft',
+        author_id: 'node-1',
+      });
+      mockPrisma.recipe.create.mockResolvedValue({
+        recipe_id: 'r-2',
+        title: 'Draft Recipe (fork)',
+        status: 'draft',
+        author_id: 'node-1',
+      });
+
+      const result = await service.forkRecipe('r-1', 'node-1');
+      expect(result.recipe_id).toBe('r-2');
+    });
+
+    it('should reject forking another user\'s unpublished recipe', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({
+        recipe_id: 'r-1',
+        title: 'Draft Recipe',
+        description: 'Desc',
+        genes: [],
+        price_per_execution: 5,
+        max_concurrent: 2,
+        input_schema: null,
+        output_schema: null,
+        status: 'draft',
+        author_id: 'node-1',
+      });
+
+      await expect(service.forkRecipe('r-1', 'node-2')).rejects.toThrow(ForbiddenError);
+      expect(mockPrisma.recipe.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject forking archived recipes even for the author', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue({
+        recipe_id: 'r-1',
+        title: 'Archived Recipe',
+        description: 'Desc',
+        genes: [],
+        price_per_execution: 5,
+        max_concurrent: 2,
+        input_schema: null,
+        output_schema: null,
+        status: 'archived',
+        author_id: 'node-1',
+      });
+
+      await expect(service.forkRecipe('r-1', 'node-1')).rejects.toThrow(ForbiddenError);
+      expect(mockPrisma.recipe.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('deleteRecipe', () => {
     it('should delete recipe by author', async () => {
       mockPrisma.recipe.findUnique.mockResolvedValue({ recipe_id: 'r-1', author_id: 'node-1', status: 'draft' });

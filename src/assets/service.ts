@@ -1,5 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-import { v4 as uuidv4 } from 'uuid';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import {
   CARBON_COST_GENE,
   CARBON_COST_CAPSULE,
@@ -22,6 +22,7 @@ import {
   ValidationError,
   InsufficientCreditsError,
   SimilarityViolationError,
+  ConflictError,
 } from '../shared/errors';
 import type {
   PublishPayload,
@@ -33,6 +34,7 @@ import type {
 import type { SearchResultItem } from './types';
 
 let prisma = new PrismaClient();
+const PUBLISH_MESSAGE_NAMESPACE = '5df41981-f3a2-4f5f-a2d7-4dd34c4f583a';
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
@@ -70,6 +72,93 @@ function getCarbonCost(assetType: AssetType): number {
     recipe: CARBON_COST_RECIPE,
   };
   return costs[assetType.toLowerCase()] ?? 0;
+}
+
+function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
+}
+
+function toPublishResponse(
+  asset: {
+    asset_id: string;
+    asset_type: string;
+    gdi_score: number;
+    gdi_mean?: number | null;
+    gdi_lower?: number | null;
+    carbon_cost: number;
+  },
+  similarityResults: SimilarityResult[],
+): PublishResponse {
+  return {
+    status: 'ok',
+    asset_id: asset.asset_id,
+    asset_type: asset.asset_type as AssetType,
+    gdi_score: asset.gdi_mean ?? asset.gdi_score ?? INITIAL_GDI_SCORE,
+    gdi_mean: asset.gdi_mean ?? asset.gdi_score ?? INITIAL_GDI_SCORE,
+    gdi_lower: asset.gdi_lower ?? asset.gdi_score ?? INITIAL_GDI_SCORE,
+    carbon_cost: asset.carbon_cost,
+    similarity_check: similarityResults,
+  };
+}
+
+type PublishComparableAsset = {
+  asset_type: string;
+  name: string;
+  description: string;
+  content: string | null;
+  signals: string[];
+  tags: string[];
+  author_id: string;
+  carbon_cost: number;
+  parent_id: string | null;
+  gene_ids: string | null;
+  config: Prisma.JsonValue | null;
+};
+
+function toComparablePublishAsset(
+  nodeId: string,
+  payload: PublishPayload,
+  carbonCost: number,
+  content: string,
+): PublishComparableAsset {
+  return {
+    asset_type: payload.asset_type,
+    name: payload.name.trim(),
+    description: payload.description.trim(),
+    content,
+    signals: payload.signals ?? [],
+    tags: payload.tags ?? [],
+    author_id: nodeId,
+    carbon_cost: carbonCost,
+    parent_id: payload.parent_id ?? null,
+    gene_ids: payload.gene_ids?.join(',') ?? null,
+    config: (payload.config ?? null) as Prisma.JsonValue | null,
+  };
+}
+
+function assertReplayMatchesExistingAsset(
+  existingAsset: PublishComparableAsset,
+  expectedAsset: PublishComparableAsset,
+): void {
+  const matches =
+    existingAsset.asset_type === expectedAsset.asset_type
+    && existingAsset.name === expectedAsset.name
+    && existingAsset.description === expectedAsset.description
+    && (existingAsset.content ?? null) === expectedAsset.content
+    && JSON.stringify(existingAsset.signals ?? []) === JSON.stringify(expectedAsset.signals)
+    && JSON.stringify(existingAsset.tags ?? []) === JSON.stringify(expectedAsset.tags)
+    && existingAsset.author_id === expectedAsset.author_id
+    && existingAsset.carbon_cost === expectedAsset.carbon_cost
+    && (existingAsset.parent_id ?? null) === expectedAsset.parent_id
+    && (existingAsset.gene_ids ?? null) === expectedAsset.gene_ids
+    && JSON.stringify(existingAsset.config ?? null) === JSON.stringify(expectedAsset.config);
+
+  if (!matches) {
+    throw new ConflictError('message_id already used for different publish payload');
+  }
 }
 
 export function calculateSimilarity(content1: string, content2: string): number {
@@ -111,9 +200,6 @@ async function checkSimilarity(
     if (score >= SIMILARITY_THRESHOLD) {
       const severity = getSimilaritySeverity(score);
       results.push({ asset_id: assetId, compared_to: existing.asset_id, score, severity, strategy: 'jaccard' });
-      await prisma.similarityRecord.create({
-        data: { asset_id: assetId, compared_to: existing.asset_id, score, severity, strategy: 'jaccard' },
-      });
     }
   }
   return results;
@@ -127,16 +213,28 @@ export async function publishAsset(nodeId: string, payload: PublishPayload): Pro
     throw new ValidationError('Asset description is required');
   }
 
+  const assetId = payload.source_message_id
+    ? uuidv5(`${nodeId}:${payload.source_message_id}`, PUBLISH_MESSAGE_NAMESPACE)
+    : uuidv4();
+  const carbonCost = getCarbonCost(payload.asset_type);
+  const content = payload.content ?? '';
+  const comparablePayload = toComparablePublishAsset(nodeId, payload, carbonCost, content);
+
+  if (payload.source_message_id) {
+    const existingAsset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
+    if (existingAsset) {
+      assertReplayMatchesExistingAsset(existingAsset, comparablePayload);
+      return toPublishResponse(existingAsset, []);
+    }
+  }
+
   const node = await prisma.node.findUnique({ where: { node_id: nodeId } });
   if (!node) throw new NotFoundError('Node', nodeId);
 
-  const carbonCost = getCarbonCost(payload.asset_type);
   if (node.credit_balance < carbonCost) {
     throw new InsufficientCreditsError(carbonCost, node.credit_balance);
   }
 
-  const assetId = uuidv4();
-  const content = payload.content ?? '';
   const similarityResults = content.length > 0
     ? await checkSimilarity(assetId, content, payload.asset_type)
     : [];
@@ -144,56 +242,113 @@ export async function publishAsset(nodeId: string, payload: PublishPayload): Pro
   const highSimilarity = similarityResults.find((r) => r.severity === 'high');
   if (highSimilarity) throw new SimilarityViolationError(highSimilarity.score);
 
-  const asset = await prisma.asset.create({
-    data: {
-      asset_id: assetId,
-      asset_type: payload.asset_type,
-      name: payload.name.trim(),
-      description: payload.description.trim(),
-      content,
-      signals: payload.signals ?? [],
-      tags: payload.tags ?? [],
-      author_id: nodeId,
-      status: 'published',
-      gdi_score: INITIAL_GDI_SCORE,
-      carbon_cost: carbonCost,
-      parent_id: payload.parent_id ?? null,
-      generation: 0,
-      ancestors: [],
-      fork_count: 0,
-      config: (payload.config ?? null) as unknown as import('@prisma/client').Prisma.InputJsonValue,
-      gene_ids: payload.gene_ids?.join(',') ?? null,
-    },
-  });
-
-  const newBalance = node.credit_balance - carbonCost;
   const countIncrement = payload.asset_type === 'gene' ? { gene_count: { increment: 1 } }
     : payload.asset_type === 'capsule' ? { capsule_count: { increment: 1 } }
     : {};
-  await prisma.node.update({
-    where: { node_id: nodeId },
-    data: { credit_balance: newBalance, ...countIncrement },
-  });
-  await prisma.creditTransaction.create({
-    data: {
-      node_id: nodeId,
-      amount: -carbonCost,
-      type: 'publish_cost',
-      description: `Published ${payload.asset_type}: ${assetId}`,
-      balance_after: newBalance,
-    },
-  });
-  await prisma.evolutionEvent.create({
-    data: {
-      asset_id: assetId,
-      event_type: 'created',
-      from_version: 0,
-      to_version: 1,
-      changes: `Created ${payload.asset_type}: ${payload.name}`,
-      actor_id: nodeId,
-      node_id: nodeId,
-    },
-  });
+  let asset:
+    | {
+      asset_id: string;
+      asset_type: string;
+      gdi_score: number;
+      gdi_mean?: number | null;
+      gdi_lower?: number | null;
+      carbon_cost: number;
+    };
+
+  try {
+    asset = await prisma.$transaction(async (tx) => {
+      if (payload.source_message_id) {
+        const existingAsset = await tx.asset.findUnique({ where: { asset_id: assetId } });
+        if (existingAsset) {
+          assertReplayMatchesExistingAsset(existingAsset, comparablePayload);
+          return existingAsset;
+        }
+      }
+
+      const charged = await tx.node.updateMany({
+        where: { node_id: nodeId, credit_balance: { gte: carbonCost } },
+        data: { credit_balance: { decrement: carbonCost }, ...countIncrement },
+      });
+      if (charged.count !== 1) {
+        const latestNode = await tx.node.findUnique({ where: { node_id: nodeId } });
+        if (!latestNode) {
+          throw new NotFoundError('Node', nodeId);
+        }
+        throw new InsufficientCreditsError(carbonCost, latestNode.credit_balance);
+      }
+
+      const chargedNode = await tx.node.findUnique({ where: { node_id: nodeId } });
+      if (!chargedNode) {
+        throw new NotFoundError('Node', nodeId);
+      }
+
+      const createdAsset = await tx.asset.create({
+        data: {
+          asset_id: assetId,
+          asset_type: comparablePayload.asset_type,
+          name: comparablePayload.name,
+          description: comparablePayload.description,
+          content: comparablePayload.content,
+          signals: comparablePayload.signals,
+          tags: comparablePayload.tags,
+          author_id: comparablePayload.author_id,
+          status: 'published',
+          gdi_score: INITIAL_GDI_SCORE,
+          carbon_cost: comparablePayload.carbon_cost,
+          parent_id: comparablePayload.parent_id,
+          generation: 0,
+          ancestors: [],
+          fork_count: 0,
+          config: comparablePayload.config as Prisma.InputJsonValue,
+          gene_ids: comparablePayload.gene_ids,
+        },
+      });
+
+      for (const similarityResult of similarityResults) {
+        await tx.similarityRecord.create({
+          data: {
+            asset_id: similarityResult.asset_id,
+            compared_to: similarityResult.compared_to,
+            score: similarityResult.score,
+            severity: similarityResult.severity,
+            strategy: similarityResult.strategy,
+          },
+        });
+      }
+
+      await tx.creditTransaction.create({
+        data: {
+          node_id: nodeId,
+          amount: -carbonCost,
+          type: 'publish_cost',
+          description: `Published ${payload.asset_type}: ${assetId}`,
+          balance_after: chargedNode.credit_balance,
+        },
+      });
+      await tx.evolutionEvent.create({
+        data: {
+          asset_id: assetId,
+          event_type: 'created',
+          from_version: 0,
+          to_version: 1,
+          changes: `Created ${payload.asset_type}: ${payload.name}`,
+          actor_id: nodeId,
+          node_id: nodeId,
+        },
+      });
+
+      return createdAsset;
+    });
+  } catch (error) {
+    if (payload.source_message_id && isUniqueConstraintError(error)) {
+      const existingAsset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
+      if (existingAsset) {
+        assertReplayMatchesExistingAsset(existingAsset, comparablePayload);
+        return toPublishResponse(existingAsset, []);
+      }
+    }
+    throw error;
+  }
 
   // Compute and persist the initial GDI score
   let gdi_mean = INITIAL_GDI_SCORE;
@@ -207,56 +362,94 @@ export async function publishAsset(nodeId: string, payload: PublishPayload): Pro
   }
 
   return {
-    status: 'ok',
-    asset_id: asset.asset_id,
-    asset_type: asset.asset_type as AssetType,
+    ...toPublishResponse(asset, similarityResults),
     gdi_score: gdi_mean,
     gdi_mean,
     gdi_lower,
-    carbon_cost: asset.carbon_cost,
-    similarity_check: similarityResults,
   };
 }
 
 export async function fetchAsset(nodeId: string, assetId: string): Promise<Record<string, unknown>> {
-  const asset = await prisma.asset.findUnique({ where: { asset_id: assetId } });
-  if (!asset) throw new NotFoundError('Asset', assetId);
+  const fetchedAsset = await prisma.$transaction(async (tx) => {
+    const asset = await tx.asset.findUnique({ where: { asset_id: assetId } });
+    if (!asset) {
+      throw new NotFoundError('Asset', assetId);
+    }
+    const canRead = asset.author_id === nodeId || asset.status === 'published' || asset.status === 'promoted';
+    if (!canRead) {
+      throw new NotFoundError('Asset', assetId);
+    }
 
-  const node = await prisma.node.findUnique({ where: { node_id: nodeId } });
-  if (!node) throw new NotFoundError('Node', nodeId);
-  if (node.credit_balance < 1) throw new InsufficientCreditsError(1, node.credit_balance);
+    const charged = await tx.node.updateMany({
+      where: { node_id: nodeId, credit_balance: { gte: 1 } },
+      data: { credit_balance: { decrement: 1 } },
+    });
+    if (charged.count !== 1) {
+      const latestNode = await tx.node.findUnique({ where: { node_id: nodeId } });
+      if (!latestNode) {
+        throw new NotFoundError('Node', nodeId);
+      }
+      throw new InsufficientCreditsError(1, latestNode.credit_balance);
+    }
 
-  const updatedDownloads = asset.downloads + 1;
-  const newBalance = node.credit_balance - 1;
+    const downloadMarked = await tx.asset.updateMany({
+      where: {
+        asset_id: assetId,
+        OR: [
+          { status: { in: ['published', 'promoted'] } },
+          { author_id: nodeId },
+        ],
+      },
+      data: { downloads: { increment: 1 } },
+    });
+    if (downloadMarked.count !== 1) {
+      throw new NotFoundError('Asset', assetId);
+    }
 
-  await prisma.asset.update({ where: { asset_id: assetId }, data: { downloads: updatedDownloads } });
-  await prisma.node.update({ where: { node_id: nodeId }, data: { credit_balance: newBalance } });
-  await prisma.creditTransaction.create({
-    data: {
-      node_id: nodeId,
-      amount: -1,
-      type: 'fetch_cost',
-      description: `Fetched asset: ${assetId}`,
-      balance_after: newBalance,
-    },
+    const fetchedAsset = await tx.asset.findUnique({ where: { asset_id: assetId } });
+    if (!fetchedAsset) {
+      throw new NotFoundError('Asset', assetId);
+    }
+
+    await tx.assetDownload.create({
+      data: {
+        asset_id: assetId,
+        node_id: nodeId,
+      },
+    });
+    const chargedNode = await tx.node.findUnique({ where: { node_id: nodeId } });
+    if (!chargedNode) {
+      throw new NotFoundError('Node', nodeId);
+    }
+
+    await tx.creditTransaction.create({
+      data: {
+        node_id: nodeId,
+        amount: -1,
+        type: 'fetch_cost',
+        description: `Fetched asset: ${assetId}`,
+        balance_after: chargedNode.credit_balance,
+      },
+    });
+    return fetchedAsset;
   });
 
   return {
-    asset_id: asset.asset_id,
-    asset_type: asset.asset_type,
-    name: asset.name,
-    description: asset.description,
-    content: asset.content,
-    signals: asset.signals,
-    tags: asset.tags,
-    author_id: asset.author_id,
-    status: asset.status,
-    gdi_score: asset.gdi_score,
-    downloads: updatedDownloads,
-    version: asset.version,
-    carbon_cost: asset.carbon_cost,
-    created_at: asset.created_at.toISOString(),
-    updated_at: asset.updated_at.toISOString(),
+    asset_id: fetchedAsset.asset_id,
+    asset_type: fetchedAsset.asset_type,
+    name: fetchedAsset.name,
+    description: fetchedAsset.description,
+    content: fetchedAsset.content,
+    signals: fetchedAsset.signals,
+    tags: fetchedAsset.tags,
+    author_id: fetchedAsset.author_id,
+    status: fetchedAsset.status,
+    gdi_score: fetchedAsset.gdi_score,
+    downloads: fetchedAsset.downloads,
+    version: fetchedAsset.version,
+    carbon_cost: fetchedAsset.carbon_cost,
+    created_at: fetchedAsset.created_at.toISOString(),
+    updated_at: fetchedAsset.updated_at.toISOString(),
   };
 }
 

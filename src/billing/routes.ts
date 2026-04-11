@@ -1,65 +1,54 @@
 import type { FastifyInstance } from 'fastify';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { requireAuth } from '../shared/auth';
-import { ValidationError } from '../shared/errors';
+import { ForbiddenError } from '../shared/errors';
 import * as service from './service';
 
 let prisma = new PrismaClient();
+const TRANSACTION_RETRY_LIMIT = 3;
+
+class RetryableStakeConflictError extends Error {}
 
 export function setPrisma(client: PrismaClient): void {
-  (prisma as unknown) = client;
+  prisma = client;
 }
 
-export interface EarningsSummary {
-  node_id: string;
-  period: string;
-  total_earned: number;
-  total_withdrawn: number;
-  pending: number;
-  transactions: Array<{
-    id: string;
-    type: string;
-    amount: number;
-    source: string;
-    balance_after: number;
-    timestamp: string;
-  }>;
+function isRetryableTransactionError(error: unknown): boolean {
+  return (
+    typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (
+      (error as { code?: unknown }).code === 'P2034'
+      || (error as { code?: unknown }).code === 'P2002'
+    )
+  ) || error instanceof RetryableStakeConflictError;
 }
 
-export async function getEarnings(nodeId: string): Promise<EarningsSummary> {
-  if (!nodeId) {
-    throw new ValidationError('node_id is required');
+async function runSerializableTransaction<T>(
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < TRANSACTION_RETRY_LIMIT; attempt += 1) {
+    try {
+      return await prisma.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      if (!isRetryableTransactionError(error) || attempt === TRANSACTION_RETRY_LIMIT - 1) {
+        throw error;
+      }
+    }
   }
 
-  const transactions = await prisma.creditTransaction.findMany({
-    where: {
-      node_id: nodeId,
-      type: { in: ['reward', 'bounty_won', 'bounty_payment', 'skill_sale'] },
-    },
-    orderBy: { timestamp: 'desc' },
-    take: 100,
-  });
+  throw new RetryableStakeConflictError('Stake state changed during transaction');
+}
 
-  const total = transactions.reduce((sum, t) => sum + t.amount, 0);
-  const withdrawn = transactions
-    .filter((t) => t.type === 'withdrawal')
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  return {
-    node_id: nodeId,
-    period: 'all_time',
-    total_earned: total,
-    total_withdrawn: withdrawn,
-    pending: 0,
-    transactions: transactions.map((t) => ({
-      id: t.id,
-      type: t.type,
-      amount: t.amount,
-      source: t.description,
-      balance_after: t.balance_after,
-      timestamp: t.timestamp.toISOString(),
-    })),
-  };
+function resolveSelfNodeId(authNodeId: string, requestedNodeId?: string): string {
+  const nodeId = requestedNodeId ?? authNodeId;
+  if (nodeId !== authNodeId) {
+    throw new ForbiddenError('Cannot access billing for another node');
+  }
+  return nodeId;
 }
 
 export async function billingRoutes(app: FastifyInstance): Promise<void> {
@@ -68,8 +57,9 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Billing'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const { nodeId } = request.params as { nodeId: string };
-    const earnings = await service.getEarnings(nodeId);
+    const earnings = await service.getEarnings(resolveSelfNodeId(auth.node_id, nodeId));
     return reply.send({ success: true, data: earnings });
   });
 
@@ -88,59 +78,128 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Billing'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
-    const body = request.body as { node_id?: string };
-    const { node_id } = body;
-    if (!node_id) return reply.status(400).send({ error: 'node_id required' });
+    const auth = request.auth!;
+    const body = (request.body as { node_id?: string } | undefined) ?? {};
+    const nodeId = resolveSelfNodeId(auth.node_id, body.node_id);
 
     const STAKE_AMOUNT = 500;
     const MIN_STAKE = 100;
 
-    const node = await prisma.node.findUnique({ where: { node_id } });
-    if (!node) return reply.status(404).send({ error: 'Node not found' });
-    if (node.credit_balance < STAKE_AMOUNT) {
-      return reply.status(402).send({
-        error: 'insufficient_balance',
-        required: STAKE_AMOUNT,
-        available: node.credit_balance,
+    let result;
+    try {
+      result = await runSerializableTransaction(async (tx) => {
+        const node = await tx.node.findUnique({ where: { node_id: nodeId } });
+        if (!node) {
+          return {
+            kind: 'error' as const,
+            statusCode: 404,
+            payload: { error: 'Node not found' },
+          };
+        }
+
+        const existing = await tx.validatorStake.findUnique({ where: { node_id: nodeId } });
+        if (existing?.status === 'active') {
+          return {
+            kind: 'error' as const,
+            statusCode: 409,
+            payload: { error: 'already_staked', stakedAmount: existing.amount },
+          };
+        }
+
+        const debit = await tx.node.updateMany({
+          where: {
+            node_id: nodeId,
+            credit_balance: { gte: STAKE_AMOUNT },
+          },
+          data: { credit_balance: { decrement: STAKE_AMOUNT } },
+        });
+
+        if (debit.count === 0) {
+          const currentNode = await tx.node.findUnique({ where: { node_id: nodeId } });
+          return {
+            kind: 'error' as const,
+            statusCode: 402,
+            payload: {
+              error: 'insufficient_balance',
+              required: STAKE_AMOUNT,
+              available: currentNode?.credit_balance ?? 0,
+            },
+          };
+        }
+
+        const lockedUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+        if (existing) {
+          const reactivated = await tx.validatorStake.updateMany({
+            where: {
+              node_id: nodeId,
+              status: { not: 'active' },
+            },
+            data: {
+              amount: existing.amount + STAKE_AMOUNT,
+              locked_until: lockedUntil,
+              status: 'active',
+            },
+          });
+
+          if (reactivated.count !== 1) {
+            throw new RetryableStakeConflictError('Stake state changed during activation');
+          }
+        } else {
+          await tx.validatorStake.create({
+            data: {
+              stake_id: crypto.randomUUID(),
+              node_id: nodeId,
+              amount: STAKE_AMOUNT,
+              locked_until: lockedUntil,
+              status: 'active',
+            },
+          });
+        }
+
+        const updatedNode = await tx.node.findUnique({ where: { node_id: nodeId } });
+        const stake = await tx.validatorStake.findUnique({ where: { node_id: nodeId } });
+
+        if (!stake || stake.status !== 'active') {
+          throw new RetryableStakeConflictError('Stake state changed before commit');
+        }
+
+        await tx.creditTransaction.create({
+          data: {
+            node_id: nodeId,
+            type: 'STAKE_DEPOSITED',
+            amount: -STAKE_AMOUNT,
+            description: 'Validator stake deposited',
+            balance_after: updatedNode?.credit_balance ?? 0,
+          },
+        });
+
+        return {
+          kind: 'success' as const,
+          stakedAmount: stake.amount,
+        };
       });
+    } catch (error) {
+      if (isRetryableTransactionError(error)) {
+        const currentStake = await prisma.validatorStake.findUnique({ where: { node_id: nodeId } });
+        if (currentStake?.status === 'active') {
+          return reply.status(409).send({
+            error: 'already_staked',
+            stakedAmount: currentStake.amount,
+          });
+        }
+      }
+      throw error;
     }
 
-    const existing = await prisma.validatorStake.findUnique({ where: { node_id } });
-    if (existing && existing.status === 'active') {
-      return reply.status(409).send({ error: 'already_staked', stakedAmount: existing.amount });
+    if (result.kind === 'error') {
+      return reply.status(result.statusCode).send(result.payload);
     }
-
-    // Deduct credits from node
-    const updated = await prisma.node.update({
-      where: { node_id },
-      data: { credit_balance: { decrement: STAKE_AMOUNT } },
-    });
-    await prisma.creditTransaction.create({
-      data: {
-        node_id,
-        type: 'STAKE_DEPOSITED',
-        amount: -STAKE_AMOUNT,
-        description: 'Validator stake deposited',
-        balance_after: updated.credit_balance,
-      },
-    });
-
-    const stake = await prisma.validatorStake.upsert({
-      where: { node_id },
-      create: {
-        stake_id: crypto.randomUUID(),
-        node_id,
-        amount: STAKE_AMOUNT,
-        locked_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        status: 'active',
-      },
-      update: { amount: { increment: STAKE_AMOUNT }, status: 'active' },
-    });
 
     return {
       status: 'staked',
-      nodeId: node_id,
-      stakedAmount: stake.amount,
+      nodeId,
+      stakedAmount: result.stakedAmount,
       minRequired: MIN_STAKE,
     };
   });
@@ -150,41 +209,66 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Billing'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
-    const body = request.body as { node_id?: string };
-    const { node_id } = body;
-    if (!node_id) return reply.status(400).send({ error: 'node_id required' });
+    const auth = request.auth!;
+    const body = (request.body as { node_id?: string } | undefined) ?? {};
+    const nodeId = resolveSelfNodeId(auth.node_id, body.node_id);
 
-    const stake = await prisma.validatorStake.findUnique({ where: { node_id } });
-    if (!stake || stake.status !== 'active') {
-      return reply.status(404).send({ error: 'no_active_stake' });
+    const result = await prisma.$transaction(async (tx) => {
+      const stake = await tx.validatorStake.findUnique({ where: { node_id: nodeId } });
+      if (!stake || stake.status !== 'active') {
+        return {
+          kind: 'error' as const,
+          statusCode: 404,
+          payload: { error: 'no_active_stake' },
+        };
+      }
+
+      const withdrawAmount = stake.amount;
+      const release = await tx.validatorStake.updateMany({
+        where: { node_id: nodeId, status: 'active' },
+        data: { status: 'withdrawn', amount: 0 },
+      });
+
+      if (release.count === 0) {
+        return {
+          kind: 'error' as const,
+          statusCode: 404,
+          payload: { error: 'no_active_stake' },
+        };
+      }
+
+      const updatedNode = await tx.node.update({
+        where: { node_id: nodeId },
+        data: { credit_balance: { increment: withdrawAmount } },
+      });
+
+      await tx.creditTransaction.create({
+        data: {
+          node_id: nodeId,
+          type: 'STAKE_WITHDRAWN',
+          amount: withdrawAmount,
+          description: 'Validator stake withdrawn',
+          balance_after: updatedNode.credit_balance,
+        },
+      });
+
+      return {
+        kind: 'success' as const,
+        amountReturned: withdrawAmount,
+      };
+    });
+
+    if (result.kind === 'error') {
+      return reply.status(result.statusCode).send(result.payload);
     }
 
-    const withdrawAmount = stake.amount;
-    const updated = await prisma.node.update({
-      where: { node_id },
-      data: { credit_balance: { increment: withdrawAmount } },
-    });
-    await prisma.creditTransaction.create({
-      data: {
-        node_id,
-        type: 'STAKE_WITHDRAWN',
-        amount: withdrawAmount,
-        description: 'Validator stake withdrawn',
-        balance_after: updated.credit_balance,
-      },
-    });
-    await prisma.validatorStake.update({
-      where: { node_id },
-      data: { status: 'withdrawn', amount: 0 },
-    });
-
-    return { status: 'withdrawn', nodeId: node_id, amountReturned: withdrawAmount };
+    return { status: 'withdrawn', nodeId, amountReturned: result.amountReturned };
   });
 
   // GET /billing/stake/:nodeId — Check stake status (no auth required)
   app.get('/stake/:nodeId', {
     schema: { tags: ['Billing'] },
-  }, async (request, reply) => {
+  }, async (request) => {
     const { nodeId } = request.params as { nodeId: string };
     const stake = await prisma.validatorStake.findUnique({ where: { node_id: nodeId } });
     if (!stake) return { nodeId, status: 'not_staked', stakedAmount: 0 };

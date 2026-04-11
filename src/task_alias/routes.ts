@@ -163,6 +163,7 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Task'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const body = request.body as {
       task_id: string;
       sender_id: string;
@@ -172,21 +173,16 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
     if (!body.task_id || !body.sender_id || !body.subtasks?.length) {
       return reply.status(400).send({ success: false, error: 'task_id, sender_id, and subtasks are required' });
     }
-    return reply.status(201).send({
-      success: true,
-      data: {
-        original_task_id: body.task_id,
-        decomposition_id: `decomp-${Date.now()}`,
-        sub_tasks: body.subtasks.map((title, i) => ({
-          sub_task_id: `sub-${Date.now()}-${i}`,
-          title,
-          status: 'proposed',
-          proposed_by: body.sender_id,
-        })),
-        estimated_parallelism: body.estimated_parallelism ?? body.subtasks.length,
-        proposed_at: new Date().toISOString(),
-      },
-    });
+    if (body.sender_id !== auth.node_id) {
+      return reply.status(403).send({ success: false, error: 'sender_id must match authenticated node' });
+    }
+    const decomposition = await taskService.proposeTaskDecomposition(
+      body.task_id,
+      auth.node_id,
+      body.subtasks,
+      body.estimated_parallelism,
+    );
+    return reply.status(201).send({ success: true, data: decomposition });
   });
 
   // GET /task/swarm/:id
@@ -194,10 +190,14 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Task'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const { id } = request.params as { id: string };
     const { getSwarm } = await import('../swarm/service');
     try {
       const swarm = await getSwarm(id);
+      if (swarm.creator_id !== auth.node_id) {
+        return reply.status(404).send({ success: false, error: 'Swarm not found' });
+      }
       return reply.send({ success: true, data: swarm });
     } catch {
       return reply.status(404).send({ success: false, error: 'Swarm not found' });

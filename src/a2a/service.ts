@@ -262,6 +262,7 @@ export interface ListAssetsFilters {
   status?: string;
   type?: string;
   author_id?: string;
+  requester_node_id?: string;
   limit?: number;
   offset?: number;
 }
@@ -276,9 +277,22 @@ export async function listAssets(filters: ListAssetsFilters): Promise<ListAssets
   const offset = filters.offset ?? 0;
 
   const where: Record<string, unknown> = {};
-  if (filters.status) where['status'] = filters.status;
+  if (filters.status) {
+    const isPublicStatus = filters.status === 'published' || filters.status === 'promoted';
+    if (isPublicStatus) {
+      where['status'] = filters.status;
+    } else {
+      if (!filters.requester_node_id) {
+        throw new ValidationError('Non-public asset listing requires requester context');
+      }
+      where['status'] = filters.status;
+      where['author_id'] = filters.requester_node_id;
+    }
+  } else {
+    where['status'] = { in: ['published', 'promoted'] };
+  }
   if (filters.type) where['asset_type'] = filters.type;
-  if (filters.author_id) where['author_id'] = filters.author_id;
+  if (filters.author_id && !where['author_id']) where['author_id'] = filters.author_id;
 
   const [assets, total] = await Promise.all([
     prisma.asset.findMany({ where, take: limit, skip: offset, orderBy: { created_at: 'desc' } }),
@@ -325,11 +339,23 @@ export async function fetchAssets(
     return { assets: [], total_cost: 0 };
   }
 
-  const assets = await prisma.asset.findMany({
-    where: { asset_id: { in: input.asset_ids } },
-  });
+  const requestedAssetIds = Array.from(new Set(input.asset_ids));
 
   if (input.search_only) {
+    const assets = await prisma.asset.findMany({
+      where: {
+        asset_id: { in: requestedAssetIds },
+        OR: [
+          { status: { in: ['published', 'promoted'] } },
+          { author_id: nodeId },
+        ],
+      },
+    });
+
+    if (assets.length !== requestedAssetIds.length) {
+      throw new NotFoundError('Asset', 'one or more requested assets');
+    }
+
     return {
       assets: assets.map((a) => ({
         asset_id: a.asset_id,
@@ -344,30 +370,91 @@ export async function fetchAssets(
     };
   }
 
-  const cost = assets.length * FETCH_COST;
+  const cost = requestedAssetIds.length * FETCH_COST;
+  let fetchedAssets: Awaited<ReturnType<typeof prisma.asset.findMany>> = [];
 
-  const node = await prisma.node.findUnique({ where: { node_id: nodeId } });
-  if (!node || node.credit_balance < cost) {
-    throw new ValidationError(`Insufficient credits. Required: ${cost}, Available: ${node?.credit_balance ?? 0}`);
+  await prisma.$transaction(async (tx) => {
+    const assets = await tx.asset.findMany({
+      where: {
+        asset_id: { in: requestedAssetIds },
+        OR: [
+          { status: { in: ['published', 'promoted'] } },
+          { author_id: nodeId },
+        ],
+      },
+    });
+
+    if (assets.length !== requestedAssetIds.length) {
+      throw new NotFoundError('Asset', 'one or more requested assets');
+    }
+
+    const charged = await tx.node.updateMany({
+      where: { node_id: nodeId, credit_balance: { gte: cost } },
+      data: { credit_balance: { decrement: cost } },
+    });
+    if (charged.count !== 1) {
+      const latestNode = await tx.node.findUnique({ where: { node_id: nodeId } });
+      throw new ValidationError(`Insufficient credits. Required: ${cost}, Available: ${latestNode?.credit_balance ?? 0}`);
+    }
+
+    const chargedNode = await tx.node.findUnique({ where: { node_id: nodeId } });
+    if (!chargedNode) {
+      throw new ValidationError(`Insufficient credits. Required: ${cost}, Available: 0`);
+    }
+
+    await tx.creditTransaction.create({
+      data: {
+        node_id: nodeId,
+        amount: -cost,
+        type: 'fetch_cost',
+        description: `Fetched ${requestedAssetIds.length} asset(s)`,
+        balance_after: chargedNode.credit_balance,
+      },
+    });
+
+    const downloadMarks = await Promise.all(assets.map((asset) => tx.asset.updateMany({
+      where: {
+        asset_id: asset.asset_id,
+        OR: [
+          { status: { in: ['published', 'promoted'] } },
+          { author_id: nodeId },
+        ],
+      },
+      data: { downloads: { increment: 1 } },
+    })));
+    if (downloadMarks.some((result) => result.count !== 1)) {
+      throw new NotFoundError('Asset', 'one or more requested assets');
+    }
+
+    fetchedAssets = await tx.asset.findMany({
+      where: {
+        asset_id: { in: requestedAssetIds },
+        OR: [
+          { status: { in: ['published', 'promoted'] } },
+          { author_id: nodeId },
+        ],
+      },
+    });
+    if (fetchedAssets.length !== requestedAssetIds.length) {
+      throw new NotFoundError('Asset', 'one or more requested assets');
+    }
+
+    await Promise.all([
+      tx.assetDownload.createMany({
+        data: assets.map((asset) => ({
+          asset_id: asset.asset_id,
+          node_id: nodeId,
+        })),
+      }),
+    ]);
+  });
+
+  if (fetchedAssets.length !== requestedAssetIds.length) {
+    throw new NotFoundError('Asset', 'one or more requested assets');
   }
 
-  await prisma.node.update({
-    where: { node_id: nodeId },
-    data: { credit_balance: { decrement: cost } },
-  });
-
-  await prisma.creditTransaction.create({
-    data: {
-      node_id: nodeId,
-      amount: -cost,
-      type: 'fetch_cost',
-      description: `Fetched ${assets.length} asset(s)`,
-      balance_after: node.credit_balance - cost,
-    },
-  });
-
   return {
-    assets: assets.map((a) => ({
+    assets: fetchedAssets.map((a) => ({
       asset_id: a.asset_id,
       asset_type: a.asset_type,
       name: a.name,
