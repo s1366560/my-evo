@@ -614,11 +614,14 @@ export async function getBounty(bountyId: string, requesterId: string) {
 }
 
 export async function listBounties(input: ListBountiesInput) {
-  const { status, limit = 20, offset = 0 } = input;
+  const { status, creator_id, limit = 20, offset = 0 } = input;
 
   const where: Record<string, unknown> = {};
   if (status) {
     where.status = status;
+  }
+  if (creator_id) {
+    where.creator_id = creator_id;
   }
   const [bounties, total] = await Promise.all([
     prisma.bounty.findMany({

@@ -23,6 +23,9 @@ const {
   getHelpResponse,
   registerInDirectory,
   sendDm,
+  getInbox,
+  getSentDms,
+  markDmRead,
   submitReport,
 } = service;
 
@@ -58,6 +61,9 @@ const mockPrisma = {
   },
   directMessage: {
     create: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn(),
+    updateMany: jest.fn(),
   },
   dispute: {
     create: jest.fn(),
@@ -586,6 +592,14 @@ describe('A2A Service', () => {
       expect((info as { title: string }).title).toContain('Marketplace');
     });
 
+    it('should expose restored A2A task aliases through the task concept metadata', () => {
+      const info = getHelpResponse({ q: 'task' });
+      expect(info.type).toBe('concept');
+      if (info.type !== 'concept') return;
+      expect(info.related_endpoints).toContain('/a2a/task/list');
+      expect(info.related_endpoints).toContain('/a2a/task/release');
+    });
+
     it('should return endpoint type when q is a known command key not in concept KB', () => {
       // publish is a command key but not in CONCEPT_KNOWLEDGE_BASE
       const info = getHelpResponse({ q: 'publish' });
@@ -657,6 +671,106 @@ describe('A2A Service', () => {
     it('should throw NotFoundError when sender not found', async () => {
       mockPrisma.node.findUnique.mockResolvedValueOnce(null);
       await expect(sendDm('unknown', 'node-2', 'Hi')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('getInbox', () => {
+    it('should return inbox messages with unread count', async () => {
+      const createdAt = new Date('2026-01-01T00:00:00.000Z');
+      mockPrisma.directMessage.findMany.mockResolvedValue([
+        {
+          dm_id: 'dm-1',
+          from_id: 'node-2',
+          content: 'Hello!',
+          read: false,
+          created_at: createdAt,
+        },
+      ]);
+      mockPrisma.directMessage.count
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(1);
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'node-2', model: 'claude-sonnet-4' },
+      ]);
+
+      const result = await getInbox('node-1', { read: false, limit: 5, offset: 2 });
+
+      expect(mockPrisma.directMessage.findMany).toHaveBeenCalledWith({
+        where: { to_id: 'node-1', read: false },
+        orderBy: { created_at: 'desc' },
+        take: 5,
+        skip: 2,
+      });
+      expect(result.unread).toBe(1);
+      expect(result.messages[0]).toEqual({
+        dm_id: 'dm-1',
+        from_id: 'node-2',
+        from_model: 'claude-sonnet-4',
+        content: 'Hello!',
+        read: false,
+        created_at: createdAt.toISOString(),
+      });
+    });
+  });
+
+  describe('getSentDms', () => {
+    it('should return sent messages with recipient metadata', async () => {
+      const createdAt = new Date('2026-01-02T00:00:00.000Z');
+      mockPrisma.directMessage.findMany.mockResolvedValue([
+        {
+          dm_id: 'dm-2',
+          to_id: 'node-3',
+          content: 'Interested in collaborating?',
+          read: true,
+          created_at: createdAt,
+        },
+      ]);
+      mockPrisma.directMessage.count.mockResolvedValueOnce(1);
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'node-3', model: 'gpt-4.1' },
+      ]);
+
+      const result = await getSentDms('node-1', { limit: 10, offset: 1 });
+
+      expect(mockPrisma.directMessage.findMany).toHaveBeenCalledWith({
+        where: { from_id: 'node-1' },
+        orderBy: { created_at: 'desc' },
+        take: 10,
+        skip: 1,
+      });
+      expect(result).toEqual({
+        messages: [{
+          dm_id: 'dm-2',
+          to_id: 'node-3',
+          to_model: 'gpt-4.1',
+          content: 'Interested in collaborating?',
+          read: true,
+          created_at: createdAt.toISOString(),
+        }],
+        total: 1,
+      });
+    });
+  });
+
+  describe('markDmRead', () => {
+    it('should mark a direct message as read for the recipient', async () => {
+      mockPrisma.directMessage.updateMany.mockResolvedValue({ count: 1 });
+
+      await markDmRead('node-1', 'dm-1');
+
+      expect(mockPrisma.directMessage.updateMany).toHaveBeenCalledWith({
+        where: {
+          dm_id: 'dm-1',
+          to_id: 'node-1',
+        },
+        data: { read: true },
+      });
+    });
+
+    it('should throw NotFoundError when the message is inaccessible', async () => {
+      mockPrisma.directMessage.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(markDmRead('node-1', 'dm-missing')).rejects.toThrow(NotFoundError);
     });
   });
 

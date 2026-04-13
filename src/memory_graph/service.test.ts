@@ -698,6 +698,26 @@ describe('MemoryGraph Service Entry', () => {
 
       expect(result).toBeNull();
     });
+
+    it('applies live confidence decay to stale nodes at read time', async () => {
+      mockMGPrisma.memoryGraphNode.findUnique.mockResolvedValue({
+        node_id: 'node-1',
+        type: 'gene',
+        label: 'Stale node',
+        confidence: 0.8,
+        positive: 0,
+        negative: 0,
+        usage_count: 0,
+        gdi_score: 70,
+        created_at: new Date('2025-01-01T00:00:00.000Z'),
+        updated_at: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+      } as any);
+
+      const result = await service.getGraphNode('node-1');
+
+      expect(result?.effective_confidence).toBeLessThan(0.8);
+      expect(result?.stale).toBe(true);
+    });
   });
 
   describe('listGraphNodes', () => {
@@ -1034,13 +1054,36 @@ describe('MemoryGraph Service Entry', () => {
     });
 
     it('should apply min_confidence filter', async () => {
-      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        {
+          node_id: 'stale-node',
+          label: 'test stale node',
+          confidence: 0.9,
+          type: 'gene',
+          gdi_score: 80,
+          positive: 0,
+          negative: 0,
+          updated_at: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+        },
+        {
+          node_id: 'fresh-node',
+          label: 'test fresh node',
+          confidence: 0.9,
+          type: 'gene',
+          gdi_score: 80,
+          positive: 0,
+          negative: 0,
+          updated_at: new Date(),
+        },
+      ]);
       mockMGPrisma.memoryGraphEdge.findMany.mockResolvedValue([]);
 
-      await service.recall({ query: 'test', filters: { min_confidence: 0.8 } });
+      const result = await service.recall({ query: 'test', filters: { min_confidence: 0.8 } });
 
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0]!.asset_id).toBe('fresh-node');
       expect(mockMGPrisma.memoryGraphNode.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { confidence: { gte: 0.8 } } }),
+        expect.objectContaining({ where: {} }),
       );
     });
 
@@ -1068,7 +1111,6 @@ describe('MemoryGraph Service Entry', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             type: { in: ['gene'] },
-            confidence: { gte: 0.5 },
             gdi_score: { gte: 40 },
           }),
         }),
@@ -1706,25 +1748,45 @@ describe('MemoryGraph Service Entry', () => {
 
   describe('listGraphNodes', () => {
     it('should filter by minConfidence', async () => {
-      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
-      mockMGPrisma.memoryGraphNode.count.mockResolvedValue(0);
+      mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([
+        {
+          node_id: 'fresh-node',
+          type: 'gene',
+          label: 'Fresh node',
+          confidence: 0.85,
+          positive: 0,
+          negative: 0,
+          usage_count: 0,
+          gdi_score: 80,
+          updated_at: new Date(),
+        },
+        {
+          node_id: 'stale-node',
+          type: 'gene',
+          label: 'Stale node',
+          confidence: 0.9,
+          positive: 0,
+          negative: 0,
+          usage_count: 0,
+          gdi_score: 80,
+          updated_at: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+        },
+      ]);
 
-      await service.listGraphNodes(undefined, 0.8);
+      const result = await service.listGraphNodes(undefined, 0.8);
 
-      expect(mockMGPrisma.memoryGraphNode.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { confidence: { gte: 0.8 } } }),
-      );
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]!.node_id).toBe('fresh-node');
     });
 
     it('should handle both type and minConfidence filters together', async () => {
       mockMGPrisma.memoryGraphNode.findMany.mockResolvedValue([]);
-      mockMGPrisma.memoryGraphNode.count.mockResolvedValue(0);
 
       await service.listGraphNodes('gene', 0.5);
 
       expect(mockMGPrisma.memoryGraphNode.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ type: 'gene', confidence: { gte: 0.5 } }),
+          where: expect.objectContaining({ type: 'gene' }),
         }),
       );
     });

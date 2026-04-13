@@ -1,6 +1,11 @@
 import { PrismaClient } from '@prisma/client';
 import * as service from './service';
-import { NotFoundError, ValidationError } from '../shared/errors';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from '../shared/errors';
 import type { QuarantineLevel, QuarantineReason, Violation } from '../shared/types';
 
 const {
@@ -8,17 +13,30 @@ const {
   addViolation,
   checkQuarantineStatus,
   releaseNode,
+  listHistory,
+  submitAppeal,
+  listAppeals,
+  reviewAppeal,
   autoRelease,
   escalateQuarantine,
 } = service;
 
 const mockPrisma = {
+  $transaction: jest.fn(),
   node: {
     findFirst: jest.fn(),
     update: jest.fn(),
   },
   quarantineRecord: {
     findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+  },
+  quarantineAppeal: {
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
@@ -38,6 +56,7 @@ describe('Quarantine Service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
   });
 
   describe('quarantineNode', () => {
@@ -360,6 +379,290 @@ describe('Quarantine Service', () => {
       const result = await releaseNode('node-1');
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('listHistory', () => {
+    it('should list quarantine history in descending order', async () => {
+      mockPrisma.quarantineRecord.findMany.mockResolvedValue([
+        {
+          id: 2,
+          node_id: 'node-1',
+          level: 'L2',
+          reason: 'manual',
+          started_at: new Date('2026-01-02T00:00:00Z'),
+          expires_at: futureDate,
+          auto_release_at: futureDate,
+          reputation_penalty: 15,
+          is_active: false,
+          violations: [],
+        },
+      ]);
+
+      const result = await listHistory('node-1', 5);
+
+      expect(mockPrisma.quarantineRecord.findMany).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        orderBy: { started_at: 'desc' },
+        take: 5,
+      });
+      expect(result[0]!.level).toBe('L2');
+    });
+  });
+
+  describe('submitAppeal', () => {
+    it('should reject short appeal grounds', async () => {
+      await expect(submitAppeal('node-1', 'node-1', 'too short'))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should create a quarantine appeal within the appeal window', async () => {
+      const startedAt = new Date(Date.now() - 60 * 60 * 1000);
+      mockPrisma.quarantineRecord.findFirst.mockResolvedValue({
+        id: 'record-1',
+        node_id: 'node-1',
+        level: 'L2',
+        reason: 'manual',
+        started_at: startedAt,
+        expires_at: futureDate,
+        auto_release_at: futureDate,
+        reputation_penalty: 15,
+        is_active: true,
+        violations: [],
+      });
+      mockPrisma.quarantineAppeal.findFirst.mockResolvedValue(null);
+      mockPrisma.quarantineAppeal.create.mockResolvedValue({
+        appeal_id: 'qap_1',
+        node_id: 'node-1',
+        quarantine_record_id: 'record-1',
+        grounds: 'Need a human review for this quarantine',
+        evidence: [{ source: 'audit-log' }],
+        status: 'submitted',
+        submitted_at: new Date(),
+        reviewed_at: null,
+        reviewed_by: null,
+        resolution: null,
+      });
+
+      const result = await submitAppeal(
+        'node-1',
+        'node-1',
+        'Need a human review for this quarantine',
+        [{ source: 'audit-log' }],
+      );
+
+      expect(result.status).toBe('submitted');
+      expect(mockPrisma.quarantineAppeal.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            node_id: 'node-1',
+            quarantine_record_id: 'record-1',
+          }),
+        }),
+      );
+    });
+
+    it('should reject appeals for other nodes', async () => {
+      await expect(
+        submitAppeal('node-1', 'node-2', 'Need a human review for this quarantine'),
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it('should reject appeals after the appeal window closes', async () => {
+      mockPrisma.quarantineRecord.findFirst.mockResolvedValue({
+        id: 'record-1',
+        node_id: 'node-1',
+        level: 'L1',
+        reason: 'manual',
+        started_at: new Date(Date.now() - 2 * 86_400_000),
+        expires_at: futureDate,
+        auto_release_at: futureDate,
+        reputation_penalty: 5,
+        is_active: true,
+        violations: [],
+      });
+
+      await expect(
+        submitAppeal('node-1', 'node-1', 'Need a human review for this quarantine'),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('should reject duplicate pending appeals', async () => {
+      mockPrisma.quarantineRecord.findFirst.mockResolvedValue({
+        id: 'record-1',
+        node_id: 'node-1',
+        level: 'L1',
+        reason: 'manual',
+        started_at: new Date(),
+        expires_at: futureDate,
+        auto_release_at: futureDate,
+        reputation_penalty: 5,
+        is_active: true,
+        violations: [],
+      });
+      mockPrisma.quarantineAppeal.findFirst.mockResolvedValue({
+        appeal_id: 'qap_1',
+        status: 'submitted',
+      });
+
+      await expect(
+        submitAppeal('node-1', 'node-1', 'Need a human review for this quarantine'),
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it('should reject appeals when no quarantine record exists', async () => {
+      mockPrisma.quarantineRecord.findFirst.mockResolvedValue(null);
+
+      await expect(
+        submitAppeal('node-1', 'node-1', 'Need a human review for this quarantine'),
+      ).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('listAppeals', () => {
+    it('should list appeals for a node', async () => {
+      mockPrisma.quarantineAppeal.findMany.mockResolvedValue([
+        {
+          appeal_id: 'qap_1',
+          node_id: 'node-1',
+          quarantine_record_id: 'record-1',
+          grounds: 'Need a human review for this quarantine',
+          evidence: [],
+          status: 'submitted',
+          submitted_at: new Date(),
+          reviewed_at: null,
+          reviewed_by: null,
+          resolution: null,
+        },
+      ]);
+
+      const result = await listAppeals('node-1');
+
+      expect(mockPrisma.quarantineAppeal.findMany).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        orderBy: { submitted_at: 'desc' },
+      });
+      expect(result[0]!.appeal_id).toBe('qap_1');
+    });
+  });
+
+  describe('reviewAppeal', () => {
+    it('should reject invalid review statuses', async () => {
+      await expect(
+        reviewAppeal('qap_1', 'reviewer-1', 'pending' as 'approved'),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('should reject missing appeals', async () => {
+      mockPrisma.quarantineAppeal.findUnique.mockResolvedValue(null);
+
+      await expect(reviewAppeal('missing', 'reviewer-1', 'approved'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should approve an appeal, release the node, and restore reputation', async () => {
+      mockPrisma.quarantineAppeal.findUnique.mockResolvedValue({
+        appeal_id: 'qap_1',
+        node_id: 'node-1',
+        quarantine_record_id: 'record-1',
+        status: 'submitted',
+      });
+      mockPrisma.quarantineAppeal.update.mockResolvedValue({
+        appeal_id: 'qap_1',
+        node_id: 'node-1',
+        quarantine_record_id: 'record-1',
+        grounds: 'Need a human review for this quarantine',
+        evidence: [],
+        status: 'approved',
+        submitted_at: new Date(),
+        reviewed_at: new Date(),
+        reviewed_by: 'reviewer-1',
+        resolution: 'Manual moderation error',
+      });
+      mockPrisma.quarantineRecord.findUnique.mockResolvedValue({
+        id: 'record-1',
+        node_id: 'node-1',
+        level: 'L2',
+        reason: 'manual',
+        started_at: new Date(),
+        expires_at: futureDate,
+        auto_release_at: futureDate,
+        reputation_penalty: 15,
+        is_active: true,
+        violations: [],
+      });
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1', reputation: 60 });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.reputationEvent.create.mockResolvedValue({});
+      mockPrisma.quarantineRecord.update.mockResolvedValue({});
+
+      const result = await reviewAppeal(
+        'qap_1',
+        'reviewer-1',
+        'approved',
+        'Manual moderation error',
+      );
+
+      expect(result.status).toBe('approved');
+      expect(mockPrisma.quarantineRecord.update).toHaveBeenCalledWith({
+        where: { id: 'record-1' },
+        data: { is_active: false },
+      });
+      expect(mockPrisma.node.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: { reputation: 75 },
+      });
+      expect(mockPrisma.reputationEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            node_id: 'node-1',
+            event_type: 'quarantine_appeal_approved',
+            delta: 15,
+          }),
+        }),
+      );
+    });
+
+    it('should reject already resolved appeals', async () => {
+      mockPrisma.quarantineAppeal.findUnique.mockResolvedValue({
+        appeal_id: 'qap_1',
+        status: 'rejected',
+      });
+
+      await expect(reviewAppeal('qap_1', 'reviewer-1', 'approved'))
+        .rejects.toThrow(ConflictError);
+    });
+
+    it('should allow non-approval review statuses without releasing the node', async () => {
+      mockPrisma.quarantineAppeal.findUnique.mockResolvedValue({
+        appeal_id: 'qap_1',
+        node_id: 'node-1',
+        quarantine_record_id: 'record-1',
+        status: 'submitted',
+      });
+      mockPrisma.quarantineAppeal.update.mockResolvedValue({
+        appeal_id: 'qap_1',
+        node_id: 'node-1',
+        quarantine_record_id: 'record-1',
+        grounds: 'Need a human review for this quarantine',
+        evidence: [],
+        status: 'under_review',
+        submitted_at: new Date(),
+        reviewed_at: new Date(),
+        reviewed_by: 'reviewer-1',
+        resolution: 'Investigating',
+      });
+
+      const result = await reviewAppeal(
+        'qap_1',
+        'reviewer-1',
+        'under_review',
+        'Investigating',
+      );
+
+      expect(result.status).toBe('under_review');
+      expect(mockPrisma.quarantineRecord.update).not.toHaveBeenCalled();
+      expect(mockPrisma.node.update).not.toHaveBeenCalled();
     });
   });
 

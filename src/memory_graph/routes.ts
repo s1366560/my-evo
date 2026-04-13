@@ -5,6 +5,27 @@ import { ValidationError } from '../shared/errors';
 import * as service from './service';
 
 export async function memoryGraphRoutes(app: FastifyInstance): Promise<void> {
+  const handleComputeDecay = async (
+    body: {
+      node_id?: string;
+      lambda?: number;
+      inactive_days?: number;
+      batch_size?: number;
+    } | undefined,
+  ) => {
+    if (body?.node_id) {
+      return service.triggerDecay(
+        body.node_id,
+        body.lambda !== undefined ? { lambda: body.lambda } : undefined,
+      );
+    }
+
+    return service.triggerDecayAll(
+      body?.lambda !== undefined ? { lambda: body.lambda } : undefined,
+      body?.inactive_days ?? 90,
+      body?.batch_size ?? 100,
+    );
+  };
 
   // ===== Graph Nodes =====
 
@@ -111,6 +132,20 @@ export async function memoryGraphRoutes(app: FastifyInstance): Promise<void> {
       body?.inactive_days ?? 90,
       body?.batch_size ?? 100,
     );
+    return reply.send({ success: true, data: result });
+  });
+
+  app.post('/compute-decay', {
+    schema: { tags: ['MemoryGraph'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const body = request.body as {
+      node_id?: string;
+      lambda?: number;
+      inactive_days?: number;
+      batch_size?: number;
+    } | undefined;
+    const result = await handleComputeDecay(body);
     return reply.send({ success: true, data: result });
   });
 

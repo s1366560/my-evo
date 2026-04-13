@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import type { Verdict, DisputeRuling } from './types';
 import { calculateEvidenceScore } from './evidence-chain';
-import { ARBITRATOR_COUNT } from './types';
+import { ARBITRATOR_COUNT, RULING_TO_QUARANTINE } from './types';
 import { NotFoundError } from '../shared/errors';
 
 let prisma = new PrismaClient();
@@ -227,13 +227,25 @@ function buildPenalties(
   if (verdict === 'plaintiff_wins' || verdict === 'compromise') {
     const repPenalty = verdict === 'plaintiff_wins' ? 15 : 8;
     const creditFine = verdict === 'plaintiff_wins' ? 100 : 50;
+    const quarantineLevel = (() => {
+      switch (disputeType) {
+        case 'asset_quality':
+          return RULING_TO_QUARANTINE.asset_quality_defendant_loses?.level;
+        case 'reputation_attack':
+          return RULING_TO_QUARANTINE.reputation_attack_confirmed?.level;
+        case 'governance':
+          return RULING_TO_QUARANTINE.governance_violation?.level;
+        default:
+          return undefined;
+      }
+    })();
     const isGovernance = disputeType === 'governance';
     return [
       {
         target_node_id: defendantId,
         reputation_deduction: isGovernance ? Math.max(repPenalty, 25) : repPenalty,
         credit_fine: creditFine,
-        quarantine_level: isGovernance ? 'L3' : undefined,
+        quarantine_level: quarantineLevel,
         asset_revocation: disputeType === 'asset_quality' ? [] : undefined,
       },
     ];

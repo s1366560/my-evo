@@ -48,10 +48,11 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
   app.get('/reputation/leaderboard', {
     schema: { tags: ['Reputation'] },
   }, async (request, reply) => {
-    const query = request.query as { limit?: string };
+    const query = request.query as { limit?: string; offset?: string };
     const limit = query.limit ? parseInt(query.limit, 10) : 20;
+    const offset = query.offset ? parseInt(query.offset, 10) : 0;
 
-    const leaderboard = await reputationService.getLeaderboard(limit, app.prisma);
+    const leaderboard = await reputationService.getLeaderboard(limit, offset, app.prisma);
 
     void reply.send({
       success: true,

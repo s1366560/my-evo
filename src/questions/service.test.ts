@@ -1,4 +1,11 @@
 import { PrismaClient } from '@prisma/client';
+const mockAddPoints = jest.fn();
+
+jest.mock('../reputation/service', () => ({
+  ...jest.requireActual('../reputation/service'),
+  addPoints: (...args: unknown[]) => mockAddPoints(...args),
+}));
+
 import * as service from './service';
 import { NotFoundError, ValidationError } from '../shared/errors';
 
@@ -404,10 +411,15 @@ describe('Questions Service', () => {
       mockPrisma.questionAnswer.findUnique.mockResolvedValue({
         answer_id: 'a-1',
         question_id: 'q-1',
+        author: 'node-answer',
         upvotes: 5,
         question: { question_id: 'q-1', tags: [] },
       });
       mockPrisma.questionAnswer.update.mockResolvedValue({ answer_id: 'a-1', upvotes: 6 });
+      mockAddPoints.mockResolvedValue({
+        node_id: 'node-answer',
+        score: 51,
+      });
 
       await upvoteAnswer('q-1', 'a-1');
 
@@ -415,6 +427,11 @@ describe('Questions Service', () => {
         where: { answer_id: 'a-1' },
         data: { upvotes: { increment: 1 } },
       });
+      expect(mockAddPoints).toHaveBeenCalledWith(
+        'node-answer',
+        'answer_upvoted',
+        mockPrisma,
+      );
     });
 
     it('should throw NotFoundError when answer does not exist', async () => {
@@ -451,10 +468,15 @@ describe('Questions Service', () => {
       mockPrisma.questionAnswer.findUnique.mockResolvedValue({
         answer_id: 'a-1',
         question_id: 'q-1',
+        author: 'node-answer',
         downvotes: 0,
         question: { question_id: 'q-1', tags: [] },
       });
       mockPrisma.questionAnswer.update.mockResolvedValue({ answer_id: 'a-1', downvotes: 1 });
+      mockAddPoints.mockResolvedValue({
+        node_id: 'node-answer',
+        score: 48,
+      });
 
       await downvoteAnswer('q-1', 'a-1');
 
@@ -462,6 +484,11 @@ describe('Questions Service', () => {
         where: { answer_id: 'a-1' },
         data: { downvotes: { increment: 1 } },
       });
+      expect(mockAddPoints).toHaveBeenCalledWith(
+        'node-answer',
+        'answer_downvoted',
+        mockPrisma,
+      );
     });
 
     it('should hide answers attached to reserved review questions', async () => {
@@ -492,11 +519,17 @@ describe('Questions Service', () => {
       const mockAnswer = {
         answer_id: 'a-2',
         question_id: 'q-1',
+        author: 'node-answer',
+        accepted: false,
         question: { question_id: 'q-1', author: 'node-1', tags: [] },
       };
       mockPrisma.questionAnswer.findUnique.mockResolvedValue(mockAnswer);
       mockPrisma.questionAnswer.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.questionAnswer.update.mockResolvedValue({ ...mockAnswer, accepted: true });
+      mockAddPoints.mockResolvedValue({
+        node_id: 'node-answer',
+        score: 65,
+      });
 
       await acceptAnswer('q-1', 'a-2', 'node-1');
 
@@ -508,6 +541,27 @@ describe('Questions Service', () => {
         where: { answer_id: 'a-2' },
         data: { accepted: true },
       });
+      expect(mockAddPoints).toHaveBeenCalledWith(
+        'node-answer',
+        'answer_accepted',
+        mockPrisma,
+      );
+    });
+
+    it('should not double-award reputation when an already accepted answer is re-accepted', async () => {
+      mockPrisma.questionAnswer.findUnique.mockResolvedValue({
+        answer_id: 'a-2',
+        question_id: 'q-1',
+        author: 'node-answer',
+        accepted: true,
+        question: { question_id: 'q-1', author: 'node-1', tags: [] },
+      });
+      mockPrisma.questionAnswer.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.questionAnswer.update.mockResolvedValue({ answer_id: 'a-2', accepted: true });
+
+      await acceptAnswer('q-1', 'a-2', 'node-1');
+
+      expect(mockAddPoints).not.toHaveBeenCalled();
     });
 
     it('should reject accept by non-question-author', async () => {

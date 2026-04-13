@@ -192,6 +192,7 @@ export async function buildApp() {
 
   const { circleRoutes } = await import('./circle/routes');
   await app.register(circleRoutes, { prefix: '/api/v2/circle' });
+  await app.register(circleRoutes, { prefix: '/a2a/circle' });
 
   const { kgRoutes } = await import('./kg/routes');
   await app.register(kgRoutes, { prefix: '/api/v2/kg' });

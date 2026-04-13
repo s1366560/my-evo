@@ -19,6 +19,118 @@ const PUBLISH_MESSAGE_MAX_AGE_MS = 15 * 60 * 1000;
 const PUBLISH_MESSAGE_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 const DISPUTE_LIST_LIMIT_MAX = 100;
 const DISPUTE_LIST_OFFSET_MAX = 10_000;
+const PUBLISH_MESSAGE_ID_PATTERN = /^msg[-_][A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const ISO_8601_UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+const PROTOCOL_REQUIRED_FIELDS = [
+  'protocol',
+  'protocol_version',
+  'message_type',
+  'message_id',
+  'sender_id',
+  'timestamp',
+  'payload',
+] as const;
+
+function getProtocolOverview() {
+  return {
+    hub_node_id: HUB_NODE_ID,
+    protocol: PROTOCOL_NAME,
+    protocol_version: PROTOCOL_VERSION,
+    heartbeat_interval_ms: HEARTBEAT_INTERVAL_MS,
+    required_fields: [...PROTOCOL_REQUIRED_FIELDS],
+    command_count: Object.keys(a2aService.COMMAND_DOCS).length,
+  };
+}
+
+function getSchemaOverview() {
+  return {
+    ...getProtocolOverview(),
+    envelope: {
+      required_fields: [...PROTOCOL_REQUIRED_FIELDS],
+      example: {
+        protocol: PROTOCOL_NAME,
+        protocol_version: PROTOCOL_VERSION,
+        message_type: 'publish',
+        message_id: 'msg_example_001',
+        sender_id: 'node-example-001',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        payload: {},
+      },
+    },
+    commands: Object.entries(a2aService.COMMAND_DOCS).map(([command, doc]) => ({
+      command,
+      path: doc.related_endpoints?.[0] ?? `/a2a/${command}`,
+      methods: doc.methods,
+      category: doc.category,
+      auth_required: doc.auth_required,
+      envelope_required: doc.envelope_required,
+      description: doc.description,
+    })),
+  };
+}
+
+function assertPublishEnvelope(
+  body: {
+    protocol?: string;
+    protocol_version?: string;
+    message_type?: string;
+    message_id?: string;
+    sender_id?: string;
+    timestamp?: string;
+    payload?: unknown;
+  },
+  authenticatedNodeId: string,
+): void {
+  if (!body.protocol || typeof body.protocol !== 'string') {
+    throw new EvoMapError('protocol field is required', 'VALIDATION_ERROR', 400);
+  }
+  if (body.protocol !== PROTOCOL_NAME) {
+    throw new EvoMapError(`protocol must be "${PROTOCOL_NAME}"`, 'VALIDATION_ERROR', 400);
+  }
+  if (!body.protocol_version || typeof body.protocol_version !== 'string') {
+    throw new EvoMapError('protocol_version field is required', 'VALIDATION_ERROR', 400);
+  }
+  if (body.protocol_version !== PROTOCOL_VERSION) {
+    throw new EvoMapError(`protocol_version must be "${PROTOCOL_VERSION}"`, 'VALIDATION_ERROR', 400);
+  }
+  if (!body.message_id || typeof body.message_id !== 'string') {
+    throw new EvoMapError('message_id field is required', 'VALIDATION_ERROR', 400);
+  }
+  if (!PUBLISH_MESSAGE_ID_PATTERN.test(body.message_id)) {
+    throw new EvoMapError('message_id must start with "msg_" or "msg-" and contain only safe characters', 'VALIDATION_ERROR', 400);
+  }
+  if (body.message_type !== 'publish') {
+    throw new EvoMapError('message_type must be "publish"', 'VALIDATION_ERROR', 400);
+  }
+  if (!body.sender_id || typeof body.sender_id !== 'string') {
+    throw new EvoMapError('sender_id field is required', 'VALIDATION_ERROR', 400);
+  }
+  if (body.sender_id !== authenticatedNodeId) {
+    throw new ForbiddenError('sender_id must match authenticated node');
+  }
+  if (!body.timestamp || typeof body.timestamp !== 'string') {
+    throw new EvoMapError('timestamp field is required', 'VALIDATION_ERROR', 400);
+  }
+  if (!ISO_8601_UTC_TIMESTAMP_PATTERN.test(body.timestamp)) {
+    throw new EvoMapError('timestamp must be a valid UTC ISO-8601 string', 'VALIDATION_ERROR', 400);
+  }
+
+  const timestampMs = Date.parse(body.timestamp);
+  if (Number.isNaN(timestampMs)) {
+    throw new EvoMapError('timestamp must be a valid UTC ISO-8601 string', 'VALIDATION_ERROR', 400);
+  }
+  const now = Date.now();
+  if (
+    timestampMs < now - PUBLISH_MESSAGE_MAX_AGE_MS
+    || timestampMs > now + PUBLISH_MESSAGE_MAX_FUTURE_SKEW_MS
+  ) {
+    throw new EvoMapError('timestamp is outside the accepted freshness window', 'VALIDATION_ERROR', 400);
+  }
+
+  if (!body.payload || typeof body.payload !== 'object' || Array.isArray(body.payload)) {
+    throw new EvoMapError('payload must be an object', 'VALIDATION_ERROR', 400);
+  }
+}
 
 function parseDisputeOffset(value?: string): number {
   if (value === undefined) {
@@ -55,6 +167,26 @@ function parseDisputeLimit(value?: string): number {
   }
 
   return Math.min(parsed, DISPUTE_LIST_LIMIT_MAX);
+}
+
+function parseIntegerQuery(
+  value: string | number | undefined,
+  field: string,
+  fallback: number,
+  minimum: number,
+  maximum?: number,
+): number {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const parsed = typeof value === 'number' ? value : Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < minimum || (maximum !== undefined && parsed > maximum)) {
+    const rangeSuffix = maximum !== undefined ? ` between ${minimum} and ${maximum}` : ` >= ${minimum}`;
+    throw new ValidationError(`${field} must be an integer${rangeSuffix}`);
+  }
+
+  return parsed;
 }
 
 function canViewRawDisputeEvidence(
@@ -126,6 +258,45 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
   async function getSearchModule() {
     return import('../search/service');
+  }
+
+  async function getTaskModule() {
+    return import('../task/service');
+  }
+
+  function ensureTaskNodeIdMatches(
+    authenticatedNodeId: string,
+    providedNodeId: string | undefined,
+  ): void {
+    if (providedNodeId !== undefined && providedNodeId !== authenticatedNodeId) {
+      throw new ForbiddenError('node_id must match authenticated node');
+    }
+  }
+
+  function parseCompositeTaskId(taskId: string): [string, string] {
+    const parts = taskId.split(':');
+    if (parts.length !== 2) {
+      throw new ValidationError('Invalid task_id format, expected projectId:taskId');
+    }
+    return parts as [string, string];
+  }
+
+  function parseTaskListNumber(
+    value: string | undefined,
+    field: 'limit' | 'offset',
+    fallback: number,
+  ): number {
+    if (value === undefined) {
+      return fallback;
+    }
+    if (!/^\d+$/.test(value)) {
+      throw new ValidationError(`${field} must be a non-negative integer`);
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (field === 'limit' && parsed < 1) {
+      throw new ValidationError('limit must be a positive integer');
+    }
+    return parsed;
   }
 
   function requireMarketplaceNodeId(nodeId: string): string {
@@ -267,39 +438,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       [key: string]: unknown;
     };
 
-    // Envelope field validation
-    if (!body.protocol || typeof body.protocol !== 'string') {
-      throw new EvoMapError('protocol field is required', 'VALIDATION_ERROR', 400);
-    }
-    if (!body.protocol_version || typeof body.protocol_version !== 'string') {
-      throw new EvoMapError('protocol_version field is required', 'VALIDATION_ERROR', 400);
-    }
-    if (!body.message_id || typeof body.message_id !== 'string') {
-      throw new EvoMapError('message_id field is required', 'VALIDATION_ERROR', 400);
-    }
-    if (body.message_type !== 'publish') {
-      throw new EvoMapError('message_type must be "publish"', 'VALIDATION_ERROR', 400);
-    }
-    if (!body.sender_id || typeof body.sender_id !== 'string') {
-      throw new EvoMapError('sender_id field is required', 'VALIDATION_ERROR', 400);
-    }
-    if (body.sender_id !== auth.node_id) {
-      throw new ForbiddenError('sender_id must match authenticated node');
-    }
-    if (!body.timestamp || typeof body.timestamp !== 'string') {
-      throw new EvoMapError('timestamp field is required', 'VALIDATION_ERROR', 400);
-    }
-    const timestampMs = Date.parse(body.timestamp);
-    if (Number.isNaN(timestampMs)) {
-      throw new EvoMapError('timestamp must be a valid ISO-8601 string', 'VALIDATION_ERROR', 400);
-    }
-    const now = Date.now();
-    if (
-      timestampMs < now - PUBLISH_MESSAGE_MAX_AGE_MS
-      || timestampMs > now + PUBLISH_MESSAGE_MAX_FUTURE_SKEW_MS
-    ) {
-      throw new EvoMapError('timestamp is outside the accepted freshness window', 'VALIDATION_ERROR', 400);
-    }
+    assertPublishEnvelope(body, auth.node_id);
 
     const assets = body.payload?.assets;
     if (!assets || assets.length === 0) {
@@ -417,6 +556,18 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     void reply.send({ success: true, data: response });
   });
 
+  app.get('/protocol', {
+    schema: { tags: ['A2A'] },
+  }, async (_request, reply) => {
+    void reply.send({ success: true, data: getProtocolOverview() });
+  });
+
+  app.get('/schema', {
+    schema: { tags: ['A2A'] },
+  }, async (_request, reply) => {
+    void reply.send({ success: true, data: getSchemaOverview() });
+  });
+
   // POST /a2a/directory — register node in Hub directory
   app.post('/directory', {
     schema: { tags: ['A2A'] },
@@ -439,13 +590,23 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
-    const body = request.body as { to_id: string; content: string };
+    const body = request.body as {
+      sender_id?: string;
+      recipient_id?: string;
+      to_id?: string;
+      content?: string;
+    };
+    const recipientId = body.recipient_id ?? body.to_id;
 
-    if (!body.to_id || !body.content) {
-      throw new ValidationError('to_id and content are required');
+    if (body.sender_id && body.sender_id !== auth.node_id) {
+      throw new ForbiddenError('sender_id must match the authenticated node');
     }
 
-    const result = await a2aService.sendDm(auth.node_id, body.to_id, body.content);
+    if (!recipientId || !body.content) {
+      throw new ValidationError('recipient_id (or to_id) and content are required');
+    }
+
+    const result = await a2aService.sendDm(auth.node_id, recipientId, body.content);
 
     void reply.send({
       success: true,
@@ -864,12 +1025,14 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       },
     },
   }, async (request, reply) => {
-    const query = request.query as { category?: string; limit?: number; offset?: number };
+    const query = request.query as { category?: string; limit?: string | number; offset?: string | number };
+    const limit = parseIntegerQuery(query.limit, 'limit', 20, 1, 100);
+    const offset = parseIntegerQuery(query.offset, 'offset', 0, 0);
     const serviceMarketplace = await getServiceMarketplaceModule();
     const result = await serviceMarketplace.searchServiceListings({
       category: query.category,
-      limit: query.limit ?? 20,
-      offset: query.offset ?? 0,
+      limit,
+      offset,
     }, app.prisma);
     return reply.send({ success: true, data: result.items, meta: { total: result.total } });
   });
@@ -890,13 +1053,15 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       },
     },
   }, async (request) => {
-    const query = request.query as { q?: string; category?: string; limit?: number; offset?: number };
+    const query = request.query as { q?: string; category?: string; limit?: string | number; offset?: string | number };
+    const limit = query.limit === undefined ? undefined : parseIntegerQuery(query.limit, 'limit', 20, 1, 100);
+    const offset = query.offset === undefined ? undefined : parseIntegerQuery(query.offset, 'offset', 0, 0);
     const serviceMarketplace = await getServiceMarketplaceModule();
     const result = await serviceMarketplace.searchServiceListings({
       query: query.q,
       category: query.category,
-      limit: query.limit,
-      offset: query.offset,
+      limit,
+      offset,
     }, app.prisma);
     return { success: true, data: result };
   });
@@ -1205,11 +1370,19 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
         { tags: { has: q } },
       ],
     };
+    const privateOrderBy: Record<string, 'desc'> =
+      sort === 'gdi'
+        ? { gdi_score: 'desc' }
+        : sort === 'downloads'
+          ? { downloads: 'desc' }
+          : sort === 'rating'
+            ? { rating: 'desc' }
+            : { updated_at: 'desc' };
 
     const [assets, total] = await Promise.all([
       prisma.asset.findMany({
         where,
-        orderBy: { updated_at: 'desc' },
+        orderBy: privateOrderBy,
         take: parsedLimit,
         skip: parsedOffset,
       }),
@@ -1278,16 +1451,325 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  app.get('/directory/stats', {
+    schema: { tags: ['A2A'] },
+  }, async (_request, reply) => {
+    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
+
+    const [totalAgents, online, workers] = await Promise.all([
+      prisma!.worker.count(),
+      prisma!.worker.count({
+        where: { is_available: true },
+      }),
+      prisma!.worker.findMany({
+        select: { specialties: true },
+      }),
+    ]);
+
+    const capabilities = workers.reduce<Record<string, number>>((acc, worker) => {
+      for (const specialty of worker.specialties) {
+        acc[specialty] = (acc[specialty] ?? 0) + 1;
+      }
+      return acc;
+    }, {});
+
+    return reply.send({
+      success: true,
+      data: {
+        total_agents: totalAgents,
+        online,
+        capabilities,
+      },
+    });
+  });
+
   // GET /a2a/dm/inbox — get DMs for authenticated node
   app.get('/dm/inbox', {
     schema: { tags: ['A2A'] },
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
-    const { read, limit, offset } = request.query as Record<string, string | undefined>;
+    const {
+      read,
+      unread,
+      limit,
+      offset,
+    } = request.query as Record<string, string | undefined>;
+    const readFilter = read === 'true'
+      ? true
+      : read === 'false'
+        ? false
+        : unread === 'true'
+          ? false
+          : undefined;
 
     const result = await a2aService.getInbox(auth.node_id, {
-      read: read === 'true' ? true : read === 'false' ? false : undefined,
+      read: readFilter,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+
+    void reply.send({
+      success: true,
+      data: result.messages,
+      meta: {
+        total: result.total,
+        unread: result.unread,
+      },
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /a2a/task/* — task alias routes
+  // ---------------------------------------------------------------------------
+  app.get('/task/list', {
+    schema: { tags: ['Task'] },
+  }, async (request, reply) => {
+    const { status, limit, offset } = request.query as {
+      status?: string;
+      limit?: string;
+      offset?: string;
+    };
+    const taskService = await getTaskModule();
+    const parsedLimit = parseTaskListNumber(limit, 'limit', 20);
+    const parsedOffset = parseTaskListNumber(offset, 'offset', 0);
+    const tasks = await taskService.listTasks('__all__');
+    const filtered = status ? tasks.filter((task) => task.status === status) : tasks;
+    return reply.send({
+      success: true,
+      data: filtered.slice(parsedOffset, parsedOffset + parsedLimit),
+      meta: {
+        total: filtered.length,
+        limit: parsedLimit,
+        offset: parsedOffset,
+      },
+    });
+  });
+
+  app.post('/task/claim', {
+    schema: { tags: ['Task'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as { task_id?: string; node_id?: string };
+    if (!body.task_id) {
+      throw new ValidationError('task_id is required');
+    }
+    ensureTaskNodeIdMatches(auth.node_id, body.node_id);
+    const taskService = await getTaskModule();
+    const [projectId, taskId] = parseCompositeTaskId(body.task_id);
+    const task = await taskService.claimTask(projectId, taskId, auth.node_id);
+    return reply.send({ success: true, data: task });
+  });
+
+  app.post('/task/complete', {
+    schema: { tags: ['Task'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as { task_id?: string; node_id?: string; asset_id?: string };
+    if (!body.task_id) {
+      throw new ValidationError('task_id is required');
+    }
+    ensureTaskNodeIdMatches(auth.node_id, body.node_id);
+    const taskService = await getTaskModule();
+    const [projectId, taskId] = parseCompositeTaskId(body.task_id);
+    const task = await taskService.completeTask(projectId, taskId, auth.node_id);
+    return reply.send({ success: true, data: task });
+  });
+
+  app.post('/task/release', {
+    schema: { tags: ['Task'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as { task_id?: string; node_id?: string };
+    if (!body.task_id) {
+      throw new ValidationError('task_id is required');
+    }
+    ensureTaskNodeIdMatches(auth.node_id, body.node_id);
+    const taskService = await getTaskModule();
+    const [projectId, taskId] = parseCompositeTaskId(body.task_id);
+    const task = await taskService.releaseTask(projectId, taskId, auth.node_id);
+    return reply.send({ success: true, data: task });
+  });
+
+  app.post('/task/submit', {
+    schema: { tags: ['Task'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      task_id?: string;
+      asset_id?: string;
+      node_id?: string;
+      followup_question?: string;
+    };
+    if (!body.task_id) {
+      throw new ValidationError('task_id is required');
+    }
+    if (!body.asset_id && !body.node_id) {
+      throw new ValidationError('asset_id or node_id is required');
+    }
+    ensureTaskNodeIdMatches(auth.node_id, body.node_id);
+    if (body.followup_question !== undefined && body.followup_question.trim().length < 5) {
+      throw new ValidationError('followup_question must be at least 5 characters');
+    }
+    const taskService = await getTaskModule();
+    if (body.asset_id) {
+      const asset = await taskService.getAssetById(body.asset_id);
+      if (!asset) {
+        throw new NotFoundError('Asset', body.asset_id);
+      }
+    }
+    const submission = await taskService.submitTaskAnswer(
+      body.task_id,
+      auth.node_id,
+      body.asset_id,
+      body.node_id,
+    );
+    return reply.status(201).send({ success: true, data: submission });
+  });
+
+  app.post('/task/accept-submission', {
+    schema: { tags: ['Task'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as { task_id?: string; submission_id?: string };
+    if (!body.task_id || !body.submission_id) {
+      throw new ValidationError('task_id and submission_id are required');
+    }
+    const taskService = await getTaskModule();
+    const submission = await taskService.acceptSubmission(body.task_id, body.submission_id, auth.node_id);
+    return reply.send({ success: true, data: submission });
+  });
+
+  app.get('/task/my', {
+    schema: { tags: ['Task'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { status, role, node_id } = request.query as {
+      status?: string;
+      role?: string;
+      node_id?: string;
+    };
+    if (role && role !== 'assignee') {
+      throw new ValidationError('Unsupported role filter. Only role=assignee is currently supported.');
+    }
+    ensureTaskNodeIdMatches(auth.node_id, node_id);
+    const taskService = await getTaskModule();
+    const tasks = await taskService.listTasks('__all__');
+    const filtered = tasks.filter((task) =>
+      task.assignee_id === auth.node_id && (status === undefined || task.status === status));
+    return reply.send({ success: true, data: filtered });
+  });
+
+  app.get('/task/eligible-count', {
+    schema: { tags: ['Task'] },
+  }, async (request, reply) => {
+    const { min_reputation } = request.query as { min_reputation?: string };
+    const minReputation = min_reputation ? Number.parseInt(min_reputation, 10) : undefined;
+    const taskService = await getTaskModule();
+    const count = await taskService.getEligibleNodeCount(minReputation);
+    return reply.send({ success: true, data: { count, min_reputation: minReputation ?? null } });
+  });
+
+  app.get('/task/:taskId/submissions', {
+    schema: { tags: ['Task'] },
+  }, async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const taskService = await getTaskModule();
+    const submissions = await taskService.getSubmissions(taskId);
+    return reply.send({ success: true, data: submissions });
+  });
+
+  app.post('/task/propose-decomposition', {
+    schema: { tags: ['Task'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      task_id?: string;
+      sender_id?: string;
+      subtasks?: string[];
+      sub_task_titles?: string[];
+      estimated_parallelism?: number;
+    };
+    const subTaskTitles = body.sub_task_titles ?? body.subtasks;
+    if (!body.task_id || !subTaskTitles?.length) {
+      throw new ValidationError('task_id and subtasks are required');
+    }
+    if (body.sender_id !== undefined && body.sender_id !== auth.node_id) {
+      throw new ForbiddenError('sender_id must match authenticated node');
+    }
+    const taskService = await getTaskModule();
+    const decomposition = await taskService.proposeTaskDecomposition(
+      body.task_id,
+      auth.node_id,
+      subTaskTitles,
+      body.estimated_parallelism,
+    );
+    return reply.status(201).send({ success: true, data: decomposition });
+  });
+
+  app.get('/task/swarm/:id', {
+    schema: { tags: ['Task'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { id } = request.params as { id: string };
+    const { getSwarm } = await import('../swarm/service');
+    try {
+      const swarm = await getSwarm(id);
+      if (swarm.creator_id !== auth.node_id) {
+        return reply.status(404).send({ success: false, error: 'Swarm not found' });
+      }
+      return reply.send({ success: true, data: swarm });
+    } catch {
+      return reply.status(404).send({ success: false, error: 'Swarm not found' });
+    }
+  });
+
+  app.post('/task/:taskId/commitment', {
+    schema: { tags: ['Task'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { taskId } = request.params as { taskId: string };
+    const body = request.body as { node_id?: string; deadline?: string };
+    if (!body.node_id || !body.deadline) {
+      throw new ValidationError('node_id and deadline are required');
+    }
+    ensureTaskNodeIdMatches(auth.node_id, body.node_id);
+    const taskService = await getTaskModule();
+    const commitment = await taskService.setTaskCommitment(taskId, auth.node_id, body.deadline);
+    return reply.send({ success: true, data: commitment });
+  });
+
+  app.get('/task/:taskId', {
+    schema: { tags: ['Task'] },
+  }, async (request, reply) => {
+    const { taskId } = request.params as { taskId: string };
+    const taskService = await getTaskModule();
+    const [projectId, innerTaskId] = parseCompositeTaskId(taskId);
+    const task = await taskService.getTask(projectId, innerTaskId);
+    if (!task) {
+      return reply.status(404).send({ success: false, error: 'NOT_FOUND', message: 'Task not found' });
+    }
+    return reply.send({ success: true, data: task });
+  });
+
+  // GET /a2a/dm/sent — get sent DMs for authenticated node
+  app.get('/dm/sent', {
+    schema: { tags: ['A2A'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { limit, offset } = request.query as Record<string, string | undefined>;
+
+    const result = await a2aService.getSentDms(auth.node_id, {
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
     });
@@ -1304,6 +1786,18 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body as { dm_ids?: string[] };
 
     await a2aService.markInboxRead(auth.node_id, body.dm_ids);
+    void reply.send({ success: true });
+  });
+
+  // POST /a2a/dm/:dmId/read — mark a specific DM as read
+  app.post('/dm/:dmId/read', {
+    schema: { tags: ['A2A'] },
+    preHandler: requireAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { dmId } = request.params as { dmId: string };
+
+    await a2aService.markDmRead(auth.node_id, dmId);
     void reply.send({ success: true });
   });
 

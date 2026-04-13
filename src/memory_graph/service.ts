@@ -18,6 +18,7 @@ import type {
   LineageEntry,
   LineageResult,
   MemoryGraphNode,
+  MemoryGraphNodeRecord,
   PropagationResult,
   RecallQuery,
   RecallResult,
@@ -61,6 +62,59 @@ function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
   return prismaClient ?? prisma;
 }
 
+const STALE_CONFIDENCE_THRESHOLD = 0.3;
+
+type MemoryGraphNodeLike = Partial<MemoryGraphNodeRecord> & Pick<MemoryGraphNodeRecord, 'node_id' | 'type' | 'label'>;
+
+function normalizeGraphNodeRecord(node: MemoryGraphNodeLike): MemoryGraphNodeRecord {
+  return {
+    node_id: node.node_id,
+    type: node.type,
+    label: node.label,
+    positive: node.positive ?? 0,
+    negative: node.negative ?? 0,
+    usage_count: node.usage_count ?? 0,
+    confidence: node.confidence ?? 0,
+    gdi_score: node.gdi_score ?? 0,
+    metadata: node.metadata ?? null,
+    created_at: node.created_at instanceof Date ? node.created_at : new Date(0),
+    updated_at: node.updated_at instanceof Date ? node.updated_at : new Date(),
+  };
+}
+
+function getLiveConfidenceSnapshot(record: MemoryGraphNodeRecord): {
+  effectiveConfidence: number;
+  daysSinceUpdate: number;
+  stale: boolean;
+  grade: ConfidenceGrade;
+} {
+  const daysSinceUpdate = Math.max(
+    0,
+    Math.floor((Date.now() - record.updated_at.getTime()) / (1000 * 60 * 60 * 24)),
+  );
+  const effectiveConfidence = calculateDecay(record.confidence, daysSinceUpdate, 0);
+  return {
+    effectiveConfidence,
+    daysSinceUpdate,
+    stale: effectiveConfidence < STALE_CONFIDENCE_THRESHOLD,
+    grade: getConfidenceGrade(effectiveConfidence),
+  };
+}
+
+function mapLiveGraphNode(node: MemoryGraphNodeLike): MemoryGraphNode {
+  const record = normalizeGraphNodeRecord(node);
+  const snapshot = getLiveConfidenceSnapshot(record);
+
+  return {
+    ...record,
+    metadata: (record.metadata ?? undefined) as Record<string, unknown> | undefined,
+    confidence: snapshot.effectiveConfidence,
+    effective_confidence: snapshot.effectiveConfidence,
+    stale: snapshot.stale,
+    confidence_grade: snapshot.grade,
+  } as MemoryGraphNode;
+}
+
 // ------------------------------------------------------------------
 // Graph nodes
 // ------------------------------------------------------------------
@@ -88,7 +142,7 @@ export async function createGraphNode(
     },
   });
 
-  return node as unknown as MemoryGraphNode;
+  return mapLiveGraphNode(node as unknown as MemoryGraphNodeLike);
 }
 
 export async function upsertGraphNode(
@@ -117,12 +171,12 @@ export async function upsertGraphNode(
     },
   });
 
-  return node as unknown as MemoryGraphNode;
+  return mapLiveGraphNode(node as unknown as MemoryGraphNodeLike);
 }
 
 export async function getGraphNode(nodeId: string): Promise<MemoryGraphNode | null> {
   const node = await prisma.memoryGraphNode.findUnique({ where: { node_id: nodeId } });
-  return node as unknown as MemoryGraphNode | null;
+  return node ? mapLiveGraphNode(node as unknown as MemoryGraphNodeLike) : null;
 }
 
 export async function listGraphNodes(
@@ -133,14 +187,18 @@ export async function listGraphNodes(
 ): Promise<{ items: MemoryGraphNode[]; total: number }> {
   const where: Record<string, unknown> = {};
   if (type) where.type = type;
-  if (minConfidence !== undefined) where.confidence = { gte: minConfidence };
+  const items = await prisma.memoryGraphNode.findMany({
+    where,
+    orderBy: { gdi_score: 'desc' },
+  });
+  const liveItems = items
+    .map((item) => mapLiveGraphNode(item as unknown as MemoryGraphNodeLike))
+    .filter((item) => minConfidence === undefined || item.confidence >= minConfidence);
 
-  const [items, total] = await Promise.all([
-    prisma.memoryGraphNode.findMany({ where, take: limit, skip: offset, orderBy: { gdi_score: 'desc' } }),
-    prisma.memoryGraphNode.count({ where }),
-  ]);
-
-  return { items: items as unknown as MemoryGraphNode[], total };
+  return {
+    items: liveItems.slice(offset, offset + limit),
+    total: liveItems.length,
+  };
 }
 
 // ------------------------------------------------------------------
@@ -225,7 +283,7 @@ export async function triggerDecay(
   });
 
   return {
-    node: updated as unknown as MemoryGraphNode,
+    node: mapLiveGraphNode(updated as unknown as MemoryGraphNodeLike),
     decay: result,
   };
 }
@@ -309,7 +367,7 @@ export async function applyPositiveSignal(
     },
   });
 
-  return updated as unknown as MemoryGraphNode;
+  return mapLiveGraphNode(updated as unknown as MemoryGraphNodeLike);
 }
 
 /**
@@ -345,7 +403,7 @@ export async function applyNegativeSignal(
     },
   });
 
-  return updated as unknown as MemoryGraphNode;
+  return mapLiveGraphNode(updated as unknown as MemoryGraphNodeLike);
 }
 
 /**
@@ -354,26 +412,24 @@ export async function applyNegativeSignal(
 export async function getConfidenceRecord(nodeId: string): Promise<ConfidenceRecord> {
   const node = await prisma.memoryGraphNode.findUnique({ where: { node_id: nodeId } });
   if (!node) throw new NotFoundError('MemoryGraphNode', nodeId);
-
-  const daysSinceUpdate = Math.floor(
-    (Date.now() - node.updated_at.getTime()) / (1000 * 60 * 60 * 24),
-  );
-
-  const decayed = calculateDecay(
-    node.confidence,
-    daysSinceUpdate,
-    node.positive,
-  );
+  const record = normalizeGraphNodeRecord(node as unknown as MemoryGraphNodeLike);
+  const snapshot = getLiveConfidenceSnapshot(record);
 
   return {
     asset_id: nodeId,
-    current: node.confidence,
-    initial: 1.0,
-    grade: getConfidenceGrade(node.confidence),
-    last_decay_at: node.updated_at.toISOString(),
-    positive_signals: node.positive,
-    negative_signals: node.negative,
-    history: [],
+    current: snapshot.effectiveConfidence,
+    initial: record.confidence,
+    grade: snapshot.grade,
+    last_decay_at: record.updated_at.toISOString(),
+    positive_signals: record.positive,
+    negative_signals: record.negative,
+    history: snapshot.daysSinceUpdate > 0
+      ? [{
+          timestamp: new Date().toISOString(),
+          value: snapshot.effectiveConfidence,
+          reason: `live_decay_after_${snapshot.daysSinceUpdate}_days`,
+        }]
+      : [],
   };
 }
 
@@ -385,17 +441,19 @@ export async function getConfidenceStats(): Promise<{
   by_grade: Record<ConfidenceGrade, number>;
   total: number;
 }> {
-  const nodes = await prisma.memoryGraphNode.findMany({ select: { confidence: true } });
+  const nodes = await prisma.memoryGraphNode.findMany();
   if (nodes.length === 0) {
     return { avg_confidence: 0, by_grade: { 'A+': 0, A: 0, B: 0, C: 0, D: 0, F: 0 }, total: 0 };
   }
 
-  const total = nodes.length;
-  const sum = nodes.reduce((acc, n) => acc + n.confidence, 0);
+  const liveNodes = nodes.map((node) => mapLiveGraphNode(node as unknown as MemoryGraphNodeLike));
+
+  const total = liveNodes.length;
+  const sum = liveNodes.reduce((acc, n) => acc + n.confidence, 0);
   const avg_confidence = sum / total;
 
   const by_grade: Record<string, number> = { 'A+': 0, A: 0, B: 0, C: 0, D: 0, F: 0 };
-  for (const node of nodes) {
+  for (const node of liveNodes) {
     const grade = getConfidenceGrade(node.confidence);
     by_grade[grade] = (by_grade[grade] ?? 0) + 1;
   }
@@ -421,17 +479,18 @@ export async function checkBan(
 
   const node = await prisma.memoryGraphNode.findUnique({ where: { node_id: nodeId } });
   if (!node) throw new NotFoundError('MemoryGraphNode', nodeId);
+  const liveNode = mapLiveGraphNode(node as unknown as MemoryGraphNodeLike);
 
   const reasons: string[] = [];
   const totalSignals = node.positive + node.negative;
 
-  const confidenceOk = node.confidence >= t.confidence_min;
+  const confidenceOk = liveNode.confidence >= t.confidence_min;
   const gdiOk = node.gdi_score >= t.gdi_min;
 
   const reportRatio = totalSignals > 0 ? node.negative / totalSignals : 0;
   const reportRatioOk = !(reportRatio > t.report_ratio_max && totalSignals >= 10);
 
-  if (!confidenceOk) reasons.push(`Confidence ${node.confidence.toFixed(3)} < ${t.confidence_min}`);
+  if (!confidenceOk) reasons.push(`Confidence ${liveNode.confidence.toFixed(3)} < ${t.confidence_min}`);
   if (!gdiOk) reasons.push(`GDI ${node.gdi_score} < ${t.gdi_min}`);
   if (!reportRatioOk) {
     reasons.push(
@@ -467,14 +526,13 @@ export async function recall(query: RecallQuery): Promise<{
   if (query.filters?.type && query.filters.type.length > 0) {
     where.type = { in: query.filters.type };
   }
-  if (query.filters?.min_confidence !== undefined) {
-    where.confidence = { gte: query.filters.min_confidence };
-  }
   if (query.filters?.min_gdi !== undefined) {
     where.gdi_score = { gte: query.filters.min_gdi };
   }
 
-  const nodes = await prisma.memoryGraphNode.findMany({ where });
+  const nodes = (await prisma.memoryGraphNode.findMany({ where }))
+    .map((node) => mapLiveGraphNode(node as unknown as MemoryGraphNodeLike))
+    .filter((node) => query.filters?.min_confidence === undefined || node.confidence >= query.filters.min_confidence);
 
   // Load edges for chain depth
   const edges = await prisma.memoryGraphEdge.findMany({

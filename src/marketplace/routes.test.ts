@@ -21,6 +21,7 @@ const mockBuyListing = jest.fn();
 const mockCancelListing = jest.fn();
 const mockGetListings = jest.fn();
 const mockGetLegacyTransactionHistory = jest.fn();
+const mockCalculateDynamicPrice = jest.fn();
 
 jest.mock('../shared/auth', () => ({
   requireAuth: () => async (
@@ -56,6 +57,11 @@ jest.mock('./service', () => ({
   cancelListing: (...args: unknown[]) => mockCancelListing(...args),
   getListings: (...args: unknown[]) => mockGetListings(...args),
   getTransactionHistory: (...args: unknown[]) => mockGetLegacyTransactionHistory(...args),
+}));
+
+jest.mock('./pricing', () => ({
+  ...jest.requireActual('./pricing'),
+  calculateDynamicPrice: (...args: unknown[]) => mockCalculateDynamicPrice(...args),
 }));
 
 function buildApp(prisma: unknown): FastifyInstance {
@@ -171,6 +177,38 @@ describe('Marketplace routes', () => {
     expect(mockCancelListing).toHaveBeenCalledWith('node-1', 'listing-1', prisma);
     expect(mockGetListings).toHaveBeenCalledWith('Gene', 5, 20, 'price_desc', 3, 1, prisma);
     expect(mockGetLegacyTransactionHistory).toHaveBeenCalledWith('node-1', 2, 1, prisma);
+  });
+
+  it('passes app prisma to marketplace pricing routes', async () => {
+    mockCalculateDynamicPrice.mockResolvedValue({
+      price: 123,
+      breakdown: {
+        basePrice: 100,
+        gdiFactor: 1.2,
+        demandFactor: 1.1,
+        scarcityFactor: 0.8,
+        assetGdi: 60,
+        networkAvgGdi: 50,
+        fetchCount: 10,
+        similarCount: 2,
+      },
+    });
+
+    const [pricingRes, aliasRes] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/marketplace/pricing/listing-1',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/marketplace/calculate-price/listing-1',
+      }),
+    ]);
+
+    expect(pricingRes.statusCode).toBe(200);
+    expect(aliasRes.statusCode).toBe(200);
+    expect(mockCalculateDynamicPrice).toHaveBeenNthCalledWith(1, 'listing-1', prisma);
+    expect(mockCalculateDynamicPrice).toHaveBeenNthCalledWith(2, 'listing-1', prisma);
   });
 
   it('passes app prisma to purchase lifecycle routes', async () => {

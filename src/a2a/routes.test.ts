@@ -39,6 +39,13 @@ const mockPublishAsset = jest.fn();
 const mockFileDispute = jest.fn();
 const mockGetDispute = jest.fn();
 const mockListDisputes = jest.fn();
+const mockSendDm = jest.fn();
+const mockGetInbox = jest.fn();
+const mockGetSentDms = jest.fn();
+const mockMarkInboxRead = jest.fn();
+const mockMarkDmRead = jest.fn();
+const mockWorkerDirectoryCount = jest.fn();
+const mockWorkerDirectoryFindMany = jest.fn();
 const mockCreateBounty = jest.fn();
 const mockWithdrawBid = jest.fn();
 const mockListAssets = jest.fn();
@@ -67,6 +74,19 @@ const mockGetSessionContext = jest.fn();
 const mockSetSessionPrisma = jest.fn();
 const mockSearchAssets = jest.fn();
 const mockSetSearchPrisma = jest.fn();
+const mockTaskListTasks = jest.fn();
+const mockTaskGetTask = jest.fn();
+const mockTaskClaimTask = jest.fn();
+const mockTaskCompleteTask = jest.fn();
+const mockTaskReleaseTask = jest.fn();
+const mockTaskSubmitTaskAnswer = jest.fn();
+const mockTaskAcceptSubmission = jest.fn();
+const mockTaskGetSubmissions = jest.fn();
+const mockTaskProposeTaskDecomposition = jest.fn();
+const mockTaskSetTaskCommitment = jest.fn();
+const mockTaskGetEligibleNodeCount = jest.fn();
+const mockTaskGetAssetById = jest.fn();
+const mockGetSwarm = jest.fn();
 const mockForkRecipe = jest.fn();
 const mockArchiveRecipe = jest.fn();
 const mockGetAssetDetail = jest.fn();
@@ -140,6 +160,27 @@ jest.mock('../search/service', () => ({
   search: (...args: unknown[]) => mockSearchAssets(...args),
 }));
 
+jest.mock('../task/service', () => ({
+  ...jest.requireActual('../task/service'),
+  listTasks: (...args: unknown[]) => mockTaskListTasks(...args),
+  getTask: (...args: unknown[]) => mockTaskGetTask(...args),
+  claimTask: (...args: unknown[]) => mockTaskClaimTask(...args),
+  completeTask: (...args: unknown[]) => mockTaskCompleteTask(...args),
+  releaseTask: (...args: unknown[]) => mockTaskReleaseTask(...args),
+  submitTaskAnswer: (...args: unknown[]) => mockTaskSubmitTaskAnswer(...args),
+  acceptSubmission: (...args: unknown[]) => mockTaskAcceptSubmission(...args),
+  getSubmissions: (...args: unknown[]) => mockTaskGetSubmissions(...args),
+  proposeTaskDecomposition: (...args: unknown[]) => mockTaskProposeTaskDecomposition(...args),
+  setTaskCommitment: (...args: unknown[]) => mockTaskSetTaskCommitment(...args),
+  getEligibleNodeCount: (...args: unknown[]) => mockTaskGetEligibleNodeCount(...args),
+  getAssetById: (...args: unknown[]) => mockTaskGetAssetById(...args),
+}));
+
+jest.mock('../swarm/service', () => ({
+  ...jest.requireActual('../swarm/service'),
+  getSwarm: (...args: unknown[]) => mockGetSwarm(...args),
+}));
+
 jest.mock('../recipe/service', () => ({
   ...jest.requireActual('../recipe/service'),
   archiveRecipe: (...args: unknown[]) => mockArchiveRecipe(...args),
@@ -149,6 +190,11 @@ jest.mock('../recipe/service', () => ({
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
   listAssets: (...args: unknown[]) => mockListAssets(...args),
+  sendDm: (...args: unknown[]) => mockSendDm(...args),
+  getInbox: (...args: unknown[]) => mockGetInbox(...args),
+  getSentDms: (...args: unknown[]) => mockGetSentDms(...args),
+  markInboxRead: (...args: unknown[]) => mockMarkInboxRead(...args),
+  markDmRead: (...args: unknown[]) => mockMarkDmRead(...args),
 }));
 
 jest.mock('./assets_service', () => ({
@@ -169,6 +215,10 @@ function buildApp(): FastifyInstance {
     workerTask: {
       findMany: mockWorkTaskFindMany,
       count: mockWorkTaskCount,
+    },
+    worker: {
+      count: mockWorkerDirectoryCount,
+      findMany: mockWorkerDirectoryFindMany,
     },
     dispute: {
       findUnique: mockDisputeFindUnique,
@@ -226,6 +276,46 @@ describe('POST /a2a/publish', () => {
     expect(body.message).toContain('protocol');
   });
 
+  it('should return 400 when protocol does not match the GEP-A2A protocol name', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        protocol: 'not-gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'publish',
+        message_id: 'msg_bad_protocol',
+        sender_id: mockNodeId,
+        timestamp: freshTimestamp(),
+        payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.payload).message).toContain('protocol must');
+  });
+
+  it('should return 400 when protocol_version does not match the supported version', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '9.9.9',
+        message_type: 'publish',
+        message_id: 'msg_bad_version',
+        sender_id: mockNodeId,
+        timestamp: freshTimestamp(),
+        payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.payload).message).toContain('protocol_version must');
+  });
+
   it('should return 400 when message_type is not "publish"', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -266,6 +356,26 @@ describe('POST /a2a/publish', () => {
     expect(body.message).toContain('message_id');
   });
 
+  it('should return 400 when message_id format is invalid', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'publish',
+        message_id: 'bad id',
+        sender_id: mockNodeId,
+        timestamp: freshTimestamp(),
+        payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.payload).message).toContain('message_id');
+  });
+
   it('should return 403 when sender_id does not match the authenticated node', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -303,6 +413,48 @@ describe('POST /a2a/publish', () => {
     });
 
     expect(res.statusCode).toBe(400);
+    expect(mockPublishAsset).not.toHaveBeenCalled();
+  });
+
+  it('should return 400 when timestamp is not a UTC ISO-8601 string', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'publish',
+        message_id: 'msg_bad_timestamp',
+        sender_id: mockNodeId,
+        timestamp: '2026-01-01 00:00:00',
+        payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.payload).message).toContain('UTC ISO-8601');
+    expect(mockPublishAsset).not.toHaveBeenCalled();
+  });
+
+  it('should return 400 when payload is not an object', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'publish',
+        message_id: 'msg_bad_payload',
+        sender_id: mockNodeId,
+        timestamp: freshTimestamp(),
+        payload: ['not-an-object'],
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.payload).message).toContain('payload');
     expect(mockPublishAsset).not.toHaveBeenCalled();
   });
 
@@ -1338,6 +1490,317 @@ describe('A2A session alias routes', () => {
   });
 });
 
+describe('A2A task alias routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('lists tasks through the A2A alias with status filtering and pagination', async () => {
+    mockTaskListTasks.mockResolvedValue([
+      {
+        task_id: 't-1',
+        project_id: 'p-1',
+        title: 'Open task 1',
+        description: '',
+        status: 'open',
+        assignee_id: null,
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        task_id: 't-2',
+        project_id: 'p-1',
+        title: 'Closed task',
+        description: '',
+        status: 'completed',
+        assignee_id: 'node-2',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        task_id: 't-3',
+        project_id: 'p-1',
+        title: 'Open task 2',
+        description: '',
+        status: 'open',
+        assignee_id: null,
+        created_at: '2026-01-02T00:00:00.000Z',
+        updated_at: '2026-01-02T00:00:00.000Z',
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/task/list?status=open&limit=1&offset=1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockTaskListTasks).toHaveBeenCalledWith('__all__');
+    expect(JSON.parse(res.payload)).toEqual({
+      success: true,
+      data: [
+        expect.objectContaining({
+          task_id: 't-3',
+          status: 'open',
+        }),
+      ],
+      meta: {
+        total: 2,
+        limit: 1,
+        offset: 1,
+      },
+    });
+  });
+
+  it('claims tasks through the documented A2A alias and validates node ownership', async () => {
+    mockTaskClaimTask.mockResolvedValue({
+      task_id: 't-1',
+      project_id: 'p-1',
+      title: 'Claimed task',
+      description: '',
+      status: 'in_progress',
+      assignee_id: mockNodeId,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    });
+
+    const okRes = await app.inject({
+      method: 'POST',
+      url: '/a2a/task/claim',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        task_id: 'p-1:t-1',
+        node_id: mockNodeId,
+      },
+    });
+
+    expect(okRes.statusCode).toBe(200);
+    expect(mockTaskClaimTask).toHaveBeenCalledWith('p-1', 't-1', mockNodeId);
+
+    const forbiddenRes = await app.inject({
+      method: 'POST',
+      url: '/a2a/task/claim',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        task_id: 'p-1:t-1',
+        node_id: 'node-other',
+      },
+    });
+
+    expect(forbiddenRes.statusCode).toBe(403);
+  });
+
+  it('supports release and my-task aliases for authenticated nodes', async () => {
+    mockTaskReleaseTask.mockResolvedValue({
+      task_id: 't-1',
+      project_id: 'p-1',
+      title: 'Released task',
+      description: '',
+      status: 'open',
+      assignee_id: null,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-02T00:00:00.000Z',
+    });
+    mockTaskListTasks.mockResolvedValue([
+      {
+        task_id: 't-1',
+        project_id: 'p-1',
+        title: 'Mine',
+        description: '',
+        status: 'in_progress',
+        assignee_id: mockNodeId,
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        task_id: 't-2',
+        project_id: 'p-1',
+        title: 'Other',
+        description: '',
+        status: 'in_progress',
+        assignee_id: 'node-2',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const [releaseRes, myRes] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/a2a/task/release',
+        headers: { authorization: 'Bearer test' },
+        payload: {
+          task_id: 'p-1:t-1',
+          node_id: mockNodeId,
+        },
+      }),
+      app.inject({
+        method: 'GET',
+        url: `/a2a/task/my?node_id=${mockNodeId}&status=in_progress`,
+        headers: { authorization: 'Bearer test' },
+      }),
+    ]);
+
+    expect(releaseRes.statusCode).toBe(200);
+    expect(myRes.statusCode).toBe(200);
+    expect(mockTaskReleaseTask).toHaveBeenCalledWith('p-1', 't-1', mockNodeId);
+    expect(JSON.parse(myRes.payload).data).toEqual([
+      expect.objectContaining({
+        task_id: 't-1',
+        assignee_id: mockNodeId,
+      }),
+    ]);
+  });
+
+  it('submits task answers through the A2A alias and validates followup questions', async () => {
+    mockTaskGetAssetById.mockResolvedValue({ asset_id: 'sha256:asset-1' });
+    mockTaskSubmitTaskAnswer.mockResolvedValue({
+      submission_id: 'sub-1',
+      task_id: 'p-1:t-1',
+      submitter_id: mockNodeId,
+      asset_id: 'sha256:asset-1',
+      node_id: mockNodeId,
+      status: 'pending',
+    });
+
+    const okRes = await app.inject({
+      method: 'POST',
+      url: '/a2a/task/submit',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        task_id: 'p-1:t-1',
+        asset_id: 'sha256:asset-1',
+        node_id: mockNodeId,
+        followup_question: 'What evidence supports this conclusion?',
+      },
+    });
+
+    expect(okRes.statusCode).toBe(201);
+    expect(mockTaskSubmitTaskAnswer).toHaveBeenCalledWith('p-1:t-1', mockNodeId, 'sha256:asset-1', mockNodeId);
+
+    const badRes = await app.inject({
+      method: 'POST',
+      url: '/a2a/task/submit',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        task_id: 'p-1:t-1',
+        node_id: mockNodeId,
+        followup_question: 'no',
+      },
+    });
+
+    expect(badRes.statusCode).toBe(400);
+  });
+
+  it('forwards task detail, submissions, acceptance, commitment, decomposition, swarm, and eligibility aliases', async () => {
+    mockTaskGetTask.mockResolvedValue({
+      task_id: 't-1',
+      project_id: 'p-1',
+      title: 'Alias task',
+      description: '',
+      status: 'in_progress',
+      assignee_id: mockNodeId,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    });
+    mockTaskGetSubmissions.mockResolvedValue([{ submission_id: 'sub-1' }]);
+    mockTaskAcceptSubmission.mockResolvedValue({ submission_id: 'sub-1', status: 'accepted' });
+    mockTaskSetTaskCommitment.mockResolvedValue({
+      task_id: 'p-1:t-1',
+      node_id: mockNodeId,
+      deadline: '2026-01-03T00:00:00.000Z',
+      committed_by: mockNodeId,
+      committed_at: '2026-01-02T00:00:00.000Z',
+    });
+    mockTaskProposeTaskDecomposition.mockResolvedValue({
+      original_task_id: 'p-1:t-1',
+      decomposition_id: 'swarm-1',
+      sub_tasks: [],
+      estimated_parallelism: 1,
+      proposed_at: '2026-01-02T00:00:00.000Z',
+    });
+    mockTaskGetEligibleNodeCount.mockResolvedValue(4);
+    mockGetSwarm.mockResolvedValue({
+      swarm_id: 'swarm-1',
+      creator_id: mockNodeId,
+      subtasks: [],
+    });
+
+    const [detailRes, submissionsRes, acceptRes, commitmentRes, decomposeRes, swarmRes, eligibleRes] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/a2a/task/p-1:t-1',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/a2a/task/p-1:t-1/submissions',
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/a2a/task/accept-submission',
+        headers: { authorization: 'Bearer test' },
+        payload: {
+          task_id: 'p-1:t-1',
+          submission_id: 'sub-1',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/a2a/task/p-1:t-1/commitment',
+        headers: { authorization: 'Bearer test' },
+        payload: {
+          node_id: mockNodeId,
+          deadline: '2026-01-03T00:00:00.000Z',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/a2a/task/propose-decomposition',
+        headers: { authorization: 'Bearer test' },
+        payload: {
+          task_id: 'p-1:t-1',
+          sender_id: mockNodeId,
+          subtasks: ['Research'],
+        },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/a2a/task/swarm/swarm-1',
+        headers: { authorization: 'Bearer test' },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/a2a/task/eligible-count?min_reputation=55',
+      }),
+    ]);
+
+    expect(detailRes.statusCode).toBe(200);
+    expect(submissionsRes.statusCode).toBe(200);
+    expect(acceptRes.statusCode).toBe(200);
+    expect(commitmentRes.statusCode).toBe(200);
+    expect(decomposeRes.statusCode).toBe(201);
+    expect(swarmRes.statusCode).toBe(200);
+    expect(eligibleRes.statusCode).toBe(200);
+    expect(mockTaskGetTask).toHaveBeenCalledWith('p-1', 't-1');
+    expect(mockTaskGetSubmissions).toHaveBeenCalledWith('p-1:t-1');
+    expect(mockTaskAcceptSubmission).toHaveBeenCalledWith('p-1:t-1', 'sub-1', mockNodeId);
+    expect(mockTaskSetTaskCommitment).toHaveBeenCalledWith('p-1:t-1', mockNodeId, '2026-01-03T00:00:00.000Z');
+    expect(mockTaskProposeTaskDecomposition).toHaveBeenCalledWith('p-1:t-1', mockNodeId, ['Research'], undefined);
+    expect(mockTaskGetEligibleNodeCount).toHaveBeenCalledWith(55);
+  });
+});
+
 describe('A2A bid routes', () => {
   let app: FastifyInstance;
 
@@ -1425,6 +1888,167 @@ describe('A2A bid routes', () => {
 
     expect(res.statusCode).toBe(400);
     expect(mockCreateBounty).not.toHaveBeenCalled();
+  });
+});
+
+describe('A2A direct message routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('accepts recipient_id alias when sending a direct message', async () => {
+    mockSendDm.mockResolvedValue({
+      dm_id: 'dm-1',
+      from_id: mockNodeId,
+      to_id: 'node-target',
+      created_at: freshTimestamp(),
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/dm',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sender_id: mockNodeId,
+        recipient_id: 'node-target',
+        content: 'Hello there',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockSendDm).toHaveBeenCalledWith(mockNodeId, 'node-target', 'Hello there');
+  });
+
+  it('rejects a mismatched sender_id for direct messages', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/dm',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sender_id: 'node-spoofed',
+        recipient_id: 'node-target',
+        content: 'Hello there',
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mockSendDm).not.toHaveBeenCalled();
+  });
+
+  it('supports unread alias on inbox responses and returns unread meta', async () => {
+    mockGetInbox.mockResolvedValue({
+      messages: [{ dm_id: 'dm-1', from_id: 'node-2', content: 'Ping', read: false }],
+      total: 3,
+      unread: 2,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/dm/inbox?unread=true&limit=4&offset=1',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockGetInbox).toHaveBeenCalledWith(mockNodeId, {
+      read: false,
+      limit: 4,
+      offset: 1,
+    });
+    expect(JSON.parse(res.payload).meta).toEqual({
+      total: 3,
+      unread: 2,
+    });
+  });
+
+  it('lists sent direct messages', async () => {
+    mockGetSentDms.mockResolvedValue({
+      messages: [{ dm_id: 'dm-2', to_id: 'node-target', content: 'Sent message', read: true }],
+      total: 1,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/dm/sent?limit=5&offset=2',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockGetSentDms).toHaveBeenCalledWith(mockNodeId, {
+      limit: 5,
+      offset: 2,
+    });
+  });
+
+  it('marks a single direct message as read', async () => {
+    mockMarkDmRead.mockResolvedValue(undefined);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/dm/dm-1/read',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockMarkDmRead).toHaveBeenCalledWith(mockNodeId, 'dm-1');
+  });
+});
+
+describe('A2A directory routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('returns directory statistics from worker data', async () => {
+    mockWorkerDirectoryCount
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(2);
+    mockWorkerDirectoryFindMany.mockResolvedValue([
+      { specialties: ['python', 'code_review'] },
+      { specialties: ['python'] },
+      { specialties: [] },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/directory/stats',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockWorkerDirectoryCount).toHaveBeenNthCalledWith(1);
+    expect(mockWorkerDirectoryCount).toHaveBeenNthCalledWith(2, {
+      where: { is_available: true },
+    });
+    expect(mockWorkerDirectoryFindMany).toHaveBeenCalledWith({
+      select: { specialties: true },
+    });
+    expect(JSON.parse(res.payload).data).toEqual({
+      total_agents: 3,
+      online: 2,
+      capabilities: {
+        python: 2,
+        code_review: 1,
+      },
+    });
   });
 });
 
@@ -1544,7 +2168,7 @@ describe('A2A asset search routes', () => {
     expect(mockAuthenticate).not.toHaveBeenCalled();
   });
 
-  it('should scope non-published asset searches to the authenticated author and return a public projection', async () => {
+  it('should scope non-published asset searches to the authenticated author and honor sort order', async () => {
     mockAssetFindMany.mockResolvedValue([{
       asset_id: 'asset-2',
       asset_type: 'gene',
@@ -1566,7 +2190,7 @@ describe('A2A asset search routes', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: '/a2a/assets/search?q=retry&status=draft&type=gene&limit=5&offset=1',
+      url: '/a2a/assets/search?q=retry&status=draft&type=gene&limit=5&offset=1&sort=rating',
     });
 
     expect(res.statusCode).toBe(200);
@@ -1598,7 +2222,7 @@ describe('A2A asset search routes', () => {
           { tags: { has: 'retry' } },
         ],
       },
-      orderBy: { updated_at: 'desc' },
+      orderBy: { rating: 'desc' },
       take: 5,
       skip: 1,
     });
@@ -2222,5 +2846,72 @@ describe('A2A recipe fork routes', () => {
       original_recipe_id: 'recipe-1',
     });
     expect(mockForkRecipe).toHaveBeenCalledWith('recipe-1', mockNodeId);
+  });
+});
+
+describe('A2A protocol documentation routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('exposes protocol metadata', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/a2a/protocol',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      success: true,
+      data: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        required_fields: expect.arrayContaining([
+          'protocol',
+          'protocol_version',
+          'message_type',
+          'message_id',
+          'sender_id',
+          'timestamp',
+          'payload',
+        ]),
+      },
+    });
+  });
+
+  it('exposes protocol schema and command index', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/a2a/schema',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.payload);
+    expect(body.data.envelope.required_fields).toEqual(expect.arrayContaining([
+      'protocol',
+      'protocol_version',
+      'message_type',
+      'message_id',
+      'sender_id',
+      'timestamp',
+      'payload',
+    ]));
+    expect(body.data.commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        command: expect.any(String),
+        path: expect.any(String),
+      }),
+    ]));
   });
 });

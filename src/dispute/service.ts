@@ -6,6 +6,12 @@ import {
   ForbiddenError,
   InsufficientCreditsError,
 } from '../shared/errors';
+import {
+  L1_DURATION_MS,
+  L2_DURATION_MS,
+  L3_DURATION_MS,
+  MAX_REPUTATION,
+} from '../shared/constants';
 import * as arbitratorPool from './arbitrator-pool';
 import * as evidenceChain from './evidence-chain';
 import * as autoRuling from './auto-ruling';
@@ -22,6 +28,7 @@ import {
   type DisputeType,
   isEvidenceRecordList,
 } from './types';
+import type { QuarantineLevel } from '../shared/types';
 
 let prisma = new PrismaClient();
 
@@ -90,6 +97,9 @@ const APPEAL_LIST_SELECT = {
 type DisputeListRecord = Prisma.DisputeGetPayload<{ select: typeof DISPUTE_LIST_SELECT }>;
 type DisputeDetailRecord = Prisma.DisputeGetPayload<{ select: typeof DISPUTE_DETAIL_SELECT }>;
 type AppealListRecord = Prisma.AppealGetPayload<{ select: typeof APPEAL_LIST_SELECT }>;
+type RulingPenalty = DisputeRuling['penalties'][number];
+type RulingCompensation = DisputeRuling['compensations'][number];
+type ValidatedRulingPenalty = Omit<RulingPenalty, 'quarantine_level'> & { quarantine_level?: QuarantineLevel };
 
 const DISPUTE_TRANSITIONS: Record<DisputeStatus, DisputeStatus[]> = {
   filed: ['under_review', 'dismissed'],
@@ -100,12 +110,28 @@ const DISPUTE_TRANSITIONS: Record<DisputeStatus, DisputeStatus[]> = {
   escalated: ['under_review'],
 };
 
+const QUARANTINE_DURATION_MAP: Record<QuarantineLevel, number> = {
+  L1: L1_DURATION_MS,
+  L2: L2_DURATION_MS,
+  L3: L3_DURATION_MS,
+};
+
+const QUARANTINE_LEVEL_ORDER: Record<QuarantineLevel, number> = {
+  L1: 1,
+  L2: 2,
+  L3: 3,
+};
+
 function isDisputeType(value: string): value is DisputeType {
   return DISPUTE_TYPES.includes(value as DisputeType);
 }
 
 function isDisputeStatus(value: string): value is DisputeStatus {
   return DISPUTE_STATUSES.includes(value as DisputeStatus);
+}
+
+function isQuarantineLevel(value: unknown): value is QuarantineLevel {
+  return value === 'L1' || value === 'L2' || value === 'L3';
 }
 
 function normalizeSeverity(value: string): DisputeSeverity {
@@ -312,6 +338,290 @@ function canViewAllDisputes(viewer: DisputeViewer): boolean {
 
 function countJsonArrayItems(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
+}
+
+function getPreferredQuarantineLevel(
+  currentLevel: string | undefined,
+  nextLevel: QuarantineLevel,
+): QuarantineLevel {
+  if (!isQuarantineLevel(currentLevel)) {
+    return nextLevel;
+  }
+
+  return QUARANTINE_LEVEL_ORDER[currentLevel] >= QUARANTINE_LEVEL_ORDER[nextLevel]
+    ? currentLevel
+    : nextLevel;
+}
+
+function normalizePenaltyField(
+  value: unknown,
+  field: string,
+  index: number,
+): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new ValidationError(`ruling.penalties[${index}].${field} must be a non-negative integer`);
+  }
+
+  return value as number;
+}
+
+function normalizeCompensationField(
+  value: unknown,
+  field: string,
+  index: number,
+): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new ValidationError(`ruling.compensations[${index}].${field} must be a non-negative integer`);
+  }
+
+  return value as number;
+}
+
+function getRulingPenalties(ruling: object): ValidatedRulingPenalty[] {
+  const candidate = ruling as { penalties?: unknown };
+  if (candidate.penalties === undefined) {
+    return [];
+  }
+  if (!Array.isArray(candidate.penalties)) {
+    throw new ValidationError('ruling.penalties must be an array');
+  }
+
+  return candidate.penalties.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new ValidationError(`ruling.penalties[${index}] must be an object`);
+    }
+
+    const penalty = entry as Partial<RulingPenalty>;
+    if (typeof penalty.target_node_id !== 'string' || penalty.target_node_id.trim().length === 0) {
+      throw new ValidationError(`ruling.penalties[${index}].target_node_id is required`);
+    }
+    if (penalty.quarantine_level !== undefined && !isQuarantineLevel(penalty.quarantine_level)) {
+      throw new ValidationError(`ruling.penalties[${index}].quarantine_level must be L1, L2, or L3`);
+    }
+    if (
+      penalty.asset_revocation !== undefined
+      && (!Array.isArray(penalty.asset_revocation) || penalty.asset_revocation.some((assetId) => typeof assetId !== 'string'))
+    ) {
+      throw new ValidationError(`ruling.penalties[${index}].asset_revocation must be an array of asset ids`);
+    }
+
+    return {
+      target_node_id: penalty.target_node_id.trim(),
+      reputation_deduction: normalizePenaltyField(penalty.reputation_deduction ?? 0, 'reputation_deduction', index),
+      credit_fine: normalizePenaltyField(penalty.credit_fine ?? 0, 'credit_fine', index),
+      quarantine_level: penalty.quarantine_level,
+      asset_revocation: penalty.asset_revocation,
+    };
+  });
+}
+
+function getRulingCompensations(ruling: object): RulingCompensation[] {
+  const candidate = ruling as { compensations?: unknown };
+  if (candidate.compensations === undefined) {
+    return [];
+  }
+  if (!Array.isArray(candidate.compensations)) {
+    throw new ValidationError('ruling.compensations must be an array');
+  }
+
+  return candidate.compensations.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new ValidationError(`ruling.compensations[${index}] must be an object`);
+    }
+
+    const compensation = entry as Partial<RulingCompensation>;
+    if (typeof compensation.recipient_node_id !== 'string' || compensation.recipient_node_id.trim().length === 0) {
+      throw new ValidationError(`ruling.compensations[${index}].recipient_node_id is required`);
+    }
+
+    return {
+      recipient_node_id: compensation.recipient_node_id.trim(),
+      credit_amount: normalizeCompensationField(compensation.credit_amount ?? 0, 'credit_amount', index),
+      reputation_restore: normalizeCompensationField(compensation.reputation_restore ?? 0, 'reputation_restore', index),
+    };
+  });
+}
+
+async function upsertPenaltyQuarantineRecord(
+  tx: Prisma.TransactionClient,
+  nodeId: string,
+  level: QuarantineLevel,
+  reputationPenalty: number,
+  timestamp: Date,
+): Promise<void> {
+  const active = await tx.quarantineRecord.findFirst({
+    where: { node_id: nodeId, is_active: true },
+  });
+  const expiresAt = new Date(timestamp.getTime() + QUARANTINE_DURATION_MAP[level]);
+
+  if (!active) {
+    await tx.quarantineRecord.create({
+      data: {
+        node_id: nodeId,
+        level,
+        reason: 'manual',
+        started_at: timestamp,
+        expires_at: expiresAt,
+        auto_release_at: expiresAt,
+        reputation_penalty: reputationPenalty,
+        is_active: true,
+        violations: [],
+      },
+    });
+    return;
+  }
+
+  const preferredLevel = getPreferredQuarantineLevel(active.level, level);
+  const preferredExpiry = active.expires_at > expiresAt ? active.expires_at : expiresAt;
+  await tx.quarantineRecord.update({
+    where: { id: active.id },
+    data: {
+      level: preferredLevel,
+      reason: 'manual',
+      expires_at: preferredExpiry,
+      auto_release_at: preferredExpiry,
+      reputation_penalty: Math.max(active.reputation_penalty, reputationPenalty),
+      is_active: true,
+    },
+  });
+}
+
+async function applyPenalty(
+  tx: Prisma.TransactionClient,
+  disputeId: string,
+  penalty: ValidatedRulingPenalty,
+  timestamp: Date,
+): Promise<void> {
+  const node = await tx.node.findUnique({
+    where: { node_id: penalty.target_node_id },
+    select: { credit_balance: true, reputation: true },
+  });
+
+  if (!node) {
+    throw new NotFoundError('Node', penalty.target_node_id);
+  }
+
+  const nextCreditBalance = node.credit_balance - penalty.credit_fine;
+  const nextReputation = Math.max(0, node.reputation - penalty.reputation_deduction);
+
+  if (penalty.credit_fine > 0 || penalty.reputation_deduction > 0) {
+    await tx.node.update({
+      where: { node_id: penalty.target_node_id },
+      data: {
+        ...(penalty.credit_fine > 0 && { credit_balance: nextCreditBalance }),
+        ...(penalty.reputation_deduction > 0 && { reputation: nextReputation }),
+      },
+    });
+  }
+
+  if (penalty.credit_fine > 0) {
+    await tx.creditTransaction.create({
+      data: {
+        node_id: penalty.target_node_id,
+        amount: -penalty.credit_fine,
+        type: 'dispute_penalty',
+        description: `Penalty applied by ruling for dispute ${disputeId}`,
+        balance_after: nextCreditBalance,
+      },
+    });
+  }
+
+  if (penalty.reputation_deduction > 0) {
+    await tx.reputationEvent.create({
+      data: {
+        node_id: penalty.target_node_id,
+        event_type: 'dispute_penalty',
+        delta: -penalty.reputation_deduction,
+        reason: `Ruling penalty for dispute ${disputeId}`,
+      },
+    });
+  }
+
+  if (penalty.quarantine_level) {
+    await upsertPenaltyQuarantineRecord(
+      tx,
+      penalty.target_node_id,
+      penalty.quarantine_level,
+      penalty.reputation_deduction,
+      timestamp,
+    );
+  }
+
+  if (penalty.asset_revocation && penalty.asset_revocation.length > 0) {
+    await tx.asset.updateMany({
+      where: { asset_id: { in: penalty.asset_revocation } },
+      data: { status: 'revoked' },
+    });
+  }
+}
+
+async function applyCompensation(
+  tx: Prisma.TransactionClient,
+  disputeId: string,
+  compensation: RulingCompensation,
+): Promise<void> {
+  const node = await tx.node.findUnique({
+    where: { node_id: compensation.recipient_node_id },
+    select: { credit_balance: true, reputation: true },
+  });
+
+  if (!node) {
+    throw new NotFoundError('Node', compensation.recipient_node_id);
+  }
+
+  const nextCreditBalance = node.credit_balance + compensation.credit_amount;
+  const nextReputation = Math.min(MAX_REPUTATION, node.reputation + compensation.reputation_restore);
+
+  if (compensation.credit_amount > 0 || compensation.reputation_restore > 0) {
+    await tx.node.update({
+      where: { node_id: compensation.recipient_node_id },
+      data: {
+        ...(compensation.credit_amount > 0 && { credit_balance: nextCreditBalance }),
+        ...(compensation.reputation_restore > 0 && { reputation: nextReputation }),
+      },
+    });
+  }
+
+  if (compensation.credit_amount > 0) {
+    await tx.creditTransaction.create({
+      data: {
+        node_id: compensation.recipient_node_id,
+        amount: compensation.credit_amount,
+        type: 'dispute_compensation',
+        description: `Compensation awarded for dispute ${disputeId}`,
+        balance_after: nextCreditBalance,
+      },
+    });
+  }
+
+  if (compensation.reputation_restore > 0) {
+    await tx.reputationEvent.create({
+      data: {
+        node_id: compensation.recipient_node_id,
+        event_type: 'dispute_compensation',
+        delta: compensation.reputation_restore,
+        reason: `Ruling compensation for dispute ${disputeId}`,
+      },
+    });
+  }
+}
+
+async function applyRulingSideEffects(
+  tx: Prisma.TransactionClient,
+  disputeId: string,
+  ruling: object,
+  timestamp: Date,
+): Promise<void> {
+  const penalties = getRulingPenalties(ruling);
+  const compensations = getRulingCompensations(ruling);
+
+  for (const penalty of penalties) {
+    await applyPenalty(tx, disputeId, penalty, timestamp);
+  }
+
+  for (const compensation of compensations) {
+    await applyCompensation(tx, disputeId, compensation);
+  }
 }
 
 function buildDisputeVisibilityWhere(viewer: DisputeViewer): Record<string, unknown> {
@@ -809,6 +1119,10 @@ export async function issueRuling(
         hearing_started_at: hearingStartedAt,
       },
     });
+
+    if (nextStatus === 'resolved' || nextStatus === 'dismissed') {
+      await applyRulingSideEffects(tx, disputeId, ruling, now);
+    }
 
     return {
       updated,

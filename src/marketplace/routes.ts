@@ -1,10 +1,20 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireAuth } from '../shared/auth';
 import * as marketplaceService from './service';
+import * as pricingService from './pricing';
 import * as serviceMarketplaceService from './service.marketplace';
 import type { AssetType } from '../shared/types';
 
 export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
+  const sendPricing = async (
+    request: FastifyRequest<{ Params: { listingId: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { listingId } = request.params;
+    const result = await pricingService.calculateDynamicPrice(listingId, app.prisma);
+    return reply.send({ success: true, data: result });
+  };
+
   app.post('/list', {
     schema: { tags: ['Marketplace'] },
     preHandler: [requireAuth()],
@@ -77,6 +87,14 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ success: true, data: result });
   });
+
+  app.get('/pricing/:listingId', {
+    schema: { tags: ['Marketplace'] },
+  }, sendPricing);
+
+  app.get('/calculate-price/:listingId', {
+    schema: { tags: ['Marketplace'] },
+  }, sendPricing);
 
   app.get('/transactions/:nodeId', {
     schema: { tags: ['Marketplace'] },

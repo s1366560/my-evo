@@ -38,6 +38,7 @@ function toCircle(record: Record<string, unknown>): Circle {
     status: record.status as Circle['status'],
     creator_id: record.creator_id as string,
     participant_count: record.participant_count as number,
+    gene_pool: (record.gene_pool as string[]) ?? [],
     rounds: (record.rounds as unknown as CircleRound[]) ?? [],
     rounds_completed: record.rounds_completed as number,
     outcomes: (record.outcomes as CircleOutcome[]) ?? [],
@@ -74,6 +75,16 @@ function hasAuthoritativeMemberRoster(
   circle: { members?: unknown; creator_id: string; participant_count: number },
 ): boolean {
   return getCircleMemberIds(circle).length >= circle.participant_count;
+}
+
+function getGenePool(circle: { gene_pool?: unknown }): string[] {
+  if (!Array.isArray(circle.gene_pool)) {
+    return [];
+  }
+
+  return circle.gene_pool.filter(
+    (geneId): geneId is string => typeof geneId === 'string' && geneId.length > 0,
+  );
 }
 
 function isSerializationFailure(error: unknown): error is { code: string } {
@@ -155,6 +166,7 @@ export async function createCircle(
         creator_id: creatorId,
         participant_count: 1,
         members: [creatorId] as unknown as Prisma.InputJsonValue,
+        gene_pool: [],
         rounds: [],
         outcomes: [],
         entry_fee: CIRCLE_ENTRY_FEE,
@@ -316,6 +328,68 @@ export async function startRound(
   const updated = await prisma.circle.update({
     where: { circle_id: circleId },
     data: { rounds: updatedRounds as unknown as Prisma.InputJsonValue },
+  });
+
+  return toCircle(updated as unknown as Record<string, unknown>);
+}
+
+export async function contributeGene(
+  circleId: string,
+  nodeId: string,
+  geneId: string,
+): Promise<Circle> {
+  const updated = await runSerializableTransaction(async (tx) => {
+    const circle = await tx.circle.findUnique({
+      where: { circle_id: circleId },
+    });
+
+    if (!circle) {
+      throw new NotFoundError('Circle', circleId);
+    }
+
+    if (circle.status !== 'active') {
+      throw new ValidationError('Circle is not active');
+    }
+
+    if (!hasAuthoritativeMemberRoster(circle)) {
+      throw new ConflictError(
+        'Circle member roster requires migration backfill before accepting gene contributions',
+      );
+    }
+
+    const memberIds = getCircleMemberIds(circle);
+    if (!memberIds.includes(nodeId)) {
+      throw new ForbiddenError('Only circle participants can contribute genes');
+    }
+
+    const asset = await tx.asset.findUnique({
+      where: { asset_id: geneId },
+      select: { author_id: true, asset_type: true },
+    });
+
+    if (!asset) {
+      throw new NotFoundError('Asset', geneId);
+    }
+
+    if (asset.author_id !== nodeId) {
+      throw new ForbiddenError('Can only contribute genes you authored');
+    }
+
+    if (asset.asset_type.toLowerCase() !== 'gene') {
+      throw new ValidationError('Only gene assets can be contributed to the circle gene pool');
+    }
+
+    const genePool = getGenePool(circle);
+    if (genePool.includes(geneId)) {
+      throw new ConflictError('Gene is already in the circle gene pool');
+    }
+
+    return tx.circle.update({
+      where: { circle_id: circleId },
+      data: {
+        gene_pool: [...genePool, geneId] as unknown as Prisma.InputJsonValue,
+      },
+    });
   });
 
   return toCircle(updated as unknown as Record<string, unknown>);

@@ -23,6 +23,27 @@ export async function readingRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
+  app.post('/ingest', {
+    schema: {
+      tags: ['Reading'],
+      body: {
+        type: 'object',
+        properties: {
+          url: { type: 'string' },
+          text: { type: 'string' },
+          title: { type: 'string' },
+        },
+        additionalProperties: false,
+      },
+    },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = (request.body ?? {}) as { url?: string; text?: string; title?: string };
+    const result = await readingService.ingestReading(body, auth.node_id);
+    return reply.send({ success: true, data: result });
+  });
+
   // List sessions
   app.get('/sessions', {
     schema: { tags: ['Reading'] },
@@ -122,13 +143,112 @@ export async function readingRoutes(app: FastifyInstance): Promise<void> {
   // Get recent trending reading analyses
   app.get('/trending', {
     schema: { tags: ['Reading'] },
-    preHandler: [requireAuth()],
   }, async (request, reply) => {
-    const auth = request.auth!;
     const { limit } = request.query as { limit?: string | number };
     const parsedLimit = typeof limit === 'string' ? Number.parseInt(limit, 10) : Number(limit ?? 10);
     const safeLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 10;
-    const trending = readingService.getTrendingReadings(auth.node_id, safeLimit);
+    const trending = readingService.getCommunityTrendingReadings(safeLimit);
     return reply.send({ success: true, data: trending });
+  });
+
+  app.get('/history', {
+    schema: { tags: ['Reading'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const query = request.query as {
+      limit?: string | number;
+      offset?: string | number;
+      sort_by?: 'newest' | 'oldest';
+      source_type?: 'url' | 'text';
+    };
+    const parsedLimit = typeof query.limit === 'string' ? Number.parseInt(query.limit, 10) : Number(query.limit ?? 20);
+    const parsedOffset = typeof query.offset === 'string' ? Number.parseInt(query.offset, 10) : Number(query.offset ?? 0);
+    const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20;
+    const offset = Number.isInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
+    const result = readingService.getReadingHistory(auth.node_id, limit, offset, {
+      sort_by: query.sort_by,
+      source_type: query.source_type,
+    });
+    return reply.send({ success: true, data: result });
+  });
+
+  app.get('/my-questions', {
+    schema: { tags: ['Reading'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const query = request.query as {
+      status?: 'pending' | 'bountied' | 'dismissed';
+      limit?: string | number;
+      offset?: string | number;
+    };
+    const parsedLimit = typeof query.limit === 'string' ? Number.parseInt(query.limit, 10) : Number(query.limit ?? 20);
+    const parsedOffset = typeof query.offset === 'string' ? Number.parseInt(query.offset, 10) : Number(query.offset ?? 0);
+    const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20;
+    const offset = Number.isInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
+    const result = readingService.listMyQuestions(auth.node_id, {
+      status: query.status,
+      limit,
+      offset,
+    });
+    return reply.send({ success: true, data: result });
+  });
+
+  app.post('/questions/:questionId/bounty', {
+    schema: {
+      tags: ['Reading'],
+      body: {
+        type: 'object',
+        properties: {
+          amount: { type: 'number', minimum: 1 },
+          deadline: { type: 'string' },
+          description: { type: 'string' },
+          requirements: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+        required: ['amount', 'deadline'],
+        additionalProperties: false,
+      },
+    },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { questionId } = request.params as { questionId: string };
+    const body = request.body as {
+      amount: number;
+      deadline: string;
+      description?: string;
+      requirements?: string[];
+    };
+    const result = await readingService.createQuestionBounty(
+      auth.node_id,
+      auth.node_id,
+      questionId,
+      body,
+    );
+    return reply.status(201).send({ success: true, data: result });
+  });
+
+  app.post('/questions/:questionId/dismiss', {
+    schema: { tags: ['Reading'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { questionId } = request.params as { questionId: string };
+    const result = readingService.dismissQuestion(auth.node_id, questionId);
+    return reply.send({ success: true, data: result });
+  });
+
+  app.get('/:readingId', {
+    schema: { tags: ['Reading'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { readingId } = request.params as { readingId: string };
+    const result = readingService.getReadingDetail(readingId, auth.node_id);
+    return reply.send({ success: true, data: result });
   });
 }

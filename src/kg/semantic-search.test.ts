@@ -6,8 +6,12 @@ const mockPrisma = {
   asset: {
     findMany: jest.fn(),
     findUnique: jest.fn(),
-    create: jest.fn(),
+    upsert: jest.fn(),
     delete: jest.fn(),
+  },
+  knowledgeGraphRelationship: {
+    findMany: jest.fn(),
+    upsert: jest.fn(),
   },
 } as any;
 
@@ -20,6 +24,7 @@ describe('semantic-search module', () => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
     mockPrisma.asset.findMany.mockResolvedValue([]);
+    mockPrisma.knowledgeGraphRelationship.findMany.mockResolvedValue([]);
   });
 
   describe('findSimilarAssets', () => {

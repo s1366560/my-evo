@@ -28,7 +28,10 @@ export function setPrisma(client: unknown): void {
   _prisma = client;
 }
 
-function db() {
+function db(prismaClient?: PrismaClient) {
+  if (prismaClient) {
+    return prismaClient;
+  }
   if (!_prisma) {
     _prisma = new PrismaClient();
   }
@@ -46,8 +49,9 @@ function db() {
  */
 export async function calculateDynamicPrice(
   listingId: string,
+  prismaClient?: PrismaClient,
 ): Promise<{ price: number; breakdown: PriceBreakdown }> {
-  const listing = await db().marketplaceListing.findUnique({
+  const listing = await db(prismaClient).marketplaceListing.findUnique({
     where: { listing_id: listingId },
     include: { asset: true },
   });
@@ -59,7 +63,7 @@ export async function calculateDynamicPrice(
   const asset = listing.asset as Record<string, unknown>;
   const assetGdi = (asset['gdi_score'] as number) ?? 50;
 
-  const networkStats = await db().node.aggregate({
+  const networkStats = await db(prismaClient).node.aggregate({
     _avg: { reputation: true },
   });
   const networkAvgGdi = networkStats._avg.reputation ?? 50;
@@ -69,7 +73,7 @@ export async function calculateDynamicPrice(
   const fetchCount = (asset['downloads'] as number) ?? 0;
   const demandFactor = Math.log(1 + fetchCount) + 1;
 
-  const similarCount = await db().similarityRecord.count({
+  const similarCount = await db(prismaClient).similarityRecord.count({
     where: {
       OR: [{ asset_id: listing.asset_id }, { compared_to: listing.asset_id }],
     },

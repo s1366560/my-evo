@@ -1,5 +1,6 @@
 import type { Rule, RuleConflict } from './types';
 import { getAllRules } from './engine';
+import { NotFoundError, ValidationError } from '../shared/errors';
 
 export async function detectConflicts(newRule?: {
   rule_id?: string;
@@ -124,7 +125,7 @@ export async function resolveConflict(
   const ruleB = rules.get(ruleBId);
 
   if (!ruleA || !ruleB) {
-    throw new Error(`Rules not found: ${ruleAId}, ${ruleBId}`);
+    throw new NotFoundError('Rules', `${ruleAId}, ${ruleBId}`);
   }
 
   switch (resolution) {
@@ -164,7 +165,7 @@ export async function resolveConflict(
       };
 
     default:
-      throw new Error(`Unknown resolution: ${resolution}`);
+      throw new ValidationError(`Unknown resolution: ${resolution}`);
   }
 }
 
@@ -182,7 +183,7 @@ export async function suggestRulePriority(
   const ruleB = rules.get(ruleBId);
 
   if (!ruleA || !ruleB) {
-    throw new Error(`Rules not found: ${ruleAId}, ${ruleBId}`);
+    throw new NotFoundError('Rules', `${ruleAId}, ${ruleBId}`);
   }
 
   // Critical severity gets higher priority

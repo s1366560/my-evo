@@ -49,7 +49,7 @@ describe('Reputation routes', () => {
       }),
       app.inject({
         method: 'GET',
-        url: '/a2a/reputation/leaderboard?limit=7',
+        url: '/a2a/reputation/leaderboard?limit=7&offset=3',
       }),
     ]);
 
@@ -58,6 +58,6 @@ describe('Reputation routes', () => {
     expect(leaderboardRes.statusCode).toBe(200);
     expect(mockGetScore).toHaveBeenCalledWith('node-1', prisma);
     expect(mockGetHistory).toHaveBeenCalledWith('node-1', 5, 2, prisma);
-    expect(mockGetLeaderboard).toHaveBeenCalledWith(7, prisma);
+    expect(mockGetLeaderboard).toHaveBeenCalledWith(7, 3, prisma);
   });
 });

@@ -395,6 +395,19 @@ export interface QuarantineRecord {
   is_active: boolean;
 }
 
+export interface QuarantineAppeal {
+  appeal_id: string;
+  node_id: string;
+  quarantine_record_id: string;
+  grounds: string;
+  evidence: unknown[];
+  status: 'submitted' | 'under_review' | 'approved' | 'rejected';
+  submitted_at: string;
+  reviewed_at?: string;
+  reviewed_by?: string;
+  resolution?: string;
+}
+
 export interface Violation {
   type: string;
   severity: 'low' | 'medium' | 'high';
@@ -614,6 +627,7 @@ export interface Circle {
   status: 'active' | 'completed' | 'archived';
   creator_id: string;
   participant_count: number;
+  gene_pool: string[];
   rounds: CircleRound[];
   rounds_completed: number;
   outcomes: CircleOutcome[];

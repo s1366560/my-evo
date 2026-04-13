@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../shared/errors';
 import { MAX_SUBTASKS, TITLE_MAX_LENGTH } from '../shared/constants';
+import { addPoints } from '../reputation/service';
 
 let prisma = new PrismaClient();
 
@@ -265,28 +266,31 @@ export async function submitTaskAnswer(
   assetId?: string,
   submitterNodeId?: string,
 ): Promise<SubmissionOutput> {
-  const parts = taskId.split(':');
-  if (parts.length !== 2) {
-    throw new ValidationError('Invalid taskId format, expected projectId:taskId');
+  const { projectId, scopedTaskId } = parseCompositeTaskId(taskId);
+  const normalizedAssetId = assetId?.trim() || undefined;
+  const normalizedNodeId = submitterNodeId?.trim() || undefined;
+
+  if (!normalizedAssetId && !normalizedNodeId) {
+    throw new ValidationError('Submission requires asset_id or node_id');
   }
-  const [projectId, tId] = parts;
-  if (!tId) {
-    throw new ValidationError('Invalid taskId format, expected projectId:taskId');
-  }
+
   const task = await prisma.projectTask.findFirst({
-    where: { task_id: tId, project_id: projectId },
+    where: { task_id: scopedTaskId, project_id: projectId },
   });
   if (!task) {
-    throw new NotFoundError('Task', tId);
+    throw new NotFoundError('Task', scopedTaskId);
+  }
+  if (!['in_progress', 'completed'].includes(task.status)) {
+    throw new ValidationError('Task must be in progress or completed before submitting an answer');
   }
   const submissionId = crypto.randomUUID();
   const submission = await prisma.taskSubmission.create({
     data: {
       submission_id: submissionId,
-      task_id: tId,
+      task_id: scopedTaskId,
       submitter_id: nodeId,
-      asset_id: assetId ?? null,
-      node_id: submitterNodeId ?? null,
+      asset_id: normalizedAssetId ?? null,
+      node_id: normalizedNodeId ?? null,
       status: 'pending',
     },
   });
@@ -331,7 +335,59 @@ export async function acceptSubmission(
     if (!acceptedSubmission) {
       throw new NotFoundError('Submission', submissionId);
     }
+    await addPoints(
+      acceptedSubmission.submitter_id,
+      'worker_task_completed',
+      tx as unknown as PrismaClient,
+    );
     return mapSubmission(acceptedSubmission);
+  });
+}
+
+export async function rejectSubmission(
+  taskId: string,
+  submissionId: string,
+  actorId: string,
+): Promise<SubmissionOutput> {
+  const { projectId, scopedTaskId } = parseCompositeTaskId(taskId);
+  return prisma.$transaction(async (tx) => {
+    await touchAssignedTask(
+      tx,
+      projectId,
+      scopedTaskId,
+      actorId,
+      'Only the task assignee can reject submissions',
+      new Date(),
+    );
+    const updated = await tx.taskSubmission.updateMany({
+      where: {
+        submission_id: submissionId,
+        task_id: scopedTaskId,
+        status: 'pending',
+      },
+      data: { status: 'rejected' },
+    });
+    if (updated.count === 0) {
+      const submission = await tx.taskSubmission.findFirst({
+        where: { submission_id: submissionId, task_id: scopedTaskId },
+      });
+      if (!submission) {
+        throw new NotFoundError('Submission', submissionId);
+      }
+      throw new ConflictError('Submission state changed; retry');
+    }
+    const rejectedSubmission = await tx.taskSubmission.findFirst({
+      where: { submission_id: submissionId, task_id: scopedTaskId },
+    });
+    if (!rejectedSubmission) {
+      throw new NotFoundError('Submission', submissionId);
+    }
+    await addPoints(
+      rejectedSubmission.submitter_id,
+      'worker_task_failed',
+      tx as unknown as PrismaClient,
+    );
+    return mapSubmission(rejectedSubmission);
   });
 }
 

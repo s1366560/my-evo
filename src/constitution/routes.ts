@@ -4,6 +4,47 @@ import { EvoMapError } from '../shared/errors';
 import * as service from './service';
 
 export async function constitutionRoutes(app: FastifyInstance) {
+  const getAmendmentById = async (request: {
+    params: { amendmentId: string };
+  }) => {
+    const amendment = await service.getAmendment(request.params.amendmentId);
+    if (!amendment) {
+      throw new EvoMapError(`Amendment not found: ${request.params.amendmentId}`, 'NOT_FOUND', 404);
+    }
+    return { success: true, data: amendment };
+  };
+
+  const voteOnAmendment = async (request: {
+    auth?: { node_id: string };
+    params: { amendmentId: string };
+    body: {
+      decision: 'approve' | 'reject' | 'abstain';
+      weight?: number;
+      reason?: string;
+    };
+  }) => {
+    const auth = request.auth!;
+    const { body } = request;
+
+    if (!['approve', 'reject', 'abstain'].includes(body.decision)) {
+      throw new EvoMapError('decision must be approve, reject, or abstain', 'VALIDATION_ERROR', 400);
+    }
+
+    const amendment = await service.voteOnAmendment(
+      request.params.amendmentId,
+      auth.node_id,
+      body.decision,
+      body.weight ?? 1,
+      body.reason,
+    );
+    return { success: true, data: amendment };
+  };
+
+  const ratifyAmendment = async (request: { params: { amendmentId: string } }) => {
+    const result = await service.ratifyAmendment(request.params.amendmentId);
+    return { success: true, data: result };
+  };
+
   // ===== Rule Engine =====
 
   app.get('/rules', {
@@ -243,49 +284,32 @@ export async function constitutionRoutes(app: FastifyInstance) {
   app.get('/amendment/:amendmentId', {
     schema: { tags: ['Constitution'] },
     preHandler: [requireAuth()],
-  }, async (request) => {
-    const params = request.params as { amendmentId: string };
-    const amendment = await service.getAmendment(params.amendmentId);
-    if (!amendment) {
-      throw new EvoMapError(`Amendment not found: ${params.amendmentId}`, 'NOT_FOUND', 404);
-    }
-    return { success: true, data: amendment };
-  });
+  }, async (request) => getAmendmentById(request as Parameters<typeof getAmendmentById>[0]));
+
+  app.get('/amendments/:amendmentId', {
+    schema: { tags: ['Constitution'] },
+    preHandler: [requireAuth()],
+  }, async (request) => getAmendmentById(request as Parameters<typeof getAmendmentById>[0]));
 
   app.post('/amendment/:amendmentId/vote', {
     schema: { tags: ['Constitution'] },
     preHandler: [requireAuth()],
-  }, async (request) => {
-    const auth = request.auth!;
-    const params = request.params as { amendmentId: string };
-    const body = request.body as {
-      decision: 'approve' | 'reject' | 'abstain';
-      weight?: number;
-      reason?: string;
-    };
+  }, async (request) => voteOnAmendment(request as Parameters<typeof voteOnAmendment>[0]));
 
-    if (!['approve', 'reject', 'abstain'].includes(body.decision)) {
-      throw new EvoMapError('decision must be approve, reject, or abstain', 'VALIDATION_ERROR', 400);
-    }
-
-    const amendment = await service.voteOnAmendment(
-      params.amendmentId,
-      auth.node_id,
-      body.decision,
-      body.weight ?? 1,
-      body.reason,
-    );
-    return { success: true, data: amendment };
-  });
+  app.post('/amendments/:amendmentId/vote', {
+    schema: { tags: ['Constitution'] },
+    preHandler: [requireAuth()],
+  }, async (request) => voteOnAmendment(request as Parameters<typeof voteOnAmendment>[0]));
 
   app.post('/amendment/:amendmentId/ratify', {
     schema: { tags: ['Constitution'] },
     preHandler: [requireAuth()],
-  }, async (request) => {
-    const params = request.params as { amendmentId: string };
-    const result = await service.ratifyAmendment(params.amendmentId);
-    return { success: true, data: result };
-  });
+  }, async (request) => ratifyAmendment(request as Parameters<typeof ratifyAmendment>[0]));
+
+  app.post('/amendments/:amendmentId/ratify', {
+    schema: { tags: ['Constitution'] },
+    preHandler: [requireAuth()],
+  }, async (request) => ratifyAmendment(request as Parameters<typeof ratifyAmendment>[0]));
 
   // ===== Conflict Detection =====
 

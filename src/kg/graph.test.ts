@@ -30,8 +30,12 @@ const mockPrisma = {
   asset: {
     findMany: jest.fn(),
     findUnique: jest.fn(),
-    create: jest.fn(),
+    upsert: jest.fn(),
     delete: jest.fn(),
+  },
+  knowledgeGraphRelationship: {
+    findMany: jest.fn(),
+    upsert: jest.fn(),
   },
 } as any;
 
@@ -46,12 +50,13 @@ describe('graph module', () => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
     mockPrisma.asset.findMany.mockResolvedValue([]);
+    mockPrisma.knowledgeGraphRelationship.findMany.mockResolvedValue([]);
   });
 
   describe('createNode', () => {
     it('should create node via PostgreSQL fallback when Neo4j is unavailable', async () => {
       jest.spyOn(neo4jClient, 'isConnected').mockResolvedValue(false);
-      mockPrisma.asset.create.mockResolvedValue({
+      mockPrisma.asset.upsert.mockResolvedValue({
         asset_id: 'new-node',
         asset_type: 'gene',
         name: 'Test',
@@ -89,6 +94,14 @@ describe('graph module', () => {
       mockPrisma.asset.findUnique.mockResolvedValue({ asset_id: 'a1', signals: [] } as any);
       mockPrisma.asset.findUnique.mockResolvedValueOnce({ asset_id: 'a1', signals: [] } as any);
       mockPrisma.asset.findUnique.mockResolvedValueOnce({ asset_id: 'a2', signals: [] } as any);
+      mockPrisma.knowledgeGraphRelationship.upsert.mockResolvedValue({
+        relationship_id: 'rel-uses',
+        from_id: 'a1',
+        to_id: 'a2',
+        relationship_type: 'uses',
+        properties: {},
+        created_at: new Date('2025-01-01T00:00:00.000Z'),
+      });
 
       const result = await graph.createRelationship('a1', 'a2', 'uses');
 

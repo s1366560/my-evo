@@ -176,19 +176,37 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: task });
   });
 
-  // GET /api/v2/task/my — tasks assigned to or created by the authenticated node
+  // GET /api/v2/task/my — tasks claimed by the authenticated node
   app.get('/task/my', {
     schema: { tags: ['Task'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const { status, role } = request.query as { status?: string; role?: string };
+    const { status, role, node_id } = request.query as { status?: string; role?: string; node_id?: string };
+    if (role && role !== 'assignee') {
+      return reply.status(400).send({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: 'Unsupported role filter. Only role=assignee is currently supported.',
+      });
+    }
+    if (node_id !== undefined && node_id !== auth.node_id) {
+      return reply.status(403).send({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'node_id must match authenticated node',
+      });
+    }
     const allTasks = await taskService.listTasks('__all__');
     const filtered = allTasks.filter((t) => {
-      if (role === 'assignee') return t.assignee_id === auth.node_id;
-      return t.assignee_id === auth.node_id;
+      if (t.assignee_id !== auth.node_id) {
+        return false;
+      }
+      if (status) {
+        return t.status === status;
+      }
+      return true;
     });
-    void status;
     return reply.send({ success: true, data: filtered });
   });
 
@@ -240,9 +258,12 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const body = request.body as { task_id: string };
+    const body = request.body as { task_id: string; node_id?: string };
     if (!body.task_id) {
       throw new EvoMapError('task_id is required', 'VALIDATION_ERROR', 400);
+    }
+    if (body.node_id !== undefined && body.node_id !== auth.node_id) {
+      throw new ForbiddenError('node_id must match authenticated node');
     }
     const parts = body.task_id.split(':');
     if (parts.length !== 2) {
@@ -263,6 +284,9 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
     if (!body.task_id) {
       throw new EvoMapError('task_id is required', 'VALIDATION_ERROR', 400);
     }
+    if (!body.asset_id && !body.node_id) {
+      return reply.status(400).send({ success: false, error: 'asset_id or node_id is required' });
+    }
     if (body.node_id !== undefined && body.node_id !== auth.node_id) {
       throw new ForbiddenError('node_id must match authenticated node');
     }
@@ -276,6 +300,7 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       body.task_id,
       auth.node_id,
       body.asset_id,
+      body.node_id,
     );
     return reply.status(201).send({ success: true, data: submission });
   });
@@ -291,6 +316,20 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
       throw new EvoMapError('task_id and submission_id are required', 'VALIDATION_ERROR', 400);
     }
     const submission = await taskService.acceptSubmission(body.task_id, body.submission_id, auth.node_id);
+    return reply.send({ success: true, data: submission });
+  });
+
+  // POST /api/v2/task/reject-submission — reject a submission
+  app.post('/task/reject-submission', {
+    schema: { tags: ['Task'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as { task_id: string; submission_id: string };
+    if (!body.task_id || !body.submission_id) {
+      throw new EvoMapError('task_id and submission_id are required', 'VALIDATION_ERROR', 400);
+    }
+    const submission = await taskService.rejectSubmission(body.task_id, body.submission_id, auth.node_id);
     return reply.send({ success: true, data: submission });
   });
 

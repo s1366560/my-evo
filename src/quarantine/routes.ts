@@ -48,6 +48,97 @@ export async function quarantineRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
+  app.get('/history/:nodeId', {
+    schema: { tags: ['Quarantine'] },
+  }, async (request, reply) => {
+    const { nodeId } = request.params as { nodeId: string };
+    const { limit } = request.query as { limit?: string };
+
+    const result = await quarantineService.listHistory(
+      nodeId,
+      limit ? Number(limit) : 20,
+    );
+
+    return reply.send({ success: true, data: result });
+  });
+
+  app.post('/:nodeId/appeal', {
+    schema: { tags: ['Quarantine'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    if (request.auth?.auth_type === 'api_key') {
+      throw new ForbiddenError('API keys cannot appeal quarantine');
+    }
+
+    const { nodeId } = request.params as { nodeId: string };
+    const body = request.body as {
+      grounds?: string;
+      evidence?: unknown[];
+    };
+
+    if (!body.grounds) {
+      throw new ValidationError('grounds is required');
+    }
+    if (body.evidence !== undefined && !Array.isArray(body.evidence)) {
+      throw new ValidationError('evidence must be an array');
+    }
+
+    const result = await quarantineService.submitAppeal(
+      nodeId,
+      request.auth!.node_id,
+      body.grounds,
+      body.evidence ?? [],
+    );
+
+    return reply.status(201).send({ success: true, data: result });
+  });
+
+  app.get('/:nodeId/appeals', {
+    schema: { tags: ['Quarantine'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    if (request.auth?.auth_type === 'api_key') {
+      throw new ForbiddenError('API keys cannot view quarantine appeals');
+    }
+
+    const { nodeId } = request.params as { nodeId: string };
+    if (request.auth!.node_id !== nodeId && request.auth?.trust_level !== 'trusted') {
+      throw new ForbiddenError('Can only view your own quarantine appeals');
+    }
+
+    const result = await quarantineService.listAppeals(nodeId);
+
+    return reply.send({ success: true, data: result });
+  });
+
+  app.post('/appeals/:appealId/review', {
+    schema: { tags: ['Quarantine'] },
+    preHandler: [requireAuth(), requireTrustLevel('trusted')],
+  }, async (request, reply) => {
+    if (request.auth?.auth_type === 'api_key') {
+      throw new ForbiddenError('API keys cannot review quarantine appeals');
+    }
+
+    const { appealId } = request.params as { appealId: string };
+    const body = request.body as {
+      status?: 'under_review' | 'approved' | 'rejected';
+      resolution?: string;
+    };
+
+    if (!body.status) {
+      throw new ValidationError('status is required');
+    }
+
+    const result = await quarantineService.reviewAppeal(
+      appealId,
+      request.auth!.node_id,
+      body.status,
+      body.resolution,
+    );
+
+    return reply.send({ success: true, data: result });
+  });
+
   app.post('/release/:nodeId', {
     schema: { tags: ['Quarantine'] },
     preHandler: [requireAuth(), requireTrustLevel('trusted')],

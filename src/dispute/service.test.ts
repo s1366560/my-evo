@@ -32,10 +32,19 @@ const mockPrisma = {
   },
   asset: {
     findUnique: jest.fn(),
+    updateMany: jest.fn(),
   },
   creditTransaction: {
     create: jest.fn(),
     aggregate: jest.fn(),
+  },
+  reputationEvent: {
+    create: jest.fn(),
+  },
+  quarantineRecord: {
+    findFirst: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
   },
   node: {
     findMany: jest.fn(),
@@ -111,13 +120,19 @@ beforeEach(() => {
   mockPrisma.node.findUnique.mockImplementation(async ({ where }: { where: { node_id: string } }) => ({
     node_id: where.node_id,
     credit_balance: 1000,
+    reputation: 80,
   }));
   mockPrisma.node.update.mockResolvedValue({ credit_balance: 975 });
   mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
   mockPrisma.dispute.updateMany.mockResolvedValue({ count: 1 });
   mockPrisma.appeal.updateMany.mockResolvedValue({ count: 1 });
   mockPrisma.asset.findUnique.mockResolvedValue({ author_id: 'node-defendant' });
+  mockPrisma.asset.updateMany.mockResolvedValue({ count: 0 });
   mockPrisma.creditTransaction.create.mockResolvedValue({});
+  mockPrisma.reputationEvent.create.mockResolvedValue({});
+  mockPrisma.quarantineRecord.findFirst.mockResolvedValue(null);
+  mockPrisma.quarantineRecord.create.mockResolvedValue({});
+  mockPrisma.quarantineRecord.update.mockResolvedValue({});
 });
 
 // ─── Dispute CRUD ───────────────────────────────────────────────────────────────
@@ -725,6 +740,39 @@ describe('Dispute Service', () => {
       await expect(service.autoGenerateRuling('dsp_dismissed', 'arb-1'))
         .rejects.toThrow(ConflictError);
     });
+
+    it('maps governance auto-rulings to L3 quarantine penalties', async () => {
+      const governanceDispute = {
+        dispute_id: 'dsp_governance',
+        type: 'governance',
+        plaintiff_id: 'node-plaintiff',
+        defendant_id: 'node-defendant',
+        arbitrators: ['arb-1', 'arb-2', 'arb-3', 'arb-4', 'arb-5'],
+        evidence: [{
+          evidence_id: 'evd-governance-1',
+          type: 'transaction_record',
+          submitted_by: 'node-plaintiff',
+          content: 'Council action log proving governance abuse',
+          hash: 'sha256:governanceproof',
+          submitted_at: '2026-01-01T00:00:00.000Z',
+          verified: true,
+        }],
+        severity: 'critical',
+        filing_fee: 100,
+        escrow_amount: 200,
+        status: 'under_review',
+        hearing_started_at: null,
+        review_started_at: new Date(),
+      };
+
+      mockPrisma.dispute.findUnique.mockResolvedValue(governanceDispute);
+      mockPrisma.dispute.findFirst.mockResolvedValue(governanceDispute);
+      mockPrisma.dispute.update.mockResolvedValue({ ...governanceDispute, status: 'resolved' });
+
+      const result = await service.autoGenerateRuling('dsp_governance', 'arb-1');
+
+      expect(result.penalties[0]?.quarantine_level).toBe('L3');
+    });
   });
 
   describe('selectAndAssignArbitrators', () => {
@@ -951,6 +999,86 @@ describe('Dispute Service', () => {
       expect(arbitratorPool.getArbitratorWorkload('arb-1')).toBe(0);
       expect(arbitratorPool.getArbitratorWorkload('arb-2')).toBe(0);
       expect(arbitratorPool.getArbitratorWorkload('arb-3')).toBe(0);
+    });
+
+    it('applies penalty, compensation, and quarantine side effects within the ruling transaction', async () => {
+      const mockDispute = {
+        dispute_id: 'dsp_effects',
+        status: 'under_review',
+        arbitrators: ['arb-1', 'arb-2', 'arb-3'],
+        hearing_started_at: new Date(),
+      };
+
+      mockPrisma.dispute.findUnique.mockResolvedValue(mockDispute);
+      mockPrisma.dispute.update.mockResolvedValue({
+        ...mockDispute,
+        status: 'resolved',
+        ruling: { verdict: 'plaintiff_wins' },
+        evidence: [],
+      });
+
+      await service.issueRuling(
+        'dsp_effects',
+        {
+          verdict: 'plaintiff_wins',
+          penalties: [{
+            target_node_id: 'node-defendant',
+            reputation_deduction: 12,
+            credit_fine: 80,
+            quarantine_level: 'L2',
+            asset_revocation: ['asset-1'],
+          }],
+          compensations: [{
+            recipient_node_id: 'node-plaintiff',
+            credit_amount: 80,
+            reputation_restore: 4,
+          }],
+        },
+        'resolved',
+        'arb-1',
+      );
+
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          node_id: 'node-defendant',
+          amount: -80,
+          type: 'dispute_penalty',
+        }),
+      }));
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          node_id: 'node-plaintiff',
+          amount: 80,
+          type: 'dispute_compensation',
+        }),
+      }));
+      expect(mockPrisma.reputationEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          node_id: 'node-defendant',
+          delta: -12,
+          event_type: 'dispute_penalty',
+        }),
+      }));
+      expect(mockPrisma.reputationEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          node_id: 'node-plaintiff',
+          delta: 4,
+          event_type: 'dispute_compensation',
+        }),
+      }));
+      expect(mockPrisma.quarantineRecord.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          node_id: 'node-defendant',
+          level: 'L2',
+          reason: 'manual',
+          reputation_penalty: 12,
+          is_active: true,
+        }),
+      }));
+      expect(mockPrisma.asset.updateMany).toHaveBeenCalledWith({
+        where: { asset_id: { in: ['asset-1'] } },
+        data: { status: 'revoked' },
+      });
     });
 
     it('should issue a ruling without resolved_at when status is not resolved', async () => {

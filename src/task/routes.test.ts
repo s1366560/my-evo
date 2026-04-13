@@ -5,6 +5,9 @@ const mockProposeTaskDecomposition = jest.fn();
 const mockSetTaskCommitment = jest.fn();
 const mockUpdateTask = jest.fn();
 const mockAcceptSubmission = jest.fn();
+const mockRejectSubmission = jest.fn();
+const mockSubmitTaskAnswer = jest.fn();
+const mockListTasks = jest.fn();
 const mockGetSwarm = jest.fn();
 
 jest.mock('./service', () => ({
@@ -13,6 +16,9 @@ jest.mock('./service', () => ({
   setTaskCommitment: (...args: unknown[]) => mockSetTaskCommitment(...args),
   updateTask: (...args: unknown[]) => mockUpdateTask(...args),
   acceptSubmission: (...args: unknown[]) => mockAcceptSubmission(...args),
+  rejectSubmission: (...args: unknown[]) => mockRejectSubmission(...args),
+  submitTaskAnswer: (...args: unknown[]) => mockSubmitTaskAnswer(...args),
+  listTasks: (...args: unknown[]) => mockListTasks(...args),
 }));
 
 jest.mock('../swarm/service', () => ({
@@ -148,6 +154,131 @@ describe('Task routes', () => {
       'sub-1',
       'node-1',
     );
+  });
+
+  it('passes the authenticated actor into submission rejection', async () => {
+    mockRejectSubmission.mockResolvedValue({
+      submission_id: 'sub-1',
+      task_id: 't-1',
+      status: 'rejected',
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/task/reject-submission',
+      payload: {
+        task_id: 'p-1:t-1',
+        submission_id: 'sub-1',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockRejectSubmission).toHaveBeenCalledWith(
+      'p-1:t-1',
+      'sub-1',
+      'node-1',
+    );
+  });
+
+  it('passes submission payloads through to the task service', async () => {
+    mockSubmitTaskAnswer.mockResolvedValue({
+      submission_id: 'sub-1',
+      task_id: 't-1',
+      submitter_id: 'node-1',
+      node_id: 'node-1',
+      status: 'pending',
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/task/submit',
+      payload: {
+        task_id: 'p-1:t-1',
+        node_id: 'node-1',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockSubmitTaskAnswer).toHaveBeenCalledWith(
+      'p-1:t-1',
+      'node-1',
+      undefined,
+      'node-1',
+    );
+  });
+
+  it('filters my tasks by authenticated assignee and status', async () => {
+    mockListTasks.mockResolvedValue([
+      {
+        task_id: 't-1',
+        project_id: 'p-1',
+        title: 'Mine and open',
+        description: '',
+        status: 'open',
+        assignee_id: 'node-1',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        task_id: 't-2',
+        project_id: 'p-1',
+        title: 'Mine but done',
+        description: '',
+        status: 'completed',
+        assignee_id: 'node-1',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        task_id: 't-3',
+        project_id: 'p-1',
+        title: 'Not mine',
+        description: '',
+        status: 'open',
+        assignee_id: 'node-2',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/task/my?status=open&node_id=node-1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockListTasks).toHaveBeenCalledWith('__all__');
+    expect(response.json().data).toEqual([
+      expect.objectContaining({
+        task_id: 't-1',
+        assignee_id: 'node-1',
+        status: 'open',
+      }),
+    ]);
+  });
+
+  it('rejects mismatched node_id on my tasks', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/task/my?node_id=node-2',
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mockListTasks).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported role filters on my tasks', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/task/my?role=creator',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockListTasks).not.toHaveBeenCalled();
+    expect(response.json()).toEqual(expect.objectContaining({
+      success: false,
+      error: 'VALIDATION_ERROR',
+    }));
   });
 
   it('hides swarm state from unrelated authenticated users', async () => {

@@ -9,6 +9,7 @@ import type {
   ActionContext,
   EvaluationResult,
 } from './types';
+import { NotFoundError } from '../shared/errors';
 
 let rules: Map<string, Rule> = new Map();
 let violations: Map<string, RuleViolation> = new Map();
@@ -427,7 +428,7 @@ export async function executeRule(
 ): Promise<{ rule: Rule; executed: boolean }> {
   const rule = rules.get(ruleId);
   if (!rule) {
-    throw new Error(`Rule not found: ${ruleId}`);
+    throw new NotFoundError('Rule', ruleId);
   }
   return { rule, executed: true };
 }
@@ -458,7 +459,7 @@ export function listRules(filter?: ListRulesFilter): { rules: Rule[]; total: num
 export function disableRule(ruleId: string): Rule {
   const rule = rules.get(ruleId);
   if (!rule) {
-    throw new Error(`Rule not found: ${ruleId}`);
+    throw new NotFoundError('Rule', ruleId);
   }
   const updated: Rule = {
     ...rule,
@@ -476,7 +477,7 @@ export function getRule(ruleId: string): Rule | undefined {
 export function enableRule(ruleId: string): Rule {
   const rule = rules.get(ruleId);
   if (!rule) {
-    throw new Error(`Rule not found: ${ruleId}`);
+    throw new NotFoundError('Rule', ruleId);
   }
   const updated: Rule = {
     ...rule,
@@ -493,7 +494,7 @@ export function updateRule(
 ): Rule {
   const rule = rules.get(ruleId);
   if (!rule) {
-    throw new Error(`Rule not found: ${ruleId}`);
+    throw new NotFoundError('Rule', ruleId);
   }
   const updated: Rule = {
     ...rule,

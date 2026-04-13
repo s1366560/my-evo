@@ -4,6 +4,7 @@ import {
   createCircle,
   joinCircle,
   startRound,
+  contributeGene,
   submitAsset,
   vote,
   advanceRound,
@@ -54,6 +55,7 @@ const mockCircleRecord = {
   creator_id: 'creator-1',
   participant_count: 3,
   members: ['creator-1', 'node-1', 'node-2'],
+  gene_pool: [],
   rounds: [],
   rounds_completed: 0,
   outcomes: [],
@@ -75,7 +77,7 @@ describe('Circle Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
-    mockPrisma.asset.findUnique.mockResolvedValue({ author_id: 'node-1' });
+    mockPrisma.asset.findUnique.mockResolvedValue({ author_id: 'node-1', asset_type: 'gene' });
     mockPrisma.circle.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.node.update.mockResolvedValue({ credit_balance: mockNode.credit_balance });
   });
@@ -761,6 +763,100 @@ describe('Circle Service', () => {
       mockPrisma.circle.findUnique.mockResolvedValue(mockCircleRecord);
 
       await expect(advanceRound('circle-1', 'node-2'))
+        .rejects.toThrow(ForbiddenError);
+    });
+  });
+
+  describe('contributeGene', () => {
+    it('should throw NotFoundError for a missing circle', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(null);
+
+      await expect(contributeGene('missing-circle', 'node-1', 'gene-1'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should reject contributions to inactive circles', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        status: 'completed',
+      });
+
+      await expect(contributeGene('circle-1', 'node-1', 'gene-1'))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should reject contributions when legacy member backfill is incomplete', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        participant_count: 4,
+      });
+
+      await expect(contributeGene('circle-1', 'node-1', 'gene-1'))
+        .rejects.toThrow(ConflictError);
+    });
+
+    it('should add a gene to the circle gene pool', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(mockCircleRecord);
+      mockPrisma.circle.update.mockResolvedValue({
+        ...mockCircleRecord,
+        gene_pool: ['gene-1'],
+      });
+
+      const result = await contributeGene('circle-1', 'node-1', 'gene-1');
+
+      expect(result.gene_pool).toEqual(['gene-1']);
+      expect(mockPrisma.circle.update).toHaveBeenCalledWith({
+        where: { circle_id: 'circle-1' },
+        data: {
+          gene_pool: ['gene-1'],
+        },
+      });
+    });
+
+    it('should reject duplicate gene contributions', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        gene_pool: ['gene-1'],
+      });
+
+      await expect(contributeGene('circle-1', 'node-1', 'gene-1'))
+        .rejects.toThrow(ConflictError);
+    });
+
+    it('should reject non-gene assets', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(mockCircleRecord);
+      mockPrisma.asset.findUnique.mockResolvedValue({
+        author_id: 'node-1',
+        asset_type: 'capsule',
+      });
+
+      await expect(contributeGene('circle-1', 'node-1', 'asset-1'))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should reject contributions from non-members', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(mockCircleRecord);
+
+      await expect(contributeGene('circle-1', 'node-3', 'gene-1'))
+        .rejects.toThrow(ForbiddenError);
+    });
+
+    it('should reject missing assets', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(mockCircleRecord);
+      mockPrisma.asset.findUnique.mockResolvedValue(null);
+
+      await expect(contributeGene('circle-1', 'node-1', 'gene-1'))
+        .rejects.toThrow(NotFoundError);
+    });
+
+    it('should reject genes authored by another node', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(mockCircleRecord);
+      mockPrisma.asset.findUnique.mockResolvedValue({
+        author_id: 'node-2',
+        asset_type: 'gene',
+      });
+
+      await expect(contributeGene('circle-1', 'node-1', 'gene-1'))
         .rejects.toThrow(ForbiddenError);
     });
   });

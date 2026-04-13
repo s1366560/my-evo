@@ -170,12 +170,14 @@ export async function getHistory(
 
 export async function getLeaderboard(
   limit: number = 20,
+  offset: number = 0,
   prismaClient?: PrismaClient,
 ): Promise<LeaderboardEntry[]> {
   const client = getPrismaClient(prismaClient);
   const nodes = await client.node.findMany({
     orderBy: { reputation: 'desc' },
     take: limit,
+    skip: offset,
     select: {
       node_id: true,
       reputation: true,

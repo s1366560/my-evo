@@ -672,5 +672,21 @@ describe('Bounty Service', () => {
       expect(result.total).toBe(1);
       expect(result.bounties[0]?.deliverable).toBeNull();
     });
+
+    it('should filter by creator_id when provided', async () => {
+      mockPrisma.bounty.findMany.mockResolvedValue([]);
+      mockPrisma.bounty.count.mockResolvedValue(0);
+
+      await service.listBounties({ creator_id: 'node-2', limit: 5, offset: 1 });
+
+      expect(mockPrisma.bounty.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { creator_id: 'node-2' },
+        take: 5,
+        skip: 1,
+      }));
+      expect(mockPrisma.bounty.count).toHaveBeenCalledWith({
+        where: { creator_id: 'node-2' },
+      });
+    });
   });
 });

@@ -1,14 +1,53 @@
 import { PrismaClient } from '@prisma/client';
+import { EvoMapError, ValidationError } from '../shared/errors';
+
+const mockFetch = jest.fn();
+const mockLookup = jest.fn();
+const mockAgentClose = jest.fn(async () => undefined);
+const mockCreateBounty = jest.fn();
+const mockCreateKgNode = jest.fn();
+const mockCreateKgRelationship = jest.fn();
+const mockSetKgPrisma = jest.fn();
+
+jest.mock('dns/promises', () => ({
+  lookup: (...args: unknown[]) => mockLookup(...args),
+}));
+
+jest.mock('undici', () => ({
+  Agent: class MockAgent {
+    close = mockAgentClose;
+  },
+  fetch: (...args: unknown[]) => mockFetch(...args),
+}));
+
+jest.mock('../bounty/service', () => ({
+  ...jest.requireActual('../bounty/service'),
+  createBounty: (...args: unknown[]) => mockCreateBounty(...args),
+}));
+
+jest.mock('../kg/service', () => ({
+  ...jest.requireActual('../kg/service'),
+  createNode: (...args: unknown[]) => mockCreateKgNode(...args),
+  createRelationship: (...args: unknown[]) => mockCreateKgRelationship(...args),
+  setPrisma: (...args: unknown[]) => mockSetKgPrisma(...args),
+}));
+
 import * as service from './service';
-import { ValidationError } from '../shared/errors';
 
 const {
   readUrl,
+  ingestReading,
   generateQuestions,
   extractEntities,
   clearReadingBuffer,
   getReadingSession,
   getTrendingReadings,
+  getCommunityTrendingReadings,
+  getReadingHistory,
+  getReadingDetail,
+  listMyQuestions,
+  createQuestionBounty,
+  dismissQuestion,
   listReadingSessions,
   createSession,
   deleteSession,
@@ -27,6 +66,49 @@ const mockPrisma = {
   },
 } as any;
 
+function createMockResponse(
+  body: string,
+  headers: Record<string, string>,
+  status = 200,
+  statusText = 'OK',
+) {
+  const normalizedHeaders = new Map(
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]),
+  );
+  const encoded = new TextEncoder().encode(body);
+  let sent = false;
+
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText,
+    headers: {
+      get(name: string) {
+        return normalizedHeaders.get(name.toLowerCase()) ?? null;
+      },
+    },
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (sent) {
+              return { done: true, value: undefined };
+            }
+            sent = true;
+            return { done: false, value: encoded };
+          },
+          async cancel() {
+            return undefined;
+          },
+        };
+      },
+    },
+    async text() {
+      return body;
+    },
+  };
+}
+
 describe('Reading Service', () => {
   beforeAll(() => {
     service.setPrisma(mockPrisma as unknown as PrismaClient);
@@ -35,6 +117,8 @@ describe('Reading Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     clearReadingBuffer();
+    mockLookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+    mockAgentClose.mockResolvedValue(undefined);
   });
 
   describe('readUrl', () => {
@@ -50,6 +134,15 @@ describe('Reading Service', () => {
       expect(result.questions).toBeDefined();
       expect(result.entities).toBeDefined();
       expect(result.keyInformation).toBeDefined();
+      expect(mockCreateKgNode).toHaveBeenCalledWith(
+        'topic',
+        expect.objectContaining({
+          id: result.id,
+          source_type: 'url',
+        }),
+        'anonymous',
+      );
+      expect(mockCreateKgRelationship).toHaveBeenCalled();
     });
 
     it('should throw ValidationError for empty URL', async () => {
@@ -70,6 +163,10 @@ describe('Reading Service', () => {
 
     it('should reject private or loopback URLs', async () => {
       await expect(readUrl('http://127.0.0.1/private')).rejects.toThrow(ValidationError);
+    });
+
+    it('should reject RFC1918 private network URLs', async () => {
+      await expect(readUrl('http://192.168.1.20/private')).rejects.toThrow(ValidationError);
     });
 
     it('should truncate content to RESULT_CONTENT_LIMIT', async () => {
@@ -129,6 +226,45 @@ describe('Reading Service', () => {
 
       expect(result.keyInformation.length).toBeGreaterThan(0);
       expect(result.keyInformation[0]!).toContain('example.com');
+    });
+
+    it('should reject unsupported remote content types', async () => {
+      mockFetch.mockResolvedValue(
+        createMockResponse('PNG DATA', { 'content-type': 'image/png' }),
+      );
+
+      await expect(readUrl('https://docs.evomap.ai/logo.png')).rejects.toThrow(EvoMapError);
+      await expect(readUrl('https://docs.evomap.ai/logo.png')).rejects.toThrow(
+        'Unsupported content type for reading: image/png',
+      );
+    });
+
+    it('should extract readable text from simple PDF responses', async () => {
+      mockFetch.mockResolvedValue(
+        createMockResponse(
+          `%PDF-1.4
+1 0 obj
+<< /Type /Page >>
+stream
+BT
+/F1 12 Tf
+72 712 Td
+(EvoMap PDF Guide) Tj
+0 -24 Td
+(Memory Graph and Task workflows) Tj
+ET
+endstream
+endobj
+%%EOF`,
+          { 'content-type': 'application/pdf' },
+        ),
+      );
+
+      const result = await readUrl('https://docs.evomap.ai/guide.pdf');
+
+      expect(result.content).toContain('EvoMap PDF Guide');
+      expect(result.content).toContain('Memory Graph and Task workflows');
+      expect(result.summary).toContain('EvoMap PDF Guide');
     });
   });
 
@@ -267,6 +403,181 @@ describe('Reading Service', () => {
       expect(readerOneTrending[0]!.url).toBe('https://example.com/alpha');
       expect(readerTwoTrending).toHaveLength(1);
       expect(readerTwoTrending[0]!.url).toBe('https://example.com/beta');
+    });
+  });
+
+  describe('ingestReading', () => {
+    it('should support raw text ingestion and store history/detail metadata', async () => {
+      const ingested = await ingestReading({
+        text: 'This is a sufficiently long text input for the Reading Engine to analyze in text mode without relying on a remote fetch.',
+        title: 'Manual text import',
+      }, 'reader-1');
+
+      expect(ingested.source_type).toBe('text');
+      expect(ingested.deduplicated).toBe(false);
+      expect(ingested.reading.title).toBe('Manual text import');
+
+      const history = getReadingHistory('reader-1');
+      expect(history.items[0]!).toEqual(expect.objectContaining({
+        id: ingested.reading.id,
+        source_type: 'text',
+        deduplicated: false,
+      }));
+
+      const detail = getReadingDetail(ingested.reading.id, 'reader-1');
+      expect(detail.reading.id).toBe(ingested.reading.id);
+      expect(detail.source_type).toBe('text');
+      expect(mockCreateKgNode).toHaveBeenCalledWith(
+        'topic',
+        expect.objectContaining({
+          id: ingested.reading.id,
+          source_type: 'text',
+        }),
+        'reader-1',
+      );
+    });
+
+    it('should filter and sort reading history entries', async () => {
+      jest.useFakeTimers();
+      try {
+        jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+        const first = await ingestReading({
+          text: 'This first text import is long enough to be accepted and should appear first when sorting oldest to newest.',
+          title: 'First text import',
+        }, 'reader-1');
+
+        jest.setSystemTime(new Date('2026-01-02T00:00:00.000Z'));
+        mockFetch.mockResolvedValueOnce(
+          createMockResponse(
+            '<html><head><title>EvoMap Guide</title></head><body><article>Document ingestion helps users keep track of interesting articles.</article></body></html>',
+            { 'content-type': 'text/html' },
+          ),
+        );
+        const second = await ingestReading({
+          url: 'https://docs.evomap.ai/history-filter',
+        }, 'reader-1');
+
+        const textOnly = getReadingHistory('reader-1', 20, 0, { source_type: 'text' });
+        expect(textOnly.items).toHaveLength(1);
+        expect(textOnly.items[0]!.id).toBe(first.reading.id);
+
+        const oldestFirst = getReadingHistory('reader-1', 20, 0, { sort_by: 'oldest' });
+        expect(oldestFirst.items.map((item) => item.id)).toEqual([
+          first.reading.id,
+          second.reading.id,
+        ]);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('should deduplicate repeated URL ingests and avoid a second fetch', async () => {
+      mockFetch.mockResolvedValue(
+        createMockResponse(
+          '<html><head><title>EvoMap Docs</title></head><body><article>EvoMap supports ingestion, analysis, and question generation for technical content.</article></body></html>',
+          { 'content-type': 'text/html' },
+        ),
+      );
+
+      const first = await ingestReading({
+        url: 'https://docs.evomap.ai/articles/intro?utm_source=test',
+      }, 'reader-1');
+      const relationshipCallsAfterFirstIngest = mockCreateKgRelationship.mock.calls.length;
+      const second = await ingestReading({
+        url: 'https://docs.evomap.ai/articles/intro?utm_source=another',
+      }, 'reader-2');
+
+      expect(first.deduplicated).toBe(false);
+      expect(second.deduplicated).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockCreateKgRelationship).toHaveBeenCalled();
+
+      const trending = getCommunityTrendingReadings(10);
+      expect(trending[0]!).toEqual(expect.objectContaining({
+        url: 'https://docs.evomap.ai/articles/intro',
+        hits: 2,
+        source_type: 'url',
+      }));
+      expect(mockCreateKgRelationship.mock.calls).toHaveLength(relationshipCallsAfterFirstIngest);
+    });
+
+    it('should reject ingest requests that provide both url and text', async () => {
+      await expect(ingestReading({
+        url: 'https://example.com/article',
+        text: 'This is a sufficiently long text input for invalid mixed-mode ingest handling.',
+      }, 'reader-1')).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe('reading question workflow', () => {
+    it('should assign stable, reading-scoped question ids during analysis', async () => {
+      const first = await readUrl('https://example.com/questions', 'reader-1');
+      const second = await readUrl('https://example.com/questions', 'reader-1');
+
+      expect(first.questions[0]!.id).toMatch(/^rq-[a-f0-9]{16}$/);
+      expect(second.questions[0]!.id).toBe(first.questions[0]!.id);
+    });
+
+    it('should list discovered questions for the current reader', async () => {
+      const result = await readUrl('https://example.com/questions', 'reader-1');
+
+      const questions = listMyQuestions('reader-1', { status: 'pending', limit: 10, offset: 0 });
+
+      expect(questions.total).toBe(result.questions.length);
+      expect(questions.items[0]!).toEqual(expect.objectContaining({
+        question_id: result.questions[0]!.id,
+        reading_id: result.id,
+        status: 'pending',
+      }));
+    });
+
+    it('should create a bounty from a discovered question and mark it as bountied', async () => {
+      const result = await readUrl('https://example.com/questions', 'reader-1');
+      mockCreateBounty.mockResolvedValue({
+        bounty_id: 'bounty-reading-1',
+      });
+
+      const bounty = await createQuestionBounty(
+        'reader-1',
+        'reader-1',
+        result.questions[0]!.id,
+        {
+          amount: 25,
+          deadline: '2026-12-31T00:00:00.000Z',
+        },
+      );
+
+      expect(mockCreateBounty).toHaveBeenCalledWith(
+        'reader-1',
+        expect.stringContaining('Investigate reading question'),
+        expect.stringContaining(result.questions[0]!.text),
+        expect.arrayContaining([
+          expect.stringContaining(result.questions[0]!.text),
+        ]),
+        25,
+        '2026-12-31T00:00:00.000Z',
+      );
+      expect(bounty).toEqual(expect.objectContaining({
+        bounty_id: 'bounty-reading-1',
+        amount: 25,
+        question: expect.objectContaining({
+          question_id: result.questions[0]!.id,
+          status: 'bountied',
+          bounty_id: 'bounty-reading-1',
+        }),
+      }));
+    });
+
+    it('should dismiss a pending reading question', async () => {
+      const result = await readUrl('https://example.com/questions', 'reader-1');
+
+      const dismissed = dismissQuestion('reader-1', result.questions[0]!.id);
+
+      expect(dismissed).toEqual(expect.objectContaining({
+        question_id: result.questions[0]!.id,
+        status: 'dismissed',
+      }));
+      expect(dismissed.dismissed_at).toBeDefined();
     });
   });
 

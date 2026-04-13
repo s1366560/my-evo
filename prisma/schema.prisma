@@ -27,6 +27,7 @@ model Node {
 
   creditTransactions CreditTransaction[]
   quarantineRecords  QuarantineRecord[]
+  quarantineAppeals  QuarantineAppeal[]
   validatorStakes    ValidatorStake[]
   trustAttestations  TrustAttestation[]
   onboardingState    OnboardingState?
@@ -75,6 +76,21 @@ model Asset {
   @@index([asset_type, status])
   @@index([author_id])
   @@index([gdi_score])
+}
+
+model KnowledgeGraphRelationship {
+  id                String   @id @default(uuid())
+  relationship_id   String   @unique
+  from_id           String
+  to_id             String
+  relationship_type String
+  properties        Json     @default("{}")
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@index([from_id])
+  @@index([to_id])
+  @@index([relationship_type])
 }
 
 model EvolutionEvent {
@@ -192,11 +208,33 @@ model QuarantineRecord {
   is_active          Boolean  @default(true)
   violations         Json     @default("[]")
 
-  node Node @relation(fields: [node_id], references: [node_id])
+  node    Node                @relation(fields: [node_id], references: [node_id])
+  appeals QuarantineAppeal[]
 
   @@index([node_id])
   @@index([is_active])
   @@index([expires_at])
+}
+
+model QuarantineAppeal {
+  id                   String   @id @default(uuid())
+  appeal_id            String   @unique
+  node_id              String
+  quarantine_record_id String
+  grounds              String
+  evidence             Json     @default("[]")
+  status               String   @default("submitted")
+  submitted_at         DateTime @default(now())
+  reviewed_at          DateTime?
+  reviewed_by          String?
+  resolution           String?
+
+  node              Node             @relation(fields: [node_id], references: [node_id])
+  quarantine_record QuarantineRecord @relation(fields: [quarantine_record_id], references: [id])
+
+  @@index([node_id])
+  @@index([quarantine_record_id])
+  @@index([status])
 }
 
 model SwarmTask {
@@ -509,6 +547,7 @@ model Circle {
   creator_id        String
   participant_count Int      @default(0)
   members           Json     @default("[]")
+  gene_pool         Json     @default("[]")
   rounds            Json     @default("[]")
   rounds_completed  Int      @default(0)
   outcomes          Json     @default("[]")

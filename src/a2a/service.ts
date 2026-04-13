@@ -735,7 +735,22 @@ const CONCEPT_KNOWLEDGE_BASE: Record<string, {
     content:
       'Tasks are work units created within projects. Nodes claim tasks, work on them, and submit assets (genes, capsules) as deliverables. Tasks follow a lifecycle: open → claimed (in_progress) → completed. Tasks can be decomposed into sub-tasks for swarm collaboration.',
     related_concepts: ['bounty', 'swarm', 'gene', 'capsule', 'project'],
-    related_endpoints: ['/task/list', '/task/my', '/task/claim', '/task/complete', '/task/submit', '/task/propose-decomposition'],
+    related_endpoints: [
+      '/a2a/task/list',
+      '/a2a/task/my',
+      '/a2a/task/claim',
+      '/a2a/task/complete',
+      '/a2a/task/release',
+      '/a2a/task/submit',
+      '/a2a/task/propose-decomposition',
+      '/task/list',
+      '/task/my',
+      '/task/claim',
+      '/task/complete',
+      '/task/release',
+      '/task/submit',
+      '/task/propose-decomposition',
+    ],
     docs_url: '/skill-tasks.md',
   },
   session: {
@@ -826,6 +841,7 @@ const ENDPOINT_QUERIES = [
   '/a2a/directory', '/a2a/dm', '/a2a/inbox', '/a2a/credits',
   '/a2a/reputation', '/a2a/stats', '/a2a/marketplace', '/a2a/trending',
   '/a2a/hello', '/a2a/validate', '/a2a/report', '/a2a/help',
+  '/a2a/task/list', '/a2a/task/claim', '/a2a/task/complete', '/a2a/task/release', '/a2a/task/my', '/a2a/task/submit',
   '/task/claim', '/task/complete', '/task/list', '/task/my',
   '/api/v2/swarm/create', '/a2a/council/propose',
 ];
@@ -1073,6 +1089,7 @@ export interface InboxResult {
     created_at: string;
   }>;
   total: number;
+  unread: number;
 }
 
 export async function getInbox(
@@ -1087,6 +1104,65 @@ export async function getInbox(
     where['read'] = options.read;
   }
 
+  const [messages, total, unread] = await Promise.all([
+    prisma.directMessage.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      take: limit,
+      skip: offset,
+    }),
+    prisma.directMessage.count({ where }),
+    prisma.directMessage.count({
+      where: {
+        to_id: nodeId,
+        read: false,
+      },
+    }),
+  ]);
+
+  const fromIds = [...new Set(messages.map((m) => m.from_id))];
+  const nodes = await prisma.node.findMany({
+    where: { node_id: { in: fromIds } },
+    select: { node_id: true, model: true },
+  });
+  const nodeMap = Object.fromEntries(
+    nodes.map((n) => [n.node_id, n]),
+  ) as Record<string, { model: string }>;
+
+  return {
+    messages: messages.map((m) => ({
+      dm_id: m.dm_id,
+      from_id: m.from_id,
+      from_model: nodeMap[m.from_id]?.model,
+      content: m.content,
+      read: m.read,
+      created_at: m.created_at.toISOString(),
+    })),
+    total,
+    unread,
+  };
+}
+
+export interface SentDmResult {
+  messages: Array<{
+    dm_id: string;
+    to_id: string;
+    to_model?: string;
+    content: string;
+    read: boolean;
+    created_at: string;
+  }>;
+  total: number;
+}
+
+export async function getSentDms(
+  nodeId: string,
+  options: { limit?: number; offset?: number } = {},
+): Promise<SentDmResult> {
+  const limit = Math.min(options.limit ?? 20, 100);
+  const offset = options.offset ?? 0;
+
+  const where = { from_id: nodeId };
   const [messages, total] = await Promise.all([
     prisma.directMessage.findMany({
       where,
@@ -1097,18 +1173,20 @@ export async function getInbox(
     prisma.directMessage.count({ where }),
   ]);
 
-  const fromIds = [...new Set(messages.map((m) => m.from_id))];
+  const toIds = [...new Set(messages.map((m) => m.to_id))];
   const nodes = await prisma.node.findMany({
-    where: { node_id: { in: fromIds } },
+    where: { node_id: { in: toIds } },
     select: { node_id: true, model: true },
   });
-  const nodeMap = Object.fromEntries(nodes.map((n) => [n.node_id, n]));
+  const nodeMap = Object.fromEntries(
+    nodes.map((n) => [n.node_id, n]),
+  ) as Record<string, { model: string }>;
 
   return {
     messages: messages.map((m) => ({
       dm_id: m.dm_id,
-      from_id: m.from_id,
-      from_model: nodeMap[m.from_id]?.model,
+      to_id: m.to_id,
+      to_model: nodeMap[m.to_id]?.model,
       content: m.content,
       read: m.read,
       created_at: m.created_at.toISOString(),
@@ -1126,6 +1204,24 @@ export async function markInboxRead(nodeId: string, dmIds?: string[]): Promise<v
     where,
     data: { read: true },
   });
+}
+
+export async function markDmRead(nodeId: string, dmId: string): Promise<void> {
+  if (!dmId || dmId.trim().length === 0) {
+    throw new ValidationError('dm_id is required');
+  }
+
+  const result = await prisma.directMessage.updateMany({
+    where: {
+      dm_id: dmId,
+      to_id: nodeId,
+    },
+    data: { read: true },
+  });
+
+  if (result.count === 0) {
+    throw new NotFoundError('Direct message', dmId);
+  }
 }
 
 // ─── Trending ─────────────────────────────────────────────────────────────────

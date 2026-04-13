@@ -8,6 +8,13 @@ import type { ProjectTaskOutput } from '../task/service';
  * Provides flat task endpoints: /task/list, /task/:taskId/claim, etc.
  */
 export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
+  function hasMismatchedNodeId(
+    providedNodeId: string | undefined,
+    authenticatedNodeId: string,
+  ): boolean {
+    return providedNodeId !== undefined && providedNodeId !== authenticatedNodeId;
+  }
+
   // GET /task/list — list all tasks (no project context)
   app.get('/list', {
     schema: { tags: ['Task'] },
@@ -22,8 +29,31 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    const { status, role, node_id } = request.query as { status?: string; role?: string; node_id?: string };
+    if (role && role !== 'assignee') {
+      return reply.status(400).send({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: 'Unsupported role filter. Only role=assignee is currently supported.',
+      });
+    }
+    if (hasMismatchedNodeId(node_id, auth.node_id)) {
+      return reply.status(403).send({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'node_id must match authenticated node',
+      });
+    }
     const tasks = await taskService.listTasks('__all__');
-    const filtered = tasks.filter((t) => t.assignee_id === auth.node_id);
+    const filtered = tasks.filter((t) => {
+      if (t.assignee_id !== auth.node_id) {
+        return false;
+      }
+      if (status) {
+        return t.status === status;
+      }
+      return true;
+    });
     return reply.send({ success: true, data: filtered });
   });
 
@@ -44,6 +74,13 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as { task_id?: string; node_id?: string };
+    if (hasMismatchedNodeId(body.node_id, auth.node_id)) {
+      return reply.status(403).send({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'node_id must match authenticated node',
+      });
+    }
     if (!body.task_id) {
       return reply.status(400).send({
         success: false,
@@ -71,6 +108,13 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as { task_id?: string; asset_id?: string; node_id?: string };
+    if (hasMismatchedNodeId(body.node_id, auth.node_id)) {
+      return reply.status(403).send({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'node_id must match authenticated node',
+      });
+    }
     if (!body.task_id) {
       return reply.status(400).send({
         success: false,
@@ -88,6 +132,40 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
     }
     const [projectId, tId] = parts as [string, string];
     const task = await taskService.completeTask(projectId, tId, auth.node_id);
+    return reply.send({ success: true, data: task });
+  });
+
+  // POST /task/release — release a claimed task back to open
+  app.post('/release', {
+    schema: { tags: ['Task'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const body = request.body as { task_id?: string; node_id?: string };
+    if (hasMismatchedNodeId(body.node_id, auth.node_id)) {
+      return reply.status(403).send({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'node_id must match authenticated node',
+      });
+    }
+    if (!body.task_id) {
+      return reply.status(400).send({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: 'task_id is required in body. Usage: POST /task/release with body { task_id: "projectId:taskId" }. Also requires Authorization: Bearer <token> header.',
+      });
+    }
+    const parts = body.task_id.split(':');
+    if (parts.length !== 2) {
+      return reply.status(400).send({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: `Invalid task_id format. Expected projectId:taskId (e.g., bounty-001:task-123). Got: '${body.task_id}'.`,
+      });
+    }
+    const [projectId, taskId] = parts as [string, string];
+    const task = await taskService.releaseTask(projectId, taskId, auth.node_id);
     return reply.send({ success: true, data: task });
   });
 
@@ -114,7 +192,15 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    const body = ((request.body as { node_id?: string } | undefined) ?? {}) as { node_id?: string };
     const { taskId } = request.params as { taskId: string };
+    if (hasMismatchedNodeId(body.node_id, auth.node_id)) {
+      return reply.status(403).send({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'node_id must match authenticated node',
+      });
+    }
     if (!taskId) {
       return reply.status(400).send({
         success: false,
@@ -139,7 +225,15 @@ export async function taskAliasRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    const body = ((request.body as { node_id?: string } | undefined) ?? {}) as { node_id?: string };
     const { taskId } = request.params as { taskId: string };
+    if (hasMismatchedNodeId(body.node_id, auth.node_id)) {
+      return reply.status(403).send({
+        success: false,
+        error: 'FORBIDDEN',
+        message: 'node_id must match authenticated node',
+      });
+    }
     if (!taskId) {
       return reply.status(400).send({
         success: false,

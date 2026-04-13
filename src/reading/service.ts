@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import { lookup } from 'dns/promises';
 import { isIP } from 'net';
 import { Agent, fetch } from 'undici';
+import { createBounty as createBountyTask } from '../bounty/service';
+import * as kgService from '../kg/service';
 import { EvoMapError, NotFoundError, ValidationError } from '../shared/errors';
 import type { GeneratedQuestion, ExtractedEntity, ReadingResult } from '../shared/types';
 
@@ -10,6 +12,7 @@ let prisma = new PrismaClient();
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
+  kgService.setPrisma(client);
 }
 
 export interface ReadingSessionOutput {
@@ -208,6 +211,12 @@ const STOP_WORDS = new Set([
   'with',
 ]);
 const KNOWN_LOCATIONS = new Set(['Asia', 'Europe', 'Africa', 'America', 'China', 'Japan', 'Korea']);
+const SUPPORTED_APPLICATION_CONTENT_TYPES = new Set([
+  'application/json',
+  'application/ld+json',
+  'application/pdf',
+  'application/xml',
+]);
 const recentReadingBuffer: Array<{
   reader_scope: string;
   id: string;
@@ -216,7 +225,41 @@ const recentReadingBuffer: Array<{
   summary: string;
   analyzed_at: string;
   hostname: string;
+  source_type: ReadingSourceType;
 }> = [];
+export type ReadingQuestionStatus = 'pending' | 'bountied' | 'dismissed';
+export type ReadingSourceType = 'url' | 'text';
+
+export interface ReadingQuestionRecord {
+  reader_scope: string;
+  question_id: string;
+  reading_id: string;
+  reading_title: string;
+  reading_url: string;
+  text: string;
+  type: GeneratedQuestion['type'];
+  difficulty: GeneratedQuestion['difficulty'];
+  discovered_at: string;
+  status: ReadingQuestionStatus;
+  bounty_id?: string;
+  bounty_amount?: number;
+  dismissed_at?: string;
+}
+
+export interface ListReadingQuestionsResult {
+  items: Array<Omit<ReadingQuestionRecord, 'reader_scope'>>;
+  total: number;
+}
+
+const recentQuestionBuffer: ReadingQuestionRecord[] = [];
+const recentReadingResultBuffer: Array<{
+  reader_scope: string;
+  reading: ReadingResult;
+  source_type: ReadingSourceType;
+  analyzed_at: string;
+  deduplicated: boolean;
+}> = [];
+const readingCacheByUrl = new Map<string, ReadingResult>();
 
 export interface TrendingReading {
   id: string;
@@ -226,7 +269,38 @@ export interface TrendingReading {
   analyzed_at: string;
   hostname: string;
   hits: number;
+  source_type: ReadingSourceType;
 }
+
+export interface ReadingHistoryItem {
+  id: string;
+  url: string;
+  title: string;
+  analyzed_at: string;
+  question_count: number;
+  source_type: ReadingSourceType;
+  deduplicated: boolean;
+}
+
+export interface ReadingHistoryResult {
+  items: ReadingHistoryItem[];
+  total: number;
+}
+
+export interface ReadingDetailResult {
+  reading: ReadingResult;
+  source_type: ReadingSourceType;
+  analyzed_at: string;
+  deduplicated: boolean;
+}
+
+export interface IngestReadingResult {
+  reading: ReadingResult;
+  source_type: ReadingSourceType;
+  deduplicated: boolean;
+}
+
+const READING_KG_NODE_TYPE = 'topic';
 
 function sha256Hex(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -266,6 +340,70 @@ function extractHtmlTitle(html: string): string | null {
   }
   const title = normalizeWhitespace(stripHtml(match[1]));
   return title.length > 0 ? title : null;
+}
+
+function normalizeContentType(contentType: string | null): string {
+  return (contentType ?? 'text/plain').split(';', 1)[0]?.trim().toLowerCase() || 'text/plain';
+}
+
+function isSupportedReadableContentType(contentType: string): boolean {
+  return contentType.startsWith('text/') || SUPPORTED_APPLICATION_CONTENT_TYPES.has(contentType);
+}
+
+function decodePdfTextSegment(segment: string): string {
+  return segment
+    .replace(/\\([\\()])/g, '$1')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\([0-7]{3})/g, (_, octal: string) => String.fromCharCode(Number.parseInt(octal, 8)));
+}
+
+function extractPdfText(rawBody: string): string {
+  const segments = Array.from(
+    rawBody.matchAll(/\((?:\\.|[^\\()])*\)/g),
+    (match) => decodePdfTextSegment(match[0].slice(1, -1)),
+  );
+  if (segments.length > 0) {
+    return normalizeWhitespace(segments.join(' '));
+  }
+
+  return normalizeWhitespace(rawBody.replace(/[^\x20-\x7E]+/g, ' '));
+}
+
+function extractReadableDocument(
+  parsedUrl: URL,
+  rawBody: string,
+  contentTypeHeader: string | null,
+): { title: string; content: string } {
+  const contentType = normalizeContentType(contentTypeHeader);
+
+  if (!isSupportedReadableContentType(contentType)) {
+    throw new EvoMapError(
+      `Unsupported content type for reading: ${contentType}`,
+      'READING_UNSUPPORTED_MEDIA_TYPE',
+      415,
+    );
+  }
+
+  if (contentType === 'application/pdf') {
+    return {
+      title: parsedUrl.hostname,
+      content: extractPdfText(rawBody),
+    };
+  }
+
+  if (contentType === 'text/html') {
+    return {
+      title: extractHtmlTitle(rawBody) ?? parsedUrl.hostname,
+      content: stripHtml(rawBody),
+    };
+  }
+
+  return {
+    title: parsedUrl.hostname,
+    content: normalizeWhitespace(rawBody),
+  };
 }
 
 function splitSentences(content: string): string[] {
@@ -460,6 +598,15 @@ async function fetchRemoteDocument(
       );
     }
 
+    const contentType = normalizeContentType(response.headers.get('content-type'));
+    if (!isSupportedReadableContentType(contentType)) {
+      throw new EvoMapError(
+        `Unsupported content type for reading: ${contentType}`,
+        'READING_UNSUPPORTED_MEDIA_TYPE',
+        415,
+      );
+    }
+
     const declaredLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
     if (Number.isFinite(declaredLength) && declaredLength > MAX_FETCH_BYTES) {
       throw new EvoMapError('Document too large to analyze', 'READING_TOO_LARGE', 413);
@@ -493,14 +640,7 @@ async function fetchRemoteDocument(
       }
     }
 
-    const contentType = response.headers.get('content-type') ?? 'text/plain';
-    const extractedTitle = contentType.includes('text/html') ? extractHtmlTitle(rawBody) : null;
-    const extractedContent = contentType.includes('text/html') ? stripHtml(rawBody) : normalizeWhitespace(rawBody);
-
-    return {
-      title: extractedTitle ?? parsedUrl.hostname,
-      content: extractedContent,
-    };
+    return extractReadableDocument(parsedUrl, rawBody, contentType);
   } finally {
     clearTimeout(timeoutId);
     if (dispatcher) {
@@ -605,7 +745,205 @@ function toPublicUrl(url: string): string {
   return safeUrl.toString();
 }
 
-function rememberReading(result: ReadingResult, readerScope: string): void {
+function buildTextReadingUrl(text: string): string {
+  return `https://reading.evomap.invalid/text/${sha256Hex(text).slice(0, 16)}`;
+}
+
+function cloneReadingResult(result: ReadingResult): ReadingResult {
+  return {
+    ...result,
+    questions: result.questions.map((question) => ({ ...question })),
+    keyInformation: [...result.keyInformation],
+    entities: result.entities.map((entity) => ({ ...entity })),
+  };
+}
+
+function applyCustomTitle(result: ReadingResult, title?: string): ReadingResult {
+  if (!title || title.trim().length === 0) {
+    return cloneReadingResult(result);
+  }
+
+  return {
+    ...cloneReadingResult(result),
+    title: truncate(title.trim(), 256),
+  };
+}
+
+function buildQuestionId(seed: string, index: number): string {
+  return `rq-${sha256Hex(`${seed}#${index}`).slice(0, 16)}`;
+}
+
+function getReadingHostname(url: string): string {
+  const hostname = new URL(url).hostname;
+  return hostname === 'reading.evomap.invalid' ? 'text input' : hostname;
+}
+
+function buildReadingResult(
+  url: string,
+  title: string,
+  content: string,
+): ReadingResult {
+  const normalizedContent = truncate(normalizeWhitespace(content), CONTENT_MAX_LENGTH);
+  if (normalizedContent.length === 0) {
+    throw new EvoMapError('Unable to extract readable content from input', 'READING_EXTRACTION_FAILED', 422);
+  }
+
+  const questions = generateQuestions(normalizedContent, QUESTION_TYPES).map((question, index) => ({
+    ...question,
+    id: buildQuestionId(url, index),
+  }));
+  const hostname = getReadingHostname(url);
+
+  return {
+    id: `reading-${sha256Hex(url).slice(0, 16)}`,
+    url,
+    content: truncate(normalizedContent, RESULT_CONTENT_LIMIT),
+    title: truncate(title, 256),
+    summary: buildSummary(normalizedContent, hostname),
+    keyInformation: buildKeyInformation(normalizedContent, hostname),
+    questions,
+    entities: extractEntities(normalizedContent),
+  };
+}
+
+function normalizeReadingSignal(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64);
+}
+
+function buildReadingEntityNodeId(entity: ExtractedEntity): string {
+  return `topic-${sha256Hex(`${entity.type}:${entity.name.toLowerCase()}`).slice(0, 16)}`;
+}
+
+async function syncReadingToKnowledgeGraph(
+  reading: ReadingResult,
+  readerScope: string,
+  sourceType: ReadingSourceType,
+): Promise<void> {
+  const documentSignals = Array.from(new Set(
+    reading.entities
+      .map((entity) => normalizeReadingSignal(entity.name))
+      .filter((signal) => signal.length > 0),
+  )).slice(0, 10);
+
+  await kgService.createNode(READING_KG_NODE_TYPE, {
+    id: reading.id,
+    name: reading.title,
+    description: reading.summary,
+    signals: documentSignals,
+    tags: ['reading', sourceType],
+    url: reading.url,
+    source_type: sourceType,
+    question_count: reading.questions.length,
+    entity_count: reading.entities.length,
+    key_information: reading.keyInformation,
+  }, readerScope);
+
+  for (const entity of reading.entities) {
+    const entityId = buildReadingEntityNodeId(entity);
+    const entitySignals = Array.from(new Set([
+      normalizeReadingSignal(entity.name),
+      normalizeReadingSignal(entity.type),
+    ].filter((signal) => signal.length > 0)));
+
+    await kgService.createNode(READING_KG_NODE_TYPE, {
+      id: entityId,
+      name: entity.name,
+      description: `${toTitleCase(entity.type)} extracted from reading analysis`,
+      signals: entitySignals,
+      tags: ['reading-entity', entity.type],
+      entity_type: entity.type,
+    }, readerScope);
+
+    await kgService.createRelationship(reading.id, entityId, 'references', {
+      mentions: entity.mentions,
+      entity_type: entity.type,
+      source_type: sourceType,
+    });
+  }
+}
+
+function rememberReadingResult(
+  result: ReadingResult,
+  readerScope: string,
+  sourceType: ReadingSourceType,
+  deduplicated: boolean,
+): void {
+  const analyzedAt = new Date().toISOString();
+  recentReadingResultBuffer.unshift({
+    reader_scope: readerScope,
+    reading: cloneReadingResult(result),
+    source_type: sourceType,
+    analyzed_at: analyzedAt,
+    deduplicated,
+  });
+
+  if (recentReadingResultBuffer.length > READINGS_BUFFER_SIZE) {
+    recentReadingResultBuffer.splice(READINGS_BUFFER_SIZE);
+  }
+}
+
+function toPublicQuestion(
+  question: ReadingQuestionRecord,
+): Omit<ReadingQuestionRecord, 'reader_scope'> {
+  const { reader_scope, ...publicQuestion } = question;
+  void reader_scope;
+  return { ...publicQuestion };
+}
+
+function rememberQuestions(result: ReadingResult, readerScope: string): void {
+  const now = new Date().toISOString();
+  const existingById = new Map(
+    recentQuestionBuffer
+      .filter((question) => question.reader_scope === readerScope)
+      .map((question) => [question.question_id, question] as const),
+  );
+  const nextQuestions = result.questions.map((question) => ({
+    reader_scope: readerScope,
+    question_id: question.id,
+    reading_id: result.id,
+    reading_title: result.title,
+    reading_url: toPublicUrl(result.url),
+    text: question.text,
+    type: question.type,
+    difficulty: question.difficulty,
+    discovered_at: now,
+    status: existingById.get(question.id)?.status ?? 'pending' as const,
+    bounty_id: existingById.get(question.id)?.bounty_id,
+    bounty_amount: existingById.get(question.id)?.bounty_amount,
+    dismissed_at: existingById.get(question.id)?.dismissed_at,
+  }));
+  const nextQuestionIds = new Set(nextQuestions.map((question) => question.question_id));
+
+  for (let index = recentQuestionBuffer.length - 1; index >= 0; index -= 1) {
+    const existing = recentQuestionBuffer[index]!;
+    if (
+      existing.reader_scope === readerScope
+      && (existing.reading_id === result.id || nextQuestionIds.has(existing.question_id))
+    ) {
+      recentQuestionBuffer.splice(index, 1);
+    }
+  }
+
+  recentQuestionBuffer.unshift(...nextQuestions);
+
+  const maxQuestionBufferSize = READINGS_BUFFER_SIZE * QUESTION_TYPES;
+  if (recentQuestionBuffer.length > maxQuestionBufferSize) {
+    recentQuestionBuffer.splice(maxQuestionBufferSize);
+  }
+}
+
+function rememberReading(
+  result: ReadingResult,
+  readerScope: string,
+  sourceType: ReadingSourceType = 'url',
+  deduplicated = false,
+): void {
+  rememberReadingResult(result, readerScope, sourceType, deduplicated);
   recentReadingBuffer.unshift({
     reader_scope: readerScope,
     id: result.id,
@@ -613,16 +951,22 @@ function rememberReading(result: ReadingResult, readerScope: string): void {
     title: result.title,
     summary: result.summary,
     analyzed_at: new Date().toISOString(),
-    hostname: new URL(result.url).hostname,
+    hostname: sourceType === 'text' ? 'text' : new URL(result.url).hostname,
+    source_type: sourceType,
   });
 
   if (recentReadingBuffer.length > READINGS_BUFFER_SIZE) {
     recentReadingBuffer.splice(READINGS_BUFFER_SIZE);
   }
+
+  rememberQuestions(result, readerScope);
 }
 
 export function clearReadingBuffer(): void {
   recentReadingBuffer.length = 0;
+  recentQuestionBuffer.length = 0;
+  recentReadingResultBuffer.length = 0;
+  readingCacheByUrl.clear();
 }
 
 export function getTrendingReadings(readerScopeOrLimit: string | number = 'anonymous', limit = 10): TrendingReading[] {
@@ -653,7 +997,195 @@ export function getTrendingReadings(readerScopeOrLimit: string | number = 'anony
     .slice(0, safeLimit);
 }
 
-export async function readUrl(url: string, readerScope = 'anonymous'): Promise<ReadingResult> {
+export function getCommunityTrendingReadings(limit = 10): TrendingReading[] {
+  const aggregated = new Map<string, TrendingReading>();
+
+  for (const item of recentReadingBuffer) {
+    const existing = aggregated.get(item.url);
+    if (existing) {
+      existing.hits += 1;
+      if (item.analyzed_at > existing.analyzed_at) {
+        existing.analyzed_at = item.analyzed_at;
+        existing.summary = item.summary;
+        existing.title = item.title;
+      }
+      continue;
+    }
+
+    aggregated.set(item.url, {
+      ...item,
+      hits: 1,
+    });
+  }
+
+  return [...aggregated.values()]
+    .sort((left, right) => right.hits - left.hits || right.analyzed_at.localeCompare(left.analyzed_at))
+    .slice(0, limit);
+}
+
+export function getReadingHistory(
+  readerScope: string,
+  limit = 20,
+  offset = 0,
+  options: {
+    sort_by?: 'newest' | 'oldest';
+    source_type?: ReadingSourceType;
+  } = {},
+): ReadingHistoryResult {
+  const {
+    sort_by = 'newest',
+    source_type,
+  } = options;
+  const filtered = recentReadingResultBuffer
+    .filter((entry) =>
+      entry.reader_scope === readerScope
+      && (source_type === undefined || entry.source_type === source_type))
+    .sort((left, right) =>
+      sort_by === 'oldest'
+        ? left.analyzed_at.localeCompare(right.analyzed_at)
+        : right.analyzed_at.localeCompare(left.analyzed_at));
+
+  return {
+    items: filtered.slice(offset, offset + limit).map((entry) => ({
+      id: entry.reading.id,
+      url: entry.reading.url,
+      title: entry.reading.title,
+      analyzed_at: entry.analyzed_at,
+      question_count: entry.reading.questions.length,
+      source_type: entry.source_type,
+      deduplicated: entry.deduplicated,
+    })),
+    total: filtered.length,
+  };
+}
+
+export function getReadingDetail(
+  readingId: string,
+  readerScope: string,
+): ReadingDetailResult {
+  const entry = recentReadingResultBuffer.find((record) =>
+    record.reader_scope === readerScope && record.reading.id === readingId);
+
+  if (!entry) {
+    throw new NotFoundError('Reading', readingId);
+  }
+
+  return {
+    reading: cloneReadingResult(entry.reading),
+    source_type: entry.source_type,
+    analyzed_at: entry.analyzed_at,
+    deduplicated: entry.deduplicated,
+  };
+}
+
+export function listMyQuestions(
+  readerScope: string,
+  options: {
+    status?: ReadingQuestionStatus;
+    limit?: number;
+    offset?: number;
+  } = {},
+): ListReadingQuestionsResult {
+  const {
+    status,
+    limit = 20,
+    offset = 0,
+  } = options;
+  const filtered = recentQuestionBuffer.filter((question) =>
+    question.reader_scope === readerScope && (status === undefined || question.status === status));
+
+  return {
+    items: filtered
+      .slice(offset, offset + limit)
+      .map((question) => toPublicQuestion(question)),
+    total: filtered.length,
+  };
+}
+
+function getOwnedQuestion(readerScope: string, questionId: string): ReadingQuestionRecord {
+  const question = recentQuestionBuffer.find((entry) =>
+    entry.reader_scope === readerScope && entry.question_id === questionId);
+
+  if (!question) {
+    throw new NotFoundError('ReadingQuestion', questionId);
+  }
+
+  return question;
+}
+
+export async function createQuestionBounty(
+  readerScope: string,
+  creatorId: string,
+  questionId: string,
+  input: {
+    amount: number;
+    deadline: string;
+    description?: string;
+    requirements?: string[];
+  },
+): Promise<{
+  bounty_id: string;
+  amount: number;
+  question: Omit<ReadingQuestionRecord, 'reader_scope'>;
+}> {
+  const question = getOwnedQuestion(readerScope, questionId);
+
+  if (question.status === 'dismissed') {
+    throw new ValidationError('Cannot bounty a dismissed reading question');
+  }
+  if (question.status === 'bountied' && question.bounty_id) {
+    throw new ValidationError('Reading question already has a bounty');
+  }
+
+  const title = truncate(`Investigate reading question: ${question.text}`, 120);
+  const requirements = input.requirements ?? [
+    'Provide a concrete, evidence-backed answer.',
+    `Address the discovered question directly: ${question.text}`,
+    `Use the source reading as context: ${question.reading_title}`,
+  ];
+  const description = input.description ?? [
+    `Reading title: ${question.reading_title}`,
+    `Reading URL: ${question.reading_url}`,
+    `Discovered question: ${question.text}`,
+  ].join('\n');
+
+  const bounty = await createBountyTask(
+    creatorId,
+    title,
+    description,
+    requirements,
+    input.amount,
+    input.deadline,
+  );
+
+  question.status = 'bountied';
+  question.bounty_id = bounty.bounty_id;
+  question.bounty_amount = input.amount;
+
+  return {
+    bounty_id: bounty.bounty_id,
+    amount: input.amount,
+    question: toPublicQuestion(question),
+  };
+}
+
+export function dismissQuestion(
+  readerScope: string,
+  questionId: string,
+): Omit<ReadingQuestionRecord, 'reader_scope'> {
+  const question = getOwnedQuestion(readerScope, questionId);
+
+  if (question.status === 'bountied') {
+    throw new ValidationError('Cannot dismiss a bountied reading question');
+  }
+
+  question.status = 'dismissed';
+  question.dismissed_at = new Date().toISOString();
+
+  return toPublicQuestion(question);
+}
+
+async function analyzeUrl(url: string): Promise<ReadingResult> {
   if (!url || !url.trim()) {
     throw new ValidationError('URL must not be empty');
   }
@@ -669,24 +1201,88 @@ export async function readUrl(url: string, readerScope = 'anonymous'): Promise<R
   validateUrlShape(parsedUrl);
 
   const document = await loadDocument(parsedUrl);
-  const fullContent = truncate(normalizeWhitespace(document.content), CONTENT_MAX_LENGTH);
-  if (fullContent.length === 0) {
-    throw new EvoMapError('Unable to extract readable content from URL', 'READING_EXTRACTION_FAILED', 422);
+  const result = buildReadingResult(
+    trimmed,
+    document.title || parsedUrl.hostname,
+    document.content,
+  );
+  return result;
+}
+
+function analyzeText(
+  text: string,
+  title?: string,
+): ReadingResult {
+  const trimmed = text.trim();
+  if (trimmed.length < 50) {
+    throw new ValidationError('Text input must be at least 50 characters');
   }
 
-  const result: ReadingResult = {
-    id: `reading-${sha256Hex(trimmed).slice(0, 16)}`,
-    url: trimmed,
-    content: truncate(fullContent, RESULT_CONTENT_LIMIT),
-    title: truncate(document.title || parsedUrl.hostname, 256),
-    summary: buildSummary(fullContent, parsedUrl.hostname),
-    keyInformation: buildKeyInformation(fullContent, parsedUrl.hostname),
-    questions: generateQuestions(fullContent, QUESTION_TYPES),
-    entities: extractEntities(fullContent),
-  };
+  const textUrl = buildTextReadingUrl(trimmed);
+  return buildReadingResult(
+    textUrl,
+    title?.trim() || 'Text reading',
+    trimmed,
+  );
+}
 
+export async function readUrl(url: string, readerScope = 'anonymous'): Promise<ReadingResult> {
+  const result = await analyzeUrl(url);
+  await syncReadingToKnowledgeGraph(result, readerScope, 'url');
+  readingCacheByUrl.set(toPublicUrl(result.url), cloneReadingResult(result));
   rememberReading(result, readerScope);
   return result;
+}
+
+export async function ingestReading(
+  input: { url?: string; text?: string; title?: string },
+  readerScope = 'anonymous',
+): Promise<IngestReadingResult> {
+  const hasUrl = typeof input.url === 'string' && input.url.trim().length > 0;
+  const hasText = typeof input.text === 'string' && input.text.trim().length > 0;
+
+  if (hasUrl === hasText) {
+    throw new ValidationError('Provide exactly one of url or text');
+  }
+
+  if (hasUrl) {
+    let cacheKey: string;
+    try {
+      cacheKey = toPublicUrl(input.url!.trim());
+    } catch {
+      throw new ValidationError('Invalid URL format');
+    }
+    const cached = readingCacheByUrl.get(cacheKey);
+    if (cached) {
+      const reading = applyCustomTitle(cached, input.title);
+      rememberReading(reading, readerScope, 'url', true);
+      return {
+        reading,
+        source_type: 'url',
+        deduplicated: true,
+      };
+    }
+
+    const analyzed = await analyzeUrl(input.url!);
+    const reading = applyCustomTitle(analyzed, input.title);
+    await syncReadingToKnowledgeGraph(reading, readerScope, 'url');
+    readingCacheByUrl.set(toPublicUrl(analyzed.url), cloneReadingResult(analyzed));
+    rememberReading(reading, readerScope, 'url', false);
+    return {
+      reading,
+      source_type: 'url',
+      deduplicated: false,
+    };
+  }
+
+  const reading = analyzeText(input.text!, input.title);
+  await syncReadingToKnowledgeGraph(reading, readerScope, 'text');
+  rememberReading(reading, readerScope, 'text', false);
+  return {
+    reading,
+    source_type: 'text',
+    deduplicated: false,
+  };
 }
 
 export function generateQuestions(content: string, count = QUESTION_TYPES): GeneratedQuestion[] {

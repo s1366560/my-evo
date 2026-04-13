@@ -32,6 +32,9 @@ export interface MemoryGraphNode {
   metadata?: Record<string, unknown>;
   created_at: Date;
   updated_at: Date;
+  effective_confidence?: number;
+  stale?: boolean;
+  confidence_grade?: ConfidenceGrade;
 }
 
 export interface MemoryGraphNodeRecord {

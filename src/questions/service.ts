@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { NotFoundError, ValidationError } from '../shared/errors';
 import { createUnconfiguredPrismaClient } from '../shared/prisma';
+import { addPoints } from '../reputation/service';
 
 let prisma = createUnconfiguredPrismaClient();
 const RESERVED_INTERNAL_TAGS = new Set([
@@ -293,9 +294,12 @@ export async function upvoteAnswer(
   const client = getPrismaClient(prismaClient);
   const answer = await getPublicAnswer(questionId, answerId, client);
 
-  await client.questionAnswer.update({
-    where: { answer_id: answerId },
-    data: { upvotes: { increment: 1 } },
+  await client.$transaction(async (tx) => {
+    await tx.questionAnswer.update({
+      where: { answer_id: answerId },
+      data: { upvotes: { increment: 1 } },
+    });
+    await addPoints(answer.author, 'answer_upvoted', tx as unknown as PrismaClient);
   });
 }
 
@@ -307,9 +311,12 @@ export async function downvoteAnswer(
   const client = getPrismaClient(prismaClient);
   const answer = await getPublicAnswer(questionId, answerId, client);
 
-  await client.questionAnswer.update({
-    where: { answer_id: answerId },
-    data: { downvotes: { increment: 1 } },
+  await client.$transaction(async (tx) => {
+    await tx.questionAnswer.update({
+      where: { answer_id: answerId },
+      data: { downvotes: { increment: 1 } },
+    });
+    await addPoints(answer.author, 'answer_downvoted', tx as unknown as PrismaClient);
   });
 }
 
@@ -336,5 +343,9 @@ export async function acceptAnswer(
       where: { answer_id: answerId },
       data: { accepted: true },
     });
+
+    if (!answer.accepted) {
+      await addPoints(answer.author, 'answer_accepted', tx as unknown as PrismaClient);
+    }
   });
 }

@@ -1,9 +1,53 @@
-import type { FastifyInstance } from 'fastify';
-import { requireAuth } from '../shared/auth';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { authenticate, requireAuth } from '../shared/auth';
 import { EvoMapError, ValidationError } from '../shared/errors';
 import * as service from './service';
 
 export async function bountyRoutes(app: FastifyInstance) {
+  async function getOptionalAuth(request: FastifyRequest) {
+    const hasCredentials = Boolean(
+      request.headers.authorization
+      || request.cookies?.session_token
+      || request.headers['x-session-token'],
+    );
+
+    if (!hasCredentials) {
+      return undefined;
+    }
+
+    try {
+      return await authenticate(request);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function sendBountyList(request: FastifyRequest) {
+    const query = request.query as {
+      status?: string;
+      creator_id?: string;
+      limit?: string;
+      offset?: string;
+    };
+
+    const result = await service.listBounties({
+      status: query.status as 'open' | 'claimed' | 'submitted' | 'accepted' | 'disputed' | 'resolved' | 'expired' | 'cancelled' | undefined,
+      creator_id: query.creator_id,
+      limit: query.limit ? parseInt(query.limit, 10) : 20,
+      offset: query.offset ? parseInt(query.offset, 10) : 0,
+    });
+
+    return {
+      success: true,
+      data: result.bounties,
+      meta: {
+        total: result.total,
+        limit: result.limit,
+        offset: result.offset,
+      },
+    };
+  }
+
   // Alias: POST /a2a/ask  (same as POST /api/v2/bounty)
   app.post('/ask', {
     schema: { tags: ['Bounty'] },
@@ -225,44 +269,35 @@ export async function bountyRoutes(app: FastifyInstance) {
         type: 'object',
         properties: {
           status: { type: 'string' },
+          creator_id: { type: 'string' },
           limit: { type: 'string' },
           offset: { type: 'string' },
         },
       },
     },
-    preHandler: [requireAuth()],
-  }, async (request) => {
-    const query = request.query as {
-      status?: string;
-      lang?: string;
-      limit?: string;
-      offset?: string;
-    };
+  }, sendBountyList);
 
-    const result = await service.listBounties({
-      status: query.status as 'open' | 'claimed' | 'submitted' | 'accepted' | 'disputed' | 'resolved' | 'expired' | 'cancelled' | undefined,
-      limit: query.limit ? parseInt(query.limit, 10) : 20,
-      offset: query.offset ? parseInt(query.offset, 10) : 0,
-    });
-
-    return {
-      success: true,
-      data: result.bounties,
-      meta: {
-        total: result.total,
-        limit: result.limit,
-        offset: result.offset,
+  app.get('/list', {
+    schema: {
+      tags: ['Bounty'],
+      querystring: {
+        type: 'object',
+        properties: {
+          status: { type: 'string' },
+          creator_id: { type: 'string' },
+          limit: { type: 'string' },
+          offset: { type: 'string' },
+        },
       },
-    };
-  });
+    },
+  }, sendBountyList);
 
   app.get('/:bountyId', {
     schema: { tags: ['Bounty'] },
-    preHandler: [requireAuth()],
   }, async (request) => {
-    const auth = request.auth!;
+    const auth = await getOptionalAuth(request);
     const params = request.params as { bountyId: string };
-    const bounty = await service.getBounty(params.bountyId, auth.node_id);
+    const bounty = await service.getBounty(params.bountyId, auth?.node_id ?? '');
     return { success: true, data: bounty };
   });
 

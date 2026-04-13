@@ -206,6 +206,35 @@ describe('Memory graph routes', () => {
     expect(mockTriggerDecayAll).toHaveBeenCalledWith(undefined, 30, 50);
   });
 
+  it('keeps compute-decay aliases wired for legacy and spec routes', async () => {
+    mockTriggerDecay.mockResolvedValue({ node: { node_id: 'asset-1' } });
+    mockTriggerDecayAll.mockResolvedValue({ processed: 2, skipped: 0 });
+
+    const [legacyResponse, specResponse] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/legacy/compute-decay',
+        payload: {
+          node_id: 'asset-1',
+          lambda: 0.2,
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/memory/graph/compute-decay',
+        payload: {
+          inactive_days: 45,
+          batch_size: 25,
+        },
+      }),
+    ]);
+
+    expect(legacyResponse.statusCode).toBe(200);
+    expect(specResponse.statusCode).toBe(200);
+    expect(mockTriggerDecay).toHaveBeenCalledWith('asset-1', { lambda: 0.2 });
+    expect(mockTriggerDecayAll).toHaveBeenCalledWith(undefined, 45, 25);
+  });
+
   it('exposes spec chain and export endpoints', async () => {
     mockConstructChain.mockResolvedValue({ chain_id: 'chain-1' });
     mockExportGraph.mockResolvedValue({ nodes: [], edges: [], chains: [], exported_at: '2026-01-01T00:00:00Z' });

@@ -1,4 +1,11 @@
 import { PrismaClient } from '@prisma/client';
+const mockAddPoints = jest.fn();
+
+jest.mock('../reputation/service', () => ({
+  ...jest.requireActual('../reputation/service'),
+  addPoints: (...args: unknown[]) => mockAddPoints(...args),
+}));
+
 import * as service from './service';
 import { NotFoundError, ValidationError } from '../shared/errors';
 import { MAX_SUBTASKS, TITLE_MAX_LENGTH } from '../shared/constants';
@@ -12,7 +19,9 @@ const {
   completeTask,
   listContributions,
   submitContribution,
+  submitTaskAnswer,
   acceptSubmission,
+  rejectSubmission,
   proposeTaskDecomposition,
   setTaskCommitment,
 } = service;
@@ -270,10 +279,19 @@ describe('Task Service', () => {
         status: 'accepted',
         created_at: new Date('2026-01-01T00:00:00.000Z'),
       });
+      mockAddPoints.mockResolvedValue({
+        node_id: 'node-2',
+        score: 55,
+      });
 
       const result = await acceptSubmission('p-1:t-1', 'sub-1', 'node-1');
 
       expect(result.status).toBe('accepted');
+      expect(mockAddPoints).toHaveBeenCalledWith(
+        'node-2',
+        'worker_task_completed',
+        mockPrisma,
+      );
     });
 
     it('rejects acceptance by non-assignees', async () => {
@@ -289,6 +307,107 @@ describe('Task Service', () => {
       await expect(
         acceptSubmission('p-1:t-1', 'sub-1', 'node-1'),
       ).rejects.toThrow('Only the task assignee can accept submissions');
+    });
+  });
+
+  describe('rejectSubmission', () => {
+    it('allows the task assignee to reject a submission and records worker failure reputation', async () => {
+      mockPrisma.projectTask.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.projectTask.findFirst.mockResolvedValue({
+        id: 'task-row-1',
+        task_id: 't-1',
+        project_id: 'p-1',
+        assignee_id: 'node-1',
+        status: 'in_progress',
+        title: 'Main task',
+      });
+      mockPrisma.taskSubmission.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.taskSubmission.findFirst.mockResolvedValue({
+        id: 'submission-row-1',
+        submission_id: 'sub-1',
+        task_id: 't-1',
+        submitter_id: 'node-2',
+        asset_id: null,
+        node_id: null,
+        status: 'rejected',
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      mockAddPoints.mockResolvedValue({
+        node_id: 'node-2',
+        score: 45,
+      });
+
+      const result = await rejectSubmission('p-1:t-1', 'sub-1', 'node-1');
+
+      expect(result.status).toBe('rejected');
+      expect(mockPrisma.taskSubmission.updateMany).toHaveBeenCalledWith({
+        where: {
+          submission_id: 'sub-1',
+          task_id: 't-1',
+          status: 'pending',
+        },
+        data: { status: 'rejected' },
+      });
+      expect(mockAddPoints).toHaveBeenCalledWith(
+        'node-2',
+        'worker_task_failed',
+        mockPrisma,
+      );
+    });
+  });
+
+  describe('submitTaskAnswer', () => {
+    it('stores submissions with a concrete payload', async () => {
+      mockPrisma.projectTask.findFirst.mockResolvedValue({
+        id: '1',
+        task_id: 't-1',
+        project_id: 'p-1',
+        status: 'in_progress',
+        assignee_id: 'node-1',
+      });
+      mockPrisma.taskSubmission.create.mockResolvedValue({
+        id: 'submission-row-1',
+        submission_id: 'sub-1',
+        task_id: 't-1',
+        submitter_id: 'node-2',
+        asset_id: null,
+        node_id: 'node-2',
+        status: 'pending',
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+      });
+
+      const result = await submitTaskAnswer('p-1:t-1', 'node-2', undefined, 'node-2');
+
+      expect(mockPrisma.taskSubmission.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          task_id: 't-1',
+          submitter_id: 'node-2',
+          asset_id: null,
+          node_id: 'node-2',
+          status: 'pending',
+        }),
+      });
+      expect(result.node_id).toBe('node-2');
+    });
+
+    it('rejects submissions without asset_id or node_id', async () => {
+      await expect(
+        submitTaskAnswer('p-1:t-1', 'node-2'),
+      ).rejects.toThrow('Submission requires asset_id or node_id');
+    });
+
+    it('rejects submissions while the task is still open', async () => {
+      mockPrisma.projectTask.findFirst.mockResolvedValue({
+        id: '1',
+        task_id: 't-1',
+        project_id: 'p-1',
+        status: 'open',
+        assignee_id: null,
+      });
+
+      await expect(
+        submitTaskAnswer('p-1:t-1', 'node-2', 'asset-1'),
+      ).rejects.toThrow('Task must be in progress or completed before submitting an answer');
     });
   });
 

@@ -1,7 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
-import { ValidationError } from '../shared/errors';
+import { UnauthorizedError, ValidationError } from '../shared/errors';
 import * as kgService from './service';
+
+function requireNodeSecretAuth(
+  auth: NonNullable<import('fastify').FastifyRequest['auth']>,
+  action: string,
+): void {
+  if (auth.auth_type !== 'node_secret') {
+    throw new UnauthorizedError(`${action} requires node secret authentication`);
+  }
+}
 
 export async function kgRoutes(app: FastifyInstance): Promise<void> {
   const prisma = app.prisma;
@@ -28,39 +37,101 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    requireNodeSecretAuth(auth, 'KG node creation');
     const body = request.body as {
       type: string;
-      properties: Record<string, unknown>;
+      id?: string;
+      name?: string;
+      properties?: Record<string, unknown>;
     };
+    const properties = { ...(body.properties ?? {}) };
+    if (body.id !== undefined) {
+      properties.id = body.id;
+    }
+    if (body.name !== undefined) {
+      properties.name = body.name;
+    }
 
     const result = await kgService.createNode(
       body.type,
-      body.properties,
+      properties,
       auth.node_id,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({
+      success: true,
+      data: {
+        ...result,
+        status: 'ok',
+      },
+    });
   });
 
   app.post('/relationship', {
     schema: { tags: ['KnowledgeGraph'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
+    requireNodeSecretAuth(auth, 'KG relationship creation');
     const body = request.body as {
-      from_id: string;
-      to_id: string;
-      type: string;
+      from_id?: string;
+      to_id?: string;
+      source_id?: string;
+      target_id?: string;
+      source_type?: string;
+      target_type?: string;
+      type?: string;
+      relationship_type?: string;
       properties?: Record<string, unknown>;
     };
+    const fromId = body.from_id ?? body.source_id;
+    const toId = body.to_id ?? body.target_id;
+    const relationshipType = body.type ?? body.relationship_type;
+
+    if (!fromId || !toId || !relationshipType) {
+      throw new ValidationError('from_id/source_id, to_id/target_id, and type/relationship_type are required');
+    }
 
     const result = await kgService.createRelationship(
-      body.from_id,
-      body.to_id,
-      body.type,
+      fromId,
+      toId,
+      relationshipType,
       body.properties,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({
+      success: true,
+      data: {
+        status: 'ok',
+        relationship_id: result.id,
+        ...result,
+      },
+    });
+  });
+
+  app.get('/node/:type/:id', {
+    schema: { tags: ['KnowledgeGraph'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const { type, id } = request.params as { type: string; id: string };
+    const result = await kgService.getNode(type, id);
+    return reply.send({ success: true, data: result });
+  });
+
+  app.get('/node/:type/:id/neighbors', {
+    schema: { tags: ['KnowledgeGraph'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const { type, id } = request.params as { type: string; id: string };
+    const query = request.query as { depth?: string; relationship_type?: string };
+    const depth = query.depth === undefined ? 1 : parseInt(query.depth, 10);
+
+    if (!Number.isInteger(depth) || depth < 1 || depth > 5) {
+      throw new ValidationError('depth must be an integer between 1 and 5');
+    }
+
+    const result = await kgService.getNeighborhood(type, id, depth, query.relationship_type);
+    return reply.send({ success: true, data: result });
   });
 
   app.get('/node/:nodeId/neighbors', {
@@ -75,6 +146,33 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
       (direction as 'incoming' | 'outgoing' | 'both') ?? 'both',
     );
 
+    return reply.send({ success: true, data: result });
+  });
+
+  app.get('/stats', {
+    schema: { tags: ['KnowledgeGraph'] },
+  }, async (_request, reply) => {
+    const result = await kgService.getGraphStats();
+    return reply.send({ success: true, data: result });
+  });
+
+  app.get('/types/:type', {
+    schema: { tags: ['KnowledgeGraph'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const { type } = request.params as { type: string };
+    const query = request.query as { limit?: string; offset?: string };
+    const limit = query.limit === undefined ? 50 : parseInt(query.limit, 10);
+    const offset = query.offset === undefined ? 0 : parseInt(query.offset, 10);
+
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new ValidationError('limit must be an integer between 1 and 100');
+    }
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new ValidationError('offset must be a non-negative integer');
+    }
+
+    const result = await kgService.listNodesByType(type, limit, offset);
     return reply.send({ success: true, data: result });
   });
 
@@ -100,6 +198,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    requireNodeSecretAuth(auth, 'KG ingest');
     const body = request.body as {
       entities?: Array<{ type: string; properties: Record<string, unknown> }>;
       relationships?: Array<{ from_id: string; to_id: string; type: string; properties?: Record<string, unknown> }>;
@@ -150,10 +249,10 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
   }, async (request) => {
     const auth = request.auth!;
 
-    const [totalNodes, totalRelationships, myNodes] = await Promise.all([
+    const [totalNodes, derivedRelationships, explicitRelationships, myNodes] = await Promise.all([
       prisma.asset.count(),
-      // Count relationships via assets with parent_id
       prisma.asset.count({ where: { parent_id: { not: null } } }),
+      prisma.knowledgeGraphRelationship.count(),
       prisma.asset.count({ where: { author_id: auth.node_id } }),
     ]);
 
@@ -162,7 +261,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
       data: {
         node_id: auth.node_id,
         total_nodes: totalNodes,
-        total_edges: totalRelationships,
+        total_edges: derivedRelationships + explicitRelationships,
         my_nodes: myNodes,
         connected_peers: 0,
         last_sync_at: new Date().toISOString(),
@@ -198,9 +297,25 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
       prisma.asset.count({ where: where as Record<string, unknown> }),
     ]);
 
-    // Build relationships for these nodes (parent-child + signal-sharing)
+    // Build relationships for these nodes (parent-child + persisted KG relationships)
     const nodeIds = new Set(nodes.map((n) => n.asset_id));
     const relationships = [];
+    const explicitRelationships = nodeIds.size > 0
+      ? await prisma.knowledgeGraphRelationship.findMany({
+        where: {
+          from_id: { in: [...nodeIds] },
+          to_id: { in: [...nodeIds] },
+        },
+        select: {
+          relationship_id: true,
+          from_id: true,
+          to_id: true,
+          relationship_type: true,
+          properties: true,
+        },
+        orderBy: { created_at: 'desc' },
+      })
+      : [];
 
     for (const node of nodes) {
       // Parent edge
@@ -226,6 +341,16 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
           properties: { generation: child.generation },
         });
       }
+    }
+
+    for (const relationship of explicitRelationships) {
+      relationships.push({
+        from_id: relationship.from_id,
+        to_id: relationship.to_id,
+        type: relationship.relationship_type,
+        properties: relationship.properties ?? {},
+        relationship_id: relationship.relationship_id,
+      });
     }
 
     const kgNodes = nodes.map((a) => ({

@@ -56,6 +56,9 @@ export const REPUTATION_EVENTS = {
   publish: 2,
   promoted: 50,
   revoked: -100,
+  answer_accepted: 15,
+  answer_upvoted: 1,
+  answer_downvoted: -2,
   bounty_completed: 10,
   worker_task_completed: 5,
   worker_task_failed: -5,
@@ -125,6 +128,7 @@ export const VOTE_WEIGHT_MULTIPLIERS: Array<{ min: number; max: number; multipli
 export const L1_DURATION_MS = 86_400_000; // 24h
 export const L2_DURATION_MS = 604_800_000; // 7d
 export const L3_DURATION_MS = 2_592_000_000; // 30d
+export const QUARANTINE_APPEAL_WINDOW_MS = 86_400_000; // 24h
 export const L1_REPUTATION_PENALTY = 5;
 export const L2_REPUTATION_PENALTY = 15;
 export const L3_REPUTATION_PENALTY = 30;

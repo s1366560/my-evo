@@ -54,6 +54,24 @@ function validateImportItems(name: string, value: unknown): unknown[] {
 }
 
 export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void> {
+  const handleDecayRequest = async (body: {
+    asset_id?: string;
+    node_id?: string;
+    inactive_days?: number;
+    batch_size?: number;
+    lambda?: number;
+    half_life_days?: number;
+    positive_boost?: number;
+    negative_penalty?: number;
+    floor?: number;
+  }) => {
+    const targetId = body.asset_id ?? body.node_id;
+    const params = buildDecayParams(body);
+    return targetId
+      ? service.triggerDecay(targetId, params)
+      : service.triggerDecayAll(params, body.inactive_days ?? 90, body.batch_size ?? 100);
+  };
+
   app.post('/node', {
     schema: { tags: ['MemoryGraph'] },
     preHandler: [requireAuth()],
@@ -247,12 +265,28 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
       negative_penalty?: number;
       floor?: number;
     };
+    const result = await handleDecayRequest(body);
+    return reply.send({ success: true, data: result });
+  });
 
-    const targetId = body.asset_id ?? body.node_id;
-    const params = buildDecayParams(body);
-    const result = targetId
-      ? await service.triggerDecay(targetId, params)
-      : await service.triggerDecayAll(params, body.inactive_days ?? 90, body.batch_size ?? 100);
+  app.post('/compute-decay', {
+    schema: { tags: ['MemoryGraph'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    requireTrustedNodeOperator(auth, 'Memory graph decay');
+    const body = request.body as {
+      asset_id?: string;
+      node_id?: string;
+      inactive_days?: number;
+      batch_size?: number;
+      lambda?: number;
+      half_life_days?: number;
+      positive_boost?: number;
+      negative_penalty?: number;
+      floor?: number;
+    };
+    const result = await handleDecayRequest(body);
     return reply.send({ success: true, data: result });
   });
 

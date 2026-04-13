@@ -5,6 +5,10 @@ import { NotFoundError, ValidationError } from '../shared/errors';
 const {
   queryGraph,
   createNode,
+  getNode,
+  getNeighborhood,
+  getGraphStats,
+  listNodesByType,
   createRelationship,
   getNeighbors,
   getShortestPath,
@@ -35,8 +39,14 @@ const mockPrisma = {
   asset: {
     findMany: jest.fn(),
     findUnique: jest.fn(),
-    create: jest.fn(),
+    count: jest.fn(),
+    upsert: jest.fn(),
     delete: jest.fn(),
+  },
+  knowledgeGraphRelationship: {
+    findMany: jest.fn(),
+    upsert: jest.fn(),
+    deleteMany: jest.fn(),
   },
 } as any;
 
@@ -44,13 +54,21 @@ const mockPrisma = {
 function resetMocks(): void {
   (mockPrisma.asset.findMany as any).mockReset();
   (mockPrisma.asset.findUnique as any).mockReset();
-  (mockPrisma.asset.create as any).mockReset();
+  (mockPrisma.asset.count as any).mockReset();
+  (mockPrisma.asset.upsert as any).mockReset();
   (mockPrisma.asset.delete as any).mockReset();
+  (mockPrisma.knowledgeGraphRelationship.findMany as any).mockReset();
+  (mockPrisma.knowledgeGraphRelationship.upsert as any).mockReset();
+  (mockPrisma.knowledgeGraphRelationship.deleteMany as any).mockReset();
   // Re-establish default that returns empty arrays/objects for simple cases
   mockPrisma.asset.findMany.mockResolvedValue([]);
   mockPrisma.asset.findUnique.mockResolvedValue(null);
-  mockPrisma.asset.create.mockResolvedValue({});
+  mockPrisma.asset.count.mockResolvedValue(0);
+  mockPrisma.asset.upsert.mockResolvedValue({});
   mockPrisma.asset.delete.mockResolvedValue({});
+  mockPrisma.knowledgeGraphRelationship.findMany.mockResolvedValue([]);
+  mockPrisma.knowledgeGraphRelationship.upsert.mockResolvedValue({});
+  mockPrisma.knowledgeGraphRelationship.deleteMany.mockResolvedValue({ count: 0 });
 }
 
 describe('Knowledge Graph Service', () => {
@@ -60,6 +78,8 @@ describe('Knowledge Graph Service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetMocks();
+    mockPrisma.asset.count.mockResolvedValue(0);
   });
 
   describe('queryGraph', () => {
@@ -136,11 +156,11 @@ describe('Knowledge Graph Service', () => {
         signals: ['sig-1'],
         tags: [],
         author_id: 'node-1',
-        status: 'draft',
+        status: 'published',
         gdi_score: 0,
       });
 
-      mockPrisma.asset.create.mockResolvedValue(created);
+      mockPrisma.asset.upsert.mockResolvedValue(created);
 
       const result = await createNode('gene', {
         name: 'Test Node',
@@ -153,9 +173,15 @@ describe('Knowledge Graph Service', () => {
       expect(result.type).toBe('gene');
       expect(result.properties.name).toBe('Test Node');
       expect(result.properties.signals).toEqual(['sig-1']);
-      expect(mockPrisma.asset.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      expect(mockPrisma.asset.upsert).toHaveBeenCalledWith({
+        where: { asset_id: expect.any(String) },
+        update: expect.objectContaining({
           tags: ['kg:entity'],
+          status: 'published',
+        }),
+        create: expect.objectContaining({
+          tags: ['kg:entity'],
+          status: 'published',
         }),
       });
     });
@@ -176,7 +202,7 @@ describe('Knowledge Graph Service', () => {
         author_id: 'system',
       });
 
-      mockPrisma.asset.create.mockResolvedValue(created);
+      mockPrisma.asset.upsert.mockResolvedValue(created);
 
       const result = await createNode('gene', {}, 'node-1');
 
@@ -190,14 +216,18 @@ describe('Knowledge Graph Service', () => {
         tags: ['custom', 'kg:entity'],
       });
 
-      mockPrisma.asset.create.mockResolvedValue(created);
+      mockPrisma.asset.upsert.mockResolvedValue(created);
 
       await createNode('gene', {
         tags: ['custom', 'kg:entity'],
       }, 'node-1');
 
-      expect(mockPrisma.asset.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      expect(mockPrisma.asset.upsert).toHaveBeenCalledWith({
+        where: { asset_id: expect.any(String) },
+        update: expect.objectContaining({
+          tags: ['custom', 'kg:entity'],
+        }),
+        create: expect.objectContaining({
           tags: ['custom', 'kg:entity'],
         }),
       });
@@ -210,16 +240,210 @@ describe('Knowledge Graph Service', () => {
         tags: ['kg:entity'],
       });
 
-      mockPrisma.asset.create.mockResolvedValue(created);
+      mockPrisma.asset.upsert.mockResolvedValue(created);
 
       await createNode('gene', {
         author_id: 'spoofed-node',
       }, 'node-auth');
 
-      expect(mockPrisma.asset.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      expect(mockPrisma.asset.upsert).toHaveBeenCalledWith({
+        where: { asset_id: expect.any(String) },
+        update: expect.any(Object),
+        create: expect.objectContaining({
           author_id: 'node-auth',
         }),
+      });
+    });
+
+    it('should preserve an explicit KG node id when one is provided', async () => {
+      const created = makeAsset({
+        asset_id: 'concept_sentiment_analysis',
+        asset_type: 'concept',
+        tags: ['kg:entity'],
+        status: 'draft',
+      });
+
+      mockPrisma.asset.upsert.mockResolvedValue(created);
+
+      const result = await createNode('concept', {
+        id: 'concept_sentiment_analysis',
+        name: 'Sentiment Analysis',
+      }, 'node-1');
+
+      expect(result.id).toBe('concept_sentiment_analysis');
+      expect(mockPrisma.asset.upsert).toHaveBeenCalledWith({
+        where: { asset_id: 'concept_sentiment_analysis' },
+        update: expect.objectContaining({
+          asset_type: 'concept',
+        }),
+        create: expect.objectContaining({
+          asset_id: 'concept_sentiment_analysis',
+          asset_type: 'concept',
+        }),
+      });
+    });
+  });
+
+  describe('getNode', () => {
+    it('should return a published node detail with incoming and outgoing relationships', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValueOnce(
+        makeAsset({ asset_id: 'gene-1', asset_type: 'gene', parent_id: 'gene-base' }),
+      );
+      mockPrisma.asset.findMany.mockResolvedValueOnce([
+        makeAsset({ asset_id: 'gene-child', parent_id: 'gene-1' }),
+      ]);
+
+      const result = await getNode('gene', 'gene-1');
+
+      expect(result).toEqual({
+        type: 'gene',
+        id: 'gene-1',
+        name: 'Test Asset',
+        properties: expect.objectContaining({
+          gdi_score: 50,
+          author: 'node-1',
+          signals: ['signal-a'],
+        }),
+        relationships: {
+          outgoing: [{ type: 'derived_from', target: 'gene-base' }],
+          incoming: [{ type: 'derived_from', source: 'gene-child' }],
+        },
+      });
+    });
+
+    it('should include persisted explicit relationships in node detail', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValueOnce(
+        makeAsset({ asset_id: 'gene-1', asset_type: 'gene', parent_id: null }),
+      );
+      mockPrisma.asset.findMany.mockResolvedValueOnce([]);
+      mockPrisma.knowledgeGraphRelationship.findMany
+        .mockResolvedValueOnce([
+          {
+            relationship_id: 'rel-explicit-out',
+            from_id: 'gene-1',
+            to_id: 'topic-1',
+            relationship_type: 'references',
+            properties: {},
+            created_at: new Date('2025-01-01'),
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            relationship_id: 'rel-explicit-in',
+            from_id: 'topic-2',
+            to_id: 'gene-1',
+            relationship_type: 'depends_on',
+            properties: {},
+            created_at: new Date('2025-01-02'),
+          },
+        ]);
+
+      const result = await getNode('gene', 'gene-1');
+
+      expect(result.relationships.outgoing).toContainEqual({
+        type: 'references',
+        target: 'topic-1',
+      });
+      expect(result.relationships.incoming).toContainEqual({
+        type: 'depends_on',
+        source: 'topic-2',
+      });
+    });
+
+    it('should hide nodes that are not published or do not match the requested type', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValueOnce(
+        makeAsset({ asset_id: 'gene-1', asset_type: 'capsule', status: 'draft' }),
+      );
+
+      await expect(getNode('gene', 'gene-1')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('getNeighborhood', () => {
+    it('should walk derived_from neighbors up to the requested depth', async () => {
+      mockPrisma.asset.findUnique
+        .mockResolvedValueOnce(
+          makeAsset({ asset_id: 'gene-1', asset_type: 'gene', parent_id: 'gene-base' }),
+        )
+        .mockResolvedValueOnce(
+          makeAsset({ asset_id: 'gene-base', asset_type: 'gene', parent_id: 'gene-root' }),
+        )
+        .mockResolvedValueOnce(
+          makeAsset({ asset_id: 'gene-root', asset_type: 'gene', parent_id: null }),
+        );
+      mockPrisma.asset.findMany
+        .mockResolvedValueOnce([]) // children of gene-1
+        .mockResolvedValueOnce([]); // children of gene-base
+
+      const result = await getNeighborhood('gene', 'gene-1', 2, 'derived_from');
+
+      expect(result.center).toEqual({ type: 'gene', id: 'gene-1' });
+      expect(result.neighbors).toEqual([
+        { type: 'gene', id: 'gene-base', distance: 1, relationship: 'derived_from' },
+        { type: 'gene', id: 'gene-root', distance: 2, relationship: 'derived_from' },
+      ]);
+    });
+  });
+
+  describe('getGraphStats', () => {
+    it('should aggregate node types and inferred relationship counts', async () => {
+      mockPrisma.asset.findMany.mockResolvedValueOnce([
+        makeAsset({ asset_id: 'gene-1', asset_type: 'gene', parent_id: 'gene-base', signals: ['sig-a'] }),
+        makeAsset({ asset_id: 'gene-2', asset_type: 'gene', signals: ['sig-a'] }),
+        makeAsset({ asset_id: 'capsule-1', asset_type: 'capsule', signals: ['sig-b'], status: 'draft' }),
+      ]);
+      mockPrisma.knowledgeGraphRelationship.findMany.mockResolvedValueOnce([
+        {
+          relationship_id: 'rel-explicit',
+          from_id: 'gene-1',
+          to_id: 'capsule-1',
+          relationship_type: 'references',
+          properties: {},
+          created_at: new Date('2025-01-01'),
+        },
+      ]);
+
+      const result = await getGraphStats();
+
+      expect(result).toEqual({
+        total_nodes: 3,
+        total_relationships: 3,
+        node_types: { gene: 2, capsule: 1 },
+        relationship_types: { derived_from: 1, shares_signals: 1, references: 1 },
+      });
+    });
+  });
+
+  describe('listNodesByType', () => {
+    it('should return paginated published nodes for the requested type', async () => {
+      mockPrisma.asset.findMany.mockResolvedValueOnce([
+        { asset_id: 'gene-1', name: 'Gene One', gdi_score: 88 },
+      ]);
+      mockPrisma.asset.count.mockResolvedValueOnce(1);
+
+      const result = await listNodesByType('gene', 10, 5);
+
+      expect(mockPrisma.asset.findMany).toHaveBeenCalledWith({
+        where: {
+          asset_type: 'gene',
+          status: 'published',
+        },
+        select: {
+          asset_id: true,
+          name: true,
+          gdi_score: true,
+        },
+        orderBy: [
+          { gdi_score: 'desc' },
+          { created_at: 'desc' },
+        ],
+        take: 10,
+        skip: 5,
+      });
+      expect(result).toEqual({
+        type: 'gene',
+        nodes: [{ id: 'gene-1', name: 'Gene One', gdi_score: 88 }],
+        total: 1,
       });
     });
   });
@@ -229,6 +453,14 @@ describe('Knowledge Graph Service', () => {
       mockPrisma.asset.findUnique
         .mockResolvedValueOnce(makeAsset({ asset_id: 'from-1' }))
         .mockResolvedValueOnce(makeAsset({ asset_id: 'to-1' }));
+      mockPrisma.knowledgeGraphRelationship.upsert.mockResolvedValue({
+        relationship_id: 'rel-persisted-1',
+        from_id: 'from-1',
+        to_id: 'to-1',
+        relationship_type: 'depends_on',
+        properties: {},
+        created_at: new Date('2025-01-01'),
+      });
 
       const result = await createRelationship('from-1', 'to-1', 'depends_on');
 
@@ -237,12 +469,29 @@ describe('Knowledge Graph Service', () => {
       expect(result.type).toBe('depends_on');
       expect(result.properties).toEqual({});
       expect(result.created_at).toBeDefined();
+      expect(mockPrisma.knowledgeGraphRelationship.upsert).toHaveBeenCalledWith({
+        where: { relationship_id: expect.any(String) },
+        update: { properties: {} },
+        create: expect.objectContaining({
+          from_id: 'from-1',
+          to_id: 'to-1',
+          relationship_type: 'depends_on',
+        }),
+      });
     });
 
     it('should include properties when provided', async () => {
       mockPrisma.asset.findUnique
         .mockResolvedValueOnce(makeAsset({ asset_id: 'from-1' }))
         .mockResolvedValueOnce(makeAsset({ asset_id: 'to-1' }));
+      mockPrisma.knowledgeGraphRelationship.upsert.mockResolvedValue({
+        relationship_id: 'rel-persisted-2',
+        from_id: 'from-1',
+        to_id: 'to-1',
+        relationship_type: 'depends_on',
+        properties: { weight: 0.8 },
+        created_at: new Date('2025-01-01'),
+      });
 
       const result = await createRelationship('from-1', 'to-1', 'depends_on', {
         weight: 0.8,
@@ -392,16 +641,17 @@ describe('Knowledge Graph Service', () => {
     });
 
     it('should find direct parent-child path', async () => {
-      mockPrisma.asset.findUnique
-        .mockResolvedValueOnce(makeAsset({ asset_id: 'child' }))
-        .mockResolvedValueOnce(makeAsset({ asset_id: 'parent' }));
-
-      mockPrisma.asset.findMany.mockResolvedValue([
-        { asset_id: 'parent' },
-      ]);
-      mockPrisma.asset.findUnique.mockResolvedValue({
-        parent_id: null,
+      mockPrisma.asset.findUnique.mockImplementation((args: any) => {
+        const id = args?.where?.asset_id;
+        if (id === 'child') {
+          return Promise.resolve(makeAsset({ asset_id: 'child', parent_id: 'parent' }));
+        }
+        if (id === 'parent') {
+          return Promise.resolve(makeAsset({ asset_id: 'parent', parent_id: null }));
+        }
+        return Promise.resolve(null);
       });
+      mockPrisma.asset.findMany.mockResolvedValue([]);
 
       const result = await getShortestPath('child', 'parent');
 
@@ -433,6 +683,14 @@ describe('Knowledge Graph Service', () => {
       mockPrisma.asset.delete.mockResolvedValue({});
 
       await expect(deleteNode('node-1')).resolves.toBeUndefined();
+      expect(mockPrisma.knowledgeGraphRelationship.deleteMany).toHaveBeenCalledWith({
+        where: {
+          OR: [
+            { from_id: 'node-1' },
+            { to_id: 'node-1' },
+          ],
+        },
+      });
       expect(mockPrisma.asset.delete).toHaveBeenCalledWith({
         where: { asset_id: 'node-1' },
       });
@@ -599,15 +857,9 @@ describe('Knowledge Graph Service', () => {
       resetMocks();
       mockPrisma.asset.findUnique.mockImplementation((args: any) => {
         const id = args?.where?.asset_id;
-        const isParentLookup = args?.select?.parent_id !== undefined;
-        if (!isParentLookup) {
-          if (id === 'a') return Promise.resolve(makeAsset({ asset_id: 'a' }));
-          if (id === 'c') return Promise.resolve(makeAsset({ asset_id: 'c' }));
-        }
-        if (isParentLookup) {
-          if (id === 'a') return Promise.resolve({ parent_id: 'b' });
-          if (id === 'b') return Promise.resolve({ parent_id: 'c' });
-        }
+        if (id === 'a') return Promise.resolve(makeAsset({ asset_id: 'a', parent_id: 'b' }));
+        if (id === 'b') return Promise.resolve(makeAsset({ asset_id: 'b', parent_id: 'c' }));
+        if (id === 'c') return Promise.resolve(makeAsset({ asset_id: 'c', parent_id: null }));
         return Promise.resolve(null);
       });
       mockPrisma.asset.findMany.mockImplementation(() => Promise.resolve([]));
@@ -824,9 +1076,16 @@ describe('Knowledge Graph Service', () => {
       // At depth 1 < maxDepth 2, continue is NOT hit, so findMany is called
       // At depth 2 >= maxDepth 2, continue IS hit BEFORE findMany
       resetMocks();
-      mockPrisma.asset.findUnique
-        .mockResolvedValueOnce(makeAsset({ asset_id: 'node-1', signals: [] }))
-        .mockResolvedValueOnce(makeAsset({ asset_id: 'child-1', signals: [] }));
+      mockPrisma.asset.findUnique.mockImplementation((args: any) => {
+        const id = args?.where?.asset_id;
+        if (id === 'node-1') {
+          return Promise.resolve(makeAsset({ asset_id: 'node-1', signals: [] }));
+        }
+        if (id === 'child-1') {
+          return Promise.resolve(makeAsset({ asset_id: 'child-1', parent_id: 'node-1', signals: [] }));
+        }
+        return Promise.resolve(null);
+      });
 
       mockPrisma.asset.findMany
         .mockResolvedValueOnce([makeAsset({ asset_id: 'child-1', parent_id: 'node-1' })])
@@ -877,9 +1136,16 @@ describe('Knowledge Graph Service', () => {
     it('should stop exploring BFS depth when maxDepth is reached', async () => {
       // maxDepth=1: only root(depth 0) and level1(depth 1) are explored
       resetMocks();
-      mockPrisma.asset.findUnique
-        .mockResolvedValueOnce(makeAsset({ asset_id: 'root', signals: [] }))
-        .mockResolvedValueOnce(makeAsset({ asset_id: 'level1', signals: [] }));
+      mockPrisma.asset.findUnique.mockImplementation((args: any) => {
+        const id = args?.where?.asset_id;
+        if (id === 'root') {
+          return Promise.resolve(makeAsset({ asset_id: 'root', signals: [] }));
+        }
+        if (id === 'level1') {
+          return Promise.resolve(makeAsset({ asset_id: 'level1', parent_id: 'root', signals: [] }));
+        }
+        return Promise.resolve(null);
+      });
 
       mockPrisma.asset.findMany
         .mockResolvedValueOnce([makeAsset({ asset_id: 'level1', parent_id: 'root' })])

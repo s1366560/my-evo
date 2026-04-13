@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
-import { NotFoundError } from '../shared/errors';
+import { NotFoundError, ValidationError } from '../shared/errors';
 import * as circleService from './service';
 
 export async function circleRoutes(app: FastifyInstance): Promise<void> {
@@ -37,6 +37,31 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     const result = await circleService.joinCircle(
       circleId,
       auth.node_id,
+    );
+
+    return reply.send({ success: true, data: result });
+  });
+
+  app.post('/:circleId/gene', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { circleId } = request.params as { circleId: string };
+    const body = request.body as {
+      gene_id?: string;
+      asset_id?: string;
+    };
+    const geneId = body.gene_id ?? body.asset_id;
+
+    if (!geneId) {
+      throw new ValidationError('gene_id is required');
+    }
+
+    const result = await circleService.contributeGene(
+      circleId,
+      auth.node_id,
+      geneId,
     );
 
     return reply.send({ success: true, data: result });
@@ -141,12 +166,13 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
       name: c.name,
       description: c.description,
       theme: c.theme,
-      status: c.status,
-      creator_id: c.creator_id,
-      participant_count: c.participant_count,
-      rounds_completed: c.rounds_completed,
-      entry_fee: c.entry_fee,
-      prize_pool: c.prize_pool,
+        status: c.status,
+        creator_id: c.creator_id,
+        participant_count: c.participant_count,
+        gene_pool_size: Array.isArray(c.gene_pool) ? c.gene_pool.length : 0,
+        rounds_completed: c.rounds_completed,
+        entry_fee: c.entry_fee,
+        prize_pool: c.prize_pool,
       created_at: (c.created_at as Date).toISOString(),
     }));
 
@@ -179,6 +205,9 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
         status: circle.status,
         creator_id: circle.creator_id,
         participant_count: circle.participant_count,
+        gene_pool: Array.isArray(circle.gene_pool)
+          ? circle.gene_pool.filter((geneId): geneId is string => typeof geneId === 'string')
+          : [],
         rounds: circle.rounds,
         rounds_completed: circle.rounds_completed,
         outcomes: circle.outcomes,

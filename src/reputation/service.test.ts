@@ -277,6 +277,19 @@ describe('Reputation Service', () => {
       );
     });
 
+    it('should respect offset parameter', async () => {
+      mockPrisma.node.findMany.mockResolvedValue([]);
+
+      await getLeaderboard(5, 12);
+
+      expect(mockPrisma.node.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 5,
+          skip: 12,
+        }),
+      );
+    });
+
     it('should default to limit 20', async () => {
       mockPrisma.node.findMany.mockResolvedValue([]);
 
