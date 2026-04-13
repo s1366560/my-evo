@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import type {
@@ -24,11 +24,16 @@ import {
   UnauthorizedError,
   ConflictError,
 } from '../shared/errors';
+import { createUnconfiguredPrismaClient } from '../shared/prisma';
 
-let prisma = new PrismaClient();
+let prisma = createUnconfiguredPrismaClient();
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
+}
+
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
 }
 
 function generateHex(length: number): string {
@@ -94,7 +99,9 @@ export async function createApiKey(
   scopes: string[],
   expiresAt?: string,
   authType?: string,
+  prismaClient?: PrismaClient,
 ): Promise<ApiKeyResponse> {
+  const client = getPrismaClient(prismaClient);
   if (authType === 'api_key') {
     throw new KeyInceptionError();
   }
@@ -107,7 +114,7 @@ export async function createApiKey(
     throw new ValidationError('At least one scope is required');
   }
 
-  const existingCount = await prisma.apiKey.count({
+  const existingCount = await client.apiKey.count({
     where: { user_id: userId },
   });
 
@@ -124,7 +131,7 @@ export async function createApiKey(
     .digest('hex');
   const prefix = rawKey.slice(0, API_KEY_DISPLAY_PREFIX);
 
-  const apiKey = await prisma.apiKey.create({
+  const apiKey = await client.apiKey.create({
     data: {
       key_hash: keyHash,
       prefix,
@@ -148,8 +155,10 @@ export async function createApiKey(
 
 export async function listApiKeys(
   userId: string,
+  prismaClient?: PrismaClient,
 ): Promise<ApiKeyListItem[]> {
-  const keys = await prisma.apiKey.findMany({
+  const client = getPrismaClient(prismaClient);
+  const keys = await client.apiKey.findMany({
     where: { user_id: userId },
     orderBy: { created_at: 'desc' },
   });
@@ -167,8 +176,10 @@ export async function listApiKeys(
 export async function revokeApiKey(
   userId: string,
   keyId: string,
+  prismaClient?: PrismaClient,
 ): Promise<void> {
-  const key = await prisma.apiKey.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const key = await client.apiKey.findUnique({
     where: { id: keyId },
   });
 
@@ -180,20 +191,22 @@ export async function revokeApiKey(
     throw new ForbiddenError('Cannot revoke another user\'s API key');
   }
 
-  await prisma.apiKey.delete({
+  await client.apiKey.delete({
     where: { id: keyId },
   });
 }
 
 export async function createSession(
   userId: string,
+  prismaClient?: PrismaClient,
 ): Promise<{ token: string; expires_at: string }> {
+  const client = getPrismaClient(prismaClient);
   const token = generateHex(SESSION_TOKEN_LENGTH);
   const expiresAt = new Date(
     Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
   );
 
-  await prisma.userSession.create({
+  await client.userSession.create({
     data: {
       token,
       user_id: userId,
@@ -210,7 +223,9 @@ export async function createSession(
 export async function registerUser(
   email: string,
   password: string,
+  prismaClient?: PrismaClient,
 ): Promise<{ token: string; user: UserInfo }> {
+  const client = getPrismaClient(prismaClient);
   if (!email || !email.includes('@')) {
     throw new ValidationError('Valid email is required');
   }
@@ -218,30 +233,32 @@ export async function registerUser(
     throw new ValidationError('Password must be at least 8 characters');
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const existing = await client.user.findUnique({ where: { email } });
   if (existing) {
     throw new ConflictError('Email already registered');
   }
 
   const password_hash = await bcrypt.hash(password, 12);
-  const user = await prisma.user.create({
+  const user = await client.user.create({
     data: { email, password_hash },
     select: { id: true, email: true },
   });
 
-  const session = await createSession(user.id);
+  const session = await createSession(user.id, client);
   return { token: session.token, user };
 }
 
 export async function loginUser(
   email: string,
   password: string,
+  prismaClient?: PrismaClient,
 ): Promise<{ token: string; user: UserInfo }> {
+  const client = getPrismaClient(prismaClient);
   if (!email || !password) {
     throw new ValidationError('Email and password are required');
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await client.user.findUnique({ where: { email } });
   if (!user) {
     throw new UnauthorizedError('Invalid email or password');
   }
@@ -251,14 +268,16 @@ export async function loginUser(
     throw new UnauthorizedError('Invalid email or password');
   }
 
-  const session = await createSession(user.id);
+  const session = await createSession(user.id, client);
   return { token: session.token, user };
 }
 
 export async function getOnboardingState(
   agentId: string,
+  prismaClient?: PrismaClient,
 ): Promise<OnboardingState> {
-  const state = await prisma.onboardingState.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const state = await client.onboardingState.findUnique({
     where: { agent_id: agentId },
   });
 
@@ -271,7 +290,7 @@ export async function getOnboardingState(
     };
   }
 
-  const newState = await prisma.onboardingState.create({
+  const newState = await client.onboardingState.create({
     data: {
       agent_id: agentId,
       completed_steps: [],
@@ -290,8 +309,10 @@ export async function getOnboardingState(
 export async function completeOnboardingStep(
   agentId: string,
   step: number,
+  prismaClient?: PrismaClient,
 ): Promise<OnboardingState> {
-  const state = await prisma.onboardingState.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const state = await client.onboardingState.findUnique({
     where: { agent_id: agentId },
   });
 
@@ -308,7 +329,7 @@ export async function completeOnboardingStep(
       ? ONBOARDING_STEPS.length
       : step + 1;
 
-  const updated = await prisma.onboardingState.update({
+  const updated = await client.onboardingState.update({
     where: { agent_id: agentId },
     data: {
       completed_steps: completedSteps,
@@ -326,16 +347,20 @@ export async function completeOnboardingStep(
 
 export async function deleteSessionByToken(
   token: string,
+  prismaClient?: PrismaClient,
 ): Promise<void> {
-  await prisma.userSession.deleteMany({
+  const client = getPrismaClient(prismaClient);
+  await client.userSession.deleteMany({
     where: { token },
   });
 }
 
 export async function resetOnboarding(
   agentId: string,
+  prismaClient?: PrismaClient,
 ): Promise<OnboardingState> {
-  const updated = await prisma.onboardingState.upsert({
+  const client = getPrismaClient(prismaClient);
+  const updated = await client.onboardingState.upsert({
     where: { agent_id: agentId },
     update: {
       completed_steps: [],
@@ -358,6 +383,7 @@ export async function resetOnboarding(
 
 export async function getUserNodes(
   userId: string,
+  prismaClient?: PrismaClient,
 ): Promise<Array<{
   node_id: string;
   model: string;
@@ -366,7 +392,8 @@ export async function getUserNodes(
   credit_balance: number;
   registered_at: string;
 }>> {
-  const nodes = await prisma.node.findMany({
+  const client = getPrismaClient(prismaClient);
+  const nodes = await client.node.findMany({
     where: { user_id: userId },
     select: {
       node_id: true,

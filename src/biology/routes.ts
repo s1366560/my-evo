@@ -2,12 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import * as biologyService from './service';
 
 export async function biologyRoutes(app: FastifyInstance): Promise<void> {
+  const prisma = app.prisma;
+
   app.get('/phylogeny/:assetId', {
     schema: { tags: ['Biology'] },
   }, async (request, reply) => {
     const { assetId } = request.params as { assetId: string };
 
-    const result = await biologyService.getPhylogenyTree(assetId);
+    const result = await biologyService.getPhylogenyTree(assetId, prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -15,7 +17,7 @@ export async function biologyRoutes(app: FastifyInstance): Promise<void> {
   app.get('/symbiosis', {
     schema: { tags: ['Biology'] },
   }, async (_request, reply) => {
-    const result = await biologyService.detectSymbiosis();
+    const result = await biologyService.detectSymbiosis(prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -23,7 +25,7 @@ export async function biologyRoutes(app: FastifyInstance): Promise<void> {
   app.get('/fitness', {
     schema: { tags: ['Biology'] },
   }, async (_request, reply) => {
-    const result = await biologyService.getFitnessLandscape();
+    const result = await biologyService.getFitnessLandscape(prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -31,7 +33,7 @@ export async function biologyRoutes(app: FastifyInstance): Promise<void> {
   app.get('/emergent', {
     schema: { tags: ['Biology'] },
   }, async (_request, reply) => {
-    const result = await biologyService.detectEmergentPatterns();
+    const result = await biologyService.detectEmergentPatterns(prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -39,7 +41,7 @@ export async function biologyRoutes(app: FastifyInstance): Promise<void> {
   app.get('/diversity', {
     schema: { tags: ['Biology'] },
   }, async (_request, reply) => {
-    const result = await biologyService.getDiversityIndex();
+    const result = await biologyService.getDiversityIndex(prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -47,7 +49,7 @@ export async function biologyRoutes(app: FastifyInstance): Promise<void> {
   app.get('/red-queen', {
     schema: { tags: ['Biology'] },
   }, async (_request, reply) => {
-    const result = await biologyService.getRedQueenEffect();
+    const result = await biologyService.getRedQueenEffect(prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -55,7 +57,7 @@ export async function biologyRoutes(app: FastifyInstance): Promise<void> {
   app.get('/macro-events', {
     schema: { tags: ['Biology'] },
   }, async (_request, reply) => {
-    const result = await biologyService.detectMacroEvents();
+    const result = await biologyService.detectMacroEvents(prisma);
 
     return reply.send({ success: true, data: result });
   });

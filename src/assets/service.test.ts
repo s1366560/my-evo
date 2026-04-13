@@ -601,9 +601,9 @@ describe('Assets Service', () => {
       mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(goodGdiRecord);
       mockPrisma.node.findUnique.mockResolvedValue(goodNode);
       mockPrisma.dispute.findMany.mockResolvedValue([
-        { status: 'resolved', notes: ['fail'] },
-        { status: 'resolved', notes: ['fail'] },
-        { status: 'resolved', notes: ['pass'] },
+        { status: 'resolved', ruling: { verdict: 'plaintiff_wins' } },
+        { status: 'resolved', ruling: { verdict: 'plaintiff_wins' } },
+        { status: 'resolved', ruling: { verdict: 'defendant_wins' } },
       ]);
 
       const result = await promoteAsset('asset-1');
@@ -617,8 +617,36 @@ describe('Assets Service', () => {
       mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(goodGdiRecord);
       mockPrisma.node.findUnique.mockResolvedValue(goodNode);
       mockPrisma.dispute.findMany.mockResolvedValue([
-        { status: 'resolved', notes: ['pass'] },
-        { status: 'resolved', notes: ['fail'] },
+        { status: 'resolved', ruling: { verdict: 'defendant_wins' } },
+        { status: 'resolved', ruling: { verdict: 'defendant_wins' } },
+        { status: 'resolved', ruling: { verdict: 'plaintiff_wins' } },
+      ]);
+
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(true);
+    });
+
+    it('should reject promotion while asset-quality disputes are unresolved', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue(baseAsset);
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(goodGdiRecord);
+      mockPrisma.node.findUnique.mockResolvedValue(goodNode);
+      mockPrisma.dispute.findMany.mockResolvedValue([
+        { status: 'under_review', ruling: { verdict: 'plaintiff_wins' } },
+      ]);
+
+      const result = await promoteAsset('asset-1');
+
+      expect(result.promoted).toBe(false);
+      expect(result.reason).toBe('validation_majority_failed');
+    });
+
+    it('should ignore dismissed asset-quality disputes during promotion checks', async () => {
+      mockPrisma.asset.findUnique.mockResolvedValue(baseAsset);
+      mockPrisma.gDIScoreRecord.findUnique.mockResolvedValue(goodGdiRecord);
+      mockPrisma.node.findUnique.mockResolvedValue(goodNode);
+      mockPrisma.dispute.findMany.mockResolvedValue([
+        { status: 'dismissed', ruling: null },
       ]);
 
       const result = await promoteAsset('asset-1');

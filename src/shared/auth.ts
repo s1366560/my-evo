@@ -1,7 +1,8 @@
-import type { FastifyRequest, FastifyReply } from 'fastify';
-import { PrismaClient } from '@prisma/client';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import {
+  EvoMapError,
   UnauthorizedError,
   ForbiddenError,
   TrustLevelError,
@@ -9,7 +10,7 @@ import {
 } from './errors';
 import type { TrustLevel } from './types';
 
-const prisma = new PrismaClient();
+let prisma: PrismaClient | undefined;
 
 export interface AuthResult {
   node_id: string;
@@ -19,9 +20,30 @@ export interface AuthResult {
   scopes?: string[];
 }
 
+export function setPrisma(client: PrismaClient): void {
+  prisma = client;
+}
+
+function getPrismaClient(request?: FastifyRequest): PrismaClient {
+  const serverPrisma = (
+    request?.server as FastifyInstance & { prisma?: PrismaClient } | undefined
+  )?.prisma;
+
+  if (serverPrisma) {
+    return serverPrisma;
+  }
+
+  if (prisma) {
+    return prisma;
+  }
+
+  throw new EvoMapError('Prisma client not configured', 'INTERNAL_ERROR', 500);
+}
+
 export async function authenticate(
   request: FastifyRequest,
 ): Promise<AuthResult> {
+  const prismaClient = getPrismaClient(request);
   const authHeader = request.headers.authorization;
   const sessionToken =
     request.cookies?.session_token ??
@@ -29,7 +51,7 @@ export async function authenticate(
 
   // Layer 1: Session Token (highest priority)
   if (sessionToken) {
-    return authenticateSession(sessionToken);
+    return authenticateSession(prismaClient, sessionToken);
   }
 
   // Layer 2 & 3: Bearer token (node_secret or api_key)
@@ -37,19 +59,20 @@ export async function authenticate(
     const token = authHeader.slice(7);
 
     if (token.startsWith('ek_')) {
-      return authenticateApiKey(token);
+      return authenticateApiKey(prismaClient, token);
     }
 
-    return authenticateNodeSecret(token);
+    return authenticateNodeSecret(prismaClient, token);
   }
 
   throw new UnauthorizedError();
 }
 
 async function authenticateSession(
+  prismaClient: PrismaClient,
   token: string,
 ): Promise<AuthResult> {
-  const session = await prisma.userSession.findUnique({
+  const session = await prismaClient.userSession.findUnique({
     where: { token },
     include: { user: true },
   });
@@ -71,9 +94,10 @@ async function authenticateSession(
 }
 
 async function authenticateNodeSecret(
+  prismaClient: PrismaClient,
   secret: string,
 ): Promise<AuthResult> {
-  const node = await prisma.node.findFirst({
+  const node = await prismaClient.node.findFirst({
     where: { node_secret: secret },
   });
 
@@ -89,11 +113,12 @@ async function authenticateNodeSecret(
 }
 
 async function authenticateApiKey(
+  prismaClient: PrismaClient,
   key: string,
 ): Promise<AuthResult> {
   const keyHash = crypto.createHash('sha256').update(key).digest('hex');
 
-  const apiKey = await prisma.apiKey.findFirst({
+  const apiKey = await prismaClient.apiKey.findFirst({
     where: { key_hash: keyHash },
     include: { user: true },
   });
@@ -149,8 +174,17 @@ export function requireScope(scope: string) {
   };
 }
 
-export async function checkQuarantine(nodeId: string): Promise<void> {
-  const activeQuarantine = await prisma.quarantineRecord.findFirst({
+export async function checkQuarantine(
+  nodeId: string,
+  prismaClient?: PrismaClient,
+): Promise<void> {
+  const client = prismaClient ?? prisma;
+
+  if (!client) {
+    throw new EvoMapError('Prisma client not configured', 'INTERNAL_ERROR', 500);
+  }
+
+  const activeQuarantine = await client.quarantineRecord.findFirst({
     where: { node_id: nodeId, is_active: true },
   });
 

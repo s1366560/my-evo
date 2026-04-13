@@ -8,7 +8,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
 
-    const result = await analyticsService.getDriftReport(nodeId);
+    const result = await analyticsService.getDriftReport(nodeId, app.prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -16,7 +16,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/branching', {
     schema: { tags: ['Analytics'] },
   }, async (_request, reply) => {
-    const result = await analyticsService.getBranchingMetrics();
+    const result = await analyticsService.getBranchingMetrics(app.prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -33,6 +33,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
       event_type as TimelineEventType | undefined,
       limit ? Number(limit) : 20,
       offset ? Number(offset) : 0,
+      app.prisma,
     );
 
     return reply.send({ success: true, data: result });
@@ -43,7 +44,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { signal } = request.params as { signal: string };
 
-    const result = await analyticsService.getSignalForecast(signal);
+    const result = await analyticsService.getSignalForecast(signal, app.prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -53,7 +54,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { assetId } = request.params as { assetId: string };
 
-    const result = await analyticsService.getGdiForecast(assetId);
+    const result = await analyticsService.getGdiForecast(assetId, app.prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -63,7 +64,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
 
-    const result = await analyticsService.getRiskAlerts(nodeId);
+    const result = await analyticsService.getRiskAlerts(nodeId, app.prisma);
 
     return reply.send({ success: true, data: result });
   });

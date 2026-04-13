@@ -4,6 +4,8 @@ import { EvoMapError } from '../shared/errors';
 import * as service from './service';
 
 export async function sessionRoutes(app: FastifyInstance) {
+  const prisma = app.prisma;
+
   app.post('/', {
     schema: { tags: ['Session'] },
     preHandler: [requireAuth()],
@@ -24,6 +26,7 @@ export async function sessionRoutes(app: FastifyInstance) {
       body.title,
       body.maxParticipants,
       body.consensusConfig,
+      prisma,
     );
 
     void reply.status(201);
@@ -37,7 +40,7 @@ export async function sessionRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const params = request.params as { sessionId: string };
 
-    const session = await service.joinSession(params.sessionId, auth.node_id);
+    const session = await service.joinSession(params.sessionId, auth.node_id, prisma);
     return { success: true, data: session };
   });
 
@@ -48,7 +51,7 @@ export async function sessionRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const params = request.params as { sessionId: string };
 
-    const session = await service.leaveSession(params.sessionId, auth.node_id);
+    const session = await service.leaveSession(params.sessionId, auth.node_id, prisma);
     return { success: true, data: session };
   });
 
@@ -80,6 +83,7 @@ export async function sessionRoutes(app: FastifyInstance) {
       auth.node_id,
       body.type as 'subtask_result' | 'query' | 'response' | 'vote' | 'signal' | 'system' | 'operation',
       body.content,
+      prisma,
     );
 
     return { success: true, data: result };
@@ -105,6 +109,7 @@ export async function sessionRoutes(app: FastifyInstance) {
       auth.node_id,
       body.type,
       body.content,
+      prisma,
     );
 
     return { success: true, data: result };
@@ -129,6 +134,7 @@ export async function sessionRoutes(app: FastifyInstance) {
       params.proposalId,
       auth.node_id,
       body.vote,
+      prisma,
     );
 
     return { success: true, data: result };
@@ -141,7 +147,7 @@ export async function sessionRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const params = request.params as { sessionId: string };
 
-    const session = await service.heartbeat(params.sessionId, auth.node_id);
+    const session = await service.heartbeat(params.sessionId, auth.node_id, prisma);
     return { success: true, data: session };
   });
 
@@ -160,7 +166,7 @@ export async function sessionRoutes(app: FastifyInstance) {
       status: query.status as 'creating' | 'active' | 'paused' | 'completed' | 'cancelled' | 'error' | 'expired' | undefined,
       limit: query.limit ? parseInt(query.limit, 10) : 20,
       offset: query.offset ? parseInt(query.offset, 10) : 0,
-    });
+    }, prisma);
 
     return {
       success: true,
@@ -179,7 +185,7 @@ export async function sessionRoutes(app: FastifyInstance) {
   }, async (request) => {
     const auth = request.auth!;
     const params = request.params as { sessionId: string };
-    const session = await service.getSession(params.sessionId, auth.node_id);
+    const session = await service.getSession(params.sessionId, auth.node_id, prisma);
     return { success: true, data: session };
   });
 }

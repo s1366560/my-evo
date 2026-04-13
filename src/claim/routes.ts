@@ -19,7 +19,7 @@ export async function claimRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      const result = await claimService.getClaimInfo(code.trim().toUpperCase());
+      const result = await claimService.getClaimInfo(code.trim().toUpperCase(), app.prisma);
 
       void reply.send({
         success: true,
@@ -69,7 +69,7 @@ export async function claimRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
-      const result = await claimService.claimNode(code.trim().toUpperCase(), userId);
+      const result = await claimService.claimNode(code.trim().toUpperCase(), userId, app.prisma);
 
       void reply.send({
         success: true,

@@ -15,6 +15,10 @@ export function setPrisma(client: PrismaClient): void {
   recommendation.setPrisma(client);
 }
 
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
 // ------------------------------------------------------------------
 // List / Get
 // ------------------------------------------------------------------
@@ -26,7 +30,9 @@ export async function listSkills(
   limit = 20,
   offset = 0,
   sort = 'recent',
+  prismaClient?: PrismaClient,
 ): Promise<{ items: Skill[]; total: number }> {
+  const client = getPrismaClient(prismaClient);
   const where: Record<string, unknown> = {
     status: 'published',
     deleted_at: null,
@@ -59,20 +65,21 @@ export async function listSkills(
   }
 
   const [items, total] = await Promise.all([
-    prisma.skill.findMany({
+    client.skill.findMany({
       where,
       orderBy,
       take: limit,
       skip: offset,
     }),
-    prisma.skill.count({ where }),
+    client.skill.count({ where }),
   ]);
 
   return { items: items as unknown as Skill[], total };
 }
 
-export async function getSkill(skillId: string): Promise<Skill | null> {
-  const skill = await prisma.skill.findUnique({
+export async function getSkill(skillId: string, prismaClient?: PrismaClient): Promise<Skill | null> {
+  const client = getPrismaClient(prismaClient);
+  const skill = await client.skill.findUnique({
     where: { skill_id: skillId },
   });
 
@@ -103,7 +110,9 @@ interface CreateSkillData {
 export async function createSkill(
   authorId: string,
   data: CreateSkillData,
+  prismaClient?: PrismaClient,
 ): Promise<Skill> {
+  const client = getPrismaClient(prismaClient);
   if (!data.name || data.name.trim().length === 0) {
     throw new ValidationError('name is required');
   }
@@ -114,7 +123,7 @@ export async function createSkill(
     throw new ValidationError('category is required');
   }
 
-  const skill = await prisma.skill.create({
+  const skill = await client.skill.create({
     data: {
       skill_id: crypto.randomUUID(),
       name: data.name.trim(),
@@ -200,8 +209,10 @@ export async function updateSkill(
   skillId: string,
   authorId: string,
   updates: UpdateSkillData,
+  prismaClient?: PrismaClient,
 ): Promise<Skill> {
-  const skill = await prisma.skill.findUnique({ where: { skill_id: skillId } });
+  const client = getPrismaClient(prismaClient);
+  const skill = await client.skill.findUnique({ where: { skill_id: skillId } });
 
   if (!skill) {
     throw new NotFoundError('Skill', skillId);
@@ -215,7 +226,7 @@ export async function updateSkill(
     throw new ValidationError('You can only update your own skills');
   }
 
-  const updated = await prisma.skill.update({
+  const updated = await client.skill.update({
     where: { skill_id: skillId },
     data: buildSkillUpdateData(updates),
   });
@@ -227,8 +238,13 @@ export async function updateSkill(
 // Delete (soft)
 // ------------------------------------------------------------------
 
-export async function deleteSkill(skillId: string, authorId: string): Promise<void> {
-  const skill = await prisma.skill.findUnique({ where: { skill_id: skillId } });
+export async function deleteSkill(
+  skillId: string,
+  authorId: string,
+  prismaClient?: PrismaClient,
+): Promise<void> {
+  const client = getPrismaClient(prismaClient);
+  const skill = await client.skill.findUnique({ where: { skill_id: skillId } });
 
   if (!skill) {
     throw new NotFoundError('Skill', skillId);
@@ -242,7 +258,7 @@ export async function deleteSkill(skillId: string, authorId: string): Promise<vo
     throw new ValidationError('You can only delete your own skills');
   }
 
-  await prisma.skill.update({
+  await client.skill.update({
     where: { skill_id: skillId },
     data: { deleted_at: new Date() },
   });
@@ -255,8 +271,10 @@ export async function deleteSkill(skillId: string, authorId: string): Promise<vo
 export async function publishSkill(
   skillId: string,
   authorId: string,
+  prismaClient?: PrismaClient,
 ): Promise<Skill> {
-  const skill = await prisma.skill.findUnique({ where: { skill_id: skillId } });
+  const client = getPrismaClient(prismaClient);
+  const skill = await client.skill.findUnique({ where: { skill_id: skillId } });
 
   if (!skill) {
     throw new NotFoundError('Skill', skillId);
@@ -274,7 +292,7 @@ export async function publishSkill(
     throw new ValidationError('Skill is already published');
   }
 
-  const updated = await prisma.skill.update({
+  const updated = await client.skill.update({
     where: { skill_id: skillId },
     data: { status: 'published' },
   });
@@ -286,10 +304,12 @@ export async function publishSkillWithUpdates(
   skillId: string,
   authorId: string,
   updates: UpdateSkillData = {},
+  prismaClient?: PrismaClient,
 ): Promise<Skill> {
+  const client = getPrismaClient(prismaClient);
   const updateData = buildSkillUpdateData(updates);
 
-  const published = await prisma.$transaction(async (tx) => {
+  const published = await client.$transaction(async (tx) => {
     const skill = await tx.skill.findUnique({ where: { skill_id: skillId } });
 
     if (!skill) {
@@ -328,12 +348,14 @@ export async function rateSkill(
   skillId: string,
   raterId: string,
   rating: number,
+  prismaClient?: PrismaClient,
 ): Promise<SkillRating> {
+  const client = getPrismaClient(prismaClient);
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
     throw new ValidationError('rating must be an integer between 1 and 5');
   }
 
-  const skill = await prisma.skill.findUnique({ where: { skill_id: skillId } });
+  const skill = await client.skill.findUnique({ where: { skill_id: skillId } });
   if (!skill) {
     throw new NotFoundError('Skill', skillId);
   }
@@ -342,20 +364,20 @@ export async function rateSkill(
   }
 
   // Upsert rating
-  const skillRating = await prisma.skillRating.upsert({
+  const skillRating = await client.skillRating.upsert({
     where: { skill_id_rater_id: { skill_id: skillId, rater_id: raterId } },
     update: { rating },
     create: { skill_id: skillId, rater_id: raterId, rating },
   });
 
   // Recalculate aggregate rating
-  const agg = await prisma.skillRating.aggregate({
+  const agg = await client.skillRating.aggregate({
     where: { skill_id: skillId },
     _avg: { rating: true },
     _count: { rating: true },
   });
 
-  await prisma.skill.update({
+  await client.skill.update({
     where: { skill_id: skillId },
     data: {
       rating: agg._avg.rating ?? 0,
@@ -373,8 +395,10 @@ export async function rateSkill(
 export async function downloadSkill(
   skillId: string,
   nodeId: string,
+  prismaClient?: PrismaClient,
 ): Promise<Skill> {
-  const skill = await prisma.skill.findUnique({ where: { skill_id: skillId } });
+  const client = getPrismaClient(prismaClient);
+  const skill = await client.skill.findUnique({ where: { skill_id: skillId } });
 
   if (!skill) {
     throw new NotFoundError('Skill', skillId);
@@ -388,7 +412,7 @@ export async function downloadSkill(
     throw new ValidationError('Only published skills can be downloaded');
   }
 
-  const updated = await prisma.skill.update({
+  const updated = await client.skill.update({
     where: { skill_id: skillId },
     data: { download_count: { increment: 1 } },
   });
@@ -400,8 +424,9 @@ export async function downloadSkill(
 // Categories
 // ------------------------------------------------------------------
 
-export async function getCategories(): Promise<Array<{ category: string; count: number }>> {
-  const result = await prisma.skill.groupBy({
+export async function getCategories(prismaClient?: PrismaClient): Promise<Array<{ category: string; count: number }>> {
+  const client = getPrismaClient(prismaClient);
+  const result = await client.skill.groupBy({
     by: ['category'],
     where: { status: 'published', deleted_at: null },
     _count: { category: true },
@@ -418,8 +443,9 @@ export async function getCategories(): Promise<Array<{ category: string; count: 
 // Featured
 // ------------------------------------------------------------------
 
-export async function getFeaturedSkills(limit = 10): Promise<Skill[]> {
-  const skills = await prisma.skill.findMany({
+export async function getFeaturedSkills(limit = 10, prismaClient?: PrismaClient): Promise<Skill[]> {
+  const client = getPrismaClient(prismaClient);
+  const skills = await client.skill.findMany({
     where: { status: 'published', deleted_at: null },
     orderBy: [{ rating: 'desc' }, { download_count: 'desc' }],
     take: limit,
@@ -438,8 +464,9 @@ export async function distillFromCapsules(
   nodeId: string,
   capsules: distillation.SuccessfulPractice[],
   cooldownAfter?: number,
+  prismaClient?: PrismaClient,
 ): Promise<distillation.DistillationResult> {
-  return distillation.extractSkill({ nodeId, capsules, cooldownAfter });
+  return distillation.extractSkill({ nodeId, capsules, cooldownAfter }, prismaClient);
 }
 
 export function checkDistillationEligibility(
@@ -521,8 +548,13 @@ export function gradeFromScore(score: number): quality.QualityGrade {
 // Restore (soft-delete recovery)
 // ------------------------------------------------------------------
 
-export async function restoreSkill(skillId: string, authorId: string): Promise<Skill> {
-  const skill = await prisma.skill.findUnique({ where: { skill_id: skillId } });
+export async function restoreSkill(
+  skillId: string,
+  authorId: string,
+  prismaClient?: PrismaClient,
+): Promise<Skill> {
+  const client = getPrismaClient(prismaClient);
+  const skill = await client.skill.findUnique({ where: { skill_id: skillId } });
 
   if (!skill) {
     throw new NotFoundError('Skill', skillId);
@@ -536,7 +568,7 @@ export async function restoreSkill(skillId: string, authorId: string): Promise<S
     throw new ValidationError('You can only restore your own skills');
   }
 
-  const updated = await prisma.skill.update({
+  const updated = await client.skill.update({
     where: { skill_id: skillId },
     data: { deleted_at: null, status: 'published' },
   });
@@ -552,15 +584,17 @@ export async function getMySkills(
   authorId: string,
   limit = 20,
   offset = 0,
+  prismaClient?: PrismaClient,
 ): Promise<{ items: Skill[]; total: number }> {
+  const client = getPrismaClient(prismaClient);
   const [items, total] = await Promise.all([
-    prisma.skill.findMany({
+    client.skill.findMany({
       where: { author_id: authorId, deleted_at: null },
       orderBy: { updated_at: 'desc' },
       take: limit,
       skip: offset,
     }),
-    prisma.skill.count({ where: { author_id: authorId, deleted_at: null } }),
+    client.skill.count({ where: { author_id: authorId, deleted_at: null } }),
   ]);
 
   return { items: items as unknown as Skill[], total };

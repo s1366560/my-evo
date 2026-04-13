@@ -6,6 +6,7 @@
  * with similar task_type/tags, and 24h cooldown has passed.
  */
 
+import type { PrismaClient } from '@prisma/client';
 import { createSkill } from './service';
 import { ValidationError } from '../shared/errors';
 
@@ -132,6 +133,7 @@ export function canDistill(input: DistillationInput): ExtractionMetrics {
 
 export async function extractSkill(
   input: DistillationInput,
+  prismaClient?: PrismaClient,
 ): Promise<DistillationResult> {
   const metrics = canDistill(input);
   if (!metrics.canDistill) {
@@ -158,7 +160,7 @@ export async function extractSkill(
     examples: pattern.examples,
     source_capsules: pattern.sourceCapsuleIds,
     price_credits: 5,
-  });
+  }, prismaClient);
 
   return {
     skillId: result.skill_id,

@@ -7,7 +7,7 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
 
-    const score = await reputationService.getScore(nodeId);
+    const score = await reputationService.getScore(nodeId, app.prisma);
 
     void reply.send({
       success: true,
@@ -27,7 +27,12 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
     const limit = query.limit ? parseInt(query.limit, 10) : 20;
     const offset = query.offset ? parseInt(query.offset, 10) : 0;
 
-    const result = await reputationService.getHistory(nodeId, limit, offset);
+    const result = await reputationService.getHistory(
+      nodeId,
+      limit,
+      offset,
+      app.prisma,
+    );
 
     void reply.send({
       success: true,
@@ -46,7 +51,7 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
     const query = request.query as { limit?: string };
     const limit = query.limit ? parseInt(query.limit, 10) : 20;
 
-    const leaderboard = await reputationService.getLeaderboard(limit);
+    const leaderboard = await reputationService.getLeaderboard(limit, app.prisma);
 
     void reply.send({
       success: true,

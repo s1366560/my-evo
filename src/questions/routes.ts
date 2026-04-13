@@ -4,6 +4,8 @@ import { ValidationError } from '../shared/errors';
 import * as service from './service';
 
 export async function questionRoutes(app: FastifyInstance) {
+  const prisma = app.prisma;
+
   app.get('/', {
     schema: { tags: ['Questions'] },
   }, async (request) => {
@@ -25,6 +27,7 @@ export async function questionRoutes(app: FastifyInstance) {
       limit,
       offset,
       sort,
+      prisma,
     );
 
     return { success: true, data: { items: result.items, total: result.total } };
@@ -34,7 +37,7 @@ export async function questionRoutes(app: FastifyInstance) {
     schema: { tags: ['Questions'] },
   }, async (request) => {
     const params = request.params as { questionId: string };
-    const question = await service.getQuestion(params.questionId);
+    const question = await service.getQuestion(params.questionId, prisma);
     return { success: true, data: question };
   });
 
@@ -60,6 +63,7 @@ export async function questionRoutes(app: FastifyInstance) {
       body.body,
       body.tags ?? [],
       body.bounty ?? 0,
+      prisma,
     );
 
     void reply.status(201);
@@ -79,12 +83,17 @@ export async function questionRoutes(app: FastifyInstance) {
       bounty?: number;
     };
 
-    const question = await service.updateQuestion(params.questionId, auth.node_id, {
-      title: body.title,
-      body: body.body,
-      tags: body.tags,
-      bounty: body.bounty,
-    });
+    const question = await service.updateQuestion(
+      params.questionId,
+      auth.node_id,
+      {
+        title: body.title,
+        body: body.body,
+        tags: body.tags,
+        bounty: body.bounty,
+      },
+      prisma,
+    );
 
     return { success: true, data: question };
   });
@@ -95,7 +104,7 @@ export async function questionRoutes(app: FastifyInstance) {
   }, async (request) => {
     const auth = request.auth!;
     const params = request.params as { questionId: string };
-    await service.deleteQuestion(params.questionId, auth.node_id);
+    await service.deleteQuestion(params.questionId, auth.node_id, prisma);
     return { success: true, data: { message: 'Question deleted' } };
   });
 
@@ -107,7 +116,7 @@ export async function questionRoutes(app: FastifyInstance) {
     const limit = query.limit ? parseInt(query.limit, 10) : 20;
     const offset = query.offset ? parseInt(query.offset, 10) : 0;
 
-    const result = await service.listAnswers(params.questionId, limit, offset);
+    const result = await service.listAnswers(params.questionId, limit, offset, prisma);
     return { success: true, data: { items: result.items, total: result.total } };
   });
 
@@ -123,7 +132,7 @@ export async function questionRoutes(app: FastifyInstance) {
       throw new ValidationError('body is required');
     }
 
-    const answer = await service.createAnswer(params.questionId, auth.node_id, body.body);
+    const answer = await service.createAnswer(params.questionId, auth.node_id, body.body, prisma);
 
     void reply.status(201);
     return { success: true, data: answer };
@@ -134,7 +143,7 @@ export async function questionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { questionId: string; answerId: string };
-    await service.upvoteAnswer(params.questionId, params.answerId);
+    await service.upvoteAnswer(params.questionId, params.answerId, prisma);
     return { success: true, data: { message: 'Answer upvoted' } };
   });
 
@@ -143,7 +152,7 @@ export async function questionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { questionId: string; answerId: string };
-    await service.downvoteAnswer(params.questionId, params.answerId);
+    await service.downvoteAnswer(params.questionId, params.answerId, prisma);
     return { success: true, data: { message: 'Answer downvoted' } };
   });
 
@@ -153,7 +162,7 @@ export async function questionRoutes(app: FastifyInstance) {
   }, async (request) => {
     const auth = request.auth!;
     const params = request.params as { questionId: string; answerId: string };
-    await service.acceptAnswer(params.questionId, params.answerId, auth.node_id);
+    await service.acceptAnswer(params.questionId, params.answerId, auth.node_id, prisma);
     return { success: true, data: { message: 'Answer accepted' } };
   });
 }

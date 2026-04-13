@@ -11,6 +11,8 @@ import { UnauthorizedError, ValidationError } from '../shared/errors';
 // ─── Mock auth middleware ───────────────────────────────────────────────────────
 
 let mockNodeId = 'node-test-001';
+let mockAuthType: string | undefined;
+let mockAuthScopes: string[] | undefined;
 
 // Store the original request auth setter to call from within the route
 let capturedRequest: { auth?: { node_id: string } } | null = null;
@@ -22,14 +24,21 @@ const mockAuthenticate = jest.fn(async (request?: unknown) => {
   return { node_id: mockNodeId };
 });
 
-const mockRequireAuth = () => async (request: { auth?: { node_id: string } }) => {
-  request.auth = { node_id: mockNodeId };
+const mockRequireAuth = () => async (
+  request: { auth?: { node_id: string; auth_type?: string; scopes?: string[] } },
+) => {
+  request.auth = mockAuthType
+    ? { node_id: mockNodeId, auth_type: mockAuthType, scopes: mockAuthScopes }
+    : { node_id: mockNodeId };
   capturedRequest = request;
 };
 
 // ─── Mock publishAsset ────────────────────────────────────────────────────────
 
 const mockPublishAsset = jest.fn();
+const mockFileDispute = jest.fn();
+const mockGetDispute = jest.fn();
+const mockListDisputes = jest.fn();
 const mockCreateBounty = jest.fn();
 const mockWithdrawBid = jest.fn();
 const mockListAssets = jest.fn();
@@ -39,6 +48,9 @@ const mockPurchaseService = jest.fn();
 const mockRateService = jest.fn();
 const mockUpdateServiceListing = jest.fn();
 const mockSetServiceMarketplacePrisma = jest.fn();
+const mockListSkills = jest.fn();
+const mockGetCategories = jest.fn();
+const mockGetFeaturedSkills = jest.fn();
 const mockRateSkill = jest.fn();
 const mockDownloadSkill = jest.fn();
 const mockPublishSkillWithUpdates = jest.fn();
@@ -58,11 +70,27 @@ const mockSetSearchPrisma = jest.fn();
 const mockForkRecipe = jest.fn();
 const mockArchiveRecipe = jest.fn();
 const mockGetAssetDetail = jest.fn();
+const mockWorkTaskFindMany = jest.fn();
+const mockWorkTaskCount = jest.fn();
+const mockDisputeFindUnique = jest.fn();
+const mockRecipeFindMany = jest.fn();
+const mockRecipeCount = jest.fn();
+const mockRecipeFindUnique = jest.fn();
+const mockOrganismCreate = jest.fn();
+const mockCollaborationSessionCreate = jest.fn();
+let currentPrisma: unknown;
 const freshTimestamp = () => new Date().toISOString();
 
 jest.mock('../assets/service', () => ({
   ...jest.requireActual('../assets/service'),
   publishAsset: (...args: unknown[]) => mockPublishAsset(...args),
+}));
+
+jest.mock('../dispute/service', () => ({
+  ...jest.requireActual('../dispute/service'),
+  fileDispute: (...args: unknown[]) => mockFileDispute(...args),
+  getDispute: (...args: unknown[]) => mockGetDispute(...args),
+  listDisputes: (...args: unknown[]) => mockListDisputes(...args),
 }));
 
 jest.mock('../bounty/service', () => ({
@@ -84,6 +112,9 @@ jest.mock('../marketplace/service.marketplace', () => ({
 jest.mock('../skill_store/service', () => ({
   ...jest.requireActual('../skill_store/service'),
   setPrisma: (...args: unknown[]) => mockSetSkillStorePrisma(...args),
+  listSkills: (...args: unknown[]) => mockListSkills(...args),
+  getCategories: (...args: unknown[]) => mockGetCategories(...args),
+  getFeaturedSkills: (...args: unknown[]) => mockGetFeaturedSkills(...args),
   rateSkill: (...args: unknown[]) => mockRateSkill(...args),
   downloadSkill: (...args: unknown[]) => mockDownloadSkill(...args),
   publishSkillWithUpdates: (...args: unknown[]) => mockPublishSkillWithUpdates(...args),
@@ -134,7 +165,27 @@ jest.mock('../shared/auth', () => ({
 
 function buildApp(): FastifyInstance {
   const app = fastify({ logger: false });
-  app.decorate('prisma', {} as any);
+  currentPrisma = {
+    workerTask: {
+      findMany: mockWorkTaskFindMany,
+      count: mockWorkTaskCount,
+    },
+    dispute: {
+      findUnique: mockDisputeFindUnique,
+    },
+    recipe: {
+      findMany: mockRecipeFindMany,
+      count: mockRecipeCount,
+      findUnique: mockRecipeFindUnique,
+    },
+    organism: {
+      create: mockOrganismCreate,
+    },
+    collaborationSession: {
+      create: mockCollaborationSessionCreate,
+    },
+  };
+  app.decorate('prisma', currentPrisma as any);
   return app;
 }
 
@@ -569,7 +620,7 @@ describe('A2A service marketplace routes', () => {
       category: 'engineering',
       limit: 5,
       offset: 2,
-    });
+    }, currentPrisma);
   });
 
   it('should support legacy GET service search with q', async () => {
@@ -589,7 +640,7 @@ describe('A2A service marketplace routes', () => {
       category: 'engineering',
       limit: 3,
       offset: 1,
-    });
+    }, currentPrisma);
   });
 
   it('should reject invalid service list pagination before calling the helper', async () => {
@@ -633,7 +684,7 @@ describe('A2A service marketplace routes', () => {
       price_type: 'one_time',
       price_credits: 25,
       license_type: 'open_source',
-    });
+    }, currentPrisma);
   });
 
   it('should accept legacy publish payload aliases', async () => {
@@ -664,7 +715,7 @@ describe('A2A service marketplace routes', () => {
       price_type: 'one_time',
       price_credits: 15,
       license_type: 'open_source',
-    });
+    }, currentPrisma);
   });
 
   it('should reject user-backed identities for marketplace publish', async () => {
@@ -707,7 +758,7 @@ describe('A2A service marketplace routes', () => {
     expect(body.data.order_id).toBe('pur-1');
     expect(body.data.service_id).toBe('svc-1');
     expect(body.data.status).toBe('pending');
-    expect(mockPurchaseService).toHaveBeenCalledWith(mockNodeId, 'svc-1');
+    expect(mockPurchaseService).toHaveBeenCalledWith(mockNodeId, 'svc-1', currentPrisma);
   });
 
   it('should accept legacy listing_id on order requests', async () => {
@@ -728,7 +779,7 @@ describe('A2A service marketplace routes', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(mockPurchaseService).toHaveBeenCalledWith(mockNodeId, 'svc-legacy');
+    expect(mockPurchaseService).toHaveBeenCalledWith(mockNodeId, 'svc-legacy', currentPrisma);
   });
 
   it('should reject missing service_id on order requests', async () => {
@@ -775,7 +826,7 @@ describe('A2A service marketplace routes', () => {
     const body = JSON.parse(res.payload);
     expect(body.data.rated).toBe(true);
     expect(body.data.review_id).toBe('srvrev-1');
-    expect(mockRateService).toHaveBeenCalledWith(mockNodeId, 'svc-1', 5, 'Great');
+    expect(mockRateService).toHaveBeenCalledWith(mockNodeId, 'svc-1', 5, 'Great', currentPrisma);
   });
 
   it('should accept legacy comment and listing_id fields when rating', async () => {
@@ -797,7 +848,7 @@ describe('A2A service marketplace routes', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(mockRateService).toHaveBeenCalledWith(mockNodeId, 'svc-legacy', 4, 'Legacy review');
+    expect(mockRateService).toHaveBeenCalledWith(mockNodeId, 'svc-legacy', 4, 'Legacy review', currentPrisma);
   });
 
   it('should reject bodyless rating requests with a validation error', async () => {
@@ -840,7 +891,7 @@ describe('A2A service marketplace routes', () => {
       description: 'Updated desc',
       price_credits: 10,
       status: 'paused',
-    });
+    }, currentPrisma);
   });
 
   it('should accept legacy update aliases', async () => {
@@ -867,7 +918,7 @@ describe('A2A service marketplace routes', () => {
       description: undefined,
       price_credits: 20,
       status: 'active',
-    });
+    }, currentPrisma);
   });
 
   it('should reject invalid update statuses before calling the service', async () => {
@@ -913,6 +964,83 @@ describe('A2A skill routes', () => {
     await app.close();
   });
 
+  it('should search skills via GET and pass app prisma', async () => {
+    mockListSkills.mockResolvedValue({
+      items: [{ skill_id: 'skill-1', name: 'TypeScript review' }],
+      total: 1,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/skill/search?q=review&category=engineering&tags=typescript&limit=5&offset=2&sort=rating',
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.total).toBe(1);
+    expect(mockListSkills).toHaveBeenCalledWith(
+      'engineering',
+      ['typescript'],
+      'review',
+      5,
+      2,
+      'rating',
+      currentPrisma,
+    );
+  });
+
+  it('should search skills via POST and pass app prisma', async () => {
+    mockListSkills.mockResolvedValue({
+      items: [{ skill_id: 'skill-2', name: 'Refactor helper' }],
+      total: 1,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/skill/search',
+      payload: {
+        q: 'refactor',
+        category: 'engineering',
+        tags: ['cleanup'],
+        limit: 3,
+        offset: 1,
+        sort: 'downloads',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockListSkills).toHaveBeenCalledWith(
+      'engineering',
+      ['cleanup'],
+      'refactor',
+      3,
+      1,
+      'downloads',
+      currentPrisma,
+    );
+  });
+
+  it('should list skill categories and featured skills with app prisma', async () => {
+    mockGetCategories.mockResolvedValue([{ category: 'engineering', count: 2 }]);
+    mockGetFeaturedSkills.mockResolvedValue([{ skill_id: 'skill-1' }]);
+
+    const [categoriesRes, featuredRes] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/a2a/skill/categories',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/a2a/skill/featured?limit=4',
+      }),
+    ]);
+
+    expect(categoriesRes.statusCode).toBe(200);
+    expect(featuredRes.statusCode).toBe(200);
+    expect(mockGetCategories).toHaveBeenCalledWith(currentPrisma);
+    expect(mockGetFeaturedSkills).toHaveBeenCalledWith(4, currentPrisma);
+  });
+
   it('should rate a skill via skill store service', async () => {
     mockRateSkill.mockResolvedValue({
       skill_id: 'skill-1',
@@ -932,7 +1060,7 @@ describe('A2A skill routes', () => {
     const body = JSON.parse(res.payload);
     expect(body.data.skill_id).toBe('skill-1');
     expect(body.data.rating).toBe(5);
-    expect(mockRateSkill).toHaveBeenCalledWith('skill-1', mockNodeId, 5);
+    expect(mockRateSkill).toHaveBeenCalledWith('skill-1', mockNodeId, 5, currentPrisma);
   });
 
   it('should reject unsupported review text when rating a skill', async () => {
@@ -964,7 +1092,7 @@ describe('A2A skill routes', () => {
     const body = JSON.parse(res.payload);
     expect(body.data.skill_id).toBe('skill-1');
     expect(body.data.download_count).toBe(7);
-    expect(mockDownloadSkill).toHaveBeenCalledWith('skill-1', mockNodeId);
+    expect(mockDownloadSkill).toHaveBeenCalledWith('skill-1', mockNodeId, currentPrisma);
   });
 
   it('should publish a skill via skill store service and apply optional metadata updates', async () => {
@@ -990,7 +1118,7 @@ describe('A2A skill routes', () => {
     expect(mockPublishSkillWithUpdates).toHaveBeenCalledWith('skill-1', mockNodeId, {
       category: 'engineering',
       price_credits: 25,
-    });
+    }, currentPrisma);
   });
 
   it('should reject fractional publish prices at the route boundary', async () => {
@@ -1039,7 +1167,7 @@ describe('A2A session alias routes', () => {
     const body = JSON.parse(res.payload);
     expect(body.data.session_id).toBe('session-1');
     expect(body.data.board.pinned).toEqual(['item-1']);
-    expect(mockGetSessionBoard).toHaveBeenCalledWith('session-1', mockNodeId);
+    expect(mockGetSessionBoard).toHaveBeenCalledWith('session-1', mockNodeId, currentPrisma);
   });
 
   it('should update a session board via session service', async () => {
@@ -1069,6 +1197,7 @@ describe('A2A session alias routes', () => {
       'add',
       { id: 'item-1', type: 'note', content: 'hello' },
       undefined,
+      currentPrisma,
     );
   });
 
@@ -1107,6 +1236,7 @@ describe('A2A session alias routes', () => {
         force_converge: true,
         task_board_updates: undefined,
       },
+      currentPrisma,
     );
   });
 
@@ -1129,7 +1259,7 @@ describe('A2A session alias routes', () => {
       status: 'active',
       limit: 10,
       offset: 2,
-    });
+    }, currentPrisma);
   });
 
   it('should submit a session result via session service', async () => {
@@ -1165,6 +1295,7 @@ describe('A2A session alias routes', () => {
       'task-1',
       'sha256:asset-1',
       { result: { ok: true }, summary: 'done' },
+      currentPrisma,
     );
   });
 
@@ -1203,7 +1334,7 @@ describe('A2A session alias routes', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(mockGetSessionContext).toHaveBeenCalledWith('session-1', mockNodeId, 5);
+    expect(mockGetSessionContext).toHaveBeenCalledWith('session-1', mockNodeId, 5, currentPrisma);
   });
 });
 
@@ -1371,7 +1502,7 @@ describe('A2A asset search routes', () => {
       sort_by: undefined,
       limit: 5,
       offset: 1,
-    });
+    }, currentPrisma);
   });
 
   it('should keep promoted asset searches on the public search path', async () => {
@@ -1409,7 +1540,7 @@ describe('A2A asset search routes', () => {
       sort_by: undefined,
       limit: 20,
       offset: 0,
-    });
+    }, currentPrisma);
     expect(mockAuthenticate).not.toHaveBeenCalled();
   });
 
@@ -1496,6 +1627,175 @@ describe('A2A asset search routes', () => {
     });
 
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('A2A dispute alias routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    mockAuthType = undefined;
+    mockAuthScopes = undefined;
+    mockFileDispute.mockResolvedValue({ dispute_id: 'dsp-1' });
+    mockGetDispute.mockResolvedValue({
+      dispute_id: 'dsp-1',
+      plaintiff_id: mockNodeId,
+      defendant_id: 'node-2',
+      arbitrators: [],
+    });
+    mockListDisputes.mockResolvedValue({ items: [], total: 0 });
+    mockDisputeFindUnique.mockResolvedValue({
+      evidence: [{ evidence_id: 'evd-1' }, { evidence_id: 'evd-2' }],
+    });
+
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('forwards related_transaction_id without hard-coding filing fees', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/dispute/open',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        type: 'transaction',
+        defendant_id: 'node-2',
+        title: 'Transaction dispute',
+        description: 'The linked transaction failed.',
+        related_transaction_id: 'txn-1',
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(mockFileDispute).toHaveBeenCalledWith(
+      mockNodeId,
+      expect.objectContaining({
+        type: 'transaction',
+        related_transaction_id: 'txn-1',
+        filing_fee: undefined,
+      }),
+    );
+  });
+
+  it('rejects API keys from opening disputes', async () => {
+    mockAuthType = 'api_key';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/dispute/open',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        type: 'transaction',
+        defendant_id: 'node-2',
+        title: 'Transaction dispute',
+        description: 'The linked transaction failed.',
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mockFileDispute).not.toHaveBeenCalled();
+  });
+
+  it('caps /a2a/disputes limit to the canonical maximum', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/disputes?limit=999',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockListDisputes).toHaveBeenCalledWith(
+      { node_id: mockNodeId },
+      undefined,
+      undefined,
+      100,
+      0,
+    );
+  });
+
+  it('rejects malformed /a2a/disputes pagination', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/disputes?limit=10abc',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockListDisputes).not.toHaveBeenCalled();
+  });
+
+  it('rejects excessive /a2a/disputes offsets', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/disputes?offset=10001',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockListDisputes).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed dispute message pagination before dispute lookup', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/dispute/dsp-1/messages?offset=abc',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockGetDispute).not.toHaveBeenCalled();
+    expect(mockDisputeFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('rejects dispute evidence access for non-participants', async () => {
+    mockNodeId = 'node-outsider';
+    mockGetDispute.mockResolvedValue({
+      dispute_id: 'dsp-1',
+      plaintiff_id: 'node-plaintiff',
+      defendant_id: 'node-defendant',
+      arbitrators: ['arb-1', 'arb-2', 'arb-3'],
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/dispute/dsp-1/messages',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mockDisputeFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('allows disputes:read:any api keys to access dispute evidence', async () => {
+    mockNodeId = 'node-auditor';
+    mockAuthType = 'api_key';
+    mockAuthScopes = ['disputes:read:any'];
+    mockGetDispute.mockResolvedValue({
+      dispute_id: 'dsp-1',
+      plaintiff_id: 'node-plaintiff',
+      defendant_id: 'node-defendant',
+      arbitrators: ['arb-1', 'arb-2', 'arb-3'],
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/dispute/dsp-1/messages',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockDisputeFindUnique).toHaveBeenCalledWith({
+      where: { dispute_id: 'dsp-1' },
+      select: { evidence: true },
+    });
   });
 });
 
@@ -1637,6 +1937,159 @@ describe('A2A organism routes', () => {
 
     expect(res.statusCode).toBe(403);
     expect(mockOrganismUpdate).not.toHaveBeenCalled();
+  });
+
+  it('uses app.prisma and returns 404 when expressing an unknown recipe', async () => {
+    (app as any).prisma.recipe.findUnique = mockRecipeFindUnique;
+    (app as any).prisma.organism.create = mockOrganismCreate;
+    mockRecipeFindUnique.mockResolvedValue(null);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/recipe/recipe-404/express',
+      headers: { authorization: 'Bearer test' },
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(mockRecipeFindUnique).toHaveBeenCalledWith({
+      where: { recipe_id: 'recipe-404' },
+    });
+    expect(mockOrganismCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('A2A work alias routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('reads assigned work from app.prisma', async () => {
+    mockWorkTaskFindMany.mockResolvedValue([
+      { task_id: 'task-1', assigned_to: mockNodeId, status: 'assigned' },
+    ]);
+    mockWorkTaskCount.mockResolvedValue(1);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/work/my?status=assigned&limit=5&offset=2',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockWorkTaskFindMany).toHaveBeenCalledWith({
+      where: { assigned_to: mockNodeId, status: 'assigned' },
+      orderBy: { created_at: 'desc' },
+      take: 5,
+      skip: 2,
+    });
+    expect(mockWorkTaskCount).toHaveBeenCalledWith({
+      where: { assigned_to: mockNodeId, status: 'assigned' },
+    });
+  });
+});
+
+describe('A2A recipe alias routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('reads recipe search results from app.prisma', async () => {
+    mockRecipeFindMany.mockResolvedValue([
+      {
+        recipe_id: 'recipe-1',
+        title: 'Retry Recipe',
+        description: 'desc',
+        status: 'published',
+      },
+    ]);
+    mockRecipeCount.mockResolvedValue(1);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/recipe/search?q=retry&limit=5&offset=1',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockRecipeFindMany).toHaveBeenCalledWith({
+      where: {
+        status: 'published',
+        OR: [
+          { title: { contains: 'retry', mode: 'insensitive' } },
+          { description: { contains: 'retry', mode: 'insensitive' } },
+        ],
+      },
+      orderBy: { created_at: 'desc' },
+      take: 5,
+      skip: 1,
+    });
+    expect(mockRecipeCount).toHaveBeenCalled();
+  });
+});
+
+describe('A2A session creation alias routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('creates collaboration sessions through app.prisma', async () => {
+    mockCollaborationSessionCreate.mockResolvedValue({
+      session_id: 'session-1',
+      title: 'Coordination',
+      creator_id: mockNodeId,
+      status: 'active',
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/session/create',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sender_id: mockNodeId,
+        topic: 'Coordination',
+        participants: ['node-2'],
+        max_participants: 4,
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(mockCollaborationSessionCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        title: 'Coordination',
+        creator_id: mockNodeId,
+        max_participants: 4,
+      }),
+    }));
   });
 });
 

@@ -1,8 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
+import { NotFoundError } from '../shared/errors';
 import * as circleService from './service';
 
 export async function circleRoutes(app: FastifyInstance): Promise<void> {
+  const prisma = app.prisma;
+
   app.post('/', {
     schema: { tags: ['Circle'] },
     preHandler: [requireAuth()],
@@ -43,9 +46,10 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Circle'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const { circleId } = request.params as { circleId: string };
 
-    const result = await circleService.startRound(circleId);
+    const result = await circleService.startRound(circleId, auth.node_id);
 
     return reply.send({ success: true, data: result });
   });
@@ -98,9 +102,10 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Circle'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const { circleId } = request.params as { circleId: string };
 
-    const result = await circleService.advanceRound(circleId);
+    const result = await circleService.advanceRound(circleId, auth.node_id);
 
     return reply.send({ success: true, data: result });
   });
@@ -109,9 +114,10 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Circle'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const { circleId } = request.params as { circleId: string };
 
-    const result = await circleService.completeCircle(circleId);
+    const result = await circleService.completeCircle(circleId, auth.node_id);
 
     return reply.send({ success: true, data: result });
   });
@@ -120,9 +126,6 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Circle'] },
   }, async (request, reply) => {
     const { limit, offset } = request.query as Record<string, string | undefined>;
-
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
 
     const [circles, total] = await Promise.all([
       prisma.circle.findMany({
@@ -158,18 +161,12 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { circleId } = request.params as { circleId: string };
 
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
-
     const circle = await prisma.circle.findUnique({
       where: { circle_id: circleId },
     });
 
     if (!circle) {
-      return reply.status(404).send({
-        success: false,
-        error: 'Circle not found',
-      });
+      throw new NotFoundError('Circle', circleId);
     }
 
     return reply.send({

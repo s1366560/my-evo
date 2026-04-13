@@ -508,6 +508,7 @@ model Circle {
   status            String   @default("active")
   creator_id        String
   participant_count Int      @default(0)
+  members           Json     @default("[]")
   rounds            Json     @default("[]")
   rounds_completed  Int      @default(0)
   outcomes          Json     @default("[]")

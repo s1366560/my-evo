@@ -25,6 +25,10 @@ export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
 
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
 function computeJensenShannon(
   baseline: Record<string, number>,
   current: Record<string, number>,
@@ -77,21 +81,23 @@ function normalizeFrequencies(
 
 export async function getDriftReport(
   nodeId: string,
+  prismaClient?: PrismaClient,
 ): Promise<DriftReport> {
+  const client = getPrismaClient(prismaClient);
   const windowMs = DRIFT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
   const now = new Date();
   const baselineStart = new Date(now.getTime() - 2 * windowMs);
   const currentStart = new Date(now.getTime() - windowMs);
 
   const [baselineAssets, currentAssets] = await Promise.all([
-    prisma.asset.findMany({
+    client.asset.findMany({
       where: {
         author_id: nodeId,
         created_at: { gte: baselineStart, lt: currentStart },
       },
       select: { signals: true },
     }),
-    prisma.asset.findMany({
+    client.asset.findMany({
       where: {
         author_id: nodeId,
         created_at: { gte: currentStart },
@@ -163,8 +169,11 @@ export async function getDriftReport(
   };
 }
 
-export async function getBranchingMetrics(): Promise<BranchingMetrics> {
-  const assets = await prisma.asset.findMany({
+export async function getBranchingMetrics(
+  prismaClient?: PrismaClient,
+): Promise<BranchingMetrics> {
+  const client = getPrismaClient(prismaClient);
+  const assets = await client.asset.findMany({
     where: { parent_id: { not: null } },
     select: { parent_id: true, generation: true },
     take: 1000,
@@ -190,7 +199,7 @@ export async function getBranchingMetrics(): Promise<BranchingMetrics> {
         branchingFactors.length
       : 0;
 
-  const allSignals = await prisma.asset.findMany({
+  const allSignals = await client.asset.findMany({
     where: { status: 'published' },
     select: { signals: true },
     take: 1000,
@@ -241,13 +250,15 @@ export async function getTimeline(
   eventType?: TimelineEventType,
   limit = 20,
   offset = 0,
+  prismaClient?: PrismaClient,
 ): Promise<TimelineEvent[]> {
+  const client = getPrismaClient(prismaClient);
   const where: Record<string, unknown> = { actor_id: nodeId };
   if (eventType) {
     where.event_type = eventType;
   }
 
-  const events = await prisma.evolutionEvent.findMany({
+  const events = await client.evolutionEvent.findMany({
     where,
     orderBy: { timestamp: 'desc' },
     take: limit,
@@ -271,13 +282,15 @@ export async function getTimeline(
 
 export async function getSignalForecast(
   signal: string,
+  prismaClient?: PrismaClient,
 ): Promise<SignalForecast> {
+  const client = getPrismaClient(prismaClient);
   const historyDays = SIGNAL_HISTORY_DAYS;
   const cutoff = new Date(
     Date.now() - historyDays * 24 * 60 * 60 * 1000,
   );
 
-  const weeklyData = await prisma.asset.findMany({
+  const weeklyData = await client.asset.findMany({
     where: {
       signals: { has: signal },
       status: 'published',
@@ -309,11 +322,11 @@ export async function getSignalForecast(
         ? 'declining'
         : 'stable';
 
-  const totalAssets = await prisma.asset.count({
+  const totalAssets = await client.asset.count({
     where: { status: 'published', signals: { has: signal } },
   });
 
-  const allSignals = await prisma.asset.findMany({
+  const allSignals = await client.asset.findMany({
     where: { status: 'published' },
     select: { signals: true },
   });
@@ -358,8 +371,10 @@ export async function getSignalForecast(
 
 export async function getGdiForecast(
   assetId: string,
+  prismaClient?: PrismaClient,
 ): Promise<GdiForecast> {
-  const asset = await prisma.asset.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const asset = await client.asset.findUnique({
     where: { asset_id: assetId },
   });
 
@@ -374,7 +389,7 @@ export async function getGdiForecast(
     };
   }
 
-  const gdiRecords = await prisma.gDIScoreRecord.findMany({
+  const gdiRecords = await client.gDIScoreRecord.findMany({
     where: { asset_id: assetId },
     orderBy: { calculated_at: 'desc' },
     take: 10,
@@ -419,10 +434,12 @@ export async function getGdiForecast(
 
 export async function getRiskAlerts(
   nodeId: string,
+  prismaClient?: PrismaClient,
 ): Promise<RiskAlert[]> {
+  const client = getPrismaClient(prismaClient);
   const alerts: RiskAlert[] = [];
 
-  const activeQuarantines = await prisma.quarantineRecord.findMany({
+  const activeQuarantines = await client.quarantineRecord.findMany({
     where: { node_id: nodeId, is_active: true },
   });
 
@@ -437,7 +454,7 @@ export async function getRiskAlerts(
     });
   }
 
-  const lowGdiAssets = await prisma.asset.findMany({
+  const lowGdiAssets = await client.asset.findMany({
     where: {
       author_id: nodeId,
       status: 'published',
@@ -457,7 +474,7 @@ export async function getRiskAlerts(
     });
   }
 
-  const similarityViolations = await prisma.similarityRecord.findMany({
+  const similarityViolations = await client.similarityRecord.findMany({
     where: {
       score: { gte: 0.85 },
     },
@@ -466,9 +483,9 @@ export async function getRiskAlerts(
   });
 
   for (const s of similarityViolations) {
-    const relatedAsset = await prisma.asset.findUnique({
-      where: { asset_id: s.asset_id },
-    });
+      const relatedAsset = await client.asset.findUnique({
+        where: { asset_id: s.asset_id },
+      });
     if (relatedAsset && relatedAsset.author_id === nodeId) {
       alerts.push({
         alert_id: crypto.randomUUID(),

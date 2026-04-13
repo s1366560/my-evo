@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import type {
   PhylogenyNode,
   SymbioticRelationship,
@@ -17,17 +17,24 @@ import {
   EMERGENT_MIN_LIFT,
   GENE_CATEGORIES,
 } from '../shared/constants';
+import { createUnconfiguredPrismaClient } from '../shared/prisma';
 
-let prisma = new PrismaClient();
+let prisma = createUnconfiguredPrismaClient();
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
 
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
 export async function getPhylogenyTree(
   assetId: string,
+  prismaClient?: PrismaClient,
 ): Promise<PhylogenyNode | null> {
-  const asset = await prisma.asset.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const asset = await client.asset.findUnique({
     where: { asset_id: assetId },
   });
 
@@ -35,12 +42,12 @@ export async function getPhylogenyTree(
     return null;
   }
 
-  const children = await prisma.asset.findMany({
+  const children = await client.asset.findMany({
     where: { parent_id: assetId },
     select: { asset_id: true },
   });
 
-  const events = await prisma.evolutionEvent.findMany({
+  const events = await client.evolutionEvent.findMany({
     where: { asset_id: assetId, event_type: 'mutated' },
   });
 
@@ -57,10 +64,11 @@ export async function getPhylogenyTree(
   };
 }
 
-export async function detectSymbiosis(): Promise<
-  SymbioticRelationship[]
-> {
-  const assets = await prisma.asset.findMany({
+export async function detectSymbiosis(
+  prismaClient?: PrismaClient,
+): Promise<SymbioticRelationship[]> {
+  const client = getPrismaClient(prismaClient);
+  const assets = await client.asset.findMany({
     where: { status: 'published' },
     select: {
       asset_id: true,
@@ -118,8 +126,9 @@ export async function detectSymbiosis(): Promise<
     .slice(0, 20);
 }
 
-export async function getFitnessLandscape(): Promise<FitnessLandscape> {
-  const assets = await prisma.asset.findMany({
+export async function getFitnessLandscape(prismaClient?: PrismaClient): Promise<FitnessLandscape> {
+  const client = getPrismaClient(prismaClient);
+  const assets = await client.asset.findMany({
     where: { status: 'published' },
     select: { gdi_score: true, downloads: true, signals: true },
     take: 500,
@@ -169,10 +178,11 @@ export async function getFitnessLandscape(): Promise<FitnessLandscape> {
   };
 }
 
-export async function detectEmergentPatterns(): Promise<
-  EmergentPattern[]
-> {
-  const assets = await prisma.asset.findMany({
+export async function detectEmergentPatterns(
+  prismaClient?: PrismaClient,
+): Promise<EmergentPattern[]> {
+  const client = getPrismaClient(prismaClient);
+  const assets = await client.asset.findMany({
     where: { status: 'published' },
     select: {
       asset_id: true,
@@ -239,8 +249,9 @@ export async function detectEmergentPatterns(): Promise<
   return patterns.sort((a, b) => b.lift - a.lift).slice(0, 10);
 }
 
-export async function getDiversityIndex(): Promise<DiversityIndex> {
-  const assets = await prisma.asset.findMany({
+export async function getDiversityIndex(prismaClient?: PrismaClient): Promise<DiversityIndex> {
+  const client = getPrismaClient(prismaClient);
+  const assets = await client.asset.findMany({
     where: { status: 'published' },
     select: { signals: true },
     take: 1000,
@@ -289,12 +300,13 @@ export async function getDiversityIndex(): Promise<DiversityIndex> {
   };
 }
 
-export async function getRedQueenEffect(): Promise<RedQueenEffect> {
+export async function getRedQueenEffect(prismaClient?: PrismaClient): Promise<RedQueenEffect> {
+  const client = getPrismaClient(prismaClient);
   const thirtyDaysAgo = new Date(
     Date.now() - 30 * 24 * 60 * 60 * 1000,
   );
 
-  const recentEvents = await prisma.evolutionEvent.findMany({
+  const recentEvents = await client.evolutionEvent.findMany({
     where: {
       event_type: { in: ['mutated', 'forked'] },
       timestamp: { gte: thirtyDaysAgo },
@@ -302,7 +314,7 @@ export async function getRedQueenEffect(): Promise<RedQueenEffect> {
     select: { asset_id: true, event_type: true },
   });
 
-  const gdiRecords = await prisma.gDIScoreRecord.findMany({
+  const gdiRecords = await client.gDIScoreRecord.findMany({
     where: { calculated_at: { gte: thirtyDaysAgo } },
     orderBy: { calculated_at: 'asc' },
     take: 200,
@@ -337,12 +349,13 @@ export async function getRedQueenEffect(): Promise<RedQueenEffect> {
   };
 }
 
-export async function detectMacroEvents(): Promise<MacroEvent[]> {
+export async function detectMacroEvents(prismaClient?: PrismaClient): Promise<MacroEvent[]> {
+  const client = getPrismaClient(prismaClient);
   const thirtyDaysAgo = new Date(
     Date.now() - 30 * 24 * 60 * 60 * 1000,
   );
 
-  const assets = await prisma.asset.findMany({
+  const assets = await client.asset.findMany({
     where: {
       status: 'published',
       created_at: { gte: thirtyDaysAgo },

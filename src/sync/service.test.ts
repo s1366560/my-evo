@@ -36,6 +36,7 @@ jest.mock('./scheduler', () => ({
 }));
 
 jest.mock('./audit', () => ({
+  setPrisma: jest.fn(),
   logSyncOperation: jest.fn().mockResolvedValue({ id: 'log-1' }),
   getSyncHistory: jest.fn().mockResolvedValue({ items: [], total: 0 }),
   analyzeSyncPatterns: jest.fn().mockResolvedValue({ average_interval_ms: 900000, typical_sync_time: '03:00', peak_sync_hour: 3, activity_level: 'medium', suggested_interval_ms: 900000 }),
@@ -43,6 +44,7 @@ jest.mock('./audit', () => ({
 }));
 
 jest.mock('./incremental', () => ({
+  setPrisma: jest.fn(),
   calculateSyncDelta: jest.fn().mockResolvedValue({ node_id: 'node-1', changes: [], last_sync_time: new Date(0).toISOString(), current_time: new Date().toISOString(), total_changes: 0 }),
   applyIncrementalSync: jest.fn().mockResolvedValue({ applied: 0, skipped: 0, errors: [] }),
   verifySyncIntegrity: jest.fn().mockResolvedValue({ is_integral: true, missing_count: 0, issues: [] }),
@@ -57,6 +59,18 @@ describe('Sync Service', () => {
       const { initializeScheduler } = require('./scheduler');
       await initialize();
       expect(initializeScheduler).toHaveBeenCalled();
+    });
+  });
+
+  describe('setPrisma', () => {
+    it('propagates the shared Prisma client to incremental and audit helpers', () => {
+      const incremental = require('./incremental');
+      const audit = require('./audit');
+
+      service.setPrisma(mockPrisma as unknown as PrismaClient);
+
+      expect(incremental.setPrisma).toHaveBeenCalledWith(mockPrisma);
+      expect(audit.setPrisma).toHaveBeenCalledWith(mockPrisma);
     });
   });
 

@@ -23,8 +23,13 @@ export function setPrisma(client: PrismaClient): void {
 
 export { prisma };
 
-export async function getBalance(nodeId: string): Promise<CreditBalance> {
-  const node = await prisma.node.findUnique({
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
+export async function getBalance(nodeId: string, prismaClient?: PrismaClient): Promise<CreditBalance> {
+  const client = getPrismaClient(prismaClient);
+  const node = await client.node.findUnique({
     where: { node_id: nodeId },
     include: {
       creditTransactions: {
@@ -38,12 +43,12 @@ export async function getBalance(nodeId: string): Promise<CreditBalance> {
     throw new NotFoundError('Node', nodeId);
   }
 
-  const earned = await prisma.creditTransaction.aggregate({
+  const earned = await client.creditTransaction.aggregate({
     where: { node_id: nodeId, amount: { gt: 0 } },
     _sum: { amount: true },
   });
 
-  const spent = await prisma.creditTransaction.aggregate({
+  const spent = await client.creditTransaction.aggregate({
     where: { node_id: nodeId, amount: { lt: 0 } },
     _sum: { amount: true },
   });
@@ -66,12 +71,14 @@ export async function credit(
   amount: number,
   type: CreditTransactionType,
   description: string,
+  prismaClient?: PrismaClient,
 ): Promise<CreditTransaction> {
+  const client = getPrismaClient(prismaClient);
   if (amount <= 0) {
     throw new ValidationError('Credit amount must be positive');
   }
 
-  const node = await prisma.node.findUnique({
+  const node = await client.node.findUnique({
     where: { node_id: nodeId },
   });
 
@@ -81,12 +88,12 @@ export async function credit(
 
   const newBalance = node.credit_balance + amount;
 
-  await prisma.node.update({
+  await client.node.update({
     where: { node_id: nodeId },
     data: { credit_balance: newBalance },
   });
 
-  const transaction = await prisma.creditTransaction.create({
+  const transaction = await client.creditTransaction.create({
     data: {
       node_id: nodeId,
       amount,
@@ -112,12 +119,14 @@ export async function debit(
   amount: number,
   type: CreditTransactionType,
   description: string,
+  prismaClient?: PrismaClient,
 ): Promise<CreditTransaction> {
+  const client = getPrismaClient(prismaClient);
   if (amount <= 0) {
     throw new ValidationError('Debit amount must be positive');
   }
 
-  const node = await prisma.node.findUnique({
+  const node = await client.node.findUnique({
     where: { node_id: nodeId },
   });
 
@@ -131,12 +140,12 @@ export async function debit(
 
   const newBalance = node.credit_balance - amount;
 
-  await prisma.node.update({
+  await client.node.update({
     where: { node_id: nodeId },
     data: { credit_balance: newBalance },
   });
 
-  const transaction = await prisma.creditTransaction.create({
+  const transaction = await client.creditTransaction.create({
     data: {
       node_id: nodeId,
       amount: -amount,
@@ -161,7 +170,9 @@ export async function transfer(
   fromId: string,
   toId: string,
   amount: number,
+  prismaClient?: PrismaClient,
 ): Promise<{ from_transaction: CreditTransaction; to_transaction: CreditTransaction }> {
+  const client = getPrismaClient(prismaClient);
   if (amount <= 0) {
     throw new ValidationError('Transfer amount must be positive');
   }
@@ -171,8 +182,8 @@ export async function transfer(
   }
 
   const [fromNode, toNode] = await Promise.all([
-    prisma.node.findUnique({ where: { node_id: fromId } }),
-    prisma.node.findUnique({ where: { node_id: toId } }),
+    client.node.findUnique({ where: { node_id: fromId } }),
+    client.node.findUnique({ where: { node_id: toId } }),
   ]);
 
   if (!fromNode) {
@@ -189,18 +200,18 @@ export async function transfer(
   const fromNewBalance = fromNode.credit_balance - amount;
   const toNewBalance = toNode.credit_balance + amount;
 
-  await prisma.node.update({
+  await client.node.update({
     where: { node_id: fromId },
     data: { credit_balance: fromNewBalance },
   });
 
-  await prisma.node.update({
+  await client.node.update({
     where: { node_id: toId },
     data: { credit_balance: toNewBalance },
   });
 
   const [fromTx, toTx] = await Promise.all([
-    prisma.creditTransaction.create({
+    client.creditTransaction.create({
       data: {
         node_id: fromId,
         amount: -amount,
@@ -209,7 +220,7 @@ export async function transfer(
         balance_after: fromNewBalance,
       },
     }),
-    prisma.creditTransaction.create({
+    client.creditTransaction.create({
       data: {
         node_id: toId,
         amount,
@@ -242,8 +253,9 @@ export async function transfer(
   };
 }
 
-export async function applyDecay(nodeId: string): Promise<CreditBalance> {
-  const node = await prisma.node.findUnique({
+export async function applyDecay(nodeId: string, prismaClient?: PrismaClient): Promise<CreditBalance> {
+  const client = getPrismaClient(prismaClient);
+  const node = await client.node.findUnique({
     where: { node_id: nodeId },
   });
 
@@ -256,11 +268,11 @@ export async function applyDecay(nodeId: string): Promise<CreditBalance> {
   const inactiveDays = inactiveMs / (1000 * 60 * 60 * 24);
 
   if (inactiveDays < CREDIT_DECAY.start_days) {
-    return getBalance(nodeId);
+    return getBalance(nodeId, client);
   }
 
   if (node.credit_balance <= CREDIT_DECAY.min_balance) {
-    return getBalance(nodeId);
+    return getBalance(nodeId, client);
   }
 
   const decayAmount = Math.floor(
@@ -273,15 +285,15 @@ export async function applyDecay(nodeId: string): Promise<CreditBalance> {
   const actualDecay = node.credit_balance - newBalance;
 
   if (actualDecay <= 0) {
-    return getBalance(nodeId);
+    return getBalance(nodeId, client);
   }
 
-  await prisma.node.update({
+  await client.node.update({
     where: { node_id: nodeId },
     data: { credit_balance: newBalance },
   });
 
-  await prisma.creditTransaction.create({
+  await client.creditTransaction.create({
     data: {
       node_id: nodeId,
       amount: -actualDecay,
@@ -291,7 +303,7 @@ export async function applyDecay(nodeId: string): Promise<CreditBalance> {
     },
   });
 
-  return getBalance(nodeId);
+  return getBalance(nodeId, client);
 }
 
 export async function getHistory(
@@ -299,20 +311,22 @@ export async function getHistory(
   type?: CreditTransactionType,
   limit: number = 20,
   offset: number = 0,
+  prismaClient?: PrismaClient,
 ): Promise<{ items: CreditTransaction[]; total: number }> {
+  const client = getPrismaClient(prismaClient);
   const where: Record<string, unknown> = { node_id: nodeId };
   if (type) {
     where.type = type;
   }
 
   const [transactions, total] = await Promise.all([
-    prisma.creditTransaction.findMany({
+    client.creditTransaction.findMany({
       where,
       orderBy: { timestamp: 'desc' },
       take: limit,
       skip: offset,
     }),
-    prisma.creditTransaction.count({ where }),
+    client.creditTransaction.count({ where }),
   ]);
 
   const items = transactions.map((t: { id: string; node_id: string; amount: number; type: string; description: string; balance_after: number; timestamp: Date }) => ({

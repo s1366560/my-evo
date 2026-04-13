@@ -1,14 +1,18 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth } from '../shared/auth';
+import { requireAuth, requireTrustLevel } from '../shared/auth';
 import * as quarantineService from './service';
 import type { QuarantineLevel, QuarantineReason } from '../shared/types';
-import { ValidationError } from '../shared/errors';
+import { ForbiddenError, ValidationError } from '../shared/errors';
 
 export async function quarantineRoutes(app: FastifyInstance): Promise<void> {
   app.post('/', {
     schema: { tags: ['Quarantine'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireAuth(), requireTrustLevel('trusted')],
   }, async (request, reply) => {
+    if (request.auth?.auth_type === 'api_key') {
+      throw new ForbiddenError('API keys cannot manage quarantine');
+    }
+
     const body = request.body as {
       node_id: string;
       level: QuarantineLevel;
@@ -46,8 +50,12 @@ export async function quarantineRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/release/:nodeId', {
     schema: { tags: ['Quarantine'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireAuth(), requireTrustLevel('trusted')],
   }, async (request, reply) => {
+    if (request.auth?.auth_type === 'api_key') {
+      throw new ForbiddenError('API keys cannot manage quarantine');
+    }
+
     const { nodeId } = request.params as { nodeId: string };
 
     const result = await quarantineService.releaseNode(nodeId);
@@ -58,10 +66,7 @@ export async function quarantineRoutes(app: FastifyInstance): Promise<void> {
   app.get('/active', {
     schema: { tags: ['Quarantine'] },
   }, async (request, reply) => {
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
-
-    const activeRecords = await prisma.quarantineRecord.findMany({
+    const activeRecords = await app.prisma.quarantineRecord.findMany({
       where: { is_active: true },
       orderBy: { started_at: 'desc' },
     });

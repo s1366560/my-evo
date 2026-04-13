@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth, authenticate } from '../shared/auth';
+import { requireAuth } from '../shared/auth';
 import * as accountService from './service';
-import { ValidationError } from '../shared/errors';
+import { UnauthorizedError, ValidationError } from '../shared/errors';
 
 export async function accountRoutes(app: FastifyInstance): Promise<void> {
+  const prisma = app.prisma;
+
   app.post('/register', {
     schema: { tags: ['Account'] },
   }, async (request, reply) => {
@@ -11,6 +13,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const result = await accountService.registerUser(
       body.email ?? '',
       body.password ?? '',
+      prisma,
     );
     void reply.setCookie('session_token', result.token, {
       path: '/',
@@ -28,6 +31,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const result = await accountService.loginUser(
       body.email ?? '',
       body.password ?? '',
+      prisma,
     );
     void reply.setCookie('session_token', result.token, {
       path: '/',
@@ -40,12 +44,11 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api-keys', {
     schema: { tags: ['Account'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
-    const auth = await authenticate(request);
-
-    if (auth.auth_type === 'api_key') {
-      const { KeyInceptionError } = await import('../shared/errors');
-      throw new KeyInceptionError();
+    const auth = request.auth!;
+    if (auth.auth_type !== 'session' || !auth.userId) {
+      throw new UnauthorizedError('User session required');
     }
 
     const body = request.body as {
@@ -55,11 +58,12 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const result = await accountService.createApiKey(
-      auth.node_id,
+      auth.userId,
       body.name,
       body.scopes,
       body.expires_at,
       auth.auth_type,
+      prisma,
     );
 
     return reply.status(201).send({ success: true, data: result });
@@ -70,8 +74,11 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    if (auth.auth_type !== 'session' || !auth.userId) {
+      throw new UnauthorizedError('User session required');
+    }
 
-    const result = await accountService.listApiKeys(auth.node_id);
+    const result = await accountService.listApiKeys(auth.userId, prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -81,9 +88,12 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    if (auth.auth_type !== 'session' || !auth.userId) {
+      throw new UnauthorizedError('User session required');
+    }
     const { id } = request.params as { id: string };
 
-    await accountService.revokeApiKey(auth.node_id, id);
+    await accountService.revokeApiKey(auth.userId, id, prisma);
 
     return reply.send({ success: true });
   });
@@ -97,7 +107,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       throw new ValidationError('agent_id query parameter is required');
     }
 
-    const result = await accountService.getOnboardingState(agent_id);
+    const result = await accountService.getOnboardingState(agent_id, prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -120,6 +130,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     const result = await accountService.completeOnboardingStep(
       body.agent_id,
       body.step,
+      prisma,
     );
 
     return reply.send({ success: true, data: result });
@@ -146,7 +157,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const sessionToken = request.cookies?.session_token;
     if (sessionToken) {
-      await accountService.deleteSessionByToken(sessionToken);
+      await accountService.deleteSessionByToken(sessionToken, prisma);
     }
     void reply.clearCookie('session_token', {
       path: '/',
@@ -166,7 +177,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       throw new ValidationError('agent_id is required');
     }
 
-    const result = await accountService.resetOnboarding(body.agent_id);
+    const result = await accountService.resetOnboarding(body.agent_id, prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -175,12 +186,11 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    if (!auth.userId) {
-      void reply.status(401).send({ success: false, error: 'Authentication required' });
-      return;
+    if (auth.auth_type !== 'session' || !auth.userId) {
+      throw new UnauthorizedError('User session required');
     }
 
-    const nodes = await accountService.getUserNodes(auth.userId);
+    const nodes = await accountService.getUserNodes(auth.userId, prisma);
     return reply.send({ success: true, data: nodes });
   });
 }

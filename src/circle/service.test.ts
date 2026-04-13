@@ -14,6 +14,7 @@ import {
   ValidationError,
   ForbiddenError,
   InsufficientCreditsError,
+  ConflictError,
 } from '../shared/errors';
 import {
   CIRCLE_ENTRY_FEE,
@@ -25,6 +26,10 @@ import {
 } from '../shared/constants';
 
 const mockPrisma = {
+  $transaction: jest.fn(),
+  asset: {
+    findUnique: jest.fn(),
+  },
   node: {
     findFirst: jest.fn(),
     update: jest.fn(),
@@ -33,6 +38,7 @@ const mockPrisma = {
     create: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   creditTransaction: {
     create: jest.fn(),
@@ -47,6 +53,7 @@ const mockCircleRecord = {
   status: 'active',
   creator_id: 'creator-1',
   participant_count: 3,
+  members: ['creator-1', 'node-1', 'node-2'],
   rounds: [],
   rounds_completed: 0,
   outcomes: [],
@@ -67,12 +74,16 @@ describe('Circle Service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
+    mockPrisma.asset.findUnique.mockResolvedValue({ author_id: 'node-1' });
+    mockPrisma.circle.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.node.update.mockResolvedValue({ credit_balance: mockNode.credit_balance });
   });
 
   describe('createCircle', () => {
     it('should create a circle successfully', async () => {
       mockPrisma.node.findFirst.mockResolvedValue(mockNode);
-      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.node.update.mockResolvedValue({ credit_balance: mockNode.credit_balance - CIRCLE_ENTRY_FEE });
       mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.circle.create.mockResolvedValue(mockCircleRecord);
 
@@ -87,6 +98,7 @@ describe('Circle Service', () => {
       expect(mockPrisma.node.update).toHaveBeenCalledWith({
         where: { node_id: 'node-1' },
         data: { credit_balance: { decrement: CIRCLE_ENTRY_FEE } },
+        select: { credit_balance: true },
       });
       expect(mockPrisma.creditTransaction.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -129,13 +141,14 @@ describe('Circle Service', () => {
       const circleRecord = {
         ...mockCircleRecord,
         participant_count: 1,
+        members: ['creator-1'],
         prize_pool: CIRCLE_ENTRY_FEE,
         creator_id: 'creator-1',
       };
 
       mockPrisma.circle.findUnique.mockResolvedValue(circleRecord);
       mockPrisma.node.findFirst.mockResolvedValue(mockNode);
-      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.node.update.mockResolvedValue({ credit_balance: mockNode.credit_balance - CIRCLE_ENTRY_FEE });
       mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.circle.update.mockResolvedValue({
         ...circleRecord,
@@ -149,6 +162,7 @@ describe('Circle Service', () => {
         where: { circle_id: 'circle-1' },
         data: {
           participant_count: 2,
+          members: ['creator-1', 'node-1'],
           prize_pool: CIRCLE_ENTRY_FEE * 2,
         },
       });
@@ -190,7 +204,11 @@ describe('Circle Service', () => {
     });
 
     it('should throw InsufficientCreditsError when node balance too low', async () => {
-      mockPrisma.circle.findUnique.mockResolvedValue(mockCircleRecord);
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        participant_count: 1,
+        members: ['creator-1'],
+      });
       mockPrisma.node.findFirst.mockResolvedValue({
         ...mockNode,
         credit_balance: 5,
@@ -204,6 +222,7 @@ describe('Circle Service', () => {
       mockPrisma.circle.findUnique.mockResolvedValue({
         ...mockCircleRecord,
         participant_count: CIRCLE_MAX_PARTICIPANTS,
+        members: Array.from({ length: CIRCLE_MAX_PARTICIPANTS }, (_, index) => `node-${index}`),
       });
       mockPrisma.node.findFirst.mockResolvedValue(mockNode);
 
@@ -220,6 +239,29 @@ describe('Circle Service', () => {
 
       await expect(joinCircle('circle-1', 'node-1'))
         .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ValidationError when node already joined the circle', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        participant_count: 2,
+        members: ['creator-1', 'node-1'],
+      });
+      mockPrisma.node.findFirst.mockResolvedValue(mockNode);
+
+      await expect(joinCircle('circle-1', 'node-1'))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ConflictError when legacy membership backfill is incomplete', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        participant_count: 3,
+        members: ['creator-1'],
+      });
+
+      await expect(joinCircle('circle-1', 'node-1'))
+        .rejects.toThrow(ConflictError);
     });
   });
 
@@ -238,7 +280,7 @@ describe('Circle Service', () => {
         rounds: [{ round_number: 1, status: 'ongoing' }],
       });
 
-      const result = await startRound('circle-1');
+      const result = await startRound('circle-1', 'creator-1');
 
       expect(mockPrisma.circle.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -256,7 +298,7 @@ describe('Circle Service', () => {
     it('should throw NotFoundError for non-existent circle', async () => {
       mockPrisma.circle.findUnique.mockResolvedValue(null);
 
-      await expect(startRound('unknown'))
+      await expect(startRound('unknown', 'creator-1'))
         .rejects.toThrow(NotFoundError);
     });
 
@@ -266,7 +308,7 @@ describe('Circle Service', () => {
         participant_count: 1,
       });
 
-      await expect(startRound('circle-1'))
+      await expect(startRound('circle-1', 'creator-1'))
         .rejects.toThrow(ValidationError);
     });
 
@@ -282,7 +324,57 @@ describe('Circle Service', () => {
         rounds: maxRounds,
       });
 
-      await expect(startRound('circle-1'))
+      await expect(startRound('circle-1', 'creator-1'))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ValidationError when another round is still ongoing', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        participant_count: CIRCLE_MIN_PARTICIPANTS,
+        rounds: [{
+          round_number: 1,
+          status: 'ongoing',
+          submissions: [],
+          votes: [],
+          eliminated: [],
+          deadline: new Date().toISOString(),
+        }],
+      });
+
+      await expect(startRound('circle-1', 'creator-1'))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ConflictError when legacy membership backfill is incomplete', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        participant_count: CIRCLE_MIN_PARTICIPANTS,
+        members: ['creator-1'],
+      });
+
+      await expect(startRound('circle-1', 'creator-1'))
+        .rejects.toThrow(ConflictError);
+    });
+
+    it('should throw ForbiddenError when a non-creator starts a round', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        participant_count: CIRCLE_MIN_PARTICIPANTS,
+      });
+
+      await expect(startRound('circle-1', 'node-2'))
+        .rejects.toThrow(ForbiddenError);
+    });
+
+    it('should throw ValidationError when the circle is already completed', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        status: 'completed',
+        participant_count: CIRCLE_MIN_PARTICIPANTS,
+      });
+
+      await expect(startRound('circle-1', 'creator-1'))
         .rejects.toThrow(ValidationError);
     });
 
@@ -303,7 +395,7 @@ describe('Circle Service', () => {
         ],
       });
 
-      const result = await startRound('circle-1');
+      const result = await startRound('circle-1', 'creator-1');
 
       expect(mockPrisma.circle.update).toHaveBeenCalled();
     });
@@ -375,6 +467,17 @@ describe('Circle Service', () => {
         .rejects.toThrow(ValidationError);
     });
 
+    it('should throw ConflictError when legacy membership backfill is incomplete', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...circleWithOngoingRound,
+        participant_count: 3,
+        members: ['creator-1'],
+      });
+
+      await expect(submitAsset('circle-1', 1, 'node-1', 'asset-1'))
+        .rejects.toThrow(ConflictError);
+    });
+
     it('should throw ValidationError if already submitted', async () => {
       mockPrisma.circle.findUnique.mockResolvedValue({
         ...mockCircleRecord,
@@ -390,6 +493,26 @@ describe('Circle Service', () => {
 
       await expect(submitAsset('circle-1', 1, 'node-1', 'asset-new'))
         .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ForbiddenError when submitting an asset owned by another node', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(circleWithOngoingRound);
+      mockPrisma.asset.findUnique.mockResolvedValue({ author_id: 'node-2' });
+
+      await expect(submitAsset('circle-1', 1, 'node-1', 'asset-1'))
+        .rejects.toThrow(ForbiddenError);
+    });
+
+    it('should throw ForbiddenError when a non-member submits to the circle', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...circleWithOngoingRound,
+        participant_count: 2,
+        members: ['creator-1', 'node-1'],
+      });
+      mockPrisma.asset.findUnique.mockResolvedValue({ author_id: 'node-3' });
+
+      await expect(submitAsset('circle-1', 1, 'node-3', 'asset-3'))
+        .rejects.toThrow(ForbiddenError);
     });
   });
 
@@ -413,7 +536,7 @@ describe('Circle Service', () => {
       mockPrisma.circle.findUnique.mockResolvedValue(circleForVoting);
       mockPrisma.circle.update.mockResolvedValue(circleForVoting);
 
-      const result = await vote('circle-1', 1, 'voter-1', 'target-1', 8);
+      const result = await vote('circle-1', 1, 'node-1', 'node-2', 8);
 
       expect(mockPrisma.circle.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -440,7 +563,7 @@ describe('Circle Service', () => {
     it('should throw NotFoundError for non-existent circle', async () => {
       mockPrisma.circle.findUnique.mockResolvedValue(null);
 
-      await expect(vote('unknown', 1, 'voter-1', 'target-1', 5))
+      await expect(vote('unknown', 1, 'node-1', 'node-2', 5))
         .rejects.toThrow(NotFoundError);
     });
 
@@ -450,7 +573,7 @@ describe('Circle Service', () => {
         rounds: [],
       });
 
-      await expect(vote('circle-1', 99, 'voter-1', 'target-1', 5))
+      await expect(vote('circle-1', 99, 'node-1', 'node-2', 5))
         .rejects.toThrow(NotFoundError);
     });
 
@@ -460,10 +583,13 @@ describe('Circle Service', () => {
         rounds: [{
           round_number: 1,
           status: 'ongoing',
-          submissions: [],
+          submissions: [
+            { node_id: 'node-1', asset_id: 'asset-1', submitted_at: new Date().toISOString() },
+            { node_id: 'node-2', asset_id: 'asset-2', submitted_at: new Date().toISOString() },
+          ],
           votes: [{
-            voter_id: 'voter-1',
-            target_id: 'target-1',
+            voter_id: 'node-1',
+            target_id: 'node-2',
             score: 7,
             cast_at: new Date().toISOString(),
           }],
@@ -472,15 +598,73 @@ describe('Circle Service', () => {
         }],
       });
 
-      await expect(vote('circle-1', 1, 'voter-1', 'target-1', 8))
+      await expect(vote('circle-1', 1, 'node-1', 'node-2', 8))
         .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ValidationError when the circle is completed', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...circleForVoting,
+        status: 'completed',
+      });
+
+      await expect(vote('circle-1', 1, 'node-1', 'node-2', 8))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ValidationError when the round is not ongoing', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        rounds: [{
+          round_number: 1,
+          status: 'completed',
+          submissions: [
+            { node_id: 'node-1', asset_id: 'asset-1', submitted_at: new Date().toISOString() },
+            { node_id: 'node-2', asset_id: 'asset-2', submitted_at: new Date().toISOString() },
+          ],
+          votes: [],
+          eliminated: [],
+          deadline: new Date().toISOString(),
+        }],
+      });
+
+      await expect(vote('circle-1', 1, 'node-1', 'node-2', 8))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ConflictError when legacy membership backfill is incomplete', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...circleForVoting,
+        participant_count: 3,
+        members: ['creator-1'],
+      });
+
+      await expect(vote('circle-1', 1, 'node-1', 'node-2', 8))
+        .rejects.toThrow(ConflictError);
+    });
+
+    it('should throw ValidationError when voting for a node without a submission', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(circleForVoting);
+
+      await expect(vote('circle-1', 1, 'node-1', 'node-3', 8))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ForbiddenError when a non-member votes in the round', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...circleForVoting,
+        members: ['creator-1', 'node-1', 'node-2'],
+      });
+
+      await expect(vote('circle-1', 1, 'node-3', 'node-2', 8))
+        .rejects.toThrow(ForbiddenError);
     });
 
     it('should accept boundary score of 1', async () => {
       mockPrisma.circle.findUnique.mockResolvedValue(circleForVoting);
       mockPrisma.circle.update.mockResolvedValue(circleForVoting);
 
-      await expect(vote('circle-1', 1, 'voter-1', 'target-1', 1))
+      await expect(vote('circle-1', 1, 'node-1', 'node-2', 1))
         .resolves.toBeDefined();
     });
 
@@ -488,7 +672,7 @@ describe('Circle Service', () => {
       mockPrisma.circle.findUnique.mockResolvedValue(circleForVoting);
       mockPrisma.circle.update.mockResolvedValue(circleForVoting);
 
-      await expect(vote('circle-1', 1, 'voter-1', 'target-1', 10))
+      await expect(vote('circle-1', 1, 'node-1', 'node-2', 10))
         .resolves.toBeDefined();
     });
   });
@@ -522,7 +706,7 @@ describe('Circle Service', () => {
         rounds_completed: 1,
       });
 
-      const result = await advanceRound('circle-1');
+      const result = await advanceRound('circle-1', 'creator-1');
 
       expect(mockPrisma.circle.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -542,7 +726,7 @@ describe('Circle Service', () => {
     it('should throw NotFoundError for non-existent circle', async () => {
       mockPrisma.circle.findUnique.mockResolvedValue(null);
 
-      await expect(advanceRound('unknown'))
+      await expect(advanceRound('unknown', 'creator-1'))
         .rejects.toThrow(NotFoundError);
     });
 
@@ -552,7 +736,7 @@ describe('Circle Service', () => {
         rounds: [],
       });
 
-      await expect(advanceRound('circle-1'))
+      await expect(advanceRound('circle-1', 'creator-1'))
         .rejects.toThrow(ValidationError);
     });
 
@@ -569,8 +753,15 @@ describe('Circle Service', () => {
         }],
       });
 
-      await expect(advanceRound('circle-1'))
+      await expect(advanceRound('circle-1', 'creator-1'))
         .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ForbiddenError when a non-creator advances a round', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(mockCircleRecord);
+
+      await expect(advanceRound('circle-1', 'node-2'))
+        .rejects.toThrow(ForbiddenError);
     });
   });
 
@@ -593,24 +784,16 @@ describe('Circle Service', () => {
       };
 
       mockPrisma.circle.findUnique.mockResolvedValue(completedRoundCircle);
-      mockPrisma.node.update.mockResolvedValue({});
-      mockPrisma.node.findFirst.mockResolvedValue({ credit_balance: 500 });
+      mockPrisma.node.update.mockResolvedValue({ credit_balance: 500 });
       mockPrisma.creditTransaction.create.mockResolvedValue({});
-      mockPrisma.circle.update.mockResolvedValue({
-        ...completedRoundCircle,
-        status: 'completed',
-        outcomes: [
-          { node_id: 'winner-1', final_rank: 1, total_score: 19, prize_earned: CIRCLE_WINNER_PRIZE },
-          { node_id: 'loser-1', final_rank: 2, total_score: 2, prize_earned: 0 },
-        ],
-      });
 
-      const result = await completeCircle('circle-1');
+      const result = await completeCircle('circle-1', 'creator-1');
 
       expect(result.status).toBe('completed');
       expect(mockPrisma.node.update).toHaveBeenCalledWith({
         where: { node_id: 'winner-1' },
         data: { credit_balance: { increment: CIRCLE_WINNER_PRIZE } },
+        select: { credit_balance: true },
       });
       expect(mockPrisma.creditTransaction.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -618,15 +801,25 @@ describe('Circle Service', () => {
             node_id: 'winner-1',
             amount: CIRCLE_WINNER_PRIZE,
             type: 'circle_prize',
+            balance_after: 500,
           }),
         }),
       );
+      expect(mockPrisma.circle.updateMany).toHaveBeenCalledWith({
+        where: {
+          circle_id: 'circle-1',
+          status: { not: 'completed' },
+        },
+        data: expect.objectContaining({
+          status: 'completed',
+        }),
+      });
     });
 
     it('should throw NotFoundError for non-existent circle', async () => {
       mockPrisma.circle.findUnique.mockResolvedValue(null);
 
-      await expect(completeCircle('unknown'))
+      await expect(completeCircle('unknown', 'creator-1'))
         .rejects.toThrow(NotFoundError);
     });
 
@@ -636,7 +829,24 @@ describe('Circle Service', () => {
         rounds: [],
       });
 
-      await expect(completeCircle('circle-1'))
+      await expect(completeCircle('circle-1', 'creator-1'))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should throw ValidationError when the final round is still ongoing', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        rounds: [{
+          round_number: 1,
+          status: 'ongoing',
+          submissions: [],
+          votes: [],
+          eliminated: [],
+          deadline: new Date().toISOString(),
+        }],
+      });
+
+      await expect(completeCircle('circle-1', 'creator-1'))
         .rejects.toThrow(ValidationError);
     });
 
@@ -654,13 +864,8 @@ describe('Circle Service', () => {
       };
 
       mockPrisma.circle.findUnique.mockResolvedValue(circleNoVotes);
-      mockPrisma.circle.update.mockResolvedValue({
-        ...circleNoVotes,
-        status: 'completed',
-        outcomes: [],
-      });
 
-      const result = await completeCircle('circle-1');
+      const result = await completeCircle('circle-1', 'creator-1');
 
       expect(result.status).toBe('completed');
       expect(mockPrisma.node.update).not.toHaveBeenCalled();
@@ -695,20 +900,32 @@ describe('Circle Service', () => {
       };
 
       mockPrisma.circle.findUnique.mockResolvedValue(multiRoundCircle);
-      mockPrisma.node.update.mockResolvedValue({});
-      mockPrisma.node.findFirst.mockResolvedValue({ credit_balance: 100 });
+      mockPrisma.node.update.mockResolvedValue({ credit_balance: 100 });
       mockPrisma.creditTransaction.create.mockResolvedValue({});
-      mockPrisma.circle.update.mockResolvedValue({
-        ...multiRoundCircle,
-        status: 'completed',
-        outcomes: [{ node_id: 'p1', final_rank: 1, total_score: 10, prize_earned: CIRCLE_WINNER_PRIZE }],
-      });
 
-      const result = await completeCircle('circle-1');
+      const result = await completeCircle('circle-1', 'creator-1');
 
-      const updateCall = mockPrisma.circle.update.mock.calls[0]![0];
+      const updateCall = mockPrisma.circle.updateMany.mock.calls[0]![0];
       const outcomes = updateCall.data.outcomes as Array<{ node_id: string; total_score: number }>;
       expect(outcomes[0]!.total_score).toBe(10);
+    });
+
+    it('should throw ForbiddenError when a non-creator completes a circle', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue(mockCircleRecord);
+
+      await expect(completeCircle('circle-1', 'node-2'))
+        .rejects.toThrow(ForbiddenError);
+    });
+
+    it('should throw ValidationError when the circle is already completed', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        status: 'completed',
+      });
+
+      await expect(completeCircle('circle-1', 'creator-1'))
+        .rejects.toThrow(ValidationError);
+      expect(mockPrisma.circle.updateMany).not.toHaveBeenCalled();
     });
   });
 });

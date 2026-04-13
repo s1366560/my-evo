@@ -289,4 +289,29 @@ describe('Reputation Service', () => {
       );
     });
   });
+
+  describe('explicit prisma client', () => {
+    it('uses the provided prisma client instead of the injected default', async () => {
+      const explicitPrisma = {
+        node: {
+          findUnique: jest.fn().mockResolvedValue({
+            node_id: 'node-explicit',
+            reputation: 60,
+          }),
+        },
+        reputationEvent: {
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+      } as unknown as PrismaClient;
+
+      await getScore('node-explicit', explicitPrisma);
+
+      expect((explicitPrisma as unknown as {
+        node: { findUnique: jest.Mock };
+      }).node.findUnique).toHaveBeenCalledWith({
+        where: { node_id: 'node-explicit' },
+      });
+      expect(mockPrisma.node.findUnique).not.toHaveBeenCalled();
+    });
+  });
 });

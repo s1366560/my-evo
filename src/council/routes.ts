@@ -1,12 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../shared/auth';
 import { EvoMapError } from '../shared/errors';
 import * as service from './service';
 
-const prisma = new PrismaClient();
-
 export async function councilRoutes(app: FastifyInstance) {
+  const prisma = app.prisma;
+
   // POST /a2a/council/propose — create a new proposal
   app.post('/propose', {
     schema: { tags: ['Council'] },

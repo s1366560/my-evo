@@ -9,6 +9,10 @@ export function setPrisma(client: PrismaClient): void {
 
 export { prisma };
 
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
 export interface ClaimResult {
   node_id: string;
   model: string;
@@ -18,8 +22,9 @@ export interface ClaimResult {
   already_claimed: boolean;
 }
 
-export async function getClaimInfo(claimCode: string): Promise<ClaimResult> {
-  const node = await prisma.node.findFirst({
+export async function getClaimInfo(claimCode: string, prismaClient?: PrismaClient): Promise<ClaimResult> {
+  const client = getPrismaClient(prismaClient);
+  const node = await client.node.findFirst({
     where: { claim_code: claimCode },
   });
 
@@ -40,8 +45,10 @@ export async function getClaimInfo(claimCode: string): Promise<ClaimResult> {
 export async function claimNode(
   claimCode: string,
   userId: string,
+  prismaClient?: PrismaClient,
 ): Promise<{ node_id: string; model: string; reputation: number }> {
-  const node = await prisma.node.findFirst({
+  const client = getPrismaClient(prismaClient);
+  const node = await client.node.findFirst({
     where: { claim_code: claimCode },
   });
 
@@ -53,7 +60,7 @@ export async function claimNode(
     throw new ConflictError('This node has already been claimed');
   }
 
-  const updated = await prisma.node.update({
+  const updated = await client.node.update({
     where: { id: node.id },
     data: { user_id: userId },
     select: { node_id: true, model: true, reputation: true },

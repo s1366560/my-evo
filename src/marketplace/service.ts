@@ -27,13 +27,19 @@ export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
 
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
 export async function createListing(
   sellerId: string,
   assetId: string,
   assetType: AssetType,
   price: number,
+  prismaClient?: PrismaClient,
 ): Promise<MarketplaceListing> {
-  const asset = await prisma.asset.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const asset = await client.asset.findUnique({
     where: { asset_id: assetId },
   });
 
@@ -55,7 +61,7 @@ export async function createListing(
     );
   }
 
-  const seller = await prisma.node.findFirst({
+  const seller = await client.node.findFirst({
     where: { node_id: sellerId },
   });
 
@@ -70,7 +76,7 @@ export async function createListing(
     }
   }
 
-  const existingActive = await prisma.marketplaceListing.findFirst({
+  const existingActive = await client.marketplaceListing.findFirst({
     where: { asset_id: assetId, status: 'active' },
   });
 
@@ -83,7 +89,7 @@ export async function createListing(
     Date.now() + LISTING_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
   );
 
-  const listing = await prisma.marketplaceListing.create({
+  const listing = await client.marketplaceListing.create({
     data: {
       listing_id: listingId,
       seller_id: sellerId,
@@ -112,8 +118,10 @@ export async function createListing(
 export async function buyListing(
   buyerId: string,
   listingId: string,
+  prismaClient?: PrismaClient,
 ): Promise<MarketplaceTransaction> {
-  const listing = await prisma.marketplaceListing.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const listing = await client.marketplaceListing.findUnique({
     where: { listing_id: listingId },
   });
 
@@ -136,7 +144,7 @@ export async function buyListing(
   const fee = Math.ceil(listing.price * MARKETPLACE_FEE_RATE);
   const totalCost = listing.price;
 
-  const buyer = await prisma.node.findFirst({
+  const buyer = await client.node.findFirst({
     where: { node_id: buyerId },
   });
 
@@ -150,7 +158,7 @@ export async function buyListing(
 
   const sellerReceives = listing.price - fee;
 
-  const updatedListing = await prisma.marketplaceListing.update({
+  const updatedListing = await client.marketplaceListing.update({
     where: { listing_id: listingId },
     data: {
       status: 'sold',
@@ -159,17 +167,17 @@ export async function buyListing(
     },
   });
 
-  await prisma.node.update({
+  await client.node.update({
     where: { node_id: buyerId },
     data: { credit_balance: { decrement: totalCost } },
   });
 
-  await prisma.node.update({
+  await client.node.update({
     where: { node_id: listing.seller_id },
     data: { credit_balance: { increment: sellerReceives } },
   });
 
-  await prisma.creditTransaction.create({
+  await client.creditTransaction.create({
     data: {
       node_id: buyerId,
       amount: -totalCost,
@@ -179,11 +187,11 @@ export async function buyListing(
     },
   });
 
-  const seller = await prisma.node.findFirst({
+  const seller = await client.node.findFirst({
     where: { node_id: listing.seller_id },
   });
 
-  await prisma.creditTransaction.create({
+  await client.creditTransaction.create({
     data: {
       node_id: listing.seller_id,
       amount: sellerReceives,
@@ -194,7 +202,7 @@ export async function buyListing(
   });
 
   const transactionId = crypto.randomUUID();
-  const transaction = await prisma.marketplaceTransaction.create({
+  const transaction = await client.marketplaceTransaction.create({
     data: {
       transaction_id: transactionId,
       listing_id: listingId,
@@ -223,8 +231,10 @@ export async function buyListing(
 export async function cancelListing(
   sellerId: string,
   listingId: string,
+  prismaClient?: PrismaClient,
 ): Promise<MarketplaceListing> {
-  const listing = await prisma.marketplaceListing.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const listing = await client.marketplaceListing.findUnique({
     where: { listing_id: listingId },
   });
 
@@ -240,7 +250,7 @@ export async function cancelListing(
     throw new ValidationError('Only active listings can be cancelled');
   }
 
-  const updated = await prisma.marketplaceListing.update({
+  const updated = await client.marketplaceListing.update({
     where: { listing_id: listingId },
     data: { status: 'cancelled' },
   });
@@ -266,7 +276,9 @@ export async function getListings(
   sort: 'price_asc' | 'price_desc' | 'newest' = 'newest',
   limit = 20,
   offset = 0,
+  prismaClient?: PrismaClient,
 ): Promise<{ items: MarketplaceListing[]; total: number }> {
+  const client = getPrismaClient(prismaClient);
   const where: Record<string, unknown> = { status: 'active' };
 
   if (type) {
@@ -291,13 +303,13 @@ export async function getListings(
         : { listed_at: 'desc' };
 
   const [items, total] = await Promise.all([
-    prisma.marketplaceListing.findMany({
+    client.marketplaceListing.findMany({
       where,
       orderBy,
       take: limit,
       skip: offset,
     }),
-    prisma.marketplaceListing.count({ where }),
+    client.marketplaceListing.count({ where }),
   ]);
 
   return {
@@ -321,8 +333,10 @@ export async function getTransactionHistory(
   nodeId: string,
   limit = 20,
   offset = 0,
+  prismaClient?: PrismaClient,
 ): Promise<MarketplaceTransaction[]> {
-  const transactions = await prisma.marketplaceTransaction.findMany({
+  const client = getPrismaClient(prismaClient);
+  const transactions = await client.marketplaceTransaction.findMany({
     where: {
       OR: [{ buyer_id: nodeId }, { seller_id: nodeId }],
     },

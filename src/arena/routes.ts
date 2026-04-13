@@ -2,7 +2,16 @@ import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
 import * as arenaService from './service';
 
-export async function arenaRoutes(app: FastifyInstance): Promise<void> {
+export interface ArenaRoutesOptions {
+  arenaState?: arenaService.ArenaState;
+}
+
+export async function arenaRoutes(
+  app: FastifyInstance,
+  opts: ArenaRoutesOptions = {},
+): Promise<void> {
+  const arenaState = opts.arenaState ?? arenaService.createArenaState();
+
   // Create season
   app.post('/season', {
     schema: { tags: ['Arena'] },
@@ -17,6 +26,7 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
       body.name,
       body.start_date,
       body.end_date,
+      app.prisma,
     );
     return reply.status(201).send({ success: true, data: result });
   });
@@ -28,7 +38,12 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as { season_id: string };
-    const result = await arenaService.joinMatchmaking(body.season_id, auth.node_id);
+    const result = await arenaService.joinMatchmaking(
+      body.season_id,
+      auth.node_id,
+      arenaState,
+      app.prisma,
+    );
     return reply.status(201).send({ success: true, data: result });
   });
 
@@ -39,7 +54,7 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const { seasonId } = request.params as { seasonId: string };
-    await arenaService.leaveMatchmaking(seasonId, auth.node_id);
+    await arenaService.leaveMatchmaking(seasonId, auth.node_id, arenaState);
     return reply.send({ success: true, data: { season_id: seasonId } });
   });
 
@@ -50,7 +65,11 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const { seasonId } = request.params as { seasonId: string };
-    const result = await arenaService.getMatchmakingStatus(seasonId, auth.node_id);
+    const result = await arenaService.getMatchmakingStatus(
+      seasonId,
+      auth.node_id,
+      arenaState,
+    );
     return reply.send({ success: true, data: result });
   });
 
@@ -64,11 +83,11 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
       defender_id: string;
       season_id: string;
     };
-    const { challenge } = await import('./service');
-    const result = await challenge(
+    const result = await arenaService.challenge(
       auth.node_id,
       body.defender_id,
       body.season_id,
+      app.prisma,
     );
     return reply.status(201).send({ success: true, data: result });
   });
@@ -88,6 +107,7 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
       query.status,
       query.limit ? Number(query.limit) : 20,
       query.offset ? Number(query.offset) : 0,
+      app.prisma,
     );
     return reply.send({
       success: true,
@@ -101,8 +121,13 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Arena'] },
   }, async (request, reply) => {
     const { matchId } = request.params as { matchId: string };
-    const { listMatches } = await import('./service');
-    const { items } = await listMatches(undefined, undefined, 1000, 0);
+    const { items } = await arenaService.listMatches(
+      undefined,
+      undefined,
+      1000,
+      0,
+      app.prisma,
+    );
     const match = items.find((m) => m.match_id === matchId);
     if (!match) {
       return reply.status(404).send({ success: false, error: 'NOT_FOUND', message: 'Match not found' });
@@ -124,6 +149,7 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
       matchId,
       body.winner_id,
       body.scores,
+      app.prisma,
     );
     return reply.send({ success: true, data: result });
   });
@@ -133,8 +159,7 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Arena'] },
   }, async (request, reply) => {
     const { seasonId } = request.params as { seasonId: string };
-    const { getRankings } = await import('./service');
-    const result = await getRankings(seasonId);
+    const result = await arenaService.getRankings(seasonId, app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -143,8 +168,7 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Arena'] },
   }, async (request, reply) => {
     const { seasonId } = request.params as { seasonId: string };
-    const { getSeason } = await import('./service');
-    const result = await getSeason(seasonId);
+    const result = await arenaService.getSeason(seasonId, app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -153,10 +177,10 @@ export async function arenaRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Arena'] },
   }, async (request, reply) => {
     const { status, limit } = request.query as Record<string, string | undefined>;
-    const { listSeasons } = await import('./service');
-    const result = await listSeasons(
+    const result = await arenaService.listSeasons(
       status,
       limit ? Number(limit) : 20,
+      app.prisma,
     );
     return reply.send({ success: true, data: result });
   });

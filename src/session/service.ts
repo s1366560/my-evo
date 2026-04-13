@@ -6,11 +6,13 @@ import {
   MAX_PARTICIPANTS,
 } from '../shared/constants';
 import {
+  EvoMapError,
   NotFoundError,
   ValidationError,
   ForbiddenError,
   ConflictError,
 } from '../shared/errors';
+import { createUnconfiguredPrismaClient } from '../shared/prisma';
 import type {
   SessionStatus,
   MessageType,
@@ -25,13 +27,15 @@ import type {
   ListSessionsInput,
 } from './types';
 
-let prisma = new PrismaClient();
+let prisma = createUnconfiguredPrismaClient();
 
 export function setPrisma(client: PrismaClient): void {
-  (prisma as unknown) = client;
+  prisma = client;
 }
 
-export { prisma };
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
 
 interface SessionMemberData {
   node_id: string;
@@ -148,8 +152,9 @@ function getSubmissionsFromContext(context: Record<string, unknown>): SessionSub
     : [];
 }
 
-async function loadSession(sessionId: string) {
-  const session = await prisma.collaborationSession.findUnique({
+async function loadSession(sessionId: string, prismaClient?: PrismaClient) {
+  const client = getPrismaClient(prismaClient);
+  const session = await client.collaborationSession.findUnique({
     where: { id: sessionId },
   });
 
@@ -214,9 +219,11 @@ async function saveSessionContext(
   session: { id: string; updated_at: Date },
   context: Record<string, unknown>,
   now: Date,
+  prismaClient?: PrismaClient,
 ): Promise<void> {
+  const client = getPrismaClient(prismaClient);
   const nextUpdatedAt = getNextUpdatedAt(session.updated_at, now);
-  const result = await prisma.collaborationSession.updateMany({
+  const result = await client.collaborationSession.updateMany({
     where: {
       id: session.id,
       updated_at: session.updated_at,
@@ -236,9 +243,11 @@ async function saveSessionState(
   session: { id: string; updated_at: Date },
   data: Record<string, unknown>,
   now: Date,
+  prismaClient?: PrismaClient,
 ): Promise<Awaited<ReturnType<typeof loadSession>>> {
+  const client = getPrismaClient(prismaClient);
   const nextUpdatedAt = getNextUpdatedAt(session.updated_at, now);
-  const result = await prisma.collaborationSession.updateMany({
+  const result = await client.collaborationSession.updateMany({
     where: {
       id: session.id,
       updated_at: session.updated_at,
@@ -253,7 +262,7 @@ async function saveSessionState(
     throw new ConflictError('Session changed; retry');
   }
 
-  return loadSession(session.id);
+  return loadSession(session.id, client);
 }
 
 export async function createSession(
@@ -261,7 +270,9 @@ export async function createSession(
   title: string,
   maxParticipants?: number,
   consensusConfig?: ConsensusConfig,
+  prismaClient?: PrismaClient,
 ) {
+  const client = getPrismaClient(prismaClient);
   const effectiveMax = maxParticipants ?? MAX_PARTICIPANTS;
   if (effectiveMax < 2 || effectiveMax > 50) {
     throw new ValidationError('maxParticipants must be between 2 and 50');
@@ -283,7 +294,7 @@ export async function createSession(
     quorum: Math.ceil(effectiveMax / 2),
   };
 
-  const session = await prisma.collaborationSession.create({
+  const session = await client.collaborationSession.create({
     data: {
       title,
       status: 'active',
@@ -306,8 +317,10 @@ export async function createSession(
 export async function joinSession(
   sessionId: string,
   nodeId: string,
+  prismaClient?: PrismaClient,
 ) {
-  const session = await prisma.collaborationSession.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const session = await client.collaborationSession.findUnique({
     where: { id: sessionId },
   });
 
@@ -351,14 +364,16 @@ export async function joinSession(
   return saveSessionState(session, {
     members: updatedMembers as unknown as Prisma.InputJsonValue,
     vector_clock: updatedClock,
-  }, now);
+  }, now, client);
 }
 
 export async function leaveSession(
   sessionId: string,
   nodeId: string,
+  prismaClient?: PrismaClient,
 ) {
-  const session = await prisma.collaborationSession.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const session = await client.collaborationSession.findUnique({
     where: { id: sessionId },
   });
 
@@ -386,7 +401,7 @@ export async function leaveSession(
   return saveSessionState(session, {
     members: updatedMembers as unknown as Prisma.InputJsonValue,
     status: newStatus,
-  }, now);
+  }, now, client);
 }
 
 export async function sendMessage(
@@ -394,8 +409,10 @@ export async function sendMessage(
   senderId: string,
   type: MessageType,
   content: string,
+  prismaClient?: PrismaClient,
 ) {
-  const session = await prisma.collaborationSession.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const session = await client.collaborationSession.findUnique({
     where: { id: sessionId },
   });
 
@@ -438,7 +455,7 @@ export async function sendMessage(
   const updated = await saveSessionState(session, {
     messages: updatedMessages as unknown as Prisma.InputJsonValue,
     vector_clock: updatedClock,
-  }, now);
+  }, now, client);
 
   return { session: updated, message };
 }
@@ -448,8 +465,10 @@ export async function proposeConsensus(
   proposerId: string,
   type: string,
   content: string,
+  prismaClient?: PrismaClient,
 ) {
-  const session = await prisma.collaborationSession.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const session = await client.collaborationSession.findUnique({
     where: { id: sessionId },
   });
 
@@ -485,6 +504,7 @@ export async function proposeConsensus(
     proposerId,
     'vote' as MessageType,
     JSON.stringify({ type: 'consensus_proposal', proposal }),
+    client,
   );
 
   return { proposal, message };
@@ -495,8 +515,10 @@ export async function voteConsensus(
   proposalId: string,
   voterId: string,
   vote: 'approve' | 'reject',
+  prismaClient?: PrismaClient,
 ) {
-  const session = await prisma.collaborationSession.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const session = await client.collaborationSession.findUnique({
     where: { id: sessionId },
   });
 
@@ -524,6 +546,7 @@ export async function voteConsensus(
     voterId,
     'vote' as MessageType,
     JSON.stringify({ type: 'consensus_vote', proposal_id: proposalId, vote }),
+    client,
   );
 
   return { vote: voteRecord, message: result.message };
@@ -532,8 +555,10 @@ export async function voteConsensus(
 export async function heartbeat(
   sessionId: string,
   nodeId: string,
+  prismaClient?: PrismaClient,
 ) {
-  const session = await prisma.collaborationSession.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const session = await client.collaborationSession.findUnique({
     where: { id: sessionId },
   });
 
@@ -561,16 +586,21 @@ export async function heartbeat(
 
   return saveSessionState(session, {
     members: updatedMembers as unknown as Prisma.InputJsonValue,
-  }, now);
+  }, now, client);
 }
 
-export async function getSession(sessionId: string, nodeId: string) {
-  const session = await loadSession(sessionId);
+export async function getSession(
+  sessionId: string,
+  nodeId: string,
+  prismaClient?: PrismaClient,
+) {
+  const session = await loadSession(sessionId, prismaClient);
   requireSessionReader(session, nodeId, 'Only session participants can access this session');
   return session;
 }
 
-export async function listSessions(input: ListSessionsInput) {
+export async function listSessions(input: ListSessionsInput, prismaClient?: PrismaClient) {
+  const client = getPrismaClient(prismaClient);
   const { status, limit = 20, offset = 0 } = input;
 
   const where: Record<string, unknown> = {};
@@ -579,13 +609,13 @@ export async function listSessions(input: ListSessionsInput) {
   }
 
   const [sessions, total] = await Promise.all([
-    prisma.collaborationSession.findMany({
+    client.collaborationSession.findMany({
       where,
       orderBy: { created_at: 'desc' },
       take: limit,
       skip: offset,
     }),
-    prisma.collaborationSession.count({ where }),
+    client.collaborationSession.count({ where }),
   ]);
 
   return { sessions, total, limit, offset };
@@ -594,7 +624,9 @@ export async function listSessions(input: ListSessionsInput) {
 export async function listSessionsForNode(
   nodeId: string,
   input: ListSessionsInput,
+  prismaClient?: PrismaClient,
 ) {
+  const client = getPrismaClient(prismaClient);
   const { status, limit = 20, offset = 0 } = input;
 
   const where: Record<string, unknown> = {};
@@ -602,7 +634,7 @@ export async function listSessionsForNode(
     where.status = status;
   }
 
-  const sessionMemberships = await prisma.collaborationSession.findMany({
+  const sessionMemberships = await client.collaborationSession.findMany({
     where,
     orderBy: { created_at: 'desc' },
     select: {
@@ -629,7 +661,7 @@ export async function listSessionsForNode(
     };
   }
 
-  const pagedSessions = await prisma.collaborationSession.findMany({
+  const pagedSessions = await client.collaborationSession.findMany({
     where: {
       id: {
         in: pagedSessionIds,
@@ -651,8 +683,12 @@ export async function listSessionsForNode(
   };
 }
 
-export async function getSessionBoard(sessionId: string, nodeId: string) {
-  const session = await loadSession(sessionId);
+export async function getSessionBoard(
+  sessionId: string,
+  nodeId: string,
+  prismaClient?: PrismaClient,
+) {
+  const session = await loadSession(sessionId, prismaClient);
   requireSessionReader(session, nodeId, 'Only session readers can access the session board');
 
   const context = getSessionContextRecord(session.context);
@@ -669,8 +705,9 @@ export async function updateSessionBoard(
   action: 'add' | 'remove' | 'pin' | 'unpin',
   item?: { id: string; type: string; content: string },
   itemId?: string,
+  prismaClient?: PrismaClient,
 ) {
-  const session = await loadSession(sessionId);
+  const session = await loadSession(sessionId, prismaClient);
   requireActiveSession(session);
   requireSessionMember(session, nodeId, 'Only session members can update the session board');
 
@@ -747,7 +784,7 @@ export async function updateSessionBoard(
   }
 
   context.board = board;
-  await saveSessionContext(session, context, now);
+  await saveSessionContext(session, context, now, prismaClient);
 
   return {
     session_id: sessionId,
@@ -768,8 +805,9 @@ export async function orchestrateSession(
     force_converge?: boolean;
     task_board_updates?: unknown;
   },
+  prismaClient?: PrismaClient,
 ) {
-  const session = await loadSession(sessionId);
+  const session = await loadSession(sessionId, prismaClient);
   requireActiveSession(session);
   requireSessionMember(session, nodeId, 'Only session members can orchestrate the session');
 
@@ -817,7 +855,7 @@ export async function orchestrateSession(
     ...(input.force_converge ? { force_converge_requested_at: now.toISOString() } : {}),
   };
 
-  await saveSessionContext(session, context, now);
+  await saveSessionContext(session, context, now, prismaClient);
 
   return orchestration;
 }
@@ -831,8 +869,9 @@ export async function submitSessionResult(
     result?: unknown;
     summary?: string;
   },
+  prismaClient?: PrismaClient,
 ) {
-  const session = await loadSession(sessionId);
+  const session = await loadSession(sessionId, prismaClient);
   requireActiveSession(session);
   requireSessionMember(session, nodeId, 'Only session members can submit session results');
 
@@ -870,7 +909,7 @@ export async function submitSessionResult(
     latest_submission_summary: summary,
   };
 
-  await saveSessionContext(session, context, now);
+  await saveSessionContext(session, context, now, prismaClient);
 
   return submission;
 }
@@ -879,8 +918,9 @@ export async function getSessionContext(
   sessionId: string,
   nodeId: string,
   limit = 20,
+  prismaClient?: PrismaClient,
 ) {
-  const session = await loadSession(sessionId);
+  const session = await loadSession(sessionId, prismaClient);
   requireSessionReader(
     session,
     nodeId,
@@ -901,10 +941,11 @@ export async function getSessionContext(
   };
 }
 
-export async function expireSessions() {
+export async function expireSessions(prismaClient?: PrismaClient) {
+  const client = getPrismaClient(prismaClient);
   const now = new Date();
 
-  const expired = await prisma.collaborationSession.findMany({
+  const expired = await client.collaborationSession.findMany({
     where: {
       status: 'active',
       expires_at: { lt: now },
@@ -912,7 +953,7 @@ export async function expireSessions() {
   });
 
   for (const session of expired) {
-    await prisma.collaborationSession.update({
+    await client.collaborationSession.update({
       where: { id: session.id },
       data: { status: 'expired' as SessionStatus, updated_at: now },
     });

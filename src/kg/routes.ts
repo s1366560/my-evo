@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../shared/auth';
+import { ValidationError } from '../shared/errors';
 import * as kgService from './service';
 
-const prisma = new PrismaClient();
-
 export async function kgRoutes(app: FastifyInstance): Promise<void> {
+  const prisma = app.prisma;
+
   app.post('/query', {
     schema: { tags: ['KnowledgeGraph'] },
     preHandler: [requireAuth()],
@@ -84,10 +84,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     const { from, to } = request.query as Record<string, string | undefined>;
 
     if (!from || !to) {
-      return reply.status(400).send({
-        success: false,
-        error: 'Both "from" and "to" query parameters are required',
-      });
+      throw new ValidationError('Both "from" and "to" query parameters are required');
     }
 
     const result = await kgService.getShortestPath(from, to);

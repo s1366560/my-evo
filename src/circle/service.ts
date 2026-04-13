@@ -20,6 +20,7 @@ import {
   ValidationError,
   ForbiddenError,
   InsufficientCreditsError,
+  ConflictError,
 } from '../shared/errors';
 
 let prisma = new PrismaClient();
@@ -46,10 +47,58 @@ function toCircle(record: Record<string, unknown>): Circle {
   };
 }
 
-function getParticipants(circle: { members?: unknown }): string[] {
-  const members = circle.members as Array<{ node_id: string }> | undefined;
-  if (!members) return [];
-  return members.map((m) => m.node_id);
+function wasEliminatedBeforeRound(
+  rounds: CircleRound[],
+  roundNumber: number,
+  nodeId: string,
+): boolean {
+  return rounds.some(
+    (round) => round.round_number < roundNumber && round.eliminated.includes(nodeId),
+  );
+}
+
+function getCircleMemberIds(circle: { members?: unknown; creator_id: string }): string[] {
+  if (Array.isArray(circle.members)) {
+    const members = circle.members.filter(
+      (member): member is string => typeof member === 'string' && member.length > 0,
+    );
+    if (members.length > 0) {
+      return members;
+    }
+  }
+
+  return [circle.creator_id];
+}
+
+function hasAuthoritativeMemberRoster(
+  circle: { members?: unknown; creator_id: string; participant_count: number },
+): boolean {
+  return getCircleMemberIds(circle).length >= circle.participant_count;
+}
+
+function isSerializationFailure(error: unknown): error is { code: string } {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2034';
+}
+
+async function runSerializableTransaction<T>(
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      if (!isSerializationFailure(error) || attempt === 2) {
+        throw error;
+      }
+    }
+  }
+
+  throw new ConflictError('Circle state changed; retry');
 }
 
 export async function createCircle(
@@ -62,53 +111,56 @@ export async function createCircle(
     throw new ValidationError('Circle name is required');
   }
 
-  const node = await prisma.node.findFirst({
-    where: { node_id: creatorId },
-  });
-
-  if (!node) {
-    throw new NotFoundError('Node', creatorId);
-  }
-
-  if (node.credit_balance < CIRCLE_ENTRY_FEE) {
-    throw new InsufficientCreditsError(
-      CIRCLE_ENTRY_FEE,
-      node.credit_balance,
-    );
-  }
-
-  await prisma.node.update({
-    where: { node_id: creatorId },
-    data: {
-      credit_balance: { decrement: CIRCLE_ENTRY_FEE },
-    },
-  });
-
-  await prisma.creditTransaction.create({
-    data: {
-      node_id: creatorId,
-      amount: -CIRCLE_ENTRY_FEE,
-      type: 'circle_entry',
-      description: `Entry fee for circle: ${name}`,
-      balance_after: node.credit_balance - CIRCLE_ENTRY_FEE,
-    },
-  });
-
   const circleId = crypto.randomUUID();
+  const circle = await runSerializableTransaction(async (tx) => {
+    const node = await tx.node.findFirst({
+      where: { node_id: creatorId },
+    });
 
-  const circle = await prisma.circle.create({
-    data: {
-      circle_id: circleId,
-      name,
-      description,
-      theme,
-      creator_id: creatorId,
-      participant_count: 1,
-      rounds: [],
-      outcomes: [],
-      entry_fee: CIRCLE_ENTRY_FEE,
-      prize_pool: CIRCLE_ENTRY_FEE,
-    },
+    if (!node) {
+      throw new NotFoundError('Node', creatorId);
+    }
+
+    if (node.credit_balance < CIRCLE_ENTRY_FEE) {
+      throw new InsufficientCreditsError(
+        CIRCLE_ENTRY_FEE,
+        node.credit_balance,
+      );
+    }
+
+    const updatedNode = await tx.node.update({
+      where: { node_id: creatorId },
+      data: {
+        credit_balance: { decrement: CIRCLE_ENTRY_FEE },
+      },
+      select: { credit_balance: true },
+    });
+
+    await tx.creditTransaction.create({
+      data: {
+        node_id: creatorId,
+        amount: -CIRCLE_ENTRY_FEE,
+        type: 'circle_entry',
+        description: `Entry fee for circle: ${name}`,
+        balance_after: updatedNode.credit_balance,
+      },
+    });
+
+    return tx.circle.create({
+      data: {
+        circle_id: circleId,
+        name,
+        description,
+        theme,
+        creator_id: creatorId,
+        participant_count: 1,
+        members: [creatorId] as unknown as Prisma.InputJsonValue,
+        rounds: [],
+        outcomes: [],
+        entry_fee: CIRCLE_ENTRY_FEE,
+        prize_pool: CIRCLE_ENTRY_FEE,
+      },
+    });
   });
 
   return toCircle(circle as unknown as Record<string, unknown>);
@@ -118,74 +170,87 @@ export async function joinCircle(
   circleId: string,
   nodeId: string,
 ): Promise<Circle> {
-  const circle = await prisma.circle.findUnique({
-    where: { circle_id: circleId },
-  });
+  const updated = await runSerializableTransaction(async (tx) => {
+    const circle = await tx.circle.findUnique({
+      where: { circle_id: circleId },
+    });
 
-  if (!circle) {
-    throw new NotFoundError('Circle', circleId);
-  }
+    if (!circle) {
+      throw new NotFoundError('Circle', circleId);
+    }
 
-  if (circle.status !== 'active') {
-    throw new ValidationError('Circle is not active');
-  }
+    if (circle.status !== 'active') {
+      throw new ValidationError('Circle is not active');
+    }
 
-  const rounds = circle.rounds as unknown as CircleRound[];
-  if (rounds.length > 0) {
-    throw new ValidationError('Cannot join a circle that has started');
-  }
+    const rounds = circle.rounds as unknown as CircleRound[];
+    if (rounds.length > 0) {
+      throw new ValidationError('Cannot join a circle that has started');
+    }
 
-  const node = await prisma.node.findFirst({
-    where: { node_id: nodeId },
-  });
+    const currentCount = circle.participant_count;
+    const memberIds = getCircleMemberIds(circle);
 
-  if (!node) {
-    throw new NotFoundError('Node', nodeId);
-  }
+    if (!hasAuthoritativeMemberRoster(circle)) {
+      throw new ConflictError('Circle member roster requires migration backfill before accepting joins');
+    }
 
-  if (node.credit_balance < CIRCLE_ENTRY_FEE) {
-    throw new InsufficientCreditsError(
-      CIRCLE_ENTRY_FEE,
-      node.credit_balance,
-    );
-  }
+    if (currentCount >= CIRCLE_MAX_PARTICIPANTS) {
+      throw new ValidationError(
+        `Circle has reached the maximum of ${CIRCLE_MAX_PARTICIPANTS} participants`,
+      );
+    }
 
-  const currentCount = circle.participant_count;
+    const creatorId = circle.creator_id;
+    if (nodeId === creatorId) {
+      throw new ValidationError('Creator is already a participant');
+    }
 
-  if (currentCount >= CIRCLE_MAX_PARTICIPANTS) {
-    throw new ValidationError(
-      `Circle has reached the maximum of ${CIRCLE_MAX_PARTICIPANTS} participants`,
-    );
-  }
+    if (memberIds.includes(nodeId)) {
+      throw new ValidationError('Node has already joined this circle');
+    }
 
-  const creatorId = circle.creator_id;
-  if (nodeId === creatorId) {
-    throw new ValidationError('Creator is already a participant');
-  }
+    const node = await tx.node.findFirst({
+      where: { node_id: nodeId },
+    });
 
-  await prisma.node.update({
-    where: { node_id: nodeId },
-    data: {
-      credit_balance: { decrement: CIRCLE_ENTRY_FEE },
-    },
-  });
+    if (!node) {
+      throw new NotFoundError('Node', nodeId);
+    }
 
-  await prisma.creditTransaction.create({
-    data: {
-      node_id: nodeId,
-      amount: -CIRCLE_ENTRY_FEE,
-      type: 'circle_entry',
-      description: `Entry fee for circle: ${circle.name}`,
-      balance_after: node.credit_balance - CIRCLE_ENTRY_FEE,
-    },
-  });
+    if (node.credit_balance < CIRCLE_ENTRY_FEE) {
+      throw new InsufficientCreditsError(
+        CIRCLE_ENTRY_FEE,
+        node.credit_balance,
+      );
+    }
 
-  const updated = await prisma.circle.update({
-    where: { circle_id: circleId },
-    data: {
-      participant_count: currentCount + 1,
-      prize_pool: circle.prize_pool + CIRCLE_ENTRY_FEE,
-    },
+    const updatedNode = await tx.node.update({
+      where: { node_id: nodeId },
+      data: {
+        credit_balance: { decrement: CIRCLE_ENTRY_FEE },
+      },
+      select: { credit_balance: true },
+    });
+
+    await tx.creditTransaction.create({
+      data: {
+        node_id: nodeId,
+        amount: -CIRCLE_ENTRY_FEE,
+        type: 'circle_entry',
+        description: `Entry fee for circle: ${circle.name}`,
+        balance_after: updatedNode.credit_balance,
+      },
+    });
+
+    return tx.circle.update({
+      where: { circle_id: circleId },
+      data: {
+        participant_count: currentCount + 1,
+        members: [...memberIds, nodeId] as unknown as Prisma.InputJsonValue,
+        prize_pool: circle.prize_pool + CIRCLE_ENTRY_FEE,
+      },
+    });
   });
 
   return toCircle(updated as unknown as Record<string, unknown>);
@@ -193,6 +258,7 @@ export async function joinCircle(
 
 export async function startRound(
   circleId: string,
+  requesterId: string,
 ): Promise<Circle> {
   const circle = await prisma.circle.findUnique({
     where: { circle_id: circleId },
@@ -202,8 +268,16 @@ export async function startRound(
     throw new NotFoundError('Circle', circleId);
   }
 
-  if (circle.creator_id !== circle.creator_id) {
+  if (circle.creator_id !== requesterId) {
     throw new ForbiddenError('Only the creator can start rounds');
+  }
+
+  if (circle.status !== 'active') {
+    throw new ValidationError('Circle is not active');
+  }
+
+  if (!hasAuthoritativeMemberRoster(circle)) {
+    throw new ConflictError('Circle member roster requires migration backfill before starting rounds');
   }
 
   if (circle.participant_count < CIRCLE_MIN_PARTICIPANTS) {
@@ -213,10 +287,15 @@ export async function startRound(
   }
 
   const rounds = (circle.rounds as unknown as CircleRound[]) ?? [];
+  const lastRound = rounds[rounds.length - 1];
   const roundNumber = rounds.length + 1;
 
   if (roundNumber > CIRCLE_MAX_ROUNDS) {
     throw new ValidationError('Maximum rounds reached');
+  }
+
+  if (lastRound?.status === 'ongoing') {
+    throw new ValidationError('Cannot start a new round while another round is ongoing');
   }
 
   const deadline = new Date(
@@ -248,48 +327,82 @@ export async function submitAsset(
   nodeId: string,
   assetId: string,
 ): Promise<Circle> {
-  const circle = await prisma.circle.findUnique({
-    where: { circle_id: circleId },
-  });
+  const updated2 = await runSerializableTransaction(async (tx) => {
+    const circle = await tx.circle.findUnique({
+      where: { circle_id: circleId },
+    });
 
-  if (!circle) {
-    throw new NotFoundError('Circle', circleId);
-  }
+    if (!circle) {
+      throw new NotFoundError('Circle', circleId);
+    }
 
-  const rounds = (circle.rounds as unknown as CircleRound[]) ?? [];
-  const round = rounds.find((r) => r.round_number === roundNumber);
+    if (circle.status !== 'active') {
+      throw new ValidationError('Circle is not active');
+    }
 
-  if (!round) {
-    throw new NotFoundError('Round', String(roundNumber));
-  }
+    const rounds = (circle.rounds as unknown as CircleRound[]) ?? [];
+    const memberIds = getCircleMemberIds(circle);
+    const round = rounds.find((r) => r.round_number === roundNumber);
 
-  if (round.status !== 'ongoing') {
-    throw new ValidationError('Round is not accepting submissions');
-  }
+    if (!round) {
+      throw new NotFoundError('Round', String(roundNumber));
+    }
 
-  const existingSubmission = round.submissions.find(
-    (s) => s.node_id === nodeId,
-  );
-  if (existingSubmission) {
-    throw new ValidationError('Already submitted an asset for this round');
-  }
+    if (round.status !== 'ongoing') {
+      throw new ValidationError('Round is not accepting submissions');
+    }
 
-  const submission: CircleSubmission = {
-    node_id: nodeId,
-    asset_id: assetId,
-    submitted_at: new Date().toISOString(),
-  };
+    if (!hasAuthoritativeMemberRoster(circle)) {
+      throw new ConflictError(
+        'Circle member roster requires migration backfill before accepting submissions',
+      );
+    }
 
-  const updatedSubmissions = [...round.submissions, submission];
-  const updatedRounds = rounds.map((r) =>
-    r.round_number === roundNumber
-      ? { ...r, submissions: updatedSubmissions }
-      : r,
-  );
+    if (!memberIds.includes(nodeId)) {
+      throw new ForbiddenError('Only circle participants can submit assets');
+    }
 
-  const updated2 = await prisma.circle.update({
-    where: { circle_id: circleId },
-    data: { rounds: updatedRounds as unknown as Prisma.InputJsonValue },
+    if (wasEliminatedBeforeRound(rounds, roundNumber, nodeId)) {
+      throw new ValidationError('Eliminated participants cannot submit assets');
+    }
+
+    const existingSubmission = round.submissions.find(
+      (s) => s.node_id === nodeId,
+    );
+    if (existingSubmission) {
+      throw new ValidationError('Already submitted an asset for this round');
+    }
+
+    const asset = await tx.asset.findUnique({
+      where: { asset_id: assetId },
+      select: { author_id: true },
+    });
+
+    if (!asset) {
+      throw new NotFoundError('Asset', assetId);
+    }
+
+    if (asset.author_id !== nodeId) {
+      throw new ForbiddenError('Can only submit assets you authored');
+    }
+
+    const submission: CircleSubmission = {
+      node_id: nodeId,
+      asset_id: assetId,
+      submitted_at: new Date().toISOString(),
+    };
+
+    const updatedSubmissions = [...round.submissions, submission];
+    const updatedRounds = rounds.map((r) =>
+      r.round_number === roundNumber
+        ? { ...r, submissions: updatedSubmissions }
+        : r,
+    );
+
+    return tx.circle.update({
+      where: { circle_id: circleId },
+      data: { rounds: updatedRounds as unknown as Prisma.InputJsonValue },
+    });
   });
 
   return toCircle(updated2 as unknown as Record<string, unknown>);
@@ -310,45 +423,88 @@ export async function vote(
     throw new ValidationError('Cannot vote for yourself');
   }
 
-  const circle = await prisma.circle.findUnique({
-    where: { circle_id: circleId },
-  });
+  const updated3 = await runSerializableTransaction(async (tx) => {
+    const circle = await tx.circle.findUnique({
+      where: { circle_id: circleId },
+    });
 
-  if (!circle) {
-    throw new NotFoundError('Circle', circleId);
-  }
+    if (!circle) {
+      throw new NotFoundError('Circle', circleId);
+    }
 
-  const rounds = (circle.rounds as unknown as CircleRound[]) ?? [];
-  const round = rounds.find((r) => r.round_number === roundNumber);
+    if (circle.status !== 'active') {
+      throw new ValidationError('Circle is not active');
+    }
 
-  if (!round) {
-    throw new NotFoundError('Round', String(roundNumber));
-  }
+    const rounds = (circle.rounds as unknown as CircleRound[]) ?? [];
+    const memberIds = getCircleMemberIds(circle);
+    const round = rounds.find((r) => r.round_number === roundNumber);
 
-  const existingVote = round.votes.find(
-    (v) => v.voter_id === voterId && v.target_id === targetId,
-  );
-  if (existingVote) {
-    throw new ValidationError('Already voted for this target');
-  }
+    if (!round) {
+      throw new NotFoundError('Round', String(roundNumber));
+    }
 
-  const newVote: CircleVote = {
-    voter_id: voterId,
-    target_id: targetId,
-    score,
-    cast_at: new Date().toISOString(),
-  };
+    if (round.status !== 'ongoing') {
+      throw new ValidationError('Round is not accepting votes');
+    }
 
-  const updatedVotes = [...round.votes, newVote];
-  const updatedRounds = rounds.map((r) =>
-    r.round_number === roundNumber
-      ? { ...r, votes: updatedVotes }
-      : r,
-  );
+    if (!hasAuthoritativeMemberRoster(circle)) {
+      throw new ConflictError(
+        'Circle member roster requires migration backfill before accepting votes',
+      );
+    }
 
-  const updated3 = await prisma.circle.update({
-    where: { circle_id: circleId },
-    data: { rounds: updatedRounds as unknown as Prisma.InputJsonValue },
+    if (!memberIds.includes(voterId)) {
+      throw new ForbiddenError('Only circle participants can vote');
+    }
+
+    if (!memberIds.includes(targetId)) {
+      throw new ValidationError('Can only vote for circle participants');
+    }
+
+    if (wasEliminatedBeforeRound(rounds, roundNumber, voterId)) {
+      throw new ValidationError('Eliminated participants cannot vote');
+    }
+
+    if (wasEliminatedBeforeRound(rounds, roundNumber, targetId)) {
+      throw new ValidationError('Cannot vote for an eliminated participant');
+    }
+
+    const voterSubmitted = round.submissions.some((submission) => submission.node_id === voterId);
+    if (!voterSubmitted) {
+      throw new ValidationError('Only round participants can vote');
+    }
+
+    const targetSubmitted = round.submissions.some((submission) => submission.node_id === targetId);
+    if (!targetSubmitted) {
+      throw new ValidationError('Can only vote for nodes that submitted in this round');
+    }
+
+    const existingVote = round.votes.find(
+      (v) => v.voter_id === voterId && v.target_id === targetId,
+    );
+    if (existingVote) {
+      throw new ValidationError('Already voted for this target');
+    }
+
+    const newVote: CircleVote = {
+      voter_id: voterId,
+      target_id: targetId,
+      score,
+      cast_at: new Date().toISOString(),
+    };
+
+    const updatedVotes = [...round.votes, newVote];
+    const updatedRounds = rounds.map((r) =>
+      r.round_number === roundNumber
+        ? { ...r, votes: updatedVotes }
+        : r,
+    );
+
+    return tx.circle.update({
+      where: { circle_id: circleId },
+      data: { rounds: updatedRounds as unknown as Prisma.InputJsonValue },
+    });
   });
 
   return toCircle(updated3 as unknown as Record<string, unknown>);
@@ -356,6 +512,7 @@ export async function vote(
 
 export async function advanceRound(
   circleId: string,
+  requesterId: string,
 ): Promise<Circle> {
   const circle = await prisma.circle.findUnique({
     where: { circle_id: circleId },
@@ -363,6 +520,10 @@ export async function advanceRound(
 
   if (!circle) {
     throw new NotFoundError('Circle', circleId);
+  }
+
+  if (circle.creator_id !== requesterId) {
+    throw new ForbiddenError('Only the creator can advance rounds');
   }
 
   const rounds = (circle.rounds as unknown as CircleRound[]) ?? [];
@@ -411,6 +572,7 @@ export async function advanceRound(
 
 export async function completeCircle(
   circleId: string,
+  requesterId: string,
 ): Promise<Circle> {
   const circle = await prisma.circle.findUnique({
     where: { circle_id: circleId },
@@ -420,11 +582,23 @@ export async function completeCircle(
     throw new NotFoundError('Circle', circleId);
   }
 
+  if (circle.creator_id !== requesterId) {
+    throw new ForbiddenError('Only the creator can complete circles');
+  }
+
+  if (circle.status === 'completed') {
+    throw new ValidationError('Circle is already completed');
+  }
+
   const rounds = (circle.rounds as unknown as CircleRound[]) ?? [];
   const finalRound = rounds[rounds.length - 1];
 
   if (!finalRound) {
     throw new ValidationError('No rounds have been played');
+  }
+
+  if (finalRound.status !== 'completed') {
+    throw new ValidationError('Cannot complete circle while the final round is still ongoing');
   }
 
   const scoresByTarget: Record<string, number> = {};
@@ -445,36 +619,48 @@ export async function completeCircle(
     prize_earned: idx === 0 ? CIRCLE_WINNER_PRIZE : 0,
   }));
 
-  if (outcomes.length > 0) {
-    const winnerId = outcomes[0]!.node_id;
-    await prisma.node.update({
-      where: { node_id: winnerId },
+  const updated5 = await prisma.$transaction(async (tx) => {
+    const completion = await tx.circle.updateMany({
+      where: {
+        circle_id: circleId,
+        status: { not: 'completed' },
+      },
       data: {
-        credit_balance: { increment: CIRCLE_WINNER_PRIZE },
+        status: 'completed',
+        outcomes: outcomes as unknown as Prisma.InputJsonValue,
       },
     });
 
-    const winner = await prisma.node.findFirst({
-      where: { node_id: winnerId },
-    });
+    if (completion.count !== 1) {
+      throw new ValidationError('Circle is already completed');
+    }
 
-    await prisma.creditTransaction.create({
-      data: {
-        node_id: winnerId,
-        amount: CIRCLE_WINNER_PRIZE,
-        type: 'circle_prize',
-        description: `Circle "${circle.name}" winner prize`,
-        balance_after: (winner?.credit_balance ?? 0) + CIRCLE_WINNER_PRIZE,
-      },
-    });
-  }
+    if (outcomes.length > 0) {
+      const winnerId = outcomes[0]!.node_id;
+      const updatedWinner = await tx.node.update({
+        where: { node_id: winnerId },
+        data: {
+          credit_balance: { increment: CIRCLE_WINNER_PRIZE },
+        },
+        select: { credit_balance: true },
+      });
 
-  const updated5 = await prisma.circle.update({
-    where: { circle_id: circleId },
-    data: {
+      await tx.creditTransaction.create({
+        data: {
+          node_id: winnerId,
+          amount: CIRCLE_WINNER_PRIZE,
+          type: 'circle_prize',
+          description: `Circle "${circle.name}" winner prize`,
+          balance_after: updatedWinner.credit_balance,
+        },
+      });
+    }
+
+    return {
+      ...circle,
       status: 'completed',
-      outcomes: outcomes as unknown as Prisma.InputJsonValue,
-    },
+      outcomes,
+    };
   });
 
   return toCircle(updated5 as unknown as Record<string, unknown>);

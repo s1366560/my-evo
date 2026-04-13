@@ -13,6 +13,7 @@ const mockListAppeals = jest.fn();
 const mockReviewAppeal = jest.fn();
 const mockProcessAppealDecision = jest.fn();
 const mockEscalateDisputeToCouncil = jest.fn();
+let mockAuth = { node_id: 'node-1', trust_level: 'trusted', auth_type: 'session' };
 
 jest.mock('./service', () => ({
   fileDispute: (...args: unknown[]) => mockFileDispute(...args),
@@ -30,8 +31,15 @@ jest.mock('./service', () => ({
 }));
 
 jest.mock('../shared/auth', () => ({
-  requireAuth: () => async (request: { auth?: { node_id: string } }) => {
-    request.auth = { node_id: 'node-1' };
+  requireAuth: () => async (
+    request: { auth?: { node_id: string; trust_level?: string; auth_type?: string } },
+  ) => {
+    request.auth = mockAuth;
+  },
+  requireTrustLevel: () => async (
+    request: { auth?: { node_id: string; trust_level?: string; auth_type?: string } },
+  ) => {
+    request.auth = mockAuth;
   },
 }));
 
@@ -44,6 +52,7 @@ describe('Dispute routes', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockAuth = { node_id: 'node-1', trust_level: 'trusted', auth_type: 'session' };
     mockListDisputes.mockResolvedValue({ items: [], total: 0 });
     mockGetDispute.mockResolvedValue({ dispute_id: 'dsp-1' });
     mockAssignArbitrators.mockResolvedValue({ dispute_id: 'dsp-1', arbitrators: ['arb-1', 'arb-2', 'arb-3'] });
@@ -87,6 +96,24 @@ describe('Dispute routes', () => {
     }));
   });
 
+  it('rejects API keys from filing disputes', async () => {
+    mockAuth = { node_id: 'node-1', trust_level: 'trusted', auth_type: 'api_key' };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes',
+      payload: {
+        type: 'transaction',
+        defendant_id: 'node-2',
+        title: 'Transaction dispute',
+        description: 'The linked transaction failed.',
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mockFileDispute).not.toHaveBeenCalled();
+  });
+
   it('caps dispute list limits to the safe maximum', async () => {
     const response = await app.inject({
       method: 'GET',
@@ -94,13 +121,55 @@ describe('Dispute routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(mockListDisputes).toHaveBeenCalledWith(undefined, undefined, 100, 0);
+    expect(mockListDisputes).toHaveBeenCalledWith(
+      { node_id: 'node-1', trust_level: 'trusted', auth_type: 'session' },
+      undefined,
+      undefined,
+      100,
+      0,
+    );
+  });
+
+  it('passes auth scope to dispute detail lookups', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/disputes/dsp-1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetDispute).toHaveBeenCalledWith(
+      'dsp-1',
+      { node_id: 'node-1', trust_level: 'trusted', auth_type: 'session' },
+    );
+  });
+
+  it('passes auth scope to appeal list lookups', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/disputes/dsp-1/appeals',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockListAppeals).toHaveBeenCalledWith(
+      'dsp-1',
+      { node_id: 'node-1', trust_level: 'trusted', auth_type: 'session' },
+    );
   });
 
   it('rejects malformed pagination values', async () => {
     const response = await app.inject({
       method: 'GET',
       url: '/api/v2/disputes?limit=10abc',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockListDisputes).not.toHaveBeenCalled();
+  });
+
+  it('rejects excessive pagination offsets', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/disputes?offset=10001',
     });
 
     expect(response.statusCode).toBe(400);
@@ -127,7 +196,7 @@ describe('Dispute routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(mockSelectAndAssignArbitrators).toHaveBeenCalledWith('dsp-1');
+    expect(mockSelectAndAssignArbitrators).toHaveBeenCalledWith('dsp-1', 'node-1');
   });
 
   it('defaults manual rulings to resolved status when none is provided', async () => {
@@ -140,7 +209,7 @@ describe('Dispute routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(mockIssueRuling).toHaveBeenCalledWith('dsp-1', { verdict: 'plaintiff_wins' }, 'resolved');
+    expect(mockIssueRuling).toHaveBeenCalledWith('dsp-1', { verdict: 'plaintiff_wins' }, 'resolved', 'node-1');
   });
 
   it('rejects non-object ruling payloads', async () => {
@@ -150,6 +219,20 @@ describe('Dispute routes', () => {
       payload: 'null',
       headers: {
         'content-type': 'application/json',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockIssueRuling).not.toHaveBeenCalled();
+  });
+
+  it('rejects escalated as a manual ruling status', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/dsp-1/ruling',
+      payload: {
+        ruling: { verdict: 'plaintiff_wins' },
+        status: 'escalated',
       },
     });
 
@@ -183,8 +266,23 @@ describe('Dispute routes', () => {
 
     expect(reviewResponse.statusCode).toBe(200);
     expect(processResponse.statusCode).toBe(200);
-    expect(mockReviewAppeal).toHaveBeenCalledWith('apl-1');
-    expect(mockProcessAppealDecision).toHaveBeenCalledWith('apl-1');
+    expect(mockReviewAppeal).toHaveBeenCalledWith('apl-1', 'node-1');
+    expect(mockProcessAppealDecision).toHaveBeenCalledWith('apl-1', 'node-1');
+  });
+
+  it('rejects API keys from filing appeals', async () => {
+    mockAuth = { node_id: 'node-1', trust_level: 'trusted', auth_type: 'api_key' };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/disputes/dsp-1/appeal',
+      payload: {
+        grounds: 'New evidence',
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mockFileAppeal).not.toHaveBeenCalled();
   });
 
   it('exposes dispute escalation and auto-ruling routes', async () => {
@@ -199,7 +297,7 @@ describe('Dispute routes', () => {
 
     expect(escalateResponse.statusCode).toBe(200);
     expect(autoRulingResponse.statusCode).toBe(200);
-    expect(mockEscalateDisputeToCouncil).toHaveBeenCalledWith('dsp-1');
-    expect(mockAutoGenerateRuling).toHaveBeenCalledWith('dsp-1');
+    expect(mockEscalateDisputeToCouncil).toHaveBeenCalledWith('dsp-1', 'node-1');
+    expect(mockAutoGenerateRuling).toHaveBeenCalledWith('dsp-1', 'node-1');
   });
 });

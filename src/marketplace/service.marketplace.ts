@@ -16,6 +16,10 @@ export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
 
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
 export interface ServiceListingInput {
   title: string;
   description: string;
@@ -157,7 +161,8 @@ export async function searchServiceListings(params: {
   limit?: number;
   offset?: number;
   include_inactive?: boolean;
-}): Promise<{ items: ServiceListing[]; total: number }> {
+}, prismaClient?: PrismaClient): Promise<{ items: ServiceListing[]; total: number }> {
+  const client = getPrismaClient(prismaClient);
   const limit = Math.max(1, Math.min(params.limit ?? 20, 100));
   const offset = Math.max(0, params.offset ?? 0);
   const query = params.query?.trim();
@@ -181,13 +186,13 @@ export async function searchServiceListings(params: {
   }
 
   const [items, total] = await Promise.all([
-    prisma.serviceListing.findMany({
+    client.serviceListing.findMany({
       where,
       take: limit,
       skip: offset,
       orderBy: { created_at: 'desc' },
     }),
-    prisma.serviceListing.count({ where }),
+    client.serviceListing.count({ where }),
   ]);
 
   return {
@@ -199,7 +204,9 @@ export async function searchServiceListings(params: {
 export async function createServiceListing(
   sellerId: string,
   input: ServiceListingInput,
+  prismaClient?: PrismaClient,
 ): Promise<ServiceListing> {
+  const client = getPrismaClient(prismaClient);
   if (!input.title || input.title.trim().length === 0) {
     throw new ValidationError('Title is required');
   }
@@ -213,7 +220,7 @@ export async function createServiceListing(
     throw new ValidationError('price_credits is required for non-free listings');
   }
 
-  const seller = await prisma.node.findFirst({
+  const seller = await client.node.findFirst({
     where: { node_id: sellerId },
   });
   if (!seller) {
@@ -221,7 +228,7 @@ export async function createServiceListing(
   }
 
   const listingId = `svc-${crypto.randomUUID()}`;
-  const listing = await prisma.serviceListing.create({
+  const listing = await client.serviceListing.create({
     data: {
       listing_id: listingId,
       seller_id: sellerId,
@@ -242,8 +249,10 @@ export async function createServiceListing(
 export async function purchaseService(
   buyerId: string,
   listingId: string,
+  prismaClient?: PrismaClient,
 ): Promise<ServicePurchase> {
-  const listing = await prisma.serviceListing.findFirst({
+  const client = getPrismaClient(prismaClient);
+  const listing = await client.serviceListing.findFirst({
     where: { listing_id: listingId },
   });
 
@@ -262,7 +271,7 @@ export async function purchaseService(
 
   // Deduct credits for non-free services
   if (priceType !== 'free' && priceCredits > 0) {
-    const buyer = await prisma.node.findFirst({ where: { node_id: buyerId } });
+    const buyer = await client.node.findFirst({ where: { node_id: buyerId } });
     if (!buyer) {
       throw new NotFoundError('Buyer node', buyerId);
     }
@@ -273,16 +282,16 @@ export async function purchaseService(
     const fee = Math.ceil(priceCredits * 0.05);
     const sellerReceives = priceCredits - fee;
 
-    await prisma.$transaction([
-      prisma.node.update({
+    await client.$transaction([
+      client.node.update({
         where: { node_id: buyerId },
         data: { credit_balance: { decrement: priceCredits } },
       }),
-      prisma.node.update({
+      client.node.update({
         where: { node_id: listing.seller_id },
         data: { credit_balance: { increment: sellerReceives } },
       }),
-      prisma.creditTransaction.create({
+      client.creditTransaction.create({
         data: {
           node_id: buyerId,
           amount: -priceCredits,
@@ -295,7 +304,7 @@ export async function purchaseService(
 
     // Record transaction
     const txId = `stx-${crypto.randomUUID()}`;
-    await prisma.serviceTransaction.create({
+    await client.serviceTransaction.create({
       data: {
         transaction_id: txId,
         purchase_id: '', // will update after purchase record
@@ -310,7 +319,7 @@ export async function purchaseService(
 
   // Create purchase record
   const purchaseId = `pur-${crypto.randomUUID()}`;
-  const purchase = await prisma.servicePurchase.create({
+  const purchase = await client.servicePurchase.create({
     data: {
       purchase_id: purchaseId,
       listing_id: listingId,
@@ -323,7 +332,7 @@ export async function purchaseService(
 
   // Update transaction with purchase_id
   if (priceType !== 'free') {
-    await prisma.serviceTransaction.updateMany({
+    await client.serviceTransaction.updateMany({
       where: { purchase_id: '', buyer_id: buyerId, listing_id: listingId },
       data: { purchase_id: purchaseId },
     });
@@ -344,15 +353,17 @@ export async function getMyPurchases(
   buyerId: string,
   limit = 20,
   offset = 0,
+  prismaClient?: PrismaClient,
 ): Promise<{ items: ServicePurchase[]; total: number }> {
+  const client = getPrismaClient(prismaClient);
   const [items, total] = await Promise.all([
-    prisma.servicePurchase.findMany({
+    client.servicePurchase.findMany({
       where: { buyer_id: buyerId },
       take: limit,
       skip: offset,
       orderBy: { purchased_at: 'desc' },
     }),
-    prisma.servicePurchase.count({ where: { buyer_id: buyerId } }),
+    client.servicePurchase.count({ where: { buyer_id: buyerId } }),
   ]);
 
   return {
@@ -383,8 +394,10 @@ export async function updateServiceListing(
     status?: string;
     license_type?: 'open_source' | 'proprietary' | 'custom';
   },
+  prismaClient?: PrismaClient,
 ): Promise<ServiceListing> {
-  const listing = await prisma.serviceListing.findFirst({
+  const client = getPrismaClient(prismaClient);
+  const listing = await client.serviceListing.findFirst({
     where: { listing_id: listingId },
   });
 
@@ -419,7 +432,7 @@ export async function updateServiceListing(
     ? (listing.price_type === 'free' ? 'one_time' : listing.price_type)
     : 'free';
 
-  const updated = await prisma.serviceListing.update({
+  const updated = await client.serviceListing.update({
     where: { listing_id: listingId },
     data: {
       ...(updates.title !== undefined ? { title: updates.title.trim() } : {}),
@@ -440,13 +453,15 @@ export async function rateService(
   listingId: string,
   rating: number,
   review?: string,
+  prismaClient?: PrismaClient,
 ): Promise<ServiceReview> {
+  const client = getPrismaClient(prismaClient);
   const normalizedRating = normalizeServiceRating(rating);
   const [listing, purchase] = await Promise.all([
-    prisma.serviceListing.findFirst({
+    client.serviceListing.findFirst({
       where: { listing_id: listingId },
     }),
-    prisma.servicePurchase.findFirst({
+    client.servicePurchase.findFirst({
       where: { listing_id: listingId, buyer_id: buyerId, status: 'confirmed' },
     }),
   ]);
@@ -466,7 +481,7 @@ export async function rateService(
   ];
   const body = review?.trim() || `Rating ${normalizedRating}/5`;
   const title = `Review for ${listing.title}`;
-  const existingReview = await prisma.question.findFirst({
+  const existingReview = await client.question.findFirst({
     where: {
       author: buyerId,
       ...getServiceReviewFilter(listingId),
@@ -474,7 +489,7 @@ export async function rateService(
   });
 
   if (existingReview) {
-    const updated = await prisma.question.update({
+    const updated = await client.question.update({
       where: { question_id: existingReview.question_id },
       data: {
         title,
@@ -494,7 +509,7 @@ export async function rateService(
     };
   }
 
-  const created = await prisma.question.upsert({
+  const created = await client.question.upsert({
     where: { question_id: reviewId },
     create: {
       question_id: reviewId,
@@ -524,8 +539,10 @@ export async function rateService(
 export async function confirmPurchase(
   buyerId: string,
   purchaseId: string,
+  prismaClient?: PrismaClient,
 ): Promise<ServicePurchase> {
-  const purchase = await prisma.servicePurchase.findFirst({
+  const client = getPrismaClient(prismaClient);
+  const purchase = await client.servicePurchase.findFirst({
     where: { purchase_id: purchaseId },
   });
 
@@ -539,7 +556,7 @@ export async function confirmPurchase(
     throw new ValidationError('Only pending purchases can be confirmed');
   }
 
-  const updated = await prisma.servicePurchase.update({
+  const updated = await client.servicePurchase.update({
     where: { purchase_id: purchaseId },
     data: { status: 'confirmed', confirmed_at: new Date() },
   });
@@ -560,8 +577,10 @@ export async function disputePurchase(
   buyerId: string,
   purchaseId: string,
   reason: string,
+  prismaClient?: PrismaClient,
 ): Promise<{ dispute_id: string; purchase_id: string; status: string }> {
-  const purchase = await prisma.servicePurchase.findFirst({
+  const client = getPrismaClient(prismaClient);
+  const purchase = await client.servicePurchase.findFirst({
     where: { purchase_id: purchaseId },
   });
 
@@ -578,8 +597,8 @@ export async function disputePurchase(
   const disputeId = `dis-${crypto.randomUUID()}`;
   const deadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  await prisma.$transaction([
-    prisma.dispute.create({
+  await client.$transaction([
+    client.dispute.create({
       data: {
         dispute_id: disputeId,
         type: 'service_purchase',
@@ -593,7 +612,7 @@ export async function disputePurchase(
         status: 'filed',
       },
     }),
-    prisma.servicePurchase.update({
+    client.servicePurchase.update({
       where: { purchase_id: purchaseId },
       data: { status: 'disputed', disputed_at: new Date() },
     }),
@@ -606,8 +625,10 @@ export async function getTransactionHistory(
   nodeId: string,
   limit = 20,
   offset = 0,
+  prismaClient?: PrismaClient,
 ): Promise<ServiceTransaction[]> {
-  const transactions = await prisma.serviceTransaction.findMany({
+  const client = getPrismaClient(prismaClient);
+  const transactions = await client.serviceTransaction.findMany({
     where: { OR: [{ buyer_id: nodeId }, { seller_id: nodeId }] },
     take: limit,
     skip: offset,
@@ -629,8 +650,10 @@ export async function getTransactionHistory(
 export async function getTransaction(
   nodeId: string,
   transactionId: string,
+  prismaClient?: PrismaClient,
 ): Promise<ServiceTransaction> {
-  const t = await prisma.serviceTransaction.findFirst({
+  const client = getPrismaClient(prismaClient);
+  const t = await client.serviceTransaction.findFirst({
     where: { transaction_id: transactionId },
   });
 
@@ -653,13 +676,14 @@ export async function getTransaction(
   };
 }
 
-export async function getMarketStats(): Promise<MarketStats> {
+export async function getMarketStats(prismaClient?: PrismaClient): Promise<MarketStats> {
+  const client = getPrismaClient(prismaClient);
   const [totalListings, activeListings, totalTransactions, volumeResult] =
     await Promise.all([
-      prisma.serviceListing.count(),
-      prisma.serviceListing.count({ where: { status: 'active' } }),
-      prisma.serviceTransaction.count(),
-      prisma.serviceTransaction.aggregate({ _sum: { price_paid: true } }),
+      client.serviceListing.count(),
+      client.serviceListing.count({ where: { status: 'active' } }),
+      client.serviceTransaction.count(),
+      client.serviceTransaction.aggregate({ _sum: { price_paid: true } }),
     ]);
 
   return {
@@ -671,18 +695,19 @@ export async function getMarketStats(): Promise<MarketStats> {
   };
 }
 
-export async function getBalance(nodeId: string): Promise<Balance> {
-  const node = await prisma.node.findFirst({ where: { node_id: nodeId } });
+export async function getBalance(nodeId: string, prismaClient?: PrismaClient): Promise<Balance> {
+  const client = getPrismaClient(prismaClient);
+  const node = await client.node.findFirst({ where: { node_id: nodeId } });
   if (!node) {
     throw new NotFoundError('Node', nodeId);
   }
 
   const [earned, spent] = await Promise.all([
-    prisma.serviceTransaction.aggregate({
+    client.serviceTransaction.aggregate({
       _sum: { price_paid: true },
       where: { seller_id: nodeId },
     }),
-    prisma.serviceTransaction.aggregate({
+    client.serviceTransaction.aggregate({
       _sum: { price_paid: true },
       where: { buyer_id: nodeId },
     }),

@@ -616,6 +616,23 @@ describe('Analytics Service', () => {
       expect(result).toEqual([]);
     });
   });
+
+  describe('explicit prisma client', () => {
+    it('uses the provided prisma client instead of the injected default', async () => {
+      const explicitPrisma = {
+        asset: {
+          findMany: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]),
+        },
+      } as unknown as PrismaClient;
+
+      await getDriftReport('node-explicit', explicitPrisma);
+
+      expect((explicitPrisma as unknown as {
+        asset: { findMany: jest.Mock };
+      }).asset.findMany).toHaveBeenCalled();
+      expect(mockPrisma.asset.findMany).not.toHaveBeenCalled();
+    });
+  });
 });
   // ─── Drift Detection Tests ─────────────────────────────────────────────────────
 

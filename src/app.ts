@@ -8,6 +8,7 @@ import fastifySwaggerUi from '@fastify/swagger-ui';
 import { PrismaClient } from '@prisma/client';
 import { HEALTH_CHECK_PATH } from './shared/constants';
 import { EvoMapError } from './shared/errors';
+import { getGDIRefreshWorkerStatus } from './worker/gdi-refresh';
 
 export async function buildApp() {
   const app = Fastify({
@@ -81,6 +82,9 @@ export async function buildApp() {
 
   // Decorate
   app.decorate('prisma', prisma);
+  app.addHook('onClose', async () => {
+    await prisma.$disconnect();
+  });
 
   // Global error handler
   app.setErrorHandler((error: Error & { validation?: unknown; statusCode?: number }, _request, reply) => {
@@ -124,7 +128,14 @@ export async function buildApp() {
   app.get(HEALTH_CHECK_PATH, {
     schema: { tags: ['Monitoring'] },
   }, async () => {
-    return { status: 'ok', timestamp: new Date().toISOString() };
+    const gdiRefreshWorkerStatus = getGDIRefreshWorkerStatus();
+    return {
+      status: gdiRefreshWorkerStatus === 'running' ? 'ok' : 'degraded',
+      timestamp: new Date().toISOString(),
+      services: {
+        gdi_refresh_worker: gdiRefreshWorkerStatus,
+      },
+    };
   });
 
   // Register route modules
@@ -185,8 +196,14 @@ export async function buildApp() {
   const { kgRoutes } = await import('./kg/routes');
   await app.register(kgRoutes, { prefix: '/api/v2/kg' });
 
-  const { arenaRoutes } = await import('./arena/routes');
-  await app.register(arenaRoutes, { prefix: '/api/v2/arena' });
+  const [{ arenaRoutes }, { createArenaState }] = await Promise.all([
+    import('./arena/routes'),
+    import('./arena/service'),
+  ]);
+  await app.register(arenaRoutes, {
+    prefix: '/api/v2/arena',
+    arenaState: createArenaState(),
+  });
 
   const { accountRoutes } = await import('./account/routes');
   await app.register(accountRoutes, { prefix: '/account' });
@@ -210,7 +227,11 @@ export async function buildApp() {
   await app.register(billingRoutes, { prefix: '/billing' });
 
   const { monitoringRoutes } = await import('./monitoring/routes');
-  await app.register(monitoringRoutes, { prefix: '/api/v2/monitoring' });
+  const { createMonitoringState } = await import('./monitoring/service');
+  await app.register(monitoringRoutes, {
+    prefix: '/api/v2/monitoring',
+    monitoringState: createMonitoringState(),
+  });
 
   const { subscriptionRoutes } = await import('./subscription/routes');
   await app.register(subscriptionRoutes, { prefix: '/api/v2/subscription' });
@@ -386,12 +407,6 @@ export async function buildApp() {
 
   const { memoryGraphRoutes } = await import('./memory_graph/routes');
   await app.register(memoryGraphRoutes, { prefix: '/api/v2/memory-graph' });
-
-  // ── Start GDI refresh worker (BullMQ, hourly batch) ──
-  const { startGDIRefreshWorker } = await import('./worker/gdi-refresh');
-  startGDIRefreshWorker().catch((err) => {
-    app.log.error('[GDI-Refresh] Worker failed to start:', err);
-  });
 
   return app;
 }

@@ -1,5 +1,5 @@
 import fastify, { type FastifyInstance } from 'fastify';
-import { billingRoutes, setPrisma } from './routes';
+import { billingRoutes } from './routes';
 
 const mockGetEarnings = jest.fn();
 
@@ -41,9 +41,9 @@ describe('Billing routes', () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
-    setPrisma(mockPrisma);
     mockPrisma.$transaction.mockImplementation(async (callback: (tx: typeof mockPrisma) => unknown) => callback(mockPrisma));
     app = buildApp();
+    app.decorate('prisma', mockPrisma);
     await app.register(billingRoutes, { prefix: '/billing' });
     await app.ready();
     jest.clearAllMocks();

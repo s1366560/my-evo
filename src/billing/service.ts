@@ -1,10 +1,54 @@
-import { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { ValidationError } from '../shared/errors';
 
-let prisma = new PrismaClient();
+type BillingPrismaClient = Pick<PrismaClient, 'creditTransaction'>;
 
-export function setPrisma(client: PrismaClient): void {
-  prisma = client;
+const EARNING_TRANSACTION_TYPES = [
+  'initial_grant',
+  'heartbeat_reward',
+  'promotion_reward',
+  'ASSET_PROMOTED',
+  'bounty_pay',
+  'circle_prize',
+  'swarm_reward',
+  'marketplace_sale',
+] as const;
+
+const WITHDRAWAL_TRANSACTION_TYPES = [
+  'withdrawal',
+  'STAKE_WITHDRAWN',
+] as const;
+
+const STAKING_REWARD_DESCRIPTION_PREFIX = 'Staking reward';
+
+function buildEarningsWhere(nodeId: string): Prisma.CreditTransactionWhereInput {
+  return {
+    node_id: nodeId,
+    amount: { gt: 0 },
+    OR: [
+      { type: { in: [...EARNING_TRANSACTION_TYPES] } },
+      {
+        type: 'stake_release',
+        description: { startsWith: STAKING_REWARD_DESCRIPTION_PREFIX },
+      },
+    ],
+  };
+}
+
+function buildWithdrawalsWhere(nodeId: string): Prisma.CreditTransactionWhereInput {
+  return {
+    node_id: nodeId,
+    amount: { gt: 0 },
+    OR: [
+      { type: { in: [...WITHDRAWAL_TRANSACTION_TYPES] } },
+      {
+        type: 'stake_release',
+        NOT: {
+          description: { startsWith: STAKING_REWARD_DESCRIPTION_PREFIX },
+        },
+      },
+    ],
+  };
 }
 
 export interface EarningsSummary {
@@ -23,24 +67,35 @@ export interface EarningsSummary {
   }>;
 }
 
-export async function getEarnings(nodeId: string): Promise<EarningsSummary> {
+export async function getEarnings(
+  prisma: BillingPrismaClient,
+  nodeId: string,
+): Promise<EarningsSummary> {
   if (!nodeId) {
     throw new ValidationError('node_id is required');
   }
 
-  const transactions = await prisma.creditTransaction.findMany({
-    where: {
-      node_id: nodeId,
-      type: { in: ['reward', 'bounty_won', 'bounty_payment', 'skill_sale'] },
-    },
-    orderBy: { timestamp: 'desc' },
-    take: 100,
-  });
+  const earningsWhere = buildEarningsWhere(nodeId);
+  const withdrawalsWhere = buildWithdrawalsWhere(nodeId);
 
-  const total = transactions.reduce((sum, t) => sum + t.amount, 0);
-  const withdrawn = transactions
-    .filter((t) => t.type === 'withdrawal')
-    .reduce((sum, t) => sum + t.amount, 0);
+  const [transactions, earningsAggregate, withdrawalsAggregate] = await Promise.all([
+    prisma.creditTransaction.findMany({
+      where: earningsWhere,
+      orderBy: { timestamp: 'desc' },
+      take: 100,
+    }),
+    prisma.creditTransaction.aggregate({
+      where: earningsWhere,
+      _sum: { amount: true },
+    }),
+    prisma.creditTransaction.aggregate({
+      where: withdrawalsWhere,
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const total = earningsAggregate._sum?.amount ?? 0;
+  const withdrawn = withdrawalsAggregate._sum?.amount ?? 0;
 
   return {
     node_id: nodeId,

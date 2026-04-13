@@ -37,6 +37,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       parsedLimit,
       parsedOffset,
       parsedSort,
+      app.prisma,
     );
 
     return reply.send({ success: true, data: result });
@@ -48,7 +49,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
   app.get('/categories', {
     schema: { tags: ['SkillStore'] },
   }, async (request, reply) => {
-    const result = await skillStoreService.getCategories();
+    const result = await skillStoreService.getCategories(app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -61,7 +62,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const { limit } = request.query as Record<string, string | undefined>;
     const parsedLimit = limit ? Math.min(Number(limit), 20) : 10;
 
-    const result = await skillStoreService.getFeaturedSkills(parsedLimit);
+    const result = await skillStoreService.getFeaturedSkills(parsedLimit, app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -73,7 +74,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { skillId } = request.params as { skillId: string };
 
-    const result = await skillStoreService.getSkill(skillId);
+    const result = await skillStoreService.getSkill(skillId, app.prisma);
     if (!result) {
       return reply.status(404).send({
         success: false,
@@ -127,7 +128,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       examples: body.examples,
       tags: body.tags,
       source_capsules: body.source_capsules,
-    });
+    }, app.prisma);
 
     return reply.status(201).send({ success: true, data: result });
   });
@@ -154,7 +155,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       source_capsules?: string[];
     };
 
-    const result = await skillStoreService.updateSkill(skillId, auth.node_id, body);
+    const result = await skillStoreService.updateSkill(skillId, auth.node_id, body, app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -168,7 +169,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const { skillId } = request.params as { skillId: string };
 
-    await skillStoreService.deleteSkill(skillId, auth.node_id);
+    await skillStoreService.deleteSkill(skillId, auth.node_id, app.prisma);
     return reply.send({ success: true, data: { deleted: true } });
   });
 
@@ -182,7 +183,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const { skillId } = request.params as { skillId: string };
 
-    const result = await skillStoreService.publishSkill(skillId, auth.node_id);
+    const result = await skillStoreService.publishSkill(skillId, auth.node_id, app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -225,6 +226,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       skillId,
       auth.node_id,
       body.rating,
+      app.prisma,
     );
 
     return reply.status(201).send({ success: true, data: result });
@@ -240,7 +242,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const { skillId } = request.params as { skillId: string };
 
-    const result = await skillStoreService.downloadSkill(skillId, auth.node_id);
+    const result = await skillStoreService.downloadSkill(skillId, auth.node_id, app.prisma);
     return reply.send({ success: true, data: result });
   });
 }

@@ -29,7 +29,7 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
       sort_by: sort_by as 'relevance' | 'gdi' | 'downloads' | 'rating' | 'newest' | undefined,
       limit: limit ? Number(limit) : DEFAULT_SEARCH_LIMIT,
       offset: offset ? Number(offset) : 0,
-    });
+    }, app.prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -46,6 +46,7 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
     const result = await searchService.autocomplete(
       prefix,
       type as 'gene' | 'capsule' | 'skill' | undefined,
+      app.prisma,
     );
 
     return reply.send({ success: true, data: result });
@@ -58,6 +59,7 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
 
     const result = await searchService.trending(
       limit ? Number(limit) : 20,
+      app.prisma,
     );
 
     return reply.send({ success: true, data: result });
@@ -72,6 +74,7 @@ export async function searchRoutes(app: FastifyInstance): Promise<void> {
     const result = await searchService.findSimilar(
       assetId,
       threshold ? Number(threshold) : undefined,
+      app.prisma,
     );
 
     return reply.send({ success: true, data: result });

@@ -5,6 +5,7 @@ import { NotFoundError, ValidationError } from '../shared/errors';
 const {
   createSeason,
   challenge,
+  createArenaState,
   submitMatch,
   getRankings,
   getSeason,
@@ -33,11 +34,14 @@ const mockPrisma = {
 } as any;
 
 describe('Arena Service', () => {
+  let arenaState: service.ArenaState;
+
   beforeAll(() => {
     service.setPrisma(mockPrisma as unknown as PrismaClient);
   });
 
   beforeEach(() => {
+    arenaState = createArenaState();
     jest.clearAllMocks();
   });
 
@@ -464,7 +468,7 @@ describe('Arena Service', () => {
         status: 'active',
       });
 
-      const result = await joinMatchmaking('season-1', 'node-1');
+        const result = await joinMatchmaking('season-1', 'node-1', arenaState);
 
       expect(result.status).toBe('queued');
     });
@@ -472,7 +476,7 @@ describe('Arena Service', () => {
     it('should throw NotFoundError when season does not exist', async () => {
       mockPrisma.arenaSeason.findUnique.mockResolvedValue(null);
 
-      await expect(joinMatchmaking('missing', 'node-1')).rejects.toThrow(NotFoundError);
+        await expect(joinMatchmaking('missing', 'node-1', arenaState)).rejects.toThrow(NotFoundError);
     });
 
     it('should throw ValidationError when season is not active', async () => {
@@ -481,8 +485,8 @@ describe('Arena Service', () => {
         status: 'upcoming',
       });
 
-      await expect(joinMatchmaking('season-1', 'node-1')).rejects.toThrow(ValidationError);
-      await expect(joinMatchmaking('season-1', 'node-1')).rejects.toThrow('Season is not active');
+        await expect(joinMatchmaking('season-1', 'node-1', arenaState)).rejects.toThrow(ValidationError);
+        await expect(joinMatchmaking('season-1', 'node-1', arenaState)).rejects.toThrow('Season is not active');
     });
   });
 
@@ -493,16 +497,16 @@ describe('Arena Service', () => {
         season_id: 'season-1',
         status: 'active',
       });
-      await joinMatchmaking('season-1', 'node-1');
+      await joinMatchmaking('season-1', 'node-1', arenaState);
 
       // Then leave - should not throw
-      await expect(leaveMatchmaking('season-1', 'node-1')).resolves.not.toThrow();
+      await expect(leaveMatchmaking('season-1', 'node-1', arenaState)).resolves.not.toThrow();
     });
   });
 
   describe('getMatchmakingStatus', () => {
     it('should return in_queue=false when node is not in queue', async () => {
-      const result = await getMatchmakingStatus('season-1', 'node-unknown');
+      const result = await getMatchmakingStatus('season-1', 'node-unknown', arenaState);
 
       expect(result.in_queue).toBe(false);
     });
@@ -512,13 +516,27 @@ describe('Arena Service', () => {
         season_id: 'season-1',
         status: 'active',
       });
-      await joinMatchmaking('season-1', 'node-1');
-      await joinMatchmaking('season-1', 'node-2');
+      await joinMatchmaking('season-1', 'node-1', arenaState);
+      await joinMatchmaking('season-1', 'node-2', arenaState);
 
-      const result = await getMatchmakingStatus('season-1', 'node-1');
+      const result = await getMatchmakingStatus('season-1', 'node-1', arenaState);
 
       expect(result.in_queue).toBe(true);
       expect(result.position).toBe(1);
+    });
+
+    it('keeps matchmaking state isolated across arena state instances', async () => {
+      const otherArenaState = createArenaState();
+      mockPrisma.arenaSeason.findUnique.mockResolvedValue({
+        season_id: 'season-1',
+        status: 'active',
+      });
+
+      await joinMatchmaking('season-1', 'node-1', arenaState);
+
+      const statusInOtherState = await getMatchmakingStatus('season-1', 'node-1', otherArenaState);
+
+      expect(statusInOtherState).toEqual({ in_queue: false });
     });
   });
 
@@ -560,6 +578,34 @@ describe('Arena Service', () => {
       expect(mockPrisma.arenaMatch.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 10, skip: 5 }),
       );
+    });
+  });
+
+  describe('explicit prisma client', () => {
+    it('uses the provided prisma client instead of the injected default', async () => {
+      const explicitPrisma = {
+        arenaSeason: {
+          create: jest.fn().mockResolvedValue({
+            season_id: 'season-explicit',
+            name: 'Explicit Season',
+            status: 'upcoming',
+            start_date: new Date('2025-06-01'),
+            end_date: new Date('2025-07-01'),
+            rankings: [],
+            created_at: new Date('2025-05-01'),
+          }),
+        },
+      } as unknown as PrismaClient;
+
+      await createSeason(
+        'Explicit Season',
+        '2025-06-01',
+        '2025-07-01',
+        explicitPrisma,
+      );
+
+      expect((explicitPrisma as unknown as { arenaSeason: { create: jest.Mock } }).arenaSeason.create).toHaveBeenCalled();
+      expect(mockPrisma.arenaSeason.create).not.toHaveBeenCalled();
     });
   });
 

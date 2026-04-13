@@ -9,7 +9,7 @@ export async function creditRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
 
-    const balance = await creditService.getBalance(nodeId);
+    const balance = await creditService.getBalance(nodeId, app.prisma);
 
     void reply.send({
       success: true,
@@ -35,6 +35,7 @@ export async function creditRoutes(app: FastifyInstance): Promise<void> {
       query.type,
       limit,
       offset,
+      app.prisma,
     );
 
     void reply.send({
@@ -79,6 +80,7 @@ export async function creditRoutes(app: FastifyInstance): Promise<void> {
       auth.node_id,
       body.to_id,
       body.amount,
+      app.prisma,
     );
 
     void reply.send({

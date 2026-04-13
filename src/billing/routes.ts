@@ -1,17 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { requireAuth } from '../shared/auth';
 import { ForbiddenError } from '../shared/errors';
 import * as service from './service';
 
-let prisma = new PrismaClient();
 const TRANSACTION_RETRY_LIMIT = 3;
 
 class RetryableStakeConflictError extends Error {}
-
-export function setPrisma(client: PrismaClient): void {
-  prisma = client;
-}
 
 function isRetryableTransactionError(error: unknown): boolean {
   return (
@@ -26,6 +21,7 @@ function isRetryableTransactionError(error: unknown): boolean {
 }
 
 async function runSerializableTransaction<T>(
+  prisma: FastifyInstance['prisma'],
   operation: (tx: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
   for (let attempt = 0; attempt < TRANSACTION_RETRY_LIMIT; attempt += 1) {
@@ -59,7 +55,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const auth = request.auth!;
     const { nodeId } = request.params as { nodeId: string };
-    const earnings = await service.getEarnings(resolveSelfNodeId(auth.node_id, nodeId));
+    const earnings = await service.getEarnings(app.prisma, resolveSelfNodeId(auth.node_id, nodeId));
     return reply.send({ success: true, data: earnings });
   });
 
@@ -69,7 +65,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const earnings = await service.getEarnings(auth.node_id);
+    const earnings = await service.getEarnings(app.prisma, auth.node_id);
     return reply.send({ success: true, data: earnings });
   });
 
@@ -87,7 +83,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
     let result;
     try {
-      result = await runSerializableTransaction(async (tx) => {
+      result = await runSerializableTransaction(app.prisma, async (tx) => {
         const node = await tx.node.findUnique({ where: { node_id: nodeId } });
         if (!node) {
           return {
@@ -181,7 +177,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
       });
     } catch (error) {
       if (isRetryableTransactionError(error)) {
-        const currentStake = await prisma.validatorStake.findUnique({ where: { node_id: nodeId } });
+        const currentStake = await app.prisma.validatorStake.findUnique({ where: { node_id: nodeId } });
         if (currentStake?.status === 'active') {
           return reply.status(409).send({
             error: 'already_staked',
@@ -213,7 +209,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     const body = (request.body as { node_id?: string } | undefined) ?? {};
     const nodeId = resolveSelfNodeId(auth.node_id, body.node_id);
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await app.prisma.$transaction(async (tx) => {
       const stake = await tx.validatorStake.findUnique({ where: { node_id: nodeId } });
       if (!stake || stake.status !== 'active') {
         return {
@@ -270,10 +266,10 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Billing'] },
   }, async (request) => {
     const { nodeId } = request.params as { nodeId: string };
-    const stake = await prisma.validatorStake.findUnique({ where: { node_id: nodeId } });
+    const stake = await app.prisma.validatorStake.findUnique({ where: { node_id: nodeId } });
     if (!stake) return { nodeId, status: 'not_staked', stakedAmount: 0 };
 
-    const node = await prisma.node.findUnique({ where: { node_id: nodeId } });
+    const node = await app.prisma.node.findUnique({ where: { node_id: nodeId } });
     return {
       nodeId,
       status: stake.status,

@@ -20,7 +20,7 @@ function normalizeArbitratorIds(arbitratorIds: string[]): string[] {
   return [...new Set(arbitratorIds.map((value) => value.trim()).filter(Boolean))];
 }
 
-async function withSelectionLock<T>(operation: () => Promise<T>): Promise<T> {
+export async function withSelectionLock<T>(operation: () => Promise<T>): Promise<T> {
   const previous = selectionQueue;
   let release = (): void => undefined;
   selectionQueue = new Promise<void>((resolve) => {
@@ -94,7 +94,7 @@ export async function getAvailableArbitrators(): Promise<ArbitratorProfile[]> {
   const nodes = await prisma.node.findMany({
     where: {
       status: 'registered',
-      trust_level: { in: ['trusted', 'verified'] },
+      trust_level: 'trusted',
       reputation: { gte: ARBITRATOR_CRITERIA.min_reputation },
     },
   });
@@ -111,6 +111,14 @@ export async function getAvailableArbitrators(): Promise<ArbitratorProfile[]> {
 }
 
 export async function selectArbitrator(disputeId: string, severity = 'medium'): Promise<string[]> {
+  return selectArbitratorWithExclusions(disputeId, severity);
+}
+
+export async function selectArbitratorWithExclusions(
+  disputeId: string,
+  severity = 'medium',
+  excludedNodeIds: string[] = [],
+): Promise<string[]> {
   const dispute = await prisma.dispute.findUnique({
     where: { dispute_id: disputeId },
   });
@@ -119,11 +127,12 @@ export async function selectArbitrator(disputeId: string, severity = 'medium'): 
 
   const { plaintiff_id, defendant_id } = dispute;
   const needed = ARBITRATOR_COUNT[severity] ?? 3;
+  const excludedIds = new Set(normalizeArbitratorIds(excludedNodeIds));
 
   const nodes = await prisma.node.findMany({
     where: {
       status: 'registered',
-      trust_level: { in: ['trusted', 'verified'] },
+      trust_level: 'trusted',
       reputation: { gte: ARBITRATOR_CRITERIA.min_reputation },
     },
   });
@@ -131,6 +140,7 @@ export async function selectArbitrator(disputeId: string, severity = 'medium'): 
   // Filter: not a party, no conflict of interest, under max workload
   const candidates = nodes
     .filter((n) => {
+      if (excludedIds.has(n.node_id)) return false;
       if (n.node_id === plaintiff_id || n.node_id === defendant_id) return false;
       const active = arbitratorWorkload.get(n.node_id) ?? 0;
       if (active >= ARBITRATOR_CRITERIA.max_active_disputes) return false;
@@ -159,9 +169,10 @@ export async function selectAndReserveArbitrators(
   disputeId: string,
   severity = 'medium',
   previousArbitrators: string[] = [],
+  excludedNodeIds: string[] = [],
 ): Promise<string[]> {
   return withSelectionLock(async () => {
-    const selected = await selectArbitrator(disputeId, severity);
+    const selected = await selectArbitratorWithExclusions(disputeId, severity, excludedNodeIds);
     const { added } = diffArbitratorAssignments(previousArbitrators, selected);
     reserveArbitrators(added);
     return selected;

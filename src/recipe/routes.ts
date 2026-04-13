@@ -1,12 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { PrismaClient } from '@prisma/client';
 import { requireAuth } from '../shared/auth';
 import { EvoMapError, NotFoundError } from '../shared/errors';
 import * as service from './service';
 
-const prisma = new PrismaClient();
-
 export async function recipeRoutes(app: FastifyInstance) {
+  const prisma = app.prisma;
+
   // List recipes
   app.get('/', {
     schema: { tags: ['Recipe'] },

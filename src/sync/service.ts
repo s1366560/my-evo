@@ -18,6 +18,7 @@ import {
   calculateSyncDelta,
   applyIncrementalSync,
   verifySyncIntegrity,
+  setPrisma as setIncrementalPrisma,
 } from './incremental';
 import {
   detectConflicts,
@@ -28,6 +29,7 @@ import {
   getSyncHistory,
   analyzeSyncPatterns,
   getSyncMetrics,
+  setPrisma as setAuditPrisma,
 } from './audit';
 import {
   saveCheckpoint,
@@ -51,6 +53,8 @@ const SYNC_TRIGGER_LEASE_MS = 5 * 60 * 1000;
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
+  setIncrementalPrisma(client);
+  setAuditPrisma(client);
 }
 
 export { prisma };

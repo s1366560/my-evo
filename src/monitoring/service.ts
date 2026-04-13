@@ -1,16 +1,9 @@
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import type { Metric, AlertRule } from '../shared/types';
 import type { HealthStatus, ComponentHealth } from './types';
 import { ALERT_COOLDOWN_MS } from '../shared/constants';
 
-let prisma = new PrismaClient();
-
-export function setPrisma(client: PrismaClient): void {
-  prisma = client;
-}
-
-const metricsBuffer: Metric[] = [];
-const alerts: Array<{
+type MonitoringAlert = {
   id: string;
   name: string;
   severity: 'info' | 'warning' | 'critical';
@@ -18,7 +11,19 @@ const alerts: Array<{
   triggered_at: string;
   metric_name: string;
   metric_value: number;
-}> = [];
+};
+
+export interface MonitoringState {
+  metricsBuffer: Metric[];
+  alerts: MonitoringAlert[];
+}
+
+export function createMonitoringState(): MonitoringState {
+  return {
+    metricsBuffer: [],
+    alerts: [],
+  };
+}
 
 function getOptionalComponentHealth(
   component: 'redis' | 'queue',
@@ -38,6 +43,7 @@ function getOptionalComponentHealth(
 }
 
 export async function recordMetric(
+  state: MonitoringState,
   name: string,
   value: number,
   labels?: Record<string, string>,
@@ -49,19 +55,20 @@ export async function recordMetric(
     timestamp: new Date().toISOString(),
   };
 
-  metricsBuffer.push(metric);
+  state.metricsBuffer.push(metric);
 
-  if (metricsBuffer.length > 1000) {
-    metricsBuffer.splice(0, metricsBuffer.length - 1000);
+  if (state.metricsBuffer.length > 1000) {
+    state.metricsBuffer.splice(0, state.metricsBuffer.length - 1000);
   }
 }
 
 export async function getMetrics(
+  state: MonitoringState,
   names?: string[],
   start?: string,
   end?: string,
 ): Promise<Metric[]> {
-  let filtered = [...metricsBuffer];
+  let filtered = [...state.metricsBuffer];
 
   if (names && names.length > 0) {
     const nameSet = new Set(names);
@@ -85,7 +92,7 @@ export async function getMetrics(
   return filtered;
 }
 
-export async function checkHealth(): Promise<HealthStatus> {
+export async function checkHealth(prismaClient: PrismaClient): Promise<HealthStatus> {
   const redisConfigured = Boolean(process.env.REDIS_URL);
   const queueConfigured = Boolean(
     process.env.QUEUE_URL
@@ -100,7 +107,7 @@ export async function checkHealth(): Promise<HealthStatus> {
 
   try {
     const dbStart = Date.now();
-    await prisma.$queryRaw`SELECT 1`;
+    await prismaClient.$queryRaw`SELECT 1`;
     checks.database = {
       status: 'up',
       latency_ms: Date.now() - dbStart,
@@ -128,10 +135,11 @@ export async function checkHealth(): Promise<HealthStatus> {
 }
 
 export async function getAlerts(
+  state: MonitoringState,
   severity?: 'info' | 'warning' | 'critical',
   limit = 50,
-): Promise<typeof alerts> {
-  let filtered = [...alerts];
+): Promise<MonitoringAlert[]> {
+  let filtered = [...state.alerts];
 
   if (severity) {
     filtered = filtered.filter((a) => a.severity === severity);

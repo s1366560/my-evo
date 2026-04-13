@@ -21,6 +21,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       body.asset_id,
       body.asset_type,
       body.price,
+      app.prisma,
     );
 
     return reply.status(201).send({ success: true, data: result });
@@ -36,6 +37,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     const result = await marketplaceService.buyListing(
       auth.node_id,
       listingId,
+      app.prisma,
     );
 
     return reply.send({ success: true, data: result });
@@ -51,6 +53,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     const result = await marketplaceService.cancelListing(
       auth.node_id,
       listingId,
+      app.prisma,
     );
 
     return reply.send({ success: true, data: result });
@@ -69,6 +72,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       (sort as 'price_asc' | 'price_desc' | 'newest') ?? 'newest',
       limit ? Number(limit) : 20,
       offset ? Number(offset) : 0,
+      app.prisma,
     );
 
     return reply.send({ success: true, data: result });
@@ -84,6 +88,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       nodeId,
       limit ? Number(limit) : 20,
       offset ? Number(offset) : 0,
+      app.prisma,
     );
 
     return reply.send({ success: true, data: result });
@@ -130,7 +135,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       price_type: body.price_type,
       price_credits: body.price_credits,
       license_type: body.license_type,
-    });
+    }, app.prisma);
 
     return reply.status(201).send({ success: true, data: listing });
   });
@@ -152,7 +157,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const body = request.body as { listing_id: string };
 
-    const purchase = await serviceMarketplaceService.purchaseService(auth.node_id, body.listing_id);
+    const purchase = await serviceMarketplaceService.purchaseService(auth.node_id, body.listing_id, app.prisma);
     return reply.status(201).send({ success: true, data: purchase });
   });
 
@@ -168,6 +173,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       auth.node_id,
       limit ? Number(limit) : 20,
       offset ? Number(offset) : 0,
+      app.prisma,
     );
     return reply.send({ success: true, data: result.items, meta: { total: result.total } });
   });
@@ -186,7 +192,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const { id } = request.params as { id: string };
 
-    const result = await serviceMarketplaceService.confirmPurchase(auth.node_id, id);
+    const result = await serviceMarketplaceService.confirmPurchase(auth.node_id, id, app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -207,7 +213,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     const { reason } = request.body as { reason: string };
 
-    const result = await serviceMarketplaceService.disputePurchase(auth.node_id, id, reason);
+    const result = await serviceMarketplaceService.disputePurchase(auth.node_id, id, reason, app.prisma);
     return reply.status(201).send({ success: true, data: result });
   });
 
@@ -223,6 +229,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       auth.node_id,
       limit ? Number(limit) : 20,
       offset ? Number(offset) : 0,
+      app.prisma,
     );
     return reply.send({ success: true, data: result });
   });
@@ -238,7 +245,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const { id } = request.params as { id: string };
 
-    const result = await serviceMarketplaceService.getTransaction(auth.node_id, id);
+    const result = await serviceMarketplaceService.getTransaction(auth.node_id, id, app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -246,7 +253,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/stats', {
     schema: { tags: ['Marketplace'] },
   }, async (_request, reply) => {
-    const stats = await serviceMarketplaceService.getMarketStats();
+    const stats = await serviceMarketplaceService.getMarketStats(app.prisma);
     return reply.send({ success: true, data: stats });
   });
 
@@ -256,7 +263,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const balance = await serviceMarketplaceService.getBalance(auth.node_id);
+    const balance = await serviceMarketplaceService.getBalance(auth.node_id, app.prisma);
     return reply.send({ success: true, data: balance });
   });
 }

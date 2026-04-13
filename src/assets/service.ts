@@ -18,6 +18,11 @@ import {
   NODE_REPUTATION_MIN,
 } from '../shared/constants';
 import {
+  ASSET_QUALITY_DISPUTE_TYPES,
+  blocksAssetPromotion,
+  summarizeAssetQualityDisputes,
+} from '../shared/dispute-consensus';
+import {
   NotFoundError,
   ValidationError,
   InsufficientCreditsError,
@@ -563,18 +568,17 @@ export async function promoteAsset(
 
   // ─── CONDITION 5: validation consensus not majority-failed ───
   const disputes = await prisma.dispute.findMany({
-    where: { target_id: assetId, type: 'ASSET_QUALITY' },
+    where: {
+      type: { in: [...ASSET_QUALITY_DISPUTE_TYPES] },
+      OR: [
+        { related_asset_id: assetId },
+        { target_id: assetId },
+      ],
+    },
+    select: { status: true, ruling: true },
   });
-  if (disputes.length > 0) {
-    const fails = disputes.filter(
-      d => d.status === 'resolved' && Array.isArray(d.notes) && d.notes.includes('fail'),
-    ).length;
-    const passes = disputes.filter(
-      d => d.status === 'resolved' && Array.isArray(d.notes) && d.notes.includes('pass'),
-    ).length;
-    if (fails > passes) {
-      return { promoted: false, reason: 'validation_majority_failed' };
-    }
+  if (blocksAssetPromotion(disputes)) {
+    return { promoted: false, reason: 'validation_majority_failed' };
   }
 
   // ─── ALL CONDITIONS MET: promote ───
@@ -696,9 +700,21 @@ export async function calculateGDI(assetId: string): Promise<GDIScore> {
   const upvotes = votes.filter(v => v.vote_type === 'up').length;
   const downvotes = votes.filter(v => v.vote_type === 'down').length;
 
-  const disputes = await prisma.dispute.findMany({ where: { target_id: assetId } });
-  const passes = disputes.filter(d => d.status === 'resolved' && Array.isArray(d.notes as string[]) && (d.notes as string[]).includes('pass')).length;
-  const fails = disputes.filter(d => d.status === 'resolved' && Array.isArray(d.notes as string[]) && (d.notes as string[]).includes('fail')).length;
+  const disputes = await prisma.dispute.findMany({
+    where: {
+      type: { in: [...ASSET_QUALITY_DISPUTE_TYPES] },
+      OR: [
+        { related_asset_id: assetId },
+        { target_id: assetId },
+      ],
+    },
+    select: { status: true, ruling: true },
+  });
+  const disputeSummary = summarizeAssetQualityDisputes(disputes);
+  const passes = disputeSummary.passes;
+  const fails = disputeSummary.blocks
+    ? Math.max(1, disputeSummary.fails)
+    : disputeSummary.fails;
 
   const vote_mean = (upvotes + 1) / (upvotes + downvotes + 2);
   const vote_lower = wilsonLower(upvotes, downvotes);

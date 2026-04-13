@@ -2,7 +2,12 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { authenticate, requireAuth } from '../shared/auth';
 import { PROTOCOL_NAME, PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from '../shared/constants';
-import { EvoMapError, ForbiddenError, ValidationError } from '../shared/errors';
+import {
+  EvoMapError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+} from '../shared/errors';
 import { getConfig } from '../shared/config';
 import * as a2aService from './service';
 import * as assetsService from './assets_service';
@@ -12,9 +17,82 @@ import type { HelloPayload, HeartbeatPayload } from '../shared/types';
 const HUB_NODE_ID = 'evomap-hub-001';
 const PUBLISH_MESSAGE_MAX_AGE_MS = 15 * 60 * 1000;
 const PUBLISH_MESSAGE_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const DISPUTE_LIST_LIMIT_MAX = 100;
+const DISPUTE_LIST_OFFSET_MAX = 10_000;
+
+function parseDisputeOffset(value?: string): number {
+  if (value === undefined) {
+    return 0;
+  }
+
+  if (!/^\d+$/.test(value)) {
+    throw new ValidationError('offset must be a non-negative integer');
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new ValidationError('offset must be a non-negative integer');
+  }
+  if (parsed > DISPUTE_LIST_OFFSET_MAX) {
+    throw new ValidationError(`offset must be less than or equal to ${DISPUTE_LIST_OFFSET_MAX}`);
+  }
+
+  return parsed;
+}
+
+function parseDisputeLimit(value?: string): number {
+  if (value === undefined) {
+    return 20;
+  }
+
+  if (!/^\d+$/.test(value)) {
+    throw new ValidationError('limit must be a positive integer');
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new ValidationError('limit must be a positive integer');
+  }
+
+  return Math.min(parsed, DISPUTE_LIST_LIMIT_MAX);
+}
+
+function canViewRawDisputeEvidence(
+  viewer: { node_id: string; scopes?: readonly string[] },
+  dispute: {
+    plaintiff_id?: string | null;
+    defendant_id?: string | null;
+    arbitrators?: unknown;
+  },
+): boolean {
+  if (viewer.scopes?.includes('disputes:read:any') === true) {
+    return true;
+  }
+
+  const arbitrators = Array.isArray(dispute.arbitrators)
+    ? dispute.arbitrators.filter((value): value is string => typeof value === 'string')
+    : [];
+
+  return (
+    viewer.node_id === dispute.plaintiff_id
+    || viewer.node_id === dispute.defendant_id
+    || arbitrators.includes(viewer.node_id)
+  );
+}
+
+function ensureDisputeWriteAuth(auth: { auth_type?: string } | undefined): void {
+  if (!auth) {
+    throw new ForbiddenError('Authentication is required');
+  }
+
+  if (auth.auth_type === 'api_key') {
+    throw new ForbiddenError('API keys cannot create disputes');
+  }
+}
 
 export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   const SERVICE_STATUSES = ['active', 'paused', 'archived'] as const;
+  const prisma = app.prisma;
 
   async function getOptionalAuth(request: FastifyRequest) {
     const hasCredentials = Boolean(
@@ -35,39 +113,19 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   }
 
   async function getServiceMarketplaceModule() {
-    const serviceMarketplace = await import('../marketplace/service.marketplace');
-    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
-    if (prisma) {
-      serviceMarketplace.setPrisma(prisma);
-    }
-    return serviceMarketplace;
+    return import('../marketplace/service.marketplace');
   }
 
   async function getSkillStoreModule() {
-    const skillStore = await import('../skill_store/service');
-    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
-    if (prisma) {
-      skillStore.setPrisma(prisma);
-    }
-    return skillStore;
+    return import('../skill_store/service');
   }
 
   async function getSessionModule() {
-    const sessionService = await import('../session/service');
-    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
-    if (prisma) {
-      sessionService.setPrisma(prisma);
-    }
-    return sessionService;
+    return import('../session/service');
   }
 
   async function getSearchModule() {
-    const searchService = await import('../search/service');
-    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
-    if (prisma) {
-      searchService.setPrisma(prisma);
-    }
-    return searchService;
+    return import('../search/service');
   }
 
   function requireMarketplaceNodeId(nodeId: string): string {
@@ -384,11 +442,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body as { to_id: string; content: string };
 
     if (!body.to_id || !body.content) {
-      void reply.status(400).send({
-        success: false,
-        error: 'to_id and content are required',
-      });
-      return;
+      throw new ValidationError('to_id and content are required');
     }
 
     const result = await a2aService.sendDm(auth.node_id, body.to_id, body.content);
@@ -408,11 +462,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body as { target_id: string; reason: string };
 
     if (!body.target_id || !body.reason) {
-      void reply.status(400).send({
-        success: false,
-        error: 'target_id and reason are required',
-      });
-      return;
+      throw new ValidationError('target_id and reason are required');
     }
 
     const result = await a2aService.submitReport(
@@ -561,6 +611,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     preHandler: requireAuth(),
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureDisputeWriteAuth(auth);
     const body = request.body as {
       type: string;
       defendant_id: string;
@@ -569,6 +620,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       evidence?: unknown[];
       related_asset_id?: string;
       related_bounty_id?: string;
+      related_transaction_id?: string;
       filing_fee?: number;
     };
     if (!body.type || !body.defendant_id || !body.title || !body.description) {
@@ -583,7 +635,8 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       evidence: body.evidence ?? [],
       related_asset_id: body.related_asset_id,
       related_bounty_id: body.related_bounty_id,
-      filing_fee: body.filing_fee ?? 50,
+      related_transaction_id: body.related_transaction_id,
+      filing_fee: body.filing_fee,
     });
     return reply.status(201).send({ success: true, data: dispute });
   });
@@ -635,6 +688,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       parsedLimit,
       parsedOffset,
       sort as string | undefined,
+      app.prisma,
     );
     return reply.send({ success: true, data: result });
   });
@@ -659,6 +713,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       Math.min(body.limit ?? 20, 100),
       body.offset ?? 0,
       body.sort,
+      app.prisma,
     );
     return reply.send({ success: true, data: result });
   });
@@ -667,7 +722,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['SkillStore'] },
   }, async (request, reply) => {
     const { getCategories } = await import('../skill_store/service');
-    const result = await getCategories();
+    const result = await getCategories(app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -677,7 +732,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const { limit } = request.query as { limit?: string };
     const { getFeaturedSkills } = await import('../skill_store/service');
     const parsedLimit = limit ? Math.min(Number(limit), 20) : 10;
-    const result = await getFeaturedSkills(parsedLimit);
+    const result = await getFeaturedSkills(parsedLimit, app.prisma);
     return reply.send({ success: true, data: result });
   });
 
@@ -709,7 +764,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const params = request.params as { skillId: string };
     const body = request.body as { rating: number };
     const skillStore = await getSkillStoreModule();
-    const result = await skillStore.rateSkill(params.skillId, auth.node_id, body.rating);
+    const result = await skillStore.rateSkill(params.skillId, auth.node_id, body.rating, app.prisma);
     return {
       success: true,
       data: {
@@ -729,7 +784,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const params = request.params as { skillId: string };
     const skillStore = await getSkillStoreModule();
-    const result = await skillStore.downloadSkill(params.skillId, auth.node_id);
+    const result = await skillStore.downloadSkill(params.skillId, auth.node_id, app.prisma);
     return {
       success: true,
       data: {
@@ -763,7 +818,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const result = await skillStore.publishSkillWithUpdates(params.skillId, auth.node_id, {
       ...(body.category !== undefined ? { category: body.category } : {}),
       ...(body.price !== undefined ? { price_credits: body.price } : {}),
-    });
+    }, app.prisma);
     return {
       success: true,
       data: {
@@ -783,9 +838,9 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { skillId } = request.params as { skillId: string };
     const { getSkill } = await import('../skill_store/service');
-    const result = await getSkill(skillId);
+    const result = await getSkill(skillId, app.prisma);
     if (!result) {
-      return reply.status(404).send({ success: false, error: 'Skill not found' });
+      throw new NotFoundError('Skill', skillId);
     }
     return reply.send({ success: true, data: result });
   });
@@ -815,7 +870,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       category: query.category,
       limit: query.limit ?? 20,
       offset: query.offset ?? 0,
-    });
+    }, app.prisma);
     return reply.send({ success: true, data: result.items, meta: { total: result.total } });
   });
 
@@ -842,7 +897,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       category: query.category,
       limit: query.limit,
       offset: query.offset,
-    });
+    }, app.prisma);
     return { success: true, data: result };
   });
 
@@ -870,7 +925,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       category: body.category,
       limit: body.limit,
       offset: body.offset,
-    });
+    }, app.prisma);
     return { success: true, data: result };
   });
 
@@ -915,7 +970,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       price_type: price > 0 ? 'one_time' : 'free',
       price_credits: price > 0 ? price : 0,
       license_type: 'open_source',
-    });
+    }, app.prisma);
     return {
       success: true,
       data: {
@@ -950,7 +1005,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       throw new EvoMapError('service_id is required', 'VALIDATION_ERROR', 400);
     }
     const serviceMarketplace = await getServiceMarketplaceModule();
-    const purchase = await serviceMarketplace.purchaseService(buyerId, listingId);
+    const purchase = await serviceMarketplace.purchaseService(buyerId, listingId, app.prisma);
     return {
       success: true,
       data: {
@@ -1007,6 +1062,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       listingId,
       body.rating,
       body.comment ?? body.review,
+      app.prisma,
     );
     return {
       success: true,
@@ -1068,7 +1124,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       description: body.description,
       price_credits: body.price_per_task ?? body.price,
       status: body.status,
-    });
+    }, app.prisma);
     return {
       success: true,
       data: {
@@ -1088,7 +1144,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { q, type, status, sort, limit, offset } = request.query as Record<string, string | undefined>;
     if (!q) {
-      return reply.status(400).send({ success: false, error: 'q (query) is required' });
+      throw new ValidationError('q (query) is required');
     }
     const parsedLimit = limit ? Number(limit) : 20;
     const parsedOffset = offset ? Number(offset) : 0;
@@ -1107,7 +1163,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
         sort_by: sort as 'relevance' | 'gdi' | 'downloads' | 'rating' | 'newest' | undefined,
         limit: parsedLimit,
         offset: parsedOffset,
-      });
+      }, app.prisma);
       return reply.send({
         success: true,
         data: result.items.map((item) => ({
@@ -1510,8 +1566,6 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       limit?: string;
       offset?: string;
     };
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
     const where: Record<string, unknown> = { assigned_to: auth.node_id };
     if (status) { where.status = status; }
     const take = limit ? Math.min(Number(limit), 50) : 20;
@@ -1562,11 +1616,9 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     // Forward query params to recipe search
     const { q, limit, offset } = request.query as Record<string, string | undefined>;
     if (!q) {
-      return reply.status(400).send({ success: false, error: 'q (query) is required' });
+      throw new ValidationError('q (query) is required');
     }
     // Delegate to the recipe service directly
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
     const parsedLimit = limit ? parseInt(limit, 10) : 20;
     const parsedOffset = offset ? parseInt(offset, 10) : 0;
     const [items, total] = await Promise.all([
@@ -1599,8 +1651,6 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   app.get('/recipe/stats', {
     schema: { tags: ['Recipe'] },
   }, async (_request, reply) => {
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
     const [total, published, draft, organismsResult] = await Promise.all([
       prisma.recipe.count(),
       prisma.recipe.count({ where: { status: 'published' } }),
@@ -1735,11 +1785,8 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const params = request.params as { recipeId: string };
     const body = request.body as { gene_ids?: string[]; ttl_seconds?: number };
-    const { PrismaClient } = await import('@prisma/client');
-    const { NotFoundError: SNotFoundError } = await import('../shared/errors');
-    const prisma = new PrismaClient();
     const recipe = await prisma.recipe.findUnique({ where: { recipe_id: params.recipeId } });
-    if (!recipe) throw new SNotFoundError('Recipe', params.recipeId);
+    if (!recipe) throw new NotFoundError('Recipe', params.recipeId);
     if (recipe.status !== 'published') {
       throw new EvoMapError('Only published recipes can be expressed', 'VALIDATION_ERROR', 400);
     }
@@ -1848,10 +1895,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     if (!body.topic) {
       throw new EvoMapError('topic is required', 'VALIDATION_ERROR', 400);
     }
-    const { createSession } = await import('../session/service');
-    const { PrismaClient } = await import('@prisma/client');
     const { SESSION_TTL_MS } = await import('../shared/constants');
-    const prisma = new PrismaClient();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
     const creatorMember = {
@@ -1907,6 +1951,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       auth.node_id,
       (body.type ?? 'system') as 'subtask_result' | 'query' | 'response' | 'vote' | 'signal' | 'system' | 'operation',
       body.content,
+      app.prisma,
     );
     return { success: true, data: msg };
   });
@@ -1922,7 +1967,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       throw new EvoMapError('sessionId is required', 'VALIDATION_ERROR', 400);
     }
     const sessionService = await getSessionModule();
-    const session = await sessionService.joinSession(body.sessionId, auth.node_id);
+    const session = await sessionService.joinSession(body.sessionId, auth.node_id, app.prisma);
     return { success: true, data: session };
   });
 
@@ -1938,7 +1983,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       status: query.status as 'creating' | 'active' | 'paused' | 'completed' | 'cancelled' | 'error' | 'expired' | undefined,
       limit: query.limit ? parseInt(query.limit, 10) : 20,
       offset: query.offset ? parseInt(query.offset, 10) : 0,
-    });
+    }, app.prisma);
     return reply.send({
       success: true,
       data: result.sessions,
@@ -1963,7 +2008,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const auth = request.auth!;
     const query = request.query as { session_id: string };
     const sessionService = await getSessionModule();
-    const board = await sessionService.getSessionBoard(query.session_id, auth.node_id);
+    const board = await sessionService.getSessionBoard(query.session_id, auth.node_id, app.prisma);
     return { success: true, data: board };
   });
 
@@ -2008,6 +2053,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       body.action,
       body.item,
       body.item_id,
+      app.prisma,
     );
     return { success: true, data: result };
   });
@@ -2071,6 +2117,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
         force_converge: body.force_converge,
         task_board_updates: body.task_board_updates,
       },
+      app.prisma,
     );
     return { success: true, data: result };
   });
@@ -2117,6 +2164,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
         result: body.result,
         summary: body.summary,
       },
+      app.prisma,
     );
     return { success: true, data: result };
   });
@@ -2147,7 +2195,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       throw new EvoMapError('limit must be a positive integer', 'VALIDATION_ERROR', 400);
     }
     const sessionService = await getSessionModule();
-    const context = await sessionService.getSessionContext(query.session_id, auth.node_id, limit);
+    const context = await sessionService.getSessionContext(query.session_id, auth.node_id, limit, app.prisma);
     return { success: true, data: context };
   });
 
@@ -2156,26 +2204,29 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   // GET /a2a/dispute/:disputeId
   app.get('/dispute/:disputeId', {
     schema: { tags: ['Disputes'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
     const { disputeId } = request.params as { disputeId: string };
     const { getDispute } = await import('../dispute/service');
-    const dispute = await getDispute(disputeId);
+    const dispute = await getDispute(disputeId, request.auth!);
     return reply.send({ success: true, data: dispute });
   });
 
   // GET /a2a/dispute/:disputeId/messages — list dispute messages (evidence chain)
   app.get('/dispute/:disputeId/messages', {
     schema: { tags: ['Disputes'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
     const { disputeId } = request.params as { disputeId: string };
     const query = request.query as { limit?: string; offset?: string };
+    const limit = parseDisputeLimit(query.limit);
+    const offset = parseDisputeOffset(query.offset);
     const { getDispute } = await import('../dispute/service');
-    await getDispute(disputeId); // validate dispute exists
-    const limit = query.limit ? parseInt(query.limit, 10) : 20;
-    const offset = query.offset ? parseInt(query.offset, 10) : 0;
+    const disputeRecord = await getDispute(disputeId, request.auth!);
+    if (!canViewRawDisputeEvidence(request.auth!, disputeRecord)) {
+      throw new ForbiddenError('Cannot access dispute evidence');
+    }
     // Dispute model stores evidence as JSON; return it as messages
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
     const dispute = await prisma.dispute.findUnique({
       where: { dispute_id: disputeId },
       select: { evidence: true },
@@ -2188,12 +2239,13 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   // GET /a2a/disputes — list disputes (alias for existing /dispute/ route)
   app.get('/disputes', {
     schema: { tags: ['Disputes'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
     const query = request.query as { status?: string; type?: string; limit?: string; offset?: string };
     const { listDisputes } = await import('../dispute/service');
-    const limit = query.limit ? parseInt(query.limit, 10) : 20;
-    const offset = query.offset ? parseInt(query.offset, 10) : 0;
-    const result = await listDisputes(query.status, query.type, limit, offset);
+    const limit = parseDisputeLimit(query.limit);
+    const offset = parseDisputeOffset(query.offset);
+    const result = await listDisputes(request.auth!, query.status, query.type, limit, offset);
     return reply.send({ success: true, data: { items: result.items, total: result.total } });
   });
 
@@ -2218,7 +2270,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     const q = raw.q;
     const type = raw.type as string | undefined; // unvalidated, passed through
     if (!q) {
-      return reply.status(400).send({ success: false, error: 'q (query) is required' });
+      throw new ValidationError('q (query) is required');
     }
     const result = await assetsService.semanticSearch({
       q,

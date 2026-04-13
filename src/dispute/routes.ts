@@ -1,15 +1,15 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { requireAuth } from '../shared/auth';
-import { ValidationError } from '../shared/errors';
+import { requireAuth, requireTrustLevel, AuthResult } from '../shared/auth';
+import { ForbiddenError, ValidationError } from '../shared/errors';
 import * as service from './service';
 
 const MAX_LIST_LIMIT = 100;
+const MAX_LIST_OFFSET = 10_000;
 const RULING_STATUSES = new Set([
   'under_review',
   'hearing',
   'resolved',
   'dismissed',
-  'escalated',
 ]);
 
 function parseOffset(value?: string): number {
@@ -24,6 +24,9 @@ function parseOffset(value?: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 0) {
     throw new ValidationError('offset must be a non-negative integer');
+  }
+  if (parsed > MAX_LIST_OFFSET) {
+    throw new ValidationError(`offset must be less than or equal to ${MAX_LIST_OFFSET}`);
   }
   return parsed;
 }
@@ -112,15 +115,36 @@ function parseArbitrators(value: unknown): string[] {
   return value;
 }
 
+function ensureDisputeManagementAuth(auth: { auth_type: string } | undefined): void {
+  if (!auth) {
+    throw new ForbiddenError('Authentication is required');
+  }
+
+  if (auth.auth_type === 'api_key') {
+    throw new ForbiddenError('API keys cannot manage disputes');
+  }
+}
+
+function ensureDisputeWriteAuth(auth: AuthResult | undefined): void {
+  if (!auth) {
+    throw new ForbiddenError('Authentication is required');
+  }
+
+  if (auth.auth_type === 'api_key') {
+    throw new ForbiddenError('API keys cannot create or appeal disputes');
+  }
+}
+
 export async function disputeRoutes(app: FastifyInstance) {
   const createDispute = async (
     request: {
-      auth?: { node_id: string };
+      auth?: AuthResult;
       body: unknown;
     },
     reply: FastifyReply,
   ) => {
     const auth = request.auth!;
+    ensureDisputeWriteAuth(auth);
     const body = requireBodyRecord(request.body);
     const type = requireNonEmptyString(body.type, 'type');
     const defendantId = requireNonEmptyString(body.defendant_id, 'defendant_id');
@@ -145,7 +169,6 @@ export async function disputeRoutes(app: FastifyInstance) {
 
   // Alias: POST /a2a/dispute/open  (same as POST /api/v2/disputes)
   app.post('/open', {
-    schema: { tags: ['Disputes'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => createDispute(
     request as Parameters<typeof createDispute>[0],
@@ -153,7 +176,7 @@ export async function disputeRoutes(app: FastifyInstance) {
   ));
 
   app.get('/', {
-    schema: { tags: ['Disputes'] },
+    preHandler: [requireAuth()],
   }, async (request) => {
     const query = request.query as {
       status?: string;
@@ -166,6 +189,7 @@ export async function disputeRoutes(app: FastifyInstance) {
     const offset = parseOffset(query.offset);
 
     const result = await service.listDisputes(
+      request.auth!,
       query.status,
       query.type,
       limit,
@@ -176,15 +200,14 @@ export async function disputeRoutes(app: FastifyInstance) {
   });
 
   app.get('/:disputeId', {
-    schema: { tags: ['Disputes'] },
+    preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { disputeId: string };
-    const dispute = await service.getDispute(params.disputeId);
+    const dispute = await service.getDispute(params.disputeId, request.auth!);
     return { success: true, data: dispute };
   });
 
   app.post('/', {
-    schema: { tags: ['Disputes'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => createDispute(
     request as Parameters<typeof createDispute>[0],
@@ -192,30 +215,37 @@ export async function disputeRoutes(app: FastifyInstance) {
   ));
 
   app.post('/:disputeId/assign', {
-    schema: { tags: ['Disputes'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request) => {
+    ensureDisputeManagementAuth(request.auth);
     const body = requireBodyRecord(request.body);
     const params = request.params as { disputeId: string };
     const arbitrators = parseArbitrators(body.arbitrators);
 
-    const dispute = await service.assignArbitrators(params.disputeId, arbitrators);
+    const dispute = await service.assignArbitrators(
+      params.disputeId,
+      arbitrators,
+      request.auth!.node_id,
+    );
     return { success: true, data: dispute };
   });
 
   app.post('/:disputeId/assign/auto', {
-    schema: { tags: ['Disputes'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request) => {
+    ensureDisputeManagementAuth(request.auth);
     const params = request.params as { disputeId: string };
-    const arbitrators = await service.selectAndAssignArbitrators(params.disputeId);
+    const arbitrators = await service.selectAndAssignArbitrators(
+      params.disputeId,
+      request.auth!.node_id,
+    );
     return { success: true, data: { dispute_id: params.disputeId, arbitrators } };
   });
 
   app.post('/:disputeId/ruling', {
-    schema: { tags: ['Disputes'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request) => {
+    ensureDisputeManagementAuth(request.auth);
     const body = requireBodyRecord(request.body);
     const params = request.params as { disputeId: string };
 
@@ -232,24 +262,32 @@ export async function disputeRoutes(app: FastifyInstance) {
       throw new ValidationError(`status must be one of ${Array.from(RULING_STATUSES).join(', ')}`);
     }
 
-    const dispute = await service.issueRuling(params.disputeId, body.ruling as object, status);
+    const dispute = await service.issueRuling(
+      params.disputeId,
+      body.ruling as object,
+      status,
+      request.auth!.node_id,
+    );
     return { success: true, data: dispute };
   });
 
   app.post('/:disputeId/ruling/auto', {
-    schema: { tags: ['Disputes'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request) => {
+    ensureDisputeManagementAuth(request.auth);
     const params = request.params as { disputeId: string };
-    const ruling = await service.autoGenerateRuling(params.disputeId);
+    const ruling = await service.autoGenerateRuling(
+      params.disputeId,
+      request.auth!.node_id,
+    );
     return { success: true, data: ruling };
   });
 
   app.post('/:disputeId/appeal', {
-    schema: { tags: ['Disputes'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureDisputeWriteAuth(auth);
     const body = requireBodyRecord(request.body);
     const params = request.params as { disputeId: string };
 
@@ -266,37 +304,37 @@ export async function disputeRoutes(app: FastifyInstance) {
   });
 
   app.post('/appeals/:appealId/review', {
-    schema: { tags: ['Disputes'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request) => {
+    ensureDisputeManagementAuth(request.auth);
     const params = request.params as { appealId: string };
-    const result = await service.reviewAppeal(params.appealId);
+    const result = await service.reviewAppeal(params.appealId, request.auth!.node_id);
     return { success: true, data: result };
   });
 
   app.post('/appeals/:appealId/process', {
-    schema: { tags: ['Disputes'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request) => {
+    ensureDisputeManagementAuth(request.auth);
     const params = request.params as { appealId: string };
-    await service.processAppealDecision(params.appealId);
+    await service.processAppealDecision(params.appealId, request.auth!.node_id);
     return { success: true, data: { appeal_id: params.appealId, processed: true } };
   });
 
   app.post('/:disputeId/escalate', {
-    schema: { tags: ['Disputes'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request) => {
+    ensureDisputeManagementAuth(request.auth);
     const params = request.params as { disputeId: string };
-    const result = await service.escalateDisputeToCouncil(params.disputeId);
+    const result = await service.escalateDisputeToCouncil(params.disputeId, request.auth!.node_id);
     return { success: true, data: result };
   });
 
   app.get('/:disputeId/appeals', {
-    schema: { tags: ['Disputes'] },
+    preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { disputeId: string };
-    const appeals = await service.listAppeals(params.disputeId);
+    const appeals = await service.listAppeals(params.disputeId, request.auth!);
     return { success: true, data: appeals };
   });
 }

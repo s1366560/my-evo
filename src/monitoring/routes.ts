@@ -1,11 +1,21 @@
 import type { FastifyInstance } from 'fastify';
 import * as monitoringService from './service';
 
-export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
+type MonitoringRoutesOptions = {
+  monitoringState?: monitoringService.MonitoringState;
+  [key: string]: unknown;
+};
+
+export async function monitoringRoutes(
+  app: FastifyInstance,
+  opts: MonitoringRoutesOptions = {},
+): Promise<void> {
+  const monitoringState = opts.monitoringState ?? monitoringService.createMonitoringState();
+
   app.get('/health', {
     schema: { tags: ['Monitoring'] },
   }, async (_request, reply) => {
-    const result = await monitoringService.checkHealth();
+    const result = await monitoringService.checkHealth(app.prisma);
 
     const statusCode = result.status === 'healthy' ? 200 : result.status === 'degraded' ? 200 : 503;
 
@@ -18,6 +28,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     const { names, start, end } = request.query as Record<string, string | undefined>;
 
     const result = await monitoringService.getMetrics(
+      monitoringState,
       names ? names.split(',') : undefined,
       start,
       end,
@@ -32,6 +43,7 @@ export async function monitoringRoutes(app: FastifyInstance): Promise<void> {
     const { severity, limit } = request.query as Record<string, string | undefined>;
 
     const result = await monitoringService.getAlerts(
+      monitoringState,
       severity as 'info' | 'warning' | 'critical' | undefined,
       limit ? Number(limit) : 50,
     );

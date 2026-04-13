@@ -26,6 +26,10 @@ export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
 
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
 function computeRelevance(
   asset: {
     name: string;
@@ -93,7 +97,8 @@ function toSearchableAsset(
   };
 }
 
-export async function search(query: SearchQuery): Promise<SearchResult> {
+export async function search(query: SearchQuery, prismaClient?: PrismaClient): Promise<SearchResult> {
+  const client = getPrismaClient(prismaClient);
   const startMs = Date.now();
   const limit = Math.min(
     query.limit ?? DEFAULT_SEARCH_LIMIT,
@@ -125,7 +130,7 @@ export async function search(query: SearchQuery): Promise<SearchResult> {
     where.author_id = query.author_id;
   }
 
-  const assets = await prisma.asset.findMany({
+  const assets = await client.asset.findMany({
     where,
     orderBy: { gdi_score: 'desc' },
     take: MAX_SEARCH_LIMIT,
@@ -164,7 +169,9 @@ export async function search(query: SearchQuery): Promise<SearchResult> {
 export async function autocomplete(
   prefix: string,
   type?: 'gene' | 'capsule' | 'skill',
+  prismaClient?: PrismaClient,
 ): Promise<AutocompleteResult> {
+  const client = getPrismaClient(prismaClient);
   const where: Record<string, unknown> = {
     status: 'published',
     name: { contains: prefix, mode: 'insensitive' },
@@ -173,7 +180,7 @@ export async function autocomplete(
     where.asset_type = type;
   }
 
-  const assets = await prisma.asset.findMany({
+  const assets = await client.asset.findMany({
     where,
     select: { name: true, signals: true, tags: true },
     take: 20,
@@ -225,12 +232,14 @@ export async function autocomplete(
 
 export async function trending(
   limit = 20,
+  prismaClient?: PrismaClient,
 ): Promise<SearchableAsset[]> {
+  const client = getPrismaClient(prismaClient);
   const thirtyDaysAgo = new Date(
     Date.now() - 30 * 24 * 60 * 60 * 1000,
   );
 
-  const assets = await prisma.asset.findMany({
+  const assets = await client.asset.findMany({
     where: {
       status: 'published',
       created_at: { gte: thirtyDaysAgo },
@@ -247,8 +256,10 @@ export async function trending(
 export async function findSimilar(
   assetId: string,
   threshold = SEARCH_SIMILARITY_THRESHOLD,
+  prismaClient?: PrismaClient,
 ): Promise<Array<{ asset: SearchableAsset; similarity: number }>> {
-  const source = await prisma.asset.findUnique({
+  const client = getPrismaClient(prismaClient);
+  const source = await client.asset.findUnique({
     where: { asset_id: assetId },
   });
 
@@ -256,7 +267,7 @@ export async function findSimilar(
     return [];
   }
 
-  const candidates = await prisma.asset.findMany({
+  const candidates = await client.asset.findMany({
     where: {
       asset_id: { not: assetId },
       status: 'published',
@@ -289,8 +300,9 @@ export async function findSimilar(
   return results.sort((a, b) => b.similarity - a.similarity).slice(0, 20);
 }
 
-export async function reindex(assetId: string): Promise<void> {
-  const asset = await prisma.asset.findUnique({
+export async function reindex(assetId: string, prismaClient?: PrismaClient): Promise<void> {
+  const client = getPrismaClient(prismaClient);
+  const asset = await client.asset.findUnique({
     where: { asset_id: assetId },
   });
 
@@ -298,7 +310,7 @@ export async function reindex(assetId: string): Promise<void> {
     return;
   }
 
-  await prisma.asset.update({
+  await client.asset.update({
     where: { asset_id: assetId },
     data: { updated_at: new Date() },
   });
