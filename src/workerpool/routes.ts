@@ -134,6 +134,42 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     }
   });
 
+  app.get('/specialist/pools', {
+    schema: { tags: ['Swarm'] },
+  }, async () => {
+    const pools = await service.listSpecialistPools();
+    return { success: true, data: { pools } };
+  });
+
+  app.post('/match', {
+    schema: { tags: ['Swarm'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const body = request.body as {
+      task_signals: string[];
+      min_reputation?: number;
+      limit?: number;
+    };
+
+    if (!Array.isArray(body.task_signals) || body.task_signals.length === 0) {
+      throw new EvoMapError('task_signals array is required', 'VALIDATION_ERROR', 400);
+    }
+
+    const matches = await service.matchWorkers(
+      body.task_signals,
+      body.min_reputation ?? 0,
+      body.limit ?? 10,
+    );
+    return { success: true, data: { matches } };
+  });
+
+  app.get('/stats', {
+    schema: { tags: ['Swarm'] },
+  }, async () => {
+    const stats = await service.getWorkerPoolStats();
+    return { success: true, data: stats };
+  });
+
   // Rate specialist
   app.post('/specialists/:nodeId/rate', {
     schema: { tags: ['Swarm'] },

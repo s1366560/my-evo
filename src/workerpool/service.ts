@@ -12,6 +12,14 @@ import {
 
 let prisma = new PrismaClient();
 
+const WORKER_MATCH_WEIGHTS = {
+  skill_match: 0.30,
+  success_rate: 0.25,
+  response_time: 0.20,
+  reputation: 0.15,
+  load_headroom: 0.10,
+} as const;
+
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
@@ -351,6 +359,59 @@ function workerToSpecialist(w: { node_id: string; specialties: string[]; max_con
   };
 }
 
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function roundMetric(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function calculateResponseTimeScore(lastHeartbeat: Date): number {
+  const ageMs = Date.now() - new Date(lastHeartbeat).getTime();
+  return clamp01(1 - ageMs / WORKER_TIMEOUT_MS);
+}
+
+function calculateLoadHeadroomScore(worker: {
+  current_tasks: number;
+  max_concurrent: number;
+}): number {
+  if (worker.max_concurrent <= 0) {
+    return 0;
+  }
+
+  return clamp01((worker.max_concurrent - worker.current_tasks) / worker.max_concurrent);
+}
+
+function calculateFinalMatchScore(input: {
+  skill_match_score: number;
+  success_rate_score: number;
+  response_time_score: number;
+  reputation_score: number;
+  load_headroom_score: number;
+}): number {
+  return roundMetric(
+    input.skill_match_score * WORKER_MATCH_WEIGHTS.skill_match
+      + input.success_rate_score * WORKER_MATCH_WEIGHTS.success_rate
+      + input.response_time_score * WORKER_MATCH_WEIGHTS.response_time
+      + input.reputation_score * WORKER_MATCH_WEIGHTS.reputation
+      + input.load_headroom_score * WORKER_MATCH_WEIGHTS.load_headroom,
+  );
+}
+
+async function getWorkerReputationMap(workerIds: string[]): Promise<Map<string, number>> {
+  if (workerIds.length === 0) {
+    return new Map();
+  }
+
+  const nodes = await prisma.node.findMany({
+    where: { node_id: { in: workerIds } },
+    select: { node_id: true, reputation: true },
+  });
+
+  return new Map(nodes.map((node) => [node.node_id, node.reputation]));
+}
+
 export async function listSpecialists(
   specialty?: string,
   availableOnly?: boolean,
@@ -386,6 +447,142 @@ export async function getSpecialist(nodeId: string): Promise<Record<string, unkn
     throw new NotFoundError('Worker', nodeId);
   }
   return workerToSpecialist(worker);
+}
+
+export async function listSpecialistPools(): Promise<Array<{
+  name: string;
+  worker_count: number;
+  avg_reputation: number;
+}>> {
+  const workers = await prisma.worker.findMany({
+    orderBy: { node_id: 'asc' },
+  });
+  const reputations = await getWorkerReputationMap(workers.map((worker) => worker.node_id));
+  const pools = new Map<string, { name: string; worker_count: number; reputation_sum: number }>();
+
+  for (const worker of workers) {
+    const reputation = reputations.get(worker.node_id) ?? 50;
+    for (const specialty of worker.specialties) {
+      const current = pools.get(specialty) ?? {
+        name: specialty,
+        worker_count: 0,
+        reputation_sum: 0,
+      };
+      current.worker_count += 1;
+      current.reputation_sum += reputation;
+      pools.set(specialty, current);
+    }
+  }
+
+  return Array.from(pools.values())
+    .map((pool) => ({
+      name: pool.name,
+      worker_count: pool.worker_count,
+      avg_reputation: roundMetric(pool.reputation_sum / pool.worker_count),
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export async function matchWorkers(
+  taskSignals: string[],
+  minReputation = 0,
+  limit = 10,
+): Promise<Array<{
+  worker_id: string;
+  match_score: number;
+  skill_match_score: number;
+  success_rate_score: number;
+  response_time_score: number;
+  reputation_score: number;
+  load_headroom_score: number;
+  price: null;
+}>> {
+  if (taskSignals.length === 0) {
+    throw new ValidationError('task_signals must contain at least one signal');
+  }
+
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - WORKER_TIMEOUT_MS);
+  const workers = await prisma.worker.findMany({
+    where: { is_available: true },
+  });
+  const reputations = await getWorkerReputationMap(workers.map((worker) => worker.node_id));
+
+  return workers
+    .map((worker) => {
+      const matchedSignals = worker.specialties.filter((specialty) => taskSignals.includes(specialty));
+      const reputation = reputations.get(worker.node_id) ?? 50;
+      const skillMatchScore = clamp01(matchedSignals.length / taskSignals.length);
+      const successRateScore = clamp01(worker.success_rate / 100);
+      const responseTimeScore = calculateResponseTimeScore(worker.last_heartbeat);
+      const reputationScore = clamp01(reputation / 100);
+      const loadHeadroomScore = calculateLoadHeadroomScore(worker);
+      const available =
+        worker.current_tasks < worker.max_concurrent
+        && new Date(worker.last_heartbeat) > cutoff
+        && reputation >= minReputation
+        && skillMatchScore > 0;
+
+      return {
+        worker_id: worker.node_id,
+        match_score: calculateFinalMatchScore({
+          skill_match_score: skillMatchScore,
+          success_rate_score: successRateScore,
+          response_time_score: responseTimeScore,
+          reputation_score: reputationScore,
+          load_headroom_score: loadHeadroomScore,
+        }),
+        skill_match_score: roundMetric(skillMatchScore),
+        success_rate_score: roundMetric(successRateScore),
+        response_time_score: roundMetric(responseTimeScore),
+        reputation_score: roundMetric(reputationScore),
+        load_headroom_score: roundMetric(loadHeadroomScore),
+        price: null,
+        available,
+      };
+    })
+    .filter((worker) => worker.available)
+    .sort((left, right) => right.match_score - left.match_score)
+    .slice(0, limit)
+    .map(({ available: _available, ...worker }) => worker);
+}
+
+export async function getWorkerPoolStats(): Promise<{
+  total_workers: number;
+  active_workers: number;
+  total_tasks_completed: number;
+  avg_match_score: number;
+  specialist_pools: number;
+}> {
+  const workers = await prisma.worker.findMany();
+  const reputations = await getWorkerReputationMap(workers.map((worker) => worker.node_id));
+  const cutoff = new Date(Date.now() - WORKER_TIMEOUT_MS);
+  const activeWorkers = workers.filter(
+    (worker) => worker.is_available && new Date(worker.last_heartbeat) > cutoff,
+  );
+  const uniquePools = new Set(workers.flatMap((worker) => worker.specialties));
+  const avgMatchScore = activeWorkers.length === 0
+    ? 0
+    : roundMetric(
+      activeWorkers.reduce((sum, worker) => {
+        const reputation = reputations.get(worker.node_id) ?? 50;
+        return sum + calculateFinalMatchScore({
+          skill_match_score: 1,
+          success_rate_score: clamp01(worker.success_rate / 100),
+          response_time_score: calculateResponseTimeScore(worker.last_heartbeat),
+          reputation_score: clamp01(reputation / 100),
+          load_headroom_score: calculateLoadHeadroomScore(worker),
+        });
+      }, 0) / activeWorkers.length,
+    );
+
+  return {
+    total_workers: workers.length,
+    active_workers: activeWorkers.length,
+    total_tasks_completed: workers.reduce((sum, worker) => sum + worker.total_completed, 0),
+    avg_match_score: avgMatchScore,
+    specialist_pools: uniquePools.size,
+  };
 }
 
 export async function rateSpecialist(

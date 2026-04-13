@@ -36,6 +36,7 @@ export interface ExpressionPlan {
   recipe_id: string;
   steps: ExpressionStep[];
   current_position: number;
+  input_payload?: Record<string, unknown>;
   status: 'pending' | 'running' | 'completed' | 'failed';
 }
 
@@ -116,6 +117,7 @@ export async function expressRecipe(
     recipe_id: recipeId,
     steps,
     current_position: 0,
+    input_payload: inputPayload,
     status: 'pending',
   };
 
@@ -335,22 +337,34 @@ async function evaluateCondition(
  */
 async function executeGeneStep(
   geneAssetId: string,
-  _plan: ExpressionPlan,
+  plan: ExpressionPlan,
 ): Promise<{ output: unknown }> {
-  // Validate gene exists
   const gene = await prisma.asset.findUnique({
     where: { asset_id: geneAssetId },
   });
 
   if (!gene) {
-    throw new Error(`Gene asset not found: ${geneAssetId}`);
+    throw new NotFoundError('Gene asset', geneAssetId);
   }
 
-  // In production: execute the gene strategy via the GEP execution engine
-  // For now, return a mock successful output
+  if (gene.asset_type !== 'gene') {
+    throw new ValidationError(`Asset ${geneAssetId} is not a gene`);
+  }
+
+  if (gene.status !== 'published') {
+    throw new ValidationError(`Gene asset ${geneAssetId} must be published to execute`);
+  }
+
   return {
     output: {
       gene_asset_id: geneAssetId,
+      gene_name: gene.name,
+      organism_id: plan.organism_id,
+      recipe_id: plan.recipe_id,
+      input_payload: plan.input_payload ?? null,
+      config: gene.config ?? null,
+      content: gene.content ?? null,
+      signals: Array.isArray(gene.signals) ? gene.signals : [],
       executed_at: new Date().toISOString(),
       status: 'success',
     },

@@ -1824,6 +1824,7 @@ describe('Auto Ruling', () => {
         type: 'asset_quality',
         plaintiff_id: 'node-plaintiff',
         defendant_id: 'node-defendant',
+        arbitrators: ['arb-1', 'arb-2', 'arb-3'],
         title: 'Asset quality dispute',
         description: 'Asset does not meet spec',
         evidence: [],
@@ -1843,8 +1844,19 @@ describe('Auto Ruling', () => {
       expect(result.reasoning).toContain('Asset Quality Dispute');
       expect(result.penalties).toBeDefined();
       expect(result.compensations).toBeDefined();
-      expect(result.votes).toEqual([]);
+      expect(result.votes).toHaveLength(3);
+      expect(result.votes[0]).toEqual({
+        arbitrator_id: 'arb-1',
+        vote: 'defendant',
+        reasoning: expect.stringContaining('favor the defendant'),
+      });
       expect(result.appeal_deadline).toBeDefined();
+    });
+
+    it('should throw when the dispute does not exist', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue(null);
+
+      await expect(autoRuling.generateRuling('missing-dispute')).rejects.toThrow('Dispute not found');
     });
   });
 });

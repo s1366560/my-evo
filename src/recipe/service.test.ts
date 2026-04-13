@@ -59,6 +59,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  schedulerModule.clearScheduledExpressions();
   // Restore recipeVersion after tests that delete it
   mockPrisma.recipeVersion = {
     create: jest.fn(),
@@ -103,11 +104,16 @@ const mockOrganism = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const mockGene = (id = 'gene-1') => ({
+const mockGene = (id = 'gene-1', overrides: Record<string, unknown> = {}) => ({
   asset_id: id,
   name: `Gene ${id}`,
-  type: 'gene',
-  owner_id: 'node-1',
+  asset_type: 'gene',
+  status: 'published',
+  content: null,
+  config: null,
+  signals: [],
+  author_id: 'node-1',
+  ...overrides,
 });
 
 // ============================================================
@@ -178,10 +184,113 @@ describe('Expression Engine', () => {
       expect(mockPrisma.organism.create).toHaveBeenCalled();
     });
 
+    it('should thread input payload and gene metadata into executed step outputs', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe({
+        genes: [{ gene_asset_id: 'gene-1', position: 1, optional: false }],
+      }));
+      mockPrisma.organism.create.mockResolvedValue(mockOrganism());
+      mockPrisma.organism.update.mockResolvedValue(mockOrganism({ status: 'completed' }));
+      mockPrisma.asset.findUnique.mockResolvedValue(mockGene('gene-1', {
+        content: 'frontend issues detected',
+        config: { mode: 'inspect' },
+        signals: ['frontend', 'issues'],
+      }));
+
+      const result = await expressionEngine.expressRecipe('recipe-1', {
+        target: 'frontend',
+        severity: 'high',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.steps[0]!.output).toEqual(expect.objectContaining({
+        gene_asset_id: 'gene-1',
+        gene_name: 'Gene gene-1',
+        recipe_id: 'recipe-1',
+        input_payload: {
+          target: 'frontend',
+          severity: 'high',
+        },
+        config: { mode: 'inspect' },
+        content: 'frontend issues detected',
+        signals: ['frontend', 'issues'],
+        status: 'success',
+      }));
+    });
+
     it('should throw ValidationError for recipe with no genes', async () => {
       mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe({ genes: [] }));
 
       await expect(expressionEngine.expressRecipe('recipe-1')).rejects.toThrow('no genes to express');
+    });
+
+    it('should fail the expression when a required gene asset is missing', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe({
+        genes: [{ gene_asset_id: 'gene-missing', position: 1, optional: false }],
+      }));
+      mockPrisma.organism.create.mockResolvedValue(mockOrganism());
+      mockPrisma.organism.update.mockResolvedValue(mockOrganism({ status: 'failed' }));
+      mockPrisma.asset.findUnique.mockResolvedValue(null);
+
+      const result = await expressionEngine.expressRecipe('recipe-1');
+
+      expect(result.success).toBe(false);
+      expect(result.steps[0]!.status).toBe('failed');
+      expect(result.errors[0]).toContain('Gene asset not found');
+    });
+
+    it('should skip optional genes that cannot be executed and continue', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe({
+        genes: [
+          { gene_asset_id: 'gene-1', position: 1, optional: false },
+          { gene_asset_id: 'gene-2', position: 2, optional: true },
+          { gene_asset_id: 'gene-3', position: 3, optional: false },
+        ],
+      }));
+      mockPrisma.organism.create.mockResolvedValue(mockOrganism());
+      mockPrisma.organism.update.mockResolvedValue(mockOrganism({ status: 'completed' }));
+      mockPrisma.asset.findUnique
+        .mockResolvedValueOnce(mockGene('gene-1'))
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(mockGene('gene-3'));
+
+      const result = await expressionEngine.expressRecipe('recipe-1');
+
+      expect(result.success).toBe(true);
+      expect(result.steps[0]!.status).toBe('success');
+      expect(result.steps[1]!.status).toBe('skipped');
+      expect(result.steps[2]!.status).toBe('success');
+    });
+
+    it('should fail when a referenced asset is not a gene', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe({
+        genes: [{ gene_asset_id: 'asset-1', position: 1, optional: false }],
+      }));
+      mockPrisma.organism.create.mockResolvedValue(mockOrganism());
+      mockPrisma.organism.update.mockResolvedValue(mockOrganism({ status: 'failed' }));
+      mockPrisma.asset.findUnique.mockResolvedValue(mockGene('asset-1', {
+        asset_type: 'capsule',
+      }));
+
+      const result = await expressionEngine.expressRecipe('recipe-1');
+
+      expect(result.success).toBe(false);
+      expect(result.errors[0]).toContain('is not a gene');
+    });
+
+    it('should fail when a referenced gene is not published', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe({
+        genes: [{ gene_asset_id: 'gene-draft', position: 1, optional: false }],
+      }));
+      mockPrisma.organism.create.mockResolvedValue(mockOrganism());
+      mockPrisma.organism.update.mockResolvedValue(mockOrganism({ status: 'failed' }));
+      mockPrisma.asset.findUnique.mockResolvedValue(mockGene('gene-draft', {
+        status: 'draft',
+      }));
+
+      const result = await expressionEngine.expressRecipe('recipe-1');
+
+      expect(result.success).toBe(false);
+      expect(result.errors[0]).toContain('must be published');
     });
   });
 
@@ -658,7 +767,7 @@ describe('Priority Scheduler', () => {
   describe('scheduleExpression', () => {
     it('should schedule expression for published recipe', async () => {
       mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe());
-      mockPrisma.organism.create.mockResolvedValue(mockOrganism());
+      mockPrisma.organism.create.mockResolvedValue(mockOrganism({ organism_id: 'org-priority-80' }));
 
       const scheduled = await schedulerModule.scheduleExpression('recipe-1', 80);
 
@@ -681,6 +790,19 @@ describe('Priority Scheduler', () => {
 
       expect(scheduled.priority).toBe(50);
     });
+
+    it('should clamp explicit priorities onto the supported 0-100 range', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe());
+      mockPrisma.organism.create
+        .mockResolvedValueOnce(mockOrganism({ organism_id: 'org-high' }))
+        .mockResolvedValueOnce(mockOrganism({ organism_id: 'org-low' }));
+
+      const high = await schedulerModule.scheduleExpression('recipe-1', 250);
+      const low = await schedulerModule.scheduleExpression('recipe-1', -20);
+
+      expect(high.priority).toBe(100);
+      expect(low.priority).toBe(0);
+    });
   });
 
   describe('getExecutionFrequency', () => {
@@ -696,27 +818,76 @@ describe('Priority Scheduler', () => {
   });
 
   describe('getNextScheduled', () => {
-    it('should return scheduled organisms sorted by creation time', async () => {
+    it('should return scheduled organisms sorted by priority then creation time', async () => {
+      mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe());
+      mockPrisma.organism.create
+        .mockResolvedValueOnce(mockOrganism({
+          organism_id: 'org-low',
+          created_at: new Date('2026-01-01T00:00:02Z'),
+        }))
+        .mockResolvedValueOnce(mockOrganism({
+          organism_id: 'org-high',
+          created_at: new Date('2026-01-01T00:00:03Z'),
+        }))
+        .mockResolvedValueOnce(mockOrganism({
+          organism_id: 'org-mid-older',
+          created_at: new Date('2026-01-01T00:00:01Z'),
+        }));
+
+      await schedulerModule.scheduleExpression('recipe-1', 10);
+      await schedulerModule.scheduleExpression('recipe-1', 90);
+      await schedulerModule.scheduleExpression('recipe-1', 60);
+
       mockPrisma.organism.findMany.mockResolvedValue([
-        mockOrganism({ organism_id: 'org-1' }),
-        mockOrganism({ organism_id: 'org-2' }),
+        mockOrganism({ organism_id: 'org-low', created_at: new Date('2026-01-01T00:00:02Z'), status: 'assembling' }),
+        mockOrganism({ organism_id: 'org-high', created_at: new Date('2026-01-01T00:00:03Z'), status: 'assembling' }),
+        mockOrganism({ organism_id: 'org-mid-older', created_at: new Date('2026-01-01T00:00:01Z'), status: 'assembling' }),
       ]);
 
       const scheduled = await schedulerModule.getNextScheduled(5);
 
-      expect(scheduled.length).toBe(2);
+      expect(scheduled.length).toBe(3);
+      expect(scheduled.map((item) => item.organism_id)).toEqual([
+        'org-high',
+        'org-mid-older',
+        'org-low',
+      ]);
+      expect(scheduled.map((item) => item.priority)).toEqual([90, 60, 10]);
       expect(scheduled[0]!.status).toBe('scheduled');
+    });
+
+    it('should fall back to the default priority for unmanaged scheduler records', async () => {
+      mockPrisma.organism.findMany.mockResolvedValue([
+        mockOrganism({ organism_id: 'org-db-only', status: 'assembling' }),
+      ]);
+
+      const scheduled = await schedulerModule.getNextScheduled(5);
+
+      expect(scheduled).toEqual([
+        expect.objectContaining({
+          organism_id: 'org-db-only',
+          priority: 50,
+        }),
+      ]);
     });
   });
 
   describe('cancelScheduled', () => {
     it('should cancel scheduled organism', async () => {
-      mockPrisma.organism.findUnique.mockResolvedValue(mockOrganism({ status: 'assembling' }));
+      mockPrisma.recipe.findUnique.mockResolvedValue(mockRecipe());
+      mockPrisma.organism.create.mockResolvedValue(mockOrganism({
+        organism_id: 'org-1',
+        status: 'assembling',
+      }));
+      await schedulerModule.scheduleExpression('recipe-1', 75);
+
+      mockPrisma.organism.findUnique.mockResolvedValue(mockOrganism({ organism_id: 'org-1', status: 'assembling' }));
       mockPrisma.organism.update.mockResolvedValue(mockOrganism({ status: 'expired' }));
 
       const result = await schedulerModule.cancelScheduled('org-1');
 
       expect(result.status).toBe('cancelled');
+      expect(result.priority).toBe(75);
     });
 
     it('should throw NotFoundError for unknown organism', async () => {

@@ -1,4 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from '../shared/errors';
 import type {
   Amendment,
   AmendmentVote,
@@ -19,6 +24,17 @@ const CONSTITUTION_VERSION: ConstitutionVersion = {
 };
 
 let amendments: Map<string, Amendment> = new Map();
+let currentConstitutionVersion: ConstitutionVersion = { ...CONSTITUTION_VERSION };
+
+function getNextAmendmentVersion(): number {
+  let highestVersion = currentConstitutionVersion.version;
+
+  for (const amendment of amendments.values()) {
+    highestVersion = Math.max(highestVersion, amendment.version);
+  }
+
+  return highestVersion + 1;
+}
 
 export async function proposeAmendment(
   content: string,
@@ -26,10 +42,10 @@ export async function proposeAmendment(
 ): Promise<Amendment> {
   const now = new Date();
   const discussionDeadline = new Date(
-    now.getTime() + CONSTITUTION_DISCUSSION_HOURS * 3600_1000,
+    now.getTime() + CONSTITUTION_DISCUSSION_HOURS * 3600_000,
   );
   const votingDeadline = new Date(
-    now.getTime() + (CONSTITUTION_DISCUSSION_HOURS + CONSTITUTION_VOTING_HOURS) * 3600_1000,
+    now.getTime() + (CONSTITUTION_DISCUSSION_HOURS + CONSTITUTION_VOTING_HOURS) * 3600_000,
   );
 
   const amendment: Amendment = {
@@ -43,7 +59,7 @@ export async function proposeAmendment(
     approval_rate: 0,
     discussion_deadline: discussionDeadline.toISOString(),
     voting_deadline: votingDeadline.toISOString(),
-    version: CONSTITUTION_VERSION.version + amendments.size + 1,
+    version: getNextAmendmentVersion(),
     created_at: now.toISOString(),
     updated_at: now.toISOString(),
   };
@@ -61,32 +77,27 @@ export async function voteOnAmendment(
 ): Promise<Amendment> {
   const amendment = amendments.get(amendmentId);
   if (!amendment) {
-    throw new Error(`Amendment not found: ${amendmentId}`);
+    throw new NotFoundError('Amendment', amendmentId);
   }
 
   if (amendment.status !== 'proposed' && amendment.status !== 'voting') {
-    throw new Error(`Amendment is not in a votable state: ${amendment.status}`);
+    throw new ConflictError(`Amendment is not in a votable state: ${amendment.status}`);
   }
 
-  // Check cooldown for rejected amendments
-  if (amendment.status === 'proposed' && amendment.votes.length > 0) {
-    const existingVote = amendment.votes.find(v => v.voter_id === voterId);
-    if (existingVote) {
-      throw new Error('Node has already voted on this amendment');
-    }
+  const existingVote = amendment.votes.find((vote) => vote.voter_id === voterId);
+  if (existingVote) {
+    throw new ConflictError('Node has already voted on this amendment');
   }
 
-  // Check if voting deadline has passed
   if (amendment.voting_deadline) {
     const deadline = new Date(amendment.voting_deadline);
     if (new Date() > deadline) {
       amendment.status = 'expired';
       amendments.set(amendmentId, amendment);
-      throw new Error('Voting deadline has passed');
+      throw new ConflictError('Voting deadline has passed');
     }
   }
 
-  // Check discussion deadline
   if (amendment.status === 'proposed' && amendment.discussion_deadline) {
     const deadline = new Date(amendment.discussion_deadline);
     if (new Date() > deadline) {
@@ -118,32 +129,32 @@ export async function ratifyAmendment(
 ): Promise<{
   amendment: Amendment;
   new_version: ConstitutionVersion;
-}> {
+  }> {
   const amendment = amendments.get(amendmentId);
   if (!amendment) {
-    throw new Error(`Amendment not found: ${amendmentId}`);
+    throw new NotFoundError('Amendment', amendmentId);
   }
 
   if (amendment.status === 'ratified') {
-    throw new Error('Amendment has already been ratified');
+    throw new ConflictError('Amendment has already been ratified');
   }
 
   if (amendment.status === 'rejected') {
-    throw new Error('Amendment has been rejected');
+    throw new ConflictError('Amendment has been rejected');
   }
 
   const { approval_rate, total_votes } = calculateApprovalRate(amendment.votes);
 
   // Check quorum (need minimum participation)
   if (total_votes < 3) {
-    throw new Error(`Insufficient votes for ratification: ${total_votes}/3 minimum`);
+    throw new ValidationError(`Insufficient votes for ratification: ${total_votes}/3 minimum`);
   }
 
   // Check 75% approval threshold
   if (approval_rate < CONSTITUTION_AMENDMENT_QUORUM) {
     amendment.status = 'rejected';
     amendments.set(amendmentId, amendment);
-    throw new Error(
+    throw new ValidationError(
       `Amendment rejected: ${(approval_rate * 100).toFixed(1)}% < ${CONSTITUTION_AMENDMENT_QUORUM * 100}% required`,
     );
   }
@@ -154,7 +165,7 @@ export async function ratifyAmendment(
   amendments.set(amendmentId, amendment);
 
   const newVersion: ConstitutionVersion = {
-    version: CONSTITUTION_VERSION.version + 1,
+    version: amendment.version,
     hash: generateHash(amendment.content),
     ratified_at: amendment.ratified_at,
     ratified_by: 'council_vote',
@@ -162,13 +173,12 @@ export async function ratifyAmendment(
     change_summary: summarizeChange(amendment.content),
   };
 
-  // In production this would update a global constant or database
-  // For now we return it
+  currentConstitutionVersion = { ...newVersion };
   return { amendment, new_version: newVersion };
 }
 
 export async function getConstitutionVersion(): Promise<ConstitutionVersion> {
-  return { ...CONSTITUTION_VERSION };
+  return { ...currentConstitutionVersion };
 }
 
 export async function getAmendment(amendmentId: string): Promise<Amendment | null> {
@@ -261,6 +271,7 @@ function summarizeChange(content: string): string {
 
 export function clearAmendments(): void {
   amendments = new Map();
+  currentConstitutionVersion = { ...CONSTITUTION_VERSION };
 }
 
 export function getAllAmendments(): Map<string, Amendment> {

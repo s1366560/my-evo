@@ -210,6 +210,36 @@ describe('Agent Config Service', () => {
       expect(checkPermission('deny-agent', 'read')).toBe(true);
       expect(checkPermission('deny-agent', 'write')).toBe(false);
     });
+
+    it('should allow conditional permissions when context matches', () => {
+      upsertAgentConfig('conditional-agent');
+      updateAgentPermissions(
+        'conditional-agent',
+        ['read'],
+        [],
+        [{ scope: 'publish', condition: 'trust_level == trusted' }],
+      );
+
+      expect(checkPermission('conditional-agent', 'publish', { trust_level: 'trusted' })).toBe(true);
+      expect(checkPermission('conditional-agent', 'publish', { trust_level: 'verified' })).toBe(false);
+    });
+
+    it('should support dotted-path and numeric conditional checks', () => {
+      upsertAgentConfig('nested-conditional-agent');
+      updateAgentPermissions(
+        'nested-conditional-agent',
+        [],
+        [],
+        [{ scope: 'delete', condition: 'request.risk_score <= 3' }],
+      );
+
+      expect(checkPermission('nested-conditional-agent', 'delete', {
+        request: { risk_score: 2 },
+      })).toBe(true);
+      expect(checkPermission('nested-conditional-agent', 'delete', {
+        request: { risk_score: 5 },
+      })).toBe(false);
+    });
   });
 
   // ===== enforceConstraint =====
@@ -331,6 +361,23 @@ describe('Agent Config Service', () => {
       updateAgentPermissions('high-agent', ['read', 'publish']);
       expect(canAgentPerform('high-agent', 'read')).toBe(true);
       expect(canAgentPerform('high-agent', 'publish')).toBe(true);
+    });
+
+    it('canAgentPerform evaluates conditional permissions against context', () => {
+      upsertAgentConfig('conditional-helper-agent');
+      updateAgentPermissions(
+        'conditional-helper-agent',
+        ['read'],
+        [],
+        [{ scope: 'publish', condition: 'request.approved == true' }],
+      );
+
+      expect(canAgentPerform('conditional-helper-agent', 'publish', {
+        request: { approved: true },
+      })).toBe(true);
+      expect(canAgentPerform('conditional-helper-agent', 'publish', {
+        request: { approved: false },
+      })).toBe(false);
     });
 
     it('checkAgentConstraints returns true within limits', () => {

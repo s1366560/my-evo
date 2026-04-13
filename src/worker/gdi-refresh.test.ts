@@ -134,3 +134,172 @@ describe('refreshGDIScores dispute gating', () => {
     await closeGDIRefreshWorker();
   });
 });
+
+describe('runPeriodicMaintenance', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.resetModules();
+  });
+
+  it('runs GDI refresh, credit decay, and memory decay in one maintenance cycle', async () => {
+    const tx = {
+      node: {
+        findUnique: jest.fn().mockResolvedValue({ reputation: 10 }),
+        update: jest.fn(),
+      },
+      dispute: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      asset: {
+        updateMany: jest.fn(),
+      },
+      evolutionEvent: {
+        create: jest.fn(),
+      },
+      creditTransaction: {
+        create: jest.fn(),
+      },
+    };
+
+    const mockPrisma = {
+      $disconnect: jest.fn().mockResolvedValue(undefined),
+      asset: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            asset_id: 'asset-1',
+            author_id: 'node-1',
+            confidence: 1,
+            execution_count: 10,
+            updated_at: new Date('2026-01-01T00:00:00.000Z'),
+            created_at: new Date('2026-01-01T00:00:00.000Z'),
+            last_verified_at: new Date('2026-01-01T00:00:00.000Z'),
+          },
+        ]),
+      },
+      gDIScoreRecord: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      $transaction: jest.fn(
+        async (callback: (client: typeof tx) => Promise<boolean>) => callback(tx),
+      ),
+    };
+    const calculateGDI = jest.fn().mockResolvedValue({
+      gdi_lower: 20,
+      gdi_mean: 20,
+      dimensions: {
+        intrinsic: 0.3,
+      },
+    });
+    const applyDecayToInactiveNodes = jest.fn().mockResolvedValue({
+      processed: 2,
+      decayed: 2,
+      skipped: 0,
+    });
+    const triggerDecayAll = jest.fn().mockResolvedValue({
+      processed: 3,
+      skipped: 1,
+    });
+
+    jest.doMock('@prisma/client', () => ({
+      PrismaClient: jest.fn(() => mockPrisma),
+    }));
+    jest.doMock('../assets/service', () => ({
+      calculateGDI,
+    }));
+    jest.doMock('../credits/service', () => ({
+      applyDecayToInactiveNodes,
+    }));
+    jest.doMock('../memory_graph/service', () => ({
+      triggerDecayAll,
+    }));
+
+    let runPeriodicMaintenance!: typeof import('./gdi-refresh').runPeriodicMaintenance;
+    let closeGDIRefreshWorker!: typeof import('./gdi-refresh').closeGDIRefreshWorker;
+    await jest.isolateModulesAsync(async () => {
+      ({ runPeriodicMaintenance, closeGDIRefreshWorker } = await import('./gdi-refresh'));
+    });
+
+    const result = await runPeriodicMaintenance();
+
+    expect(result).toEqual({
+      refreshed: 1,
+      promoted: 0,
+      credits_processed: 2,
+      credits_decayed: 2,
+      credits_skipped: 0,
+      memory_processed: 3,
+      memory_skipped: 1,
+    });
+    expect(applyDecayToInactiveNodes).toHaveBeenCalledWith(100, mockPrisma);
+    expect(triggerDecayAll).toHaveBeenCalledWith(undefined, 90, 100, mockPrisma);
+
+    await closeGDIRefreshWorker();
+  });
+});
+
+describe('startGDIRefreshWorker scheduling', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.resetModules();
+  });
+
+  it('creates the repeatable refresh job and cleans up queue resources on shutdown', async () => {
+    const workerMock = {
+      on: jest.fn(),
+      waitUntilReady: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    const queueMock = {
+      getRepeatableJobs: jest.fn().mockResolvedValue([]),
+      add: jest.fn().mockResolvedValue({ id: 'gdi-refresh:hourly' }),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    const redisMock = {
+      quit: jest.fn().mockResolvedValue(undefined),
+    };
+    jest.doMock('bullmq', () => ({
+      Worker: jest.fn(() => workerMock),
+      Queue: jest.fn(() => queueMock),
+      Job: class {},
+    }));
+    jest.doMock('ioredis', () => ({
+      __esModule: true,
+      default: jest.fn(() => redisMock),
+    }));
+    jest.doMock('@prisma/client', () => ({
+      PrismaClient: jest.fn(() => ({
+        $disconnect: jest.fn().mockResolvedValue(undefined),
+      })),
+    }));
+
+    let startGDIRefreshWorker!: typeof import('./gdi-refresh').startGDIRefreshWorker;
+    let closeGDIRefreshWorker!: typeof import('./gdi-refresh').closeGDIRefreshWorker;
+    await jest.isolateModulesAsync(async () => {
+      ({ startGDIRefreshWorker, closeGDIRefreshWorker } = await import('./gdi-refresh'));
+    });
+
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+
+    await startGDIRefreshWorker({ logger, startupTimeoutMs: 100 });
+
+    expect(queueMock.getRepeatableJobs).toHaveBeenCalledTimes(1);
+    expect(queueMock.add).toHaveBeenCalledWith(
+      'gdi-refresh:run',
+      {},
+      expect.objectContaining({
+        jobId: 'gdi-refresh:hourly',
+        repeat: { every: 60 * 60 * 1000 },
+      }),
+    );
+
+    await closeGDIRefreshWorker();
+
+    expect(workerMock.close).toHaveBeenCalledTimes(1);
+    expect(queueMock.close).toHaveBeenCalledTimes(1);
+    expect(redisMock.quit).toHaveBeenCalledTimes(1);
+  });
+});

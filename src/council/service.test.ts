@@ -1,3 +1,4 @@
+import { QUORUM_PERCENTAGE } from '../shared/constants';
 import * as service from './service';
 
 const mockPrisma = {
@@ -510,6 +511,34 @@ describe('Council Service', () => {
       const result = await service.listProposals({ limit: 10, offset: 0 });
       expect(result.proposals).toHaveLength(1);
     });
+
+    it('should apply status and category filters when provided', async () => {
+      mockPrisma.proposal.findMany.mockResolvedValue([{ proposal_id: 'p2' }]);
+      mockPrisma.proposal.count.mockResolvedValue(1);
+
+      await service.listProposals({
+        status: 'voting',
+        category: 'protocol_upgrade',
+        limit: 5,
+        offset: 10,
+      });
+
+      expect(mockPrisma.proposal.findMany).toHaveBeenCalledWith({
+        where: {
+          status: 'voting',
+          category: 'protocol_upgrade',
+        },
+        orderBy: { created_at: 'desc' },
+        take: 5,
+        skip: 10,
+      });
+      expect(mockPrisma.proposal.count).toHaveBeenCalledWith({
+        where: {
+          status: 'voting',
+          category: 'protocol_upgrade',
+        },
+      });
+    });
   });
 
   describe('getVotes', () => {
@@ -527,6 +556,236 @@ describe('Council Service', () => {
       mockPrisma.proposal.findUnique.mockResolvedValue(null);
 
       await expect(service.getVotes('nonexistent')).rejects.toThrow('Proposal not found');
+    });
+  });
+
+  describe('generateDialogResponse', () => {
+    function makeProposal(overrides: Record<string, unknown> = {}) {
+      return {
+        proposal_id: 'prop-1',
+        title: 'Upgrade Council Voting',
+        proposer_id: 'node-1',
+        status: 'voting',
+        category: 'protocol_upgrade',
+        seconds: ['node-2', 'node-3'],
+        discussion_deadline: new Date('2026-01-02T00:00:00Z'),
+        voting_deadline: new Date('2026-01-03T00:00:00Z'),
+        votes: [],
+        ...overrides,
+      };
+    }
+
+    it('should build deliberation from live proposal state', async () => {
+      const votingDeadline = new Date('2026-01-03T00:00:00Z');
+
+      mockPrisma.proposal.findUnique.mockResolvedValue(makeProposal({
+        votes: [
+          {
+            voter_id: 'node-4',
+            decision: 'approve',
+            weight: 1.5,
+            reason: 'Ready to ship',
+            cast_at: new Date('2026-01-01T02:00:00Z'),
+          },
+          {
+            voter_id: 'node-5',
+            decision: 'approve',
+            weight: 1.2,
+            reason: 'Improves council throughput',
+            cast_at: new Date('2026-01-01T03:00:00Z'),
+          },
+          {
+            voter_id: 'node-6',
+            decision: 'reject',
+            weight: 0.5,
+            reason: 'Needs a safer rollout plan',
+            cast_at: new Date('2026-01-01T04:00:00Z'),
+          },
+        ],
+      }));
+      mockPrisma.node.count.mockResolvedValue(20);
+
+      const result = await service.generateDialogResponse({
+        proposal_id: 'prop-1',
+        speaker_id: 'node-9',
+        message: 'Please address migration risk.',
+      });
+
+      expect(result.proposal_id).toBe('prop-1');
+      expect(result.response.summary).toContain("Recorded node-9's input");
+      expect(result.response.consensus_estimate).toBe(0.844);
+      expect(result.response.quorum_target).toBe(Math.ceil(20 * QUORUM_PERCENTAGE));
+      expect(result.response.deadline).toBe(votingDeadline.toISOString());
+      expect(result.response.recommended_action).toContain('3 more vote(s)');
+      expect(result.response.positions[0]).toEqual({
+        member: 'node-6',
+        stance: 'reject',
+        confidence: 0.333,
+        reason: 'Needs a safer rollout plan',
+      });
+    });
+
+    it('should return advisory guidance when no proposal is referenced', async () => {
+      const result = await service.generateDialogResponse({
+        speaker_id: 'node-1',
+        message: 'What should the council review next?',
+      });
+
+      expect(result.proposal_id).toBeNull();
+      expect(result.response.positions).toEqual([]);
+      expect(result.response.recommended_action).toContain('proposal_id');
+      expect(mockPrisma.proposal.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.node.count).not.toHaveBeenCalled();
+    });
+
+    it('should summarize draft proposals from proposer and seconder state', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue(makeProposal({
+        status: 'draft',
+        seconds: ['node-2'],
+        votes: [],
+        discussion_deadline: null,
+        voting_deadline: null,
+      }));
+      mockPrisma.node.count.mockResolvedValue(8);
+
+      const result = await service.generateDialogResponse({
+        proposal_id: 'prop-1',
+        speaker_id: 'node-8',
+        message: 'Needs more support.',
+      });
+
+      expect(result.response.summary).toContain('still in draft');
+      expect(result.response.positions).toEqual([
+        { member: 'node-1', stance: 'proposed', confidence: 0.65 },
+        { member: 'node-2', stance: 'seconded', confidence: 0.55 },
+      ]);
+      expect(result.response.recommended_action).toContain('1 more eligible seconder');
+      expect(result.response.deadline).toBeNull();
+    });
+
+    it('should use the discussion deadline while a proposal is under discussion', async () => {
+      const discussionDeadline = new Date('2026-02-01T00:00:00Z');
+      mockPrisma.proposal.findUnique.mockResolvedValue(makeProposal({
+        status: 'discussion',
+        discussion_deadline: discussionDeadline,
+        voting_deadline: 'not-a-real-date',
+      }));
+      mockPrisma.node.count.mockResolvedValue(10);
+
+      const result = await service.generateDialogResponse({
+        proposal_id: 'prop-1',
+        speaker_id: 'node-5',
+        message: 'Please capture the objections.',
+      });
+
+      expect(result.response.summary).toContain('in discussion');
+      expect(result.response.recommended_action).toContain('strongest objections');
+      expect(result.response.deadline).toBe(discussionDeadline.toISOString());
+    });
+
+    it.each([
+      {
+        name: 'voting proposals that have enough support',
+        proposal: makeProposal({
+          status: 'voting',
+          votes: [
+            { voter_id: 'node-4', decision: 'approve', weight: 1.5, cast_at: new Date('2026-01-01T01:00:00Z') },
+            { voter_id: 'node-5', decision: 'reject', weight: 0.5, cast_at: new Date('2026-01-01T02:00:00Z') },
+          ],
+        }),
+        eligible: 4,
+        expected: 'Prepare the execution plan',
+      },
+      {
+        name: 'voting proposals facing stronger opposition',
+        proposal: makeProposal({
+          status: 'voting',
+          votes: [
+            { voter_id: 'node-4', decision: 'approve', weight: 0.5, cast_at: new Date('2026-01-01T01:00:00Z') },
+            { voter_id: 'node-5', decision: 'reject', weight: 1.5, cast_at: new Date('2026-01-01T02:00:00Z') },
+          ],
+        }),
+        eligible: 4,
+        expected: 'Respond to the main objections',
+      },
+      {
+        name: 'voting proposals that are tied',
+        proposal: makeProposal({
+          status: 'voting',
+          votes: [
+            { voter_id: 'node-4', decision: 'approve', weight: 1.0, cast_at: new Date('2026-01-01T01:00:00Z') },
+            { voter_id: 'node-5', decision: 'reject', weight: 1.0, cast_at: new Date('2026-01-01T02:00:00Z') },
+          ],
+        }),
+        eligible: 4,
+        expected: 'Break the tie',
+      },
+      {
+        name: 'approved proposals',
+        proposal: makeProposal({ status: 'approved' }),
+        eligible: 4,
+        expected: 'Execute the approved proposal',
+      },
+      {
+        name: 'rejected proposals',
+        proposal: makeProposal({ status: 'rejected' }),
+        eligible: 4,
+        expected: 'Revise the proposal',
+      },
+      {
+        name: 'executed proposals',
+        proposal: makeProposal({ status: 'executed' }),
+        eligible: 4,
+        expected: 'Monitor post-execution outcomes',
+      },
+      {
+        name: 'seconded proposals',
+        proposal: makeProposal({ status: 'seconded', votes: [] }),
+        eligible: 4,
+        expected: 'Gather one more qualified seconder',
+      },
+    ])('should recommend the right next step for $name', async ({ proposal, eligible, expected }) => {
+      mockPrisma.proposal.findUnique.mockResolvedValue(proposal);
+      mockPrisma.node.count.mockResolvedValue(eligible);
+
+      const result = await service.generateDialogResponse({
+        proposal_id: 'prop-1',
+        speaker_id: 'node-3',
+        message: 'Status check',
+      });
+
+      expect(result.response.recommended_action).toContain(expected);
+    });
+
+    it('should reject proposals with invalid persisted status', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue(makeProposal({
+        status: 'broken_status',
+      }));
+
+      await expect(service.generateDialogResponse({
+        proposal_id: 'prop-1',
+        speaker_id: 'node-3',
+        message: 'Status check',
+      })).rejects.toThrow('invalid status');
+    });
+
+    it('should reject proposals with invalid persisted vote decisions', async () => {
+      mockPrisma.proposal.findUnique.mockResolvedValue(makeProposal({
+        votes: [
+          {
+            voter_id: 'node-4',
+            decision: 'maybe',
+            weight: 1.0,
+            cast_at: new Date('2026-01-01T01:00:00Z'),
+          },
+        ],
+      }));
+
+      await expect(service.generateDialogResponse({
+        proposal_id: 'prop-1',
+        speaker_id: 'node-3',
+        message: 'Status check',
+      })).rejects.toThrow('invalid vote decision');
     });
   });
 });

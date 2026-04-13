@@ -15,6 +15,12 @@ const DEFAULT_PRIORITY = 50; // 0-100 scale
 const PRIORITY_BOOST_GDI = 10; // bonus per 10 GDI points above baseline
 const PRIORITY_BOOST_FREQUENCY = 5; // bonus per 10 executions in last 7 days
 
+interface ScheduleMetadata {
+  priority: number;
+}
+
+const scheduledExpressions = new Map<string, ScheduleMetadata>();
+
 // ===== Types =====
 
 export interface PriorityScore {
@@ -37,6 +43,14 @@ export interface ExecutionFrequency {
   recipe_id: string;
   count_7d: number;
   count_30d: number;
+}
+
+function normalizePriority(priority?: number): number {
+  if (priority == null) {
+    return DEFAULT_PRIORITY;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(priority)));
 }
 
 // ===== Priority Scheduling =====
@@ -108,7 +122,7 @@ export async function scheduleExpression(
     throw new NotFoundError('Recipe', recipeId);
   }
 
-  const calculatedPriority = priority ?? DEFAULT_PRIORITY;
+  const calculatedPriority = normalizePriority(priority);
   const scheduledAt = new Date();
 
   // In production, this would insert into a BullMQ queue with priority score
@@ -129,8 +143,9 @@ export async function scheduleExpression(
     },
   });
 
-  void organism;
-  void calculatedPriority;
+  scheduledExpressions.set(organism.organism_id, {
+    priority: calculatedPriority,
+  });
 
   return {
     recipe_id: recipeId,
@@ -177,17 +192,24 @@ export async function getNextScheduled(limit = 10): Promise<ScheduledExpression[
   const organisms = await prisma.organism.findMany({
     where: { status: 'assembling' },
     orderBy: { created_at: 'asc' },
-    take: limit,
   });
 
-  // In production: query BullMQ priority queue directly
-  return organisms.map((org) => ({
-    recipe_id: org.recipe_id,
-    organism_id: org.organism_id,
-    scheduled_at: org.created_at,
-    priority: DEFAULT_PRIORITY,
-    status: 'scheduled' as const,
-  }));
+  return organisms
+    .map((org) => ({
+      recipe_id: org.recipe_id,
+      organism_id: org.organism_id,
+      scheduled_at: org.created_at,
+      priority: scheduledExpressions.get(org.organism_id)?.priority ?? DEFAULT_PRIORITY,
+      status: 'scheduled' as const,
+    }))
+    .sort((left, right) => {
+      if (right.priority !== left.priority) {
+        return right.priority - left.priority;
+      }
+
+      return left.scheduled_at.getTime() - right.scheduled_at.getTime();
+    })
+    .slice(0, limit);
 }
 
 /**
@@ -211,11 +233,14 @@ export async function cancelScheduled(organismId: string): Promise<ScheduledExpr
     data: { status: 'expired' },
   });
 
+  const priority = scheduledExpressions.get(organismId)?.priority ?? DEFAULT_PRIORITY;
+  scheduledExpressions.set(organismId, { priority });
+
   return {
     recipe_id: organism.recipe_id,
     organism_id: organismId,
     scheduled_at: organism.created_at,
-    priority: DEFAULT_PRIORITY,
+    priority,
     status: 'cancelled',
   };
 }
@@ -232,4 +257,8 @@ async function getRecipeGDIScore(recipeId: string): Promise<number> {
   } catch {
     return 50; // default GDI score
   }
+}
+
+export function clearScheduledExpressions(): void {
+  scheduledExpressions.clear();
 }

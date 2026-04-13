@@ -182,6 +182,10 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body as {
       permissions: string[];
       denied_permissions?: string[];
+      conditional_permissions?: Array<{
+        scope: Parameters<typeof updateAgentPermissions>[1][number];
+        condition: string;
+      }>;
     };
     if (!body.permissions) {
       throw new ValidationError('permissions array is required');
@@ -190,6 +194,7 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
       agentId,
       body.permissions as Parameters<typeof updateAgentPermissions>[1],
       (body.denied_permissions ?? []) as Parameters<typeof updateAgentPermissions>[2],
+      (body.conditional_permissions ?? []) as Parameters<typeof updateAgentPermissions>[3],
     );
     return reply.send({ success: true, data: updated });
   });
@@ -230,7 +235,11 @@ export async function agentConfigRoutes(app: FastifyInstance): Promise<void> {
       throw new ValidationError('action is required');
     }
 
-    const permitted = canAgentPerform(agentId, body.action as Parameters<typeof canAgentPerform>[1]);
+    const permitted = canAgentPerform(
+      agentId,
+      body.action as Parameters<typeof canAgentPerform>[1],
+      body.context,
+    );
     if (!permitted) {
       auditAction(agentId, 'permission_check', { action: body.action });
       return reply.status(403).send({

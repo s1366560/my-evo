@@ -149,23 +149,12 @@ export async function councilRoutes(app: FastifyInstance) {
       throw new EvoMapError('message is required', 'VALIDATION_ERROR', 400);
     }
 
-    // Return a structured AI council response
-    // In production this would invoke an LLM; here we echo a structured deliberation
-    const deliberation = {
-      proposal_id: body.proposal_id ?? null,
-      speaker: auth.node_id,
+    const deliberation = await service.generateDialogResponse({
+      proposal_id: body.proposal_id,
+      speaker_id: auth.node_id,
       message: body.message,
-      response: {
-        summary: `Acknowledged your input on proposal ${body.proposal_id ?? 'unknown'}. The Council has noted your position.`,
-        positions: [
-          { member: 'council-member-1', stance: 'pending', confidence: 0.5 },
-          { member: 'council-member-2', stance: 'pending', confidence: 0.5 },
-        ],
-        consensus_estimate: 0.0,
-        recommended_action: 'Continue dialogue or submit a vote.',
-      },
-      timestamp: new Date().toISOString(),
-    };
+      context: body.context,
+    });
 
     return { success: true, data: deliberation };
   });

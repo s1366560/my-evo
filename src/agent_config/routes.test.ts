@@ -131,4 +131,41 @@ describe('Agent config routes', () => {
       reason: 'constraint_violation',
     }));
   });
+
+  it('passes request context through conditional permission checks', async () => {
+    upsertAgentConfig('node-2');
+    updateAgentPermissions(
+      'node-2',
+      ['read'],
+      [],
+      [{ scope: 'publish', condition: 'request.approved == true' }],
+    );
+
+    const allowed = await app.inject({
+      method: 'POST',
+      url: '/api/v2/agent-config/node-2/check',
+      headers: { authorization: 'Bearer node-2' },
+      payload: {
+        action: 'publish',
+        context: { request: { approved: true } },
+      },
+    });
+
+    const denied = await app.inject({
+      method: 'POST',
+      url: '/api/v2/agent-config/node-2/check',
+      headers: { authorization: 'Bearer node-2' },
+      payload: {
+        action: 'publish',
+        context: { request: { approved: false } },
+      },
+    });
+
+    expect(allowed.statusCode).toBe(200);
+    expect(JSON.parse(allowed.payload)).toEqual(expect.objectContaining({
+      allowed: true,
+      action: 'publish',
+    }));
+    expect(denied.statusCode).toBe(403);
+  });
 });

@@ -57,6 +57,10 @@ export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
 
+function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
 // ------------------------------------------------------------------
 // Graph nodes
 // ------------------------------------------------------------------
@@ -191,8 +195,10 @@ export async function listGraphEdges(
 export async function triggerDecay(
   nodeId: string,
   params?: Partial<ConfidenceDecayParams>,
+  prismaClient?: PrismaClient,
 ): Promise<{ node: MemoryGraphNode; decay: ReturnType<typeof computeDecay> }> {
-  const node = await prisma.memoryGraphNode.findUnique({ where: { node_id: nodeId } });
+  const client = getPrismaClient(prismaClient);
+  const node = await client.memoryGraphNode.findUnique({ where: { node_id: nodeId } });
   if (!node) throw new NotFoundError('MemoryGraphNode', nodeId);
 
   const p = { ...DEFAULT_DECAY_PARAMS, ...params };
@@ -210,7 +216,7 @@ export async function triggerDecay(
     params: p,
   });
 
-  const updated = await prisma.memoryGraphNode.update({
+  const updated = await client.memoryGraphNode.update({
     where: { node_id: nodeId },
     data: {
       confidence: result.effective,
@@ -232,7 +238,9 @@ export async function triggerDecayAll(
   params?: Partial<ConfidenceDecayParams>,
   inactiveDays = 90,
   batchSize = 100,
+  prismaClient?: PrismaClient,
 ): Promise<{ processed: number; skipped: number }> {
+  const client = getPrismaClient(prismaClient);
   const cutoff = new Date(Date.now() - inactiveDays * 24 * 60 * 60 * 1000);
 
   let processed = 0;
@@ -240,7 +248,7 @@ export async function triggerDecayAll(
   let cursor: string | undefined;
 
   while (true) {
-    const nodes = await prisma.memoryGraphNode.findMany({
+    const nodes = await client.memoryGraphNode.findMany({
       where: { updated_at: { lt: cutoff } },
       take: batchSize,
       skip: cursor ? 1 : 0,
@@ -251,7 +259,7 @@ export async function triggerDecayAll(
 
     for (const node of nodes) {
       try {
-        await triggerDecay(node.node_id, params);
+        await triggerDecay(node.node_id, params, client);
         processed++;
       } catch {
         skipped++;

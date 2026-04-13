@@ -32,3 +32,42 @@ export interface ListProposalsInput {
   limit?: number;
   offset?: number;
 }
+
+export interface CouncilDialogInput {
+  proposal_id?: string;
+  speaker_id: string;
+  message: string;
+  context?: Record<string, unknown>;
+}
+
+export type CouncilDialogStance =
+  | 'proposed'
+  | 'seconded'
+  | 'approve'
+  | 'reject'
+  | 'abstain'
+  | 'pending';
+
+export interface CouncilDialogPosition {
+  member: string;
+  stance: CouncilDialogStance;
+  confidence: number;
+  reason?: string | null;
+}
+
+export interface CouncilDialogResult {
+  proposal_id: string | null;
+  speaker: string;
+  message: string;
+  response: {
+    summary: string;
+    positions: CouncilDialogPosition[];
+    consensus_estimate: number;
+    recommended_action: string;
+    proposal_status?: ProposalStatus;
+    vote_count?: number;
+    quorum_target?: number;
+    deadline?: string | null;
+  };
+  timestamp: string;
+}

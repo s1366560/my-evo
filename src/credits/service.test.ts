@@ -13,12 +13,14 @@ const {
   debit,
   transfer,
   applyDecay,
+  applyDecayToInactiveNodes,
   getHistory,
 } = service;
 
 const mockPrisma = {
   node: {
     findUnique: jest.fn(),
+    findMany: jest.fn(),
     update: jest.fn(),
   },
   creditTransaction: {
@@ -333,6 +335,102 @@ describe('Credits Service', () => {
       expect(mockPrisma.node.update).not.toHaveBeenCalled();
       expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
       expect(result.available).toBe(100);
+    });
+  });
+
+  describe('applyDecayToInactiveNodes', () => {
+    it('applies decay to each eligible inactive node batch', async () => {
+      const ninetyOneDaysAgo = new Date(
+        Date.now() - 91 * 24 * 60 * 60 * 1000,
+      );
+
+      mockPrisma.node.findMany
+        .mockResolvedValueOnce([
+          { node_id: 'node-1' },
+          { node_id: 'node-2' },
+        ])
+        .mockResolvedValueOnce([]);
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce({
+          node_id: 'node-1',
+          credit_balance: 500,
+          last_seen: ninetyOneDaysAgo,
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-1',
+          credit_balance: 475,
+          creditTransactions: [],
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-2',
+          credit_balance: 200,
+          last_seen: ninetyOneDaysAgo,
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-2',
+          credit_balance: 190,
+          creditTransactions: [],
+        });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.creditTransaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 500 } })
+        .mockResolvedValueOnce({ _sum: { amount: -25 } })
+        .mockResolvedValueOnce({ _sum: { amount: 200 } })
+        .mockResolvedValueOnce({ _sum: { amount: -10 } });
+
+      const result = await applyDecayToInactiveNodes();
+
+      expect(result).toEqual({ processed: 2, decayed: 2, skipped: 0 });
+      expect(mockPrisma.node.findMany).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          where: {
+            last_seen: { lt: expect.any(Date) },
+            credit_balance: { gt: CREDIT_DECAY.min_balance },
+          },
+          orderBy: { node_id: 'asc' },
+          take: 100,
+        }),
+      );
+      expect(mockPrisma.node.update).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('skips nodes whose decay run fails and keeps processing the rest', async () => {
+      const ninetyOneDaysAgo = new Date(
+        Date.now() - 91 * 24 * 60 * 60 * 1000,
+      );
+
+      mockPrisma.node.findMany
+        .mockResolvedValueOnce([
+          { node_id: 'missing-node' },
+          { node_id: 'node-2' },
+        ])
+        .mockResolvedValueOnce([]);
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          node_id: 'node-2',
+          credit_balance: 200,
+          last_seen: ninetyOneDaysAgo,
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-2',
+          credit_balance: 190,
+          creditTransactions: [],
+        });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.creditTransaction.aggregate
+        .mockResolvedValueOnce({ _sum: { amount: 200 } })
+        .mockResolvedValueOnce({ _sum: { amount: -10 } });
+
+      const result = await applyDecayToInactiveNodes();
+
+      expect(result).toEqual({ processed: 2, decayed: 1, skipped: 1 });
+      expect(mockPrisma.node.update).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalledTimes(1);
     });
   });
 

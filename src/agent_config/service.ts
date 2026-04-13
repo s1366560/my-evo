@@ -67,6 +67,7 @@ export function updateAgentPermissions(
   agentId: string,
   permissions: PermissionScope[],
   denied: PermissionScope[] = [],
+  conditional = getAgentConfig(agentId).permissions.conditional_permissions,
 ): AgentConfig {
   const config = getAgentConfig(agentId);
   return saveAgentConfig({
@@ -75,6 +76,7 @@ export function updateAgentPermissions(
       ...config.permissions,
       permissions,
       denied_permissions: denied,
+      conditional_permissions: conditional,
     },
   });
 }
@@ -107,8 +109,12 @@ export function updateAgentPreferences(
   });
 }
 
-export function canAgentPerform(agentId: string, action: PermissionScope): boolean {
-  return checkPermission(agentId, action);
+export function canAgentPerform(
+  agentId: string,
+  action: PermissionScope,
+  context?: Record<string, unknown>,
+): boolean {
+  return checkPermission(agentId, action, context);
 }
 
 export function checkAgentConstraints(

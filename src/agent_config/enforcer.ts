@@ -17,6 +17,89 @@ const agentConfigs = new Map<string, AgentConfig>();
 const auditLogs: AuditLog[] = [];
 const actionWindows = new Map<string, number[]>();
 
+function getContextValue(
+  context: Record<string, unknown> | undefined,
+  path: string,
+): unknown {
+  return path.split('.').reduce<unknown>((current, key) => {
+    if (current == null || typeof current !== 'object') {
+      return undefined;
+    }
+
+    return (current as Record<string, unknown>)[key];
+  }, context);
+}
+
+function parseConditionLiteral(raw: string): unknown {
+  const value = raw.trim();
+
+  if (
+    (value.startsWith('"') && value.endsWith('"'))
+    || (value.startsWith('\'') && value.endsWith('\''))
+  ) {
+    return value.slice(1, -1);
+  }
+
+  if (value === 'true') {
+    return true;
+  }
+
+  if (value === 'false') {
+    return false;
+  }
+
+  if (value === 'null') {
+    return null;
+  }
+
+  if (/^-?\d+(\.\d+)?$/.test(value)) {
+    return Number(value);
+  }
+
+  return value;
+}
+
+function evaluateCondition(
+  condition: string,
+  context?: Record<string, unknown>,
+): boolean {
+  const normalized = condition.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  const comparison = normalized.match(/^([A-Za-z0-9_.]+)\s*(==|!=|>=|<=|>|<)\s*(.+)$/);
+  if (!comparison) {
+    const value = getContextValue(context, normalized);
+    return Boolean(value);
+  }
+
+  const [, fieldPath, operator, rawExpected] = comparison;
+  const actual = getContextValue(context, fieldPath!);
+  const expected = parseConditionLiteral(rawExpected!);
+
+  if (actual === undefined) {
+    return false;
+  }
+
+  switch (operator) {
+    case '==':
+      return actual === expected;
+    case '!=':
+      return actual !== expected;
+    case '>':
+      return typeof actual === 'number' && typeof expected === 'number' && actual > expected;
+    case '>=':
+      return typeof actual === 'number' && typeof expected === 'number' && actual >= expected;
+    case '<':
+      return typeof actual === 'number' && typeof expected === 'number' && actual < expected;
+    case '<=':
+      return typeof actual === 'number' && typeof expected === 'number' && actual <= expected;
+    default:
+      return false;
+  }
+}
+
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -177,7 +260,11 @@ export function validateConfig(config: unknown): ValidationResult {
 }
 
 // ===== Enforcer: Check Permission =====
-export function checkPermission(agentId: string, action: PermissionScope): boolean {
+export function checkPermission(
+  agentId: string,
+  action: PermissionScope,
+  context?: Record<string, unknown>,
+): boolean {
   const config = agentConfigs.get(agentId);
   if (!config) return false;
 
@@ -190,10 +277,9 @@ export function checkPermission(agentId: string, action: PermissionScope): boole
   if (perms.permissions.includes(action)) return true;
 
   // Check conditional permissions (simplified condition eval)
-  const conditional = perms.conditional_permissions.find(c => c.scope === action);
-  if (conditional) {
-    // In production: evaluate condition against context store
-    return false; // Deny by default if condition not met
+  const conditional = perms.conditional_permissions.filter(c => c.scope === action);
+  if (conditional.length > 0) {
+    return conditional.some((entry) => evaluateCondition(entry.condition, context));
   }
 
   return false;

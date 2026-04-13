@@ -1,4 +1,4 @@
-import { Worker, Job } from 'bullmq';
+import { Worker, Job, Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import { PrismaClient } from '@prisma/client';
 import {
@@ -19,6 +19,7 @@ let redis: IORedis | null = null;
 let prisma: PrismaClient | null = null;
 let ownsPrisma = false;
 let activeWorker: Worker | null = null;
+let activeQueue: Queue | null = null;
 let workerStartup: Promise<Worker> | null = null;
 let activeConsumers = 0;
 type GDIRefreshWorkerStatus = 'stopped' | 'starting' | 'running' | 'degraded';
@@ -69,10 +70,12 @@ function getPrismaClient(): PrismaClient {
 async function shutdownWorkerRuntime(): Promise<void> {
   activeConsumers = 0;
   const worker = activeWorker;
+  const queue = activeQueue;
   const connection = redis;
   const prismaClient = ownsPrisma ? prisma : null;
   const results = await Promise.allSettled([
     worker ? worker.close() : Promise.resolve(),
+    queue ? queue.close() : Promise.resolve(),
     connection ? connection.quit() : Promise.resolve(),
     prismaClient ? prismaClient.$disconnect() : Promise.resolve(),
   ]);
@@ -81,13 +84,17 @@ async function shutdownWorkerRuntime(): Promise<void> {
     activeWorker = null;
   }
   if (results[1]?.status === 'fulfilled') {
-    redis = null;
+    activeQueue = null;
   }
   if (results[2]?.status === 'fulfilled') {
+    redis = null;
+  }
+  if (results[3]?.status === 'fulfilled') {
     prisma = null;
     ownsPrisma = false;
   }
-  if (!worker && !connection && !prismaClient) {
+  if (!worker && !queue && !connection && !prismaClient) {
+    activeQueue = null;
     prisma = null;
     ownsPrisma = false;
   }
@@ -117,14 +124,18 @@ function withStartupTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<
   });
 }
 
-async function cleanupFailedStartup(worker: Worker): Promise<void> {
+async function cleanupFailedStartup(worker: Worker | null, queue: Queue | null): Promise<void> {
   const connection = redis;
   const results = await Promise.allSettled([
-    worker.close(),
+    worker ? worker.close() : Promise.resolve(),
+    queue ? queue.close() : Promise.resolve(),
     connection ? connection.quit() : Promise.resolve(),
   ]);
 
   if (results[1]?.status === 'fulfilled') {
+    activeQueue = null;
+  }
+  if (results[2]?.status === 'fulfilled') {
     redis = null;
   }
 
@@ -137,11 +148,45 @@ async function cleanupFailedStartup(worker: Worker): Promise<void> {
   }
 }
 
+async function ensureRefreshSchedule(
+  connection: IORedis,
+  startupLogger: LoggerLike,
+): Promise<Queue> {
+  const queue = activeQueue ?? new Queue(GDI_REFRESH_QUEUE, {
+    connection,
+    defaultJobOptions: {
+      removeOnComplete: { count: 24 },
+      removeOnFail: { count: 48 },
+    },
+  });
+  const repeatableJobs = await queue.getRepeatableJobs();
+  const hasScheduledJob = repeatableJobs.some(
+    (job) => job.id === GDI_REFRESH_REPEAT_JOB_ID || job.name === GDI_REFRESH_REPEAT_JOB_NAME,
+  );
+
+  if (!hasScheduledJob) {
+    await queue.add(
+      GDI_REFRESH_REPEAT_JOB_NAME,
+      {},
+      {
+        jobId: GDI_REFRESH_REPEAT_JOB_ID,
+        repeat: { every: GDI_REFRESH_INTERVAL_MS },
+      },
+    );
+    startupLogger.info('[GDI-Refresh] Scheduled hourly maintenance job');
+  }
+
+  return queue;
+}
+
 export function getGDIRefreshWorkerStatus(): GDIRefreshWorkerStatus {
   return workerStatus;
 }
 
 export const GDI_REFRESH_QUEUE = 'gdi-refresh';
+const GDI_REFRESH_REPEAT_JOB_ID = 'gdi-refresh:hourly';
+const GDI_REFRESH_REPEAT_JOB_NAME = 'gdi-refresh:run';
+const GDI_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 
 // ─── Hourly Worker ─────────────────────────────────────────────────────────
 
@@ -172,12 +217,13 @@ export async function startGDIRefreshWorker(options: {
     throw error;
   }
   let pendingWorker: Worker | null = null;
+  let pendingQueue: Queue | null = null;
 
   workerStartup = (async () => {
     pendingWorker = new Worker(
       GDI_REFRESH_QUEUE,
       async (job: Job) => {
-        const result = await refreshGDIScores();
+        const result = await runPeriodicMaintenance();
         return { refreshedAt: new Date().toISOString(), ...result };
       },
       {
@@ -201,9 +247,11 @@ export async function startGDIRefreshWorker(options: {
     });
 
     await withStartupTimeout(pendingWorker.waitUntilReady(), startupTimeoutMs);
+    pendingQueue = await ensureRefreshSchedule(connection, startupLogger);
 
     logger = startupLogger;
     activeWorker = pendingWorker;
+    activeQueue = pendingQueue;
     activeConsumers = 1;
     workerStatus = 'running';
 
@@ -215,9 +263,9 @@ export async function startGDIRefreshWorker(options: {
     return await workerStartup;
   } catch (err) {
     workerStatus = 'degraded';
-    if (pendingWorker) {
+    if (pendingWorker || pendingQueue) {
       try {
-        await cleanupFailedStartup(pendingWorker);
+        await cleanupFailedStartup(pendingWorker, pendingQueue);
       } catch (cleanupError) {
         startupLogger.error('[GDI-Refresh] Cleanup after failed startup also failed:', cleanupError);
       }
@@ -376,6 +424,43 @@ export async function refreshGDIScores(): Promise<{ refreshed: number; promoted:
 
   logger.info(`[GDI-Refresh] Done — refreshed: ${refreshed}, promoted: ${promoted}`);
   return { refreshed, promoted };
+}
+
+export async function runPeriodicMaintenance(): Promise<{
+  refreshed: number;
+  promoted: number;
+  credits_processed: number;
+  credits_decayed: number;
+  credits_skipped: number;
+  memory_processed: number;
+  memory_skipped: number;
+}> {
+  const prismaClient = getPrismaClient();
+  const refreshResult = await refreshGDIScores();
+  const { applyDecayToInactiveNodes } = await import('../credits/service');
+  const { triggerDecayAll } = await import('../memory_graph/service');
+
+  const creditResult = await applyDecayToInactiveNodes(100, prismaClient);
+  const memoryResult = await triggerDecayAll(undefined, 90, 100, prismaClient);
+
+  logger.info('[GDI-Refresh] Maintenance summary', {
+    refreshed: refreshResult.refreshed,
+    promoted: refreshResult.promoted,
+    credits_processed: creditResult.processed,
+    credits_decayed: creditResult.decayed,
+    credits_skipped: creditResult.skipped,
+    memory_processed: memoryResult.processed,
+    memory_skipped: memoryResult.skipped,
+  });
+
+  return {
+    ...refreshResult,
+    credits_processed: creditResult.processed,
+    credits_decayed: creditResult.decayed,
+    credits_skipped: creditResult.skipped,
+    memory_processed: memoryResult.processed,
+    memory_skipped: memoryResult.skipped,
+  };
 }
 
 // ─── Cleanup on process exit ──────────────────────────────────────────────────

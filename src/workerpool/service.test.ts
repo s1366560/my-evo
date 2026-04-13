@@ -2,6 +2,9 @@ import { PrismaClient } from '@prisma/client';
 import * as service from './service';
 
 const mockPrisma = {
+  node: {
+    findMany: jest.fn(),
+  },
   worker: {
     create: jest.fn(),
     findUnique: jest.fn(),
@@ -709,6 +712,151 @@ describe('Worker Pool Service', () => {
       mockPrisma.worker.findUnique.mockResolvedValue(null);
 
       await expect(service.getSpecialist('nonexistent')).rejects.toThrow('Worker not found');
+    });
+  });
+
+  describe('listSpecialistPools', () => {
+    it('should group workers by specialty and average node reputation', async () => {
+      mockPrisma.worker.findMany.mockResolvedValue([
+        {
+          node_id: 'w1',
+          specialties: ['coding', 'security'],
+        },
+        {
+          node_id: 'w2',
+          specialties: ['coding'],
+        },
+      ]);
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'w1', reputation: 80 },
+        { node_id: 'w2', reputation: 60 },
+      ]);
+
+      const result = await service.listSpecialistPools();
+
+      expect(result).toEqual([
+        { name: 'coding', worker_count: 2, avg_reputation: 70 },
+        { name: 'security', worker_count: 1, avg_reputation: 80 },
+      ]);
+    });
+  });
+
+  describe('matchWorkers', () => {
+    it('should score and rank workers against task signals', async () => {
+      const now = new Date();
+      mockPrisma.worker.findMany.mockResolvedValue([
+        {
+          node_id: 'w-best',
+          specialties: ['coding', 'security'],
+          max_concurrent: 4,
+          current_tasks: 1,
+          total_completed: 20,
+          success_rate: 95,
+          is_available: true,
+          last_heartbeat: now,
+        },
+        {
+          node_id: 'w-ok',
+          specialties: ['coding'],
+          max_concurrent: 4,
+          current_tasks: 2,
+          total_completed: 10,
+          success_rate: 70,
+          is_available: true,
+          last_heartbeat: now,
+        },
+      ]);
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'w-best', reputation: 90 },
+        { node_id: 'w-ok', reputation: 75 },
+      ]);
+
+      const result = await service.matchWorkers(['coding', 'security'], 70, 10);
+
+      expect(result).toHaveLength(2);
+      expect(result[0]!.worker_id).toBe('w-best');
+      expect(result[0]!.match_score).toBeGreaterThan(result[1]!.match_score);
+      expect(result[0]).toEqual(expect.objectContaining({
+        skill_match_score: 1,
+        price: null,
+      }));
+    });
+
+    it('should filter out workers below the reputation threshold or without signal overlap', async () => {
+      mockPrisma.worker.findMany.mockResolvedValue([
+        {
+          node_id: 'w-low-rep',
+          specialties: ['coding'],
+          max_concurrent: 3,
+          current_tasks: 0,
+          total_completed: 5,
+          success_rate: 80,
+          is_available: true,
+          last_heartbeat: new Date(),
+        },
+        {
+          node_id: 'w-no-match',
+          specialties: ['design'],
+          max_concurrent: 3,
+          current_tasks: 0,
+          total_completed: 5,
+          success_rate: 80,
+          is_available: true,
+          last_heartbeat: new Date(),
+        },
+      ]);
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'w-low-rep', reputation: 60 },
+        { node_id: 'w-no-match', reputation: 90 },
+      ]);
+
+      const result = await service.matchWorkers(['coding'], 70, 10);
+
+      expect(result).toEqual([]);
+    });
+
+    it('should require at least one task signal', async () => {
+      await expect(service.matchWorkers([], 0, 10)).rejects.toThrow('task_signals must contain at least one signal');
+    });
+  });
+
+  describe('getWorkerPoolStats', () => {
+    it('should summarize worker pool totals and readiness', async () => {
+      const now = new Date();
+      mockPrisma.worker.findMany.mockResolvedValue([
+        {
+          node_id: 'w1',
+          specialties: ['coding', 'security'],
+          max_concurrent: 4,
+          current_tasks: 1,
+          total_completed: 20,
+          success_rate: 95,
+          is_available: true,
+          last_heartbeat: now,
+        },
+        {
+          node_id: 'w2',
+          specialties: ['design'],
+          max_concurrent: 2,
+          current_tasks: 2,
+          total_completed: 10,
+          success_rate: 80,
+          is_available: false,
+          last_heartbeat: now,
+        },
+      ]);
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'w1', reputation: 90 },
+        { node_id: 'w2', reputation: 70 },
+      ]);
+
+      const result = await service.getWorkerPoolStats();
+
+      expect(result.total_workers).toBe(2);
+      expect(result.active_workers).toBe(1);
+      expect(result.total_tasks_completed).toBe(30);
+      expect(result.specialist_pools).toBe(3);
+      expect(result.avg_match_score).toBeGreaterThan(0);
     });
   });
 

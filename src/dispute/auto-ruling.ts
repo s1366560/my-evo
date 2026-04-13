@@ -1,7 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import type { Verdict, DisputeRuling } from './types';
 import { calculateEvidenceScore } from './evidence-chain';
-import { ARBITRATOR_COUNT, FILING_FEES } from './types';
+import { ARBITRATOR_COUNT } from './types';
+import { NotFoundError } from '../shared/errors';
 
 let prisma = new PrismaClient();
 
@@ -24,13 +25,67 @@ export interface RulingScores {
   evidence_weight: number;
 }
 
+function toPanelVote(verdict: Verdict): DisputeRuling['votes'][number]['vote'] {
+  switch (verdict) {
+    case 'plaintiff_wins':
+      return 'plaintiff';
+    case 'defendant_wins':
+      return 'defendant';
+    case 'compromise':
+      return 'compromise';
+    case 'no_fault':
+      return 'abstain';
+  }
+}
+
+function buildVoteReasoning(
+  verdict: Verdict,
+  scores: RulingScores,
+  evidenceScore: number,
+): string {
+  const evidencePercent = Math.round(evidenceScore * 100);
+
+  switch (verdict) {
+    case 'plaintiff_wins':
+      return `Evidence strength (${evidencePercent}%) and score balance (${scores.plaintiff_score.toFixed(2)} vs ${scores.defendant_score.toFixed(2)}) favor the plaintiff.`;
+    case 'defendant_wins':
+      return `Evidence strength (${evidencePercent}%) and score balance (${scores.defendant_score.toFixed(2)} vs ${scores.plaintiff_score.toFixed(2)}) favor the defendant.`;
+    case 'compromise':
+      return `The evidentiary record is mixed (${evidencePercent}%), so a compromise best reflects the balanced score profile.`;
+    case 'no_fault':
+      return `The evidentiary record is insufficiently decisive (${evidencePercent}%), so fault cannot be assigned confidently.`;
+  }
+}
+
+function buildPanelVotes(
+  arbitrators: string[] | undefined,
+  severity: string,
+  verdict: Verdict,
+  scores: RulingScores,
+  evidenceScore: number,
+): DisputeRuling['votes'] {
+  if (!Array.isArray(arbitrators) || arbitrators.length === 0) {
+    return [];
+  }
+
+  const panelSize = ARBITRATOR_COUNT[severity] ?? arbitrators.length;
+  const reasoning = buildVoteReasoning(verdict, scores, evidenceScore);
+  const vote = toPanelVote(verdict);
+
+  return arbitrators.slice(0, panelSize).map((arbitratorId, index, panel) => ({
+    arbitrator_id: arbitratorId,
+    vote,
+    reasoning: `${reasoning} Panel seat ${index + 1}/${panel.length}.`,
+  }));
+}
+
 export async function generateRuling(disputeId: string): Promise<DisputeRuling> {
   const dispute = await prisma.dispute.findUnique({
     where: { dispute_id: disputeId },
   });
 
   if (!dispute) {
-    throw new Error(`Dispute not found: ${disputeId}`);
+    throw new NotFoundError('Dispute', disputeId);
   }
 
   const evidenceScore = await calculateEvidenceScore(disputeId);
@@ -45,7 +100,7 @@ export async function generateRuling(disputeId: string): Promise<DisputeRuling> 
     reasoning,
     penalties: buildPenalties(verdict, dispute.defendant_id, dispute.type),
     compensations: buildCompensations(verdict, dispute.plaintiff_id, dispute.defendant_id, dispute),
-    votes: [],
+    votes: buildPanelVotes(dispute.arbitrators, dispute.severity, verdict, scores, evidenceScore),
     ruled_at: new Date().toISOString(),
     appeal_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   };

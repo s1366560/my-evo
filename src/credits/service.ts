@@ -306,6 +306,58 @@ export async function applyDecay(nodeId: string, prismaClient?: PrismaClient): P
   return getBalance(nodeId, client);
 }
 
+export async function applyDecayToInactiveNodes(
+  batchSize: number = 100,
+  prismaClient?: PrismaClient,
+): Promise<{ processed: number; decayed: number; skipped: number }> {
+  const client = getPrismaClient(prismaClient);
+  const cutoff = new Date(
+    Date.now() - CREDIT_DECAY.start_days * 24 * 60 * 60 * 1000,
+  );
+
+  let processed = 0;
+  let decayed = 0;
+  let skipped = 0;
+  let cursor: string | undefined;
+
+  while (true) {
+    const nodes = await client.node.findMany({
+      where: {
+        last_seen: { lt: cutoff },
+        credit_balance: { gt: CREDIT_DECAY.min_balance },
+      },
+      select: { node_id: true },
+      orderBy: { node_id: 'asc' },
+      take: batchSize,
+      ...(cursor
+        ? {
+            cursor: { node_id: cursor },
+            skip: 1,
+          }
+        : {}),
+    });
+
+    if (nodes.length === 0) {
+      break;
+    }
+
+    for (const node of nodes) {
+      processed += 1;
+
+      try {
+        await applyDecay(node.node_id, client);
+        decayed += 1;
+      } catch {
+        skipped += 1;
+      }
+    }
+
+    cursor = nodes[nodes.length - 1]?.node_id;
+  }
+
+  return { processed, decayed, skipped };
+}
+
 export async function getHistory(
   nodeId: string,
   type?: CreditTransactionType,

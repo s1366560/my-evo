@@ -3,6 +3,7 @@ import * as engine from './engine';
 import * as ethics from './ethics-detector';
 import * as amendment from './amendment';
 import * as conflict from './conflict-detector';
+import { ConflictError, NotFoundError, ValidationError } from '../shared/errors';
 
 beforeEach(() => {
   service.resetService();
@@ -101,7 +102,7 @@ describe('Constitution Service', () => {
       });
 
       it('should throw for non-existent rule', () => {
-        expect(() => service.disableRule('nonexistent-rule')).toThrow('Rule not found');
+        expect(() => service.disableRule('nonexistent-rule')).toThrow(NotFoundError);
       });
     });
 
@@ -239,7 +240,7 @@ describe('Constitution Service', () => {
       it('should throw for unknown rule', async () => {
         await expect(
           service.executeRule('unknown', { agent_id: 'a', action: 'a', timestamp: '' }),
-        ).rejects.toThrow('Rule not found');
+        ).rejects.toThrow(NotFoundError);
       });
     });
   });
@@ -427,6 +428,16 @@ describe('Constitution Service', () => {
         expect(amendment.voting_deadline).toBeDefined();
       });
 
+      it('should set discussion and voting deadlines using whole-hour windows', async () => {
+        const amendment = await service.proposeAmendment('Deadline precision', 'deadline-proposer');
+        const createdAt = new Date(amendment.created_at).getTime();
+        const discussionDeadline = new Date(amendment.discussion_deadline!).getTime();
+        const votingDeadline = new Date(amendment.voting_deadline!).getTime();
+
+        expect(discussionDeadline - createdAt).toBe(168 * 3600_000);
+        expect(votingDeadline - createdAt).toBe(336 * 3600_000);
+      });
+
       it('should set quorum to 75%', async () => {
         const amendment = await service.proposeAmendment('Test content', 'proposer-1');
         expect(amendment.quorum).toBe(0.75);
@@ -460,7 +471,7 @@ describe('Constitution Service', () => {
       it('should throw for unknown amendment', async () => {
         await expect(
           service.voteOnAmendment('unknown-amendment', 'voter', 'approve', 1),
-        ).rejects.toThrow('Amendment not found');
+        ).rejects.toThrow(NotFoundError);
       });
 
       it('should throw for duplicate vote', async () => {
@@ -469,7 +480,7 @@ describe('Constitution Service', () => {
 
         await expect(
           service.voteOnAmendment(amendment.amendment_id, 'voter-dup', 'reject', 1),
-        ).rejects.toThrow('already voted');
+        ).rejects.toThrow(ConflictError);
       });
     });
 
@@ -486,13 +497,25 @@ describe('Constitution Service', () => {
         expect(result.new_version.amendment_id).toBe(amendment.amendment_id);
       });
 
+      it('should persist the new constitution version after ratification', async () => {
+        const amendment = await service.proposeAmendment('Persisted version change', 'proposer-persist');
+        await service.voteOnAmendment(amendment.amendment_id, 'v1', 'approve', 1);
+        await service.voteOnAmendment(amendment.amendment_id, 'v2', 'approve', 1);
+        await service.voteOnAmendment(amendment.amendment_id, 'v3', 'approve', 1);
+
+        const result = await service.ratifyAmendment(amendment.amendment_id);
+        const version = await service.getConstitutionVersion();
+
+        expect(version).toEqual(result.new_version);
+      });
+
       it('should reject amendment below 75% approval', async () => {
         const amendment = await service.proposeAmendment('Test rejection', 'proposer-r2');
         await service.voteOnAmendment(amendment.amendment_id, 'v1', 'approve', 1);
         await service.voteOnAmendment(amendment.amendment_id, 'v2', 'reject', 10);
         await service.voteOnAmendment(amendment.amendment_id, 'v3', 'reject', 10);
 
-        await expect(service.ratifyAmendment(amendment.amendment_id)).rejects.toThrow('rejected');
+        await expect(service.ratifyAmendment(amendment.amendment_id)).rejects.toThrow(ValidationError);
       });
 
       it('should reject with insufficient votes', async () => {
@@ -500,7 +523,7 @@ describe('Constitution Service', () => {
         await service.voteOnAmendment(amendment.amendment_id, 'v1', 'approve', 1);
 
         await expect(service.ratifyAmendment(amendment.amendment_id)).rejects.toThrow(
-          'Insufficient votes',
+          ValidationError,
         );
       });
     });
@@ -511,6 +534,13 @@ describe('Constitution Service', () => {
         expect(version.version).toBeDefined();
         expect(version.hash).toBeDefined();
         expect(version.ratified_at).toBeDefined();
+      });
+
+      it('should reset to the genesis version between test runs', async () => {
+        const version = await service.getConstitutionVersion();
+        expect(version.version).toBe(1);
+        expect(version.hash).toBe('genesis');
+        expect(version.ratified_by).toBe('genesis_block');
       });
     });
 
@@ -534,6 +564,18 @@ describe('Constitution Service', () => {
         const amendments = await service.listAmendments({ proposer_id: 'unique-proposer' });
         expect(amendments.length).toBe(1);
         expect(amendments[0]!.proposer_id).toBe('unique-proposer');
+      });
+
+      it('should assign the next amendment version from the current constitution state', async () => {
+        const first = await service.proposeAmendment('Sequential version one', 'version-proposer');
+        await service.voteOnAmendment(first.amendment_id, 'v1', 'approve', 1);
+        await service.voteOnAmendment(first.amendment_id, 'v2', 'approve', 1);
+        await service.voteOnAmendment(first.amendment_id, 'v3', 'approve', 1);
+        await service.ratifyAmendment(first.amendment_id);
+
+        const second = await service.proposeAmendment('Sequential version two', 'version-proposer');
+
+        expect(second.version).toBe(first.version + 1);
       });
     });
 
@@ -625,7 +667,7 @@ describe('Constitution Service', () => {
       it('should throw for unknown rules', async () => {
         await expect(
           service.resolveConflict('unknown-a', 'unknown-b', 'keep_a'),
-        ).rejects.toThrow('Rules not found');
+        ).rejects.toThrow(NotFoundError);
       });
     });
 
