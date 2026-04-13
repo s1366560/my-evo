@@ -116,6 +116,27 @@ describe('Worker Pool Service', () => {
     });
   });
 
+  describe('setWorkerAvailability', () => {
+    it('updates availability and heartbeat timestamp', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue({ node_id: 'node-1', is_available: true });
+      mockPrisma.worker.update.mockResolvedValue({ node_id: 'node-1', is_available: false });
+
+      const result = await service.setWorkerAvailability('node-1', false);
+
+      expect(result).toEqual({ node_id: 'node-1', is_available: false });
+      expect(mockPrisma.worker.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { node_id: 'node-1' },
+        data: expect.objectContaining({ is_available: false }),
+      }));
+    });
+
+    it('throws for unknown workers', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue(null);
+
+      await expect(service.setWorkerAvailability('missing', true)).rejects.toThrow('Worker not found');
+    });
+  });
+
   describe('findAvailableWorkers', () => {
     it('should find workers matching skills', async () => {
       const workers = [
@@ -229,6 +250,113 @@ describe('Worker Pool Service', () => {
       // Higher success_rate should come first
       expect(result[0]!.node_id).toBe('w_high');
       expect(result[1]!.node_id).toBe('w_low');
+    });
+  });
+
+  describe('public compatibility helpers', () => {
+    it('maps worker catalog entries to the documented public shape', async () => {
+      mockPrisma.worker.findMany.mockResolvedValue([
+        {
+          node_id: 'worker-1',
+          specialties: ['translation', 'summarization'],
+          max_concurrent: 3,
+          current_tasks: 1,
+          total_completed: 10,
+          success_rate: 95,
+          is_available: true,
+          last_heartbeat: new Date(),
+        },
+      ]);
+      mockPrisma.worker.count.mockResolvedValue(1);
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'worker-1', reputation: 88.5 },
+      ]);
+
+      const result = await service.listWorkersPublic({
+        skill: 'translation',
+        status: 'active',
+        limit: 20,
+        offset: 0,
+      });
+
+      expect(result).toEqual({
+        workers: [{
+          worker_id: 'worker-1',
+          node_id: 'worker-1',
+          skills: ['translation', 'summarization'],
+          reputation: 88.5,
+          current_load: 1,
+          max_load: 3,
+          status: 'active',
+        }],
+        total: 1,
+      });
+    });
+
+    it('maps busy workers when availability is false', async () => {
+      mockPrisma.worker.findMany.mockResolvedValue([
+        {
+          node_id: 'worker-2',
+          specialties: ['security'],
+          max_concurrent: 2,
+          current_tasks: 2,
+          total_completed: 20,
+          success_rate: 80,
+          is_available: false,
+          last_heartbeat: new Date(),
+        },
+      ]);
+      mockPrisma.worker.count.mockResolvedValue(1);
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'worker-2', reputation: 91 },
+      ]);
+
+      const result = await service.listWorkersPublic({
+        status: 'busy',
+      });
+
+      expect(result.workers[0]!.status).toBe('busy');
+    });
+
+    it('maps public worker detail with normalized success rate and assignments', async () => {
+      mockPrisma.worker.findUnique.mockResolvedValue({
+        node_id: 'worker-3',
+        specialties: ['review'],
+        max_concurrent: 3,
+        current_tasks: 1,
+        total_completed: 42,
+        success_rate: 95,
+        is_available: true,
+        last_heartbeat: new Date(),
+      });
+      mockPrisma.node.findMany.mockResolvedValue([
+        { node_id: 'worker-3', reputation: 77.7 },
+      ]);
+      mockPrisma.workerTask.findMany
+        .mockResolvedValueOnce([
+          { task_id: 'task-1', status: 'assigned', created_at: new Date('2026-01-01T00:00:00Z') },
+        ])
+        .mockResolvedValueOnce([
+          { task_id: 'task-0', status: 'completed', created_at: new Date('2026-01-01T00:00:00Z'), completed_at: new Date('2026-01-01T02:00:00Z') },
+        ]);
+      mockPrisma.workerTask.count.mockResolvedValue(1);
+
+      const result = await service.getWorkerPublic('worker-3');
+
+      expect(result).toEqual({
+        worker_id: 'worker-3',
+        node_id: 'worker-3',
+        skills: ['review'],
+        reputation: 77.7,
+        completed_tasks: 42,
+        success_rate: 0.95,
+        avg_completion_time_hours: 2,
+        current_assignments: [{
+          task_id: 'task-1',
+          status: 'assigned',
+          deadline: new Date('2026-01-01T00:00:00Z'),
+        }],
+      });
     });
   });
 

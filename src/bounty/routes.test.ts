@@ -5,13 +5,19 @@ const mockListBountiesByCreator = jest.fn();
 const mockCreateBounty = jest.fn();
 const mockListBounties = jest.fn();
 const mockGetBounty = jest.fn();
+const mockAcceptBid = jest.fn();
+const mockReviewDeliverable = jest.fn();
+const mockSubmitDeliverable = jest.fn();
 
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
+  acceptBid: (...args: unknown[]) => mockAcceptBid(...args),
   createBounty: (...args: unknown[]) => mockCreateBounty(...args),
   getBounty: (...args: unknown[]) => mockGetBounty(...args),
   listBounties: (...args: unknown[]) => mockListBounties(...args),
   listBountiesByCreator: (...args: unknown[]) => mockListBountiesByCreator(...args),
+  reviewDeliverable: (...args: unknown[]) => mockReviewDeliverable(...args),
+  submitDeliverable: (...args: unknown[]) => mockSubmitDeliverable(...args),
 }));
 
 jest.mock('../shared/auth', () => ({

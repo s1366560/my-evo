@@ -45,6 +45,7 @@ export interface CancelBountyInput {
 export interface ListBountiesInput {
   status?: BountyStatus;
   creator_id?: string;
+  sort?: 'reward_desc' | 'reward_asc';
   limit?: number;
   offset?: number;
 }

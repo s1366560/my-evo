@@ -1,6 +1,11 @@
 import fastify, { type FastifyInstance } from 'fastify';
 import { workerPoolRoutes } from './routes';
 
+const mockListWorkers = jest.fn();
+const mockGetWorker = jest.fn();
+const mockListWorkersPublic = jest.fn();
+const mockGetWorkerPublic = jest.fn();
+const mockSetWorkerAvailability = jest.fn();
 const mockRateSpecialist = jest.fn();
 const mockListSpecialistPools = jest.fn();
 const mockMatchWorkers = jest.fn();
@@ -8,6 +13,11 @@ const mockGetWorkerPoolStats = jest.fn();
 
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
+  listWorkers: (...args: unknown[]) => mockListWorkers(...args),
+  getWorker: (...args: unknown[]) => mockGetWorker(...args),
+  listWorkersPublic: (...args: unknown[]) => mockListWorkersPublic(...args),
+  getWorkerPublic: (...args: unknown[]) => mockGetWorkerPublic(...args),
+  setWorkerAvailability: (...args: unknown[]) => mockSetWorkerAvailability(...args),
   rateSpecialist: (...args: unknown[]) => mockRateSpecialist(...args),
   listSpecialistPools: (...args: unknown[]) => mockListSpecialistPools(...args),
   matchWorkers: (...args: unknown[]) => mockMatchWorkers(...args),
@@ -154,5 +164,68 @@ describe('Worker pool routes', () => {
         specialist_pools: 3,
       },
     });
+  });
+
+  it('supports the documented /workers listing alias', async () => {
+    mockListWorkersPublic.mockResolvedValue({
+      workers: [{ worker_id: 'worker-1' }],
+      total: 1,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/workerpool/workers?status=active',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockListWorkersPublic).toHaveBeenCalledWith({
+      skill: undefined,
+      status: 'active',
+      limit: 20,
+      offset: 0,
+    });
+  });
+
+  it('supports the documented /workers/:id detail alias', async () => {
+    mockGetWorkerPublic.mockResolvedValue({ worker_id: 'worker-7' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/workerpool/workers/worker-7',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetWorkerPublic).toHaveBeenCalledWith('worker-7');
+  });
+
+  it('updates the authenticated worker availability via the documented alias', async () => {
+    mockSetWorkerAvailability.mockResolvedValue({
+      node_id: 'node-1',
+      is_available: false,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/workerpool/workers/node-1/availability',
+      payload: { availability: 'busy', resume_at: '2026-04-02T00:00:00Z' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockSetWorkerAvailability).toHaveBeenCalledWith('node-1', false);
+    expect(JSON.parse(response.payload)).toEqual({
+      status: 'ok',
+      availability: 'busy',
+    });
+  });
+
+  it('rejects availability updates for another worker', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/workerpool/workers/node-2/availability',
+      payload: { available: true },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mockSetWorkerAvailability).not.toHaveBeenCalled();
   });
 });

@@ -6,10 +6,7 @@ import * as service from './service';
 export async function recipeRoutes(app: FastifyInstance) {
   const prisma = app.prisma;
 
-  // List recipes
-  app.get('/', {
-    schema: { tags: ['Recipe'] },
-  }, async (request) => {
+  async function sendRecipeList(request: { query: unknown }) {
     const query = request.query as {
       status?: string;
       author?: string;
@@ -28,22 +25,12 @@ export async function recipeRoutes(app: FastifyInstance) {
       success: true,
       data: { items: result.items, total: result.total },
     };
-  });
+  }
 
-  // Get recipe detail
-  app.get('/:recipeId', {
-    schema: { tags: ['Recipe'] },
-  }, async (request) => {
-    const params = request.params as { recipeId: string };
-    const recipe = await service.getRecipe(params.recipeId);
-    return { success: true, data: recipe };
-  });
-
-  // Create recipe
-  app.post('/', {
-    schema: { tags: ['Recipe'] },
-    preHandler: [requireAuth()],
-  }, async (request, reply) => {
+  async function createRecipeHandler(
+    request: { auth?: { node_id: string }; body: unknown },
+    reply: { status(code: number): void },
+  ) {
     const auth = request.auth!;
     const body = request.body as {
       title: string;
@@ -72,7 +59,36 @@ export async function recipeRoutes(app: FastifyInstance) {
 
     void reply.status(201);
     return { success: true, data: recipe };
+  }
+
+  // List recipes
+  app.get('/', {
+    schema: { tags: ['Recipe'] },
+  }, sendRecipeList);
+
+  app.get('/list', {
+    schema: { tags: ['Recipe'] },
+  }, sendRecipeList);
+
+  // Get recipe detail
+  app.get('/:recipeId', {
+    schema: { tags: ['Recipe'] },
+  }, async (request) => {
+    const params = request.params as { recipeId: string };
+    const recipe = await service.getRecipe(params.recipeId);
+    return { success: true, data: recipe };
   });
+
+  // Create recipe
+  app.post('/', {
+    schema: { tags: ['Recipe'] },
+    preHandler: [requireAuth()],
+  }, createRecipeHandler);
+
+  app.post('/create', {
+    schema: { tags: ['Recipe'] },
+    preHandler: [requireAuth()],
+  }, createRecipeHandler);
 
   // Update recipe
   app.put('/:recipeId', {

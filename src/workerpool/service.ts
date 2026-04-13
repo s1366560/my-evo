@@ -84,6 +84,29 @@ export async function updateHeartbeat(nodeId: string) {
   return updated;
 }
 
+export async function setWorkerAvailability(
+  nodeId: string,
+  isAvailable: boolean,
+) {
+  const worker = await prisma.worker.findUnique({
+    where: { node_id: nodeId },
+  });
+
+  if (!worker) {
+    throw new NotFoundError('Worker', nodeId);
+  }
+
+  const updated = await prisma.worker.update({
+    where: { node_id: nodeId },
+    data: {
+      is_available: isAvailable,
+      last_heartbeat: new Date(),
+    },
+  });
+
+  return updated;
+}
+
 export async function findAvailableWorkers(
   skills: string[],
   count: number,
@@ -342,6 +365,93 @@ export async function listWorkers(input: { q?: string; skill?: string; available
   ]);
 
   return { workers, total, limit, offset };
+}
+
+function resolveWorkerStatus(worker: {
+  is_available: boolean;
+  current_tasks: number;
+  max_concurrent: number;
+  last_heartbeat: Date;
+}): 'active' | 'busy' | 'offline' {
+  const cutoff = new Date(Date.now() - WORKER_TIMEOUT_MS);
+  if (new Date(worker.last_heartbeat) <= cutoff) {
+    return 'offline';
+  }
+  if (!worker.is_available || worker.current_tasks >= worker.max_concurrent) {
+    return 'busy';
+  }
+  return 'active';
+}
+
+export async function listWorkersPublic(input: {
+  skill?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const { skill, status, limit = 20, offset = 0 } = input;
+  const where: Record<string, unknown> = {};
+  if (skill) {
+    where.specialties = { has: skill };
+  }
+
+  const workers = await prisma.worker.findMany({
+    where,
+    orderBy: { success_rate: 'desc' },
+  });
+  const reputations = await getWorkerReputationMap(workers.map((worker) => worker.node_id));
+  const statusFilter = status?.trim().toLowerCase();
+  const filteredWorkers = statusFilter
+    ? workers.filter((worker) => resolveWorkerStatus(worker) === statusFilter)
+    : workers;
+
+  return {
+    workers: filteredWorkers.slice(offset, offset + limit).map((worker) => ({
+      worker_id: worker.node_id,
+      node_id: worker.node_id,
+      skills: worker.specialties,
+      reputation: reputations.get(worker.node_id) ?? 50,
+      current_load: worker.current_tasks,
+      max_load: worker.max_concurrent,
+      status: resolveWorkerStatus(worker),
+    })),
+    total: filteredWorkers.length,
+  };
+}
+
+export async function getWorkerPublic(nodeId: string) {
+  const [worker, reputations, assignments, completedTasks] = await Promise.all([
+    getWorker(nodeId),
+    getWorkerReputationMap([nodeId]),
+    getMyTasks(nodeId, undefined, 10, 0),
+    prisma.workerTask.findMany({
+      where: {
+        assigned_to: nodeId,
+        completed_at: { not: null },
+      },
+    }),
+  ]);
+  const avgCompletionTimeHours = completedTasks.length === 0
+    ? null
+    : roundMetric(completedTasks.reduce((sum, task) => {
+        const completedAt = task.completed_at ? new Date(task.completed_at).getTime() : new Date(task.created_at).getTime();
+        return sum + ((completedAt - new Date(task.created_at).getTime()) / (1000 * 60 * 60));
+      }, 0) / completedTasks.length);
+
+  return {
+    worker_id: worker.node_id,
+    node_id: worker.node_id,
+    skills: worker.specialties,
+    reputation: reputations.get(worker.node_id) ?? 50,
+    completed_tasks: worker.total_completed,
+    success_rate: roundMetric(clamp01(worker.success_rate / 100)),
+    avg_completion_time_hours: avgCompletionTimeHours,
+    current_assignments: assignments.tasks.map((task) => ({
+      task_id: task.task_id,
+      status: task.status,
+      deadline: task.created_at ?? null,
+    })),
+  };
 }
 
 // ---- Specialist endpoints (Part 4 additions) ----

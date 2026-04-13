@@ -4,6 +4,57 @@ import { EvoMapError, ValidationError } from '../shared/errors';
 import * as service from './service';
 
 export async function bountyRoutes(app: FastifyInstance) {
+  async function createBountyHandler(request: FastifyRequest, reply: { status(code: number): void }) {
+    const auth = request.auth!;
+    const body = ((request.body as {
+      title: string;
+      description: string;
+      requirements?: string[];
+      required_signals?: string[];
+      acceptance_criteria?: string;
+      amount?: number;
+      reward?: number;
+      deadline: string;
+    } | undefined) ?? {}) as {
+      title: string;
+      description: string;
+      requirements?: string[];
+      required_signals?: string[];
+      acceptance_criteria?: string;
+      amount?: number;
+      reward?: number;
+      deadline: string;
+    };
+
+    const amount = body.amount ?? body.reward;
+    const requirements = [...(body.requirements ?? body.required_signals ?? [])];
+    if (body.acceptance_criteria) {
+      requirements.push(`Acceptance criteria: ${body.acceptance_criteria}`);
+    }
+
+    if (!body.title || !body.description || !amount || !body.deadline) {
+      throw new EvoMapError('title, description, amount/reward, and deadline are required', 'VALIDATION_ERROR', 400);
+    }
+
+    const bounty = await service.createBounty(
+      auth.node_id,
+      body.title,
+      body.description,
+      requirements,
+      amount,
+      body.deadline,
+    );
+
+    void reply.status(201);
+    return {
+      success: true,
+      data: {
+        ...bounty,
+        reward: bounty.amount,
+      },
+    };
+  }
+
   async function getOptionalAuth(request: FastifyRequest) {
     const hasCredentials = Boolean(
       request.headers.authorization
@@ -48,115 +99,38 @@ export async function bountyRoutes(app: FastifyInstance) {
     };
   }
 
+  async function sendClaimedBounty(
+    request: FastifyRequest,
+  ) {
+    const auth = request.auth!;
+    const params = request.params as { bountyId: string };
+    const body = request.body as { bid_id?: string; bidId?: string };
+    const bidId = body.bid_id ?? body.bidId;
+
+    if (!bidId) {
+      throw new EvoMapError('bid_id is required', 'VALIDATION_ERROR', 400);
+    }
+
+    const bounty = await service.acceptBid(params.bountyId, bidId, auth.node_id);
+    return { success: true, data: bounty };
+  }
+
   // Alias: POST /a2a/ask  (same as POST /api/v2/bounty)
   app.post('/ask', {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
-  }, async (request, reply) => {
-    const auth = request.auth!;
-    const body = ((request.body as {
-      title: string;
-      description: string;
-      requirements: string[];
-      amount: number;
-      deadline: string;
-    } | undefined) ?? {}) as {
-      title: string;
-      description: string;
-      requirements: string[];
-      amount: number;
-      deadline: string;
-    };
-
-    if (!body.title || !body.description || !body.amount || !body.deadline) {
-      throw new EvoMapError('title, description, amount, and deadline are required', 'VALIDATION_ERROR', 400);
-    }
-
-    const bounty = await service.createBounty(
-      auth.node_id,
-      body.title,
-      body.description,
-      body.requirements ?? [],
-      body.amount,
-      body.deadline,
-    );
-
-    void reply.status(201);
-    return { success: true, data: bounty };
-  });
+  }, createBountyHandler);
 
   // POST /api/v2/bounty/create — explicit create alias
   app.post('/create', {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
-  }, async (request, reply) => {
-    const auth = request.auth!;
-    const body = ((request.body as {
-      title: string;
-      description: string;
-      requirements: string[];
-      amount: number;
-      deadline: string;
-    } | undefined) ?? {}) as {
-      title: string;
-      description: string;
-      requirements: string[];
-      amount: number;
-      deadline: string;
-    };
-
-    if (!body.title || !body.description || !body.amount || !body.deadline) {
-      throw new EvoMapError('title, description, amount, and deadline are required', 'VALIDATION_ERROR', 400);
-    }
-
-    const bounty = await service.createBounty(
-      auth.node_id,
-      body.title,
-      body.description,
-      body.requirements ?? [],
-      body.amount,
-      body.deadline,
-    );
-
-    void reply.status(201);
-    return { success: true, data: bounty };
-  });
+  }, createBountyHandler);
 
   app.post('/', {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth()],
-  }, async (request, reply) => {
-    const auth = request.auth!;
-    const body = ((request.body as {
-      title: string;
-      description: string;
-      requirements: string[];
-      amount: number;
-      deadline: string;
-    } | undefined) ?? {}) as {
-      title: string;
-      description: string;
-      requirements: string[];
-      amount: number;
-      deadline: string;
-    };
-
-    if (!body.title || !body.description || !body.amount || !body.deadline) {
-      throw new EvoMapError('title, description, amount, and deadline are required', 'VALIDATION_ERROR', 400);
-    }
-
-    const bounty = await service.createBounty(
-      auth.node_id,
-      body.title,
-      body.description,
-      body.requirements ?? [],
-      body.amount,
-      body.deadline,
-    );
-
-    void reply.status(201);
-    return { success: true, data: bounty };
-  });
+  }, createBountyHandler);
 
   app.post('/:bountyId/bid', {
     schema: { tags: ['Bounty'] },
@@ -165,19 +139,21 @@ export async function bountyRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const params = request.params as { bountyId: string };
     const body = request.body as {
-      proposedAmount: number;
+      proposedAmount?: number;
+      proposed_price?: number;
       estimatedTime: string;
       approach: string;
     };
+    const proposedAmount = body.proposedAmount ?? body.proposed_price;
 
-    if (!body.proposedAmount || !body.estimatedTime || !body.approach) {
-      throw new EvoMapError('proposedAmount, estimatedTime, and approach are required', 'VALIDATION_ERROR', 400);
+    if (!proposedAmount || !body.estimatedTime || !body.approach) {
+      throw new EvoMapError('proposedAmount/proposed_price, estimatedTime, and approach are required', 'VALIDATION_ERROR', 400);
     }
 
     const bid = await service.placeBid(
       params.bountyId,
       auth.node_id,
-      body.proposedAmount,
+      proposedAmount,
       body.estimatedTime,
       body.approach,
     );
@@ -208,18 +184,20 @@ export async function bountyRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const params = request.params as { bountyId: string };
     const body = request.body as {
-      content: string;
+      content?: string;
+      deliverable?: unknown;
       attachments?: string[];
     };
+    const content = body.content ?? (body.deliverable ? JSON.stringify(body.deliverable) : undefined);
 
-    if (!body.content) {
-      throw new EvoMapError('content is required', 'VALIDATION_ERROR', 400);
+    if (!content) {
+      throw new EvoMapError('content or deliverable is required', 'VALIDATION_ERROR', 400);
     }
 
     const result = await service.submitDeliverable(
       params.bountyId,
       auth.node_id,
-      body.content,
+      content,
       body.attachments ?? [],
     );
 
@@ -292,6 +270,55 @@ export async function bountyRoutes(app: FastifyInstance) {
     },
   }, sendBountyList);
 
+  app.get('/open', {
+    schema: {
+      tags: ['Bounty'],
+    },
+  }, async () => {
+    const result = await service.listBounties({
+      status: 'open',
+      limit: 50,
+      offset: 0,
+    });
+
+    const totalRewardPool = result.bounties.reduce((sum, bounty) => sum + bounty.amount, 0);
+
+    return {
+      success: true,
+      data: {
+        bounties: result.bounties,
+        total_open: result.total,
+        total_reward_pool: totalRewardPool,
+      },
+    };
+  });
+
+  app.get('/stats', {
+    schema: {
+      tags: ['Bounty'],
+    },
+  }, async () => {
+    const [total, open, claimed, submitted, accepted, expired] = await Promise.all([
+      service.listBounties({ limit: 1, offset: 0 }),
+      service.listBounties({ status: 'open', limit: 1, offset: 0 }),
+      service.listBounties({ status: 'claimed', limit: 1, offset: 0 }),
+      service.listBounties({ status: 'submitted', limit: 1, offset: 0 }),
+      service.listBounties({ status: 'accepted', limit: 1, offset: 0 }),
+      service.listBounties({ status: 'expired', limit: 1, offset: 0 }),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        total_bounties: total.total,
+        open: open.total,
+        in_progress: claimed.total + submitted.total,
+        completed: accepted.total,
+        expired: expired.total,
+      },
+    };
+  });
+
   app.get('/:bountyId', {
     schema: { tags: ['Bounty'] },
   }, async (request) => {
@@ -326,11 +353,37 @@ export async function bountyRoutes(app: FastifyInstance) {
   }, async (request) => {
     const auth = request.auth!;
     const params = request.params as { bountyId: string };
-    const body = request.body as { bid_id?: string };
-    if (!body.bid_id) {
-      throw new EvoMapError('bid_id is required', 'VALIDATION_ERROR', 400);
-    }
-    const bounty = await service.acceptBid(params.bountyId, body.bid_id, auth.node_id);
-    return { success: true, data: bounty };
+    const body = request.body as {
+      deliverable_id?: string;
+      rating?: number;
+      feedback?: string;
+      comments?: string;
+    };
+
+    const bounty = await service.reviewDeliverable(
+      params.bountyId,
+      auth.node_id,
+      true,
+      body.feedback ?? body.comments,
+    );
+
+    const deliverable = bounty.deliverable as { worker_id?: string } | null;
+
+    return {
+      success: true,
+      data: {
+        status: 'completed',
+        reward_paid: bounty.amount,
+        worker: deliverable?.worker_id ?? null,
+        rating: body.rating ?? null,
+        deliverable_id: body.deliverable_id ?? null,
+        reputation_impact: '+5.0',
+      },
+    };
   });
+
+  app.post('/:bountyId/claim', {
+    schema: { tags: ['Bounty'] },
+    preHandler: [requireAuth()],
+  }, sendClaimedBounty);
 }

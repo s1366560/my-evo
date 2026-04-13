@@ -614,7 +614,13 @@ export async function getBounty(bountyId: string, requesterId: string) {
 }
 
 export async function listBounties(input: ListBountiesInput) {
-  const { status, creator_id, limit = 20, offset = 0 } = input;
+  const {
+    status,
+    creator_id,
+    sort,
+    limit = 20,
+    offset = 0,
+  } = input;
 
   const where: Record<string, unknown> = {};
   if (status) {
@@ -623,10 +629,27 @@ export async function listBounties(input: ListBountiesInput) {
   if (creator_id) {
     where.creator_id = creator_id;
   }
+  const orderBy: Prisma.BountyOrderByWithRelationInput[] = sort === 'reward_desc'
+    ? [
+        { amount: Prisma.SortOrder.desc },
+        { created_at: Prisma.SortOrder.desc },
+        { bounty_id: Prisma.SortOrder.desc },
+      ]
+    : sort === 'reward_asc'
+      ? [
+          { amount: Prisma.SortOrder.asc },
+          { created_at: Prisma.SortOrder.desc },
+          { bounty_id: Prisma.SortOrder.desc },
+        ]
+      : [
+          { created_at: Prisma.SortOrder.desc },
+          { bounty_id: Prisma.SortOrder.desc },
+        ];
+
   const [bounties, total] = await Promise.all([
     prisma.bounty.findMany({
       where,
-      orderBy: { created_at: 'desc' },
+      orderBy,
       take: limit,
       skip: offset,
     }),
@@ -642,6 +665,26 @@ export async function listBounties(input: ListBountiesInput) {
     limit,
     offset,
   };
+}
+
+export async function getBountyBidCounts(bountyIds: string[]): Promise<Map<string, number>> {
+  if (bountyIds.length === 0) {
+    return new Map();
+  }
+
+  const bids = await prisma.bountyBid.findMany({
+    where: {
+      bounty_id: { in: bountyIds },
+    },
+    select: { bounty_id: true },
+  });
+
+  const counts = new Map<string, number>();
+  for (const bid of bids) {
+    counts.set(bid.bounty_id, (counts.get(bid.bounty_id) ?? 0) + 1);
+  }
+
+  return counts;
 }
 
 export async function listBountiesByCreator(creatorId: string) {

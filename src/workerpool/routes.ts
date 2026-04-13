@@ -1,9 +1,65 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
-import { EvoMapError } from '../shared/errors';
+import { EvoMapError, ForbiddenError } from '../shared/errors';
 import * as service from './service';
 
 export async function workerPoolRoutes(app: FastifyInstance) {
+  async function sendWorkerList(request: {
+    query: unknown;
+  }) {
+    const query = request.query as {
+      q?: string;
+      skill?: string;
+      available?: string;
+      limit?: string;
+      offset?: string;
+    };
+
+    const result = await service.listWorkers({
+      q: query.q,
+      skill: query.skill,
+      available: query.available === 'true' ? true : query.available === 'false' ? false : undefined,
+      limit: query.limit ? parseInt(query.limit, 10) : 20,
+      offset: query.offset ? parseInt(query.offset, 10) : 0,
+    });
+
+    return {
+      success: true,
+      data: result.workers,
+      meta: {
+        total: result.total,
+        limit: result.limit,
+        offset: result.offset,
+      },
+    };
+  }
+
+  async function sendWorkerDetail(request: {
+    params: unknown;
+  }) {
+    const params = request.params as { nodeId: string };
+    const worker = await service.getWorker(params.nodeId);
+    return { success: true, data: worker };
+  }
+
+  async function sendWorkerCatalog(request: {
+    query: unknown;
+  }) {
+    const query = request.query as {
+      skill?: string;
+      status?: string;
+      limit?: string;
+      offset?: string;
+    };
+
+    return service.listWorkersPublic({
+      skill: query.skill,
+      status: query.status,
+      limit: query.limit ? parseInt(query.limit, 10) : 20,
+      offset: query.offset ? parseInt(query.offset, 10) : 0,
+    });
+  }
+
   // Register worker
   app.post('/register', {
     schema: { tags: ['Swarm'] },
@@ -53,42 +109,54 @@ export async function workerPoolRoutes(app: FastifyInstance) {
   app.get('/', {
     schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
-  }, async (request) => {
-    const query = request.query as {
-      q?: string;
-      skill?: string;
-      available?: string;
-      limit?: string;
-      offset?: string;
-    };
+  }, sendWorkerList);
 
-    const result = await service.listWorkers({
-      q: query.q,
-      skill: query.skill,
-      available: query.available === 'true' ? true : query.available === 'false' ? false : undefined,
-      limit: query.limit ? parseInt(query.limit, 10) : 20,
-      offset: query.offset ? parseInt(query.offset, 10) : 0,
-    });
-
-    return {
-      success: true,
-      data: result.workers,
-      meta: {
-        total: result.total,
-        limit: result.limit,
-        offset: result.offset,
-      },
-    };
-  });
+  app.get('/workers', {
+    schema: { tags: ['Swarm'] },
+  }, sendWorkerCatalog);
 
   // Get worker by nodeId (existing)
   app.get('/:nodeId', {
     schema: { tags: ['Swarm'] },
     preHandler: [requireAuth()],
+  }, sendWorkerDetail);
+
+  app.get('/workers/:nodeId', {
+    schema: { tags: ['Swarm'] },
   }, async (request) => {
     const params = request.params as { nodeId: string };
-    const worker = await service.getWorker(params.nodeId);
-    return { success: true, data: worker };
+    return service.getWorkerPublic(params.nodeId);
+  });
+
+  app.post('/workers/:nodeId/availability', {
+    schema: { tags: ['Swarm'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const params = request.params as { nodeId: string };
+    const body = (request.body as {
+      availability?: string;
+      available?: boolean;
+      is_available?: boolean;
+      resume_at?: string;
+    } | undefined) ?? {};
+
+    if (params.nodeId !== auth.node_id) {
+      throw new ForbiddenError('Cannot update another worker availability');
+    }
+
+    const availability = body.availability
+      ?? (body.available ?? body.is_available ? 'active' : body.available === false || body.is_available === false ? 'busy' : undefined);
+    const available = availability === 'active' || availability === 'available';
+    if (available === undefined) {
+      throw new EvoMapError('availability is required', 'VALIDATION_ERROR', 400);
+    }
+
+    await service.setWorkerAvailability(params.nodeId, available);
+    return {
+      status: 'ok',
+      availability: availability === 'available' ? 'active' : availability,
+    };
   });
 
   // ---- Missing specialist endpoints ----

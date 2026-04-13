@@ -688,5 +688,19 @@ describe('Bounty Service', () => {
         where: { creator_id: 'node-2' },
       });
     });
+
+    it('should sort by reward at the query layer when requested', async () => {
+      mockPrisma.bounty.findMany.mockResolvedValue([]);
+      mockPrisma.bounty.count.mockResolvedValue(0);
+
+      await service.listBounties({ status: 'open', sort: 'reward_desc', limit: 20, offset: 40 });
+
+      expect(mockPrisma.bounty.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { status: 'open' },
+        orderBy: [{ amount: 'desc' }, { created_at: 'desc' }, { bounty_id: 'desc' }],
+        take: 20,
+        skip: 40,
+      }));
+    });
   });
 });

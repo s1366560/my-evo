@@ -165,6 +165,8 @@ export async function buildApp() {
 
   const { bountyRoutes } = await import('./bounty/routes');
   await app.register(bountyRoutes, { prefix: '/api/v2/bounty' });
+  const { bountyCompatibilityRoutes } = await import('./bounty/compat-routes');
+  await app.register(bountyCompatibilityRoutes, { prefix: '/api/v2/bounties' });
 
   const { sessionRoutes } = await import('./session/routes');
   await app.register(sessionRoutes, { prefix: '/api/v2/session' });
@@ -229,6 +231,7 @@ export async function buildApp() {
 
   const { billingRoutes } = await import('./billing/routes');
   await app.register(billingRoutes, { prefix: '/billing' });
+  await app.register(billingRoutes, { prefix: '/a2a/billing' });
 
   const { monitoringRoutes } = await import('./monitoring/routes');
   const { createMonitoringState } = await import('./monitoring/service');
@@ -254,6 +257,10 @@ export async function buildApp() {
 
   const { recipeRoutes } = await import('./recipe/routes');
   await app.register(recipeRoutes, { prefix: '/api/v2/recipes' });
+  await app.register(recipeRoutes, { prefix: '/api/v2/recipe' });
+
+  const { organismRoutes } = await import('./recipe/organism-routes');
+  await app.register(organismRoutes, { prefix: '/api/v2/organism' });
 
   const { gepxRoutes } = await import('./gepx/routes');
   await app.register(gepxRoutes, { prefix: '/api/v2/gepx' });

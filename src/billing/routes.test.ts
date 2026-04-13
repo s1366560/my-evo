@@ -45,6 +45,7 @@ describe('Billing routes', () => {
     app = buildApp();
     app.decorate('prisma', mockPrisma);
     await app.register(billingRoutes, { prefix: '/billing' });
+    await app.register(billingRoutes, { prefix: '/a2a/billing' });
     await app.ready();
     jest.clearAllMocks();
   });
@@ -61,6 +62,18 @@ describe('Billing routes', () => {
 
     expect(response.statusCode).toBe(403);
     expect(mockGetEarnings).not.toHaveBeenCalled();
+  });
+
+  it('supports the documented A2A billing earnings alias', async () => {
+    mockGetEarnings.mockResolvedValue({ total_credits_earned: 42 });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/a2a/billing/earnings',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetEarnings).toHaveBeenCalledWith(mockPrisma, 'node-1');
   });
 
   it('uses the authenticated node when staking without a request body', async () => {
