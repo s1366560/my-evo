@@ -63,6 +63,7 @@ const mockPrisma = {
     findUnique: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
+    delete: jest.fn(),
     count: jest.fn(),
     groupBy: jest.fn(),
   },
@@ -72,6 +73,7 @@ const mockPrisma = {
     findMany: jest.fn(),
     findFirst: jest.fn(),
     create: jest.fn(),
+    deleteMany: jest.fn(),
   },
   $transaction: jest.fn(),
 } as any;
@@ -743,6 +745,137 @@ describe('SkillStore Service', () => {
         expect(result.items).toHaveLength(1);
       });
     });
+
+    describe('updateSkillVersion', () => {
+      it('should snapshot the current version before updating', async () => {
+        mockPrisma.skill.findUnique.mockResolvedValue(mockSkill({
+          skill_id: 'skill_test_001',
+          versions: [],
+        }));
+        mockPrisma.skill.update.mockResolvedValue(mockSkill({
+          skill_id: 'skill_test_001',
+          version: '1.0.1',
+        }));
+
+        const result = await service.updateSkillVersion('skill_test_001', 'node_001', {
+          description: 'Updated description',
+        });
+
+        expect(result.version).toBe('1.0.1');
+        expect(mockPrisma.skill.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              version: '1.0.1',
+              versions: expect.arrayContaining([
+                expect.objectContaining({ version: '1.0.0' }),
+              ]),
+            }),
+          }),
+        );
+      });
+    });
+
+    describe('rollbackSkillVersion', () => {
+      it('should restore a previous version snapshot', async () => {
+        mockPrisma.skill.findUnique.mockResolvedValue(mockSkill({
+          skill_id: 'skill_test_001',
+          version: '1.0.1',
+          versions: [
+            {
+              version: '1.0.0',
+              name: 'Original Skill',
+              description: 'Original description',
+              category: 'testing',
+              price_credits: 5,
+              code_template: 'function original() { return true; }',
+              parameters: null,
+              steps: ['Step 1'],
+              examples: ['example'],
+              tags: ['testing'],
+              source_capsules: ['cap_001'],
+            },
+          ],
+        }));
+        mockPrisma.skill.update.mockResolvedValue(mockSkill({
+          skill_id: 'skill_test_001',
+          version: '1.0.0',
+          name: 'Original Skill',
+        }));
+
+        const result = await service.rollbackSkillVersion('skill_test_001', 'node_001');
+
+        expect(result.version).toBe('1.0.0');
+        expect(mockPrisma.skill.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              version: '1.0.0',
+              name: 'Original Skill',
+            }),
+          }),
+        );
+      });
+    });
+
+    describe('permanentlyDeleteSkill', () => {
+      it('should delete ratings before deleting the skill', async () => {
+        mockPrisma.skill.findUnique.mockResolvedValue(mockSkill());
+        mockPrisma.skillRating.deleteMany.mockResolvedValue({ count: 2 });
+        mockPrisma.skill.delete = jest.fn().mockResolvedValue(mockSkill());
+
+        const result = await service.permanentlyDeleteSkill('skill_test_001', 'node_001');
+
+        expect(result).toEqual({ deleted: true });
+        expect(mockPrisma.skillRating.deleteMany).toHaveBeenCalledWith({
+          where: { skill_id: 'skill_test_001' },
+        });
+        expect(mockPrisma.skill.delete).toHaveBeenCalledWith({
+          where: { skill_id: 'skill_test_001' },
+        });
+      });
+
+      it('should throw when the skill does not exist', async () => {
+        mockPrisma.skill.findUnique.mockResolvedValue(null);
+
+        await expect(service.permanentlyDeleteSkill('missing', 'node_001')).rejects.toThrow('not found');
+      });
+
+      it('should reject permanent deletion for another author', async () => {
+        mockPrisma.skill.findUnique.mockResolvedValue(mockSkill({ author_id: 'node_999' }));
+
+        await expect(service.permanentlyDeleteSkill('skill_test_001', 'node_001')).rejects.toThrow(
+          'permanently delete your own',
+        );
+      });
+    });
+
+    describe('getSkillStoreStats', () => {
+      it('should summarize store-wide skill metrics', async () => {
+        mockPrisma.skill.findMany.mockResolvedValue([
+          mockSkill({ status: 'published', rating: 4.5, rating_count: 2, download_count: 10 }),
+          mockSkill({
+            skill_id: 'skill_test_002',
+            author_id: 'node_002',
+            status: 'pending',
+            deleted_at: new Date(),
+            rating: 3,
+            rating_count: 1,
+            download_count: 5,
+          }),
+        ]);
+
+        const result = await service.getSkillStoreStats();
+
+        expect(result).toEqual({
+          total_skills: 2,
+          published: 1,
+          pending: 0,
+          deleted: 1,
+          total_downloads: 15,
+          avg_rating: 4,
+          total_authors: 2,
+        });
+      });
+    });
   });
 
   // ==================================================================
@@ -774,7 +907,12 @@ describe('SkillStore Service', () => {
 
   describe('getSkill', () => {
     it('should return a skill', async () => {
-      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', deleted_at: null });
+      mockPrisma.skill.findUnique.mockResolvedValue({
+        skill_id: 'sk-1',
+        author_id: 'node-1',
+        status: 'published',
+        deleted_at: null,
+      });
 
       const result = await service.getSkill('sk-1');
 
@@ -787,6 +925,32 @@ describe('SkillStore Service', () => {
       const result = await service.getSkill('sk-1');
 
       expect(result).toBeNull();
+    });
+
+    it('should hide drafts from non-authors', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({
+        skill_id: 'sk-1',
+        author_id: 'node-2',
+        status: 'pending',
+        deleted_at: null,
+      });
+
+      const result = await service.getSkill('sk-1');
+
+      expect(result).toBeNull();
+    });
+
+    it('should allow authors to read their own drafts', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({
+        skill_id: 'sk-1',
+        author_id: 'node-1',
+        status: 'pending',
+        deleted_at: null,
+      });
+
+      const result = await service.getSkill('sk-1', undefined, 'node-1');
+
+      expect(result?.skill_id).toBe('sk-1');
     });
   });
 
@@ -825,6 +989,25 @@ describe('SkillStore Service', () => {
       await expect(
         service.createSkill('node-1', { name: 'name', description: 'desc', category: '' }),
       ).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe('createPublishedSkill', () => {
+    it('should create and publish a skill atomically', async () => {
+      const pendingSkill = mockSkill({ skill_id: 'sk-1', author_id: 'node-1', status: 'pending' });
+      const publishedSkill = mockSkill({ skill_id: 'sk-1', author_id: 'node-1', status: 'published' });
+      mockPrisma.skill.create.mockResolvedValue(pendingSkill);
+      mockPrisma.skill.findUnique.mockResolvedValue(pendingSkill);
+      mockPrisma.skill.update.mockResolvedValue(publishedSkill);
+
+      const result = await service.createPublishedSkill('node-1', {
+        name: 'New Skill',
+        description: 'A new skill',
+        category: 'coding',
+      });
+
+      expect(result.status).toBe('published');
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
   });
 

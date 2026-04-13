@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
+import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as accountService from './service';
 import { UnauthorizedError, ValidationError } from '../shared/errors';
 
@@ -100,35 +101,44 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/onboarding', {
     schema: { tags: ['Account'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const { agent_id } = request.query as Record<string, string | undefined>;
+    const agentId = await resolveAuthorizedNodeId(app, auth, {
+      requestedNodeId: agent_id,
+      missingNodeMessage: 'No accessible agent found for current credentials',
+      unauthorizedMessage: 'Cannot access onboarding for another agent',
+    });
 
-    if (!agent_id) {
-      throw new ValidationError('agent_id query parameter is required');
-    }
-
-    const result = await accountService.getOnboardingState(agent_id, prisma);
+    const result = await accountService.getOnboardingState(agentId, prisma);
 
     return reply.send({ success: true, data: result });
   });
 
   app.post('/onboarding/complete', {
     schema: { tags: ['Account'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const body = request.body as {
-      agent_id: string;
+      agent_id?: string;
       step: number;
     };
 
-    if (!body.agent_id) {
-      throw new ValidationError('agent_id is required');
-    }
     if (!body.step || body.step < 1) {
       throw new ValidationError('Valid step number is required');
     }
 
+    accountService.getOnboardingStepDetail(body.step);
+    const agentId = await resolveAuthorizedNodeId(app, auth, {
+      requestedNodeId: body.agent_id,
+      missingNodeMessage: 'No accessible agent found for current credentials',
+      unauthorizedMessage: 'Cannot modify onboarding for another agent',
+    });
+
     const result = await accountService.completeOnboardingStep(
-      body.agent_id,
+      agentId,
       body.step,
       prisma,
     );
@@ -168,16 +178,19 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/onboarding/reset', {
     schema: { tags: ['Account'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const body = request.body as {
-      agent_id: string;
+      agent_id?: string;
     };
+    const agentId = await resolveAuthorizedNodeId(app, auth, {
+      requestedNodeId: body.agent_id,
+      missingNodeMessage: 'No accessible agent found for current credentials',
+      unauthorizedMessage: 'Cannot modify onboarding for another agent',
+    });
 
-    if (!body.agent_id) {
-      throw new ValidationError('agent_id is required');
-    }
-
-    const result = await accountService.resetOnboarding(body.agent_id, prisma);
+    const result = await accountService.resetOnboarding(agentId, prisma);
 
     return reply.send({ success: true, data: result });
   });

@@ -1,7 +1,17 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth } from '../shared/auth';
+import { requireAuth, requireTrustLevel } from '../shared/auth';
+import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as antiHallucinationService from './service';
-import { ValidationError } from '../shared/errors';
+import { ForbiddenError, ValidationError } from '../shared/errors';
+
+async function resolveAntiHallucinationNodeId(
+  app: FastifyInstance,
+  auth: NonNullable<import('fastify').FastifyRequest['auth']>,
+) {
+  return resolveAuthorizedNodeId(app, auth, {
+    missingNodeMessage: 'No accessible node found for current credentials',
+  });
+}
 
 export async function antiHallucinationRoutes(
   app: FastifyInstance,
@@ -14,6 +24,7 @@ export async function antiHallucinationRoutes(
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const body = request.body as {
       code_content: string;
       validation_type: string;
@@ -28,7 +39,7 @@ export async function antiHallucinationRoutes(
     }
 
     const result = await antiHallucinationService.performCheck(
-      auth.node_id,
+      nodeId,
       body.code_content,
       body.validation_type,
       body.asset_id,
@@ -38,14 +49,114 @@ export async function antiHallucinationRoutes(
   });
 
   // -------------------------------------------------------------------------
+  // POST /api/v2/anti-hallucination/validate
+  // -------------------------------------------------------------------------
+  app.post('/validate', {
+    schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const nodeId = await resolveAntiHallucinationNodeId(app, auth);
+    const body = request.body as {
+      code_content?: string;
+      asset_id?: string;
+    };
+
+    if (!body.code_content) {
+      throw new ValidationError('code_content is required');
+    }
+
+    const result = await antiHallucinationService.validateCode(
+      nodeId,
+      body.code_content,
+      body.asset_id,
+    );
+
+    return reply.status(201).send({ success: true, data: result });
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /api/v2/anti-hallucination/detect
+  // -------------------------------------------------------------------------
+  app.post('/detect', {
+    schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const nodeId = await resolveAntiHallucinationNodeId(app, auth);
+    const body = request.body as {
+      code_content?: string;
+      asset_id?: string;
+    };
+
+    if (!body.code_content) {
+      throw new ValidationError('code_content is required');
+    }
+
+    const result = await antiHallucinationService.detectHallucination(
+      nodeId,
+      body.code_content,
+      body.asset_id,
+    );
+
+    return reply.status(201).send({ success: true, data: result });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/v2/anti-hallucination/confidence
+  // -------------------------------------------------------------------------
+  app.get('/confidence', {
+    schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const nodeId = await resolveAntiHallucinationNodeId(app, auth);
+    const { check_id, asset_id } = request.query as {
+      check_id?: string;
+      asset_id?: string;
+    };
+
+    const result = await antiHallucinationService.getConfidence(nodeId, {
+      checkId: check_id,
+      assetId: asset_id,
+    });
+
+    return reply.send({ success: true, data: result });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/v2/anti-hallucination/patterns
+  // -------------------------------------------------------------------------
+  app.get('/patterns', {
+    schema: { tags: ['AntiHallucination'] },
+  }, async (_request, reply) => {
+    const result = antiHallucinationService.listForbiddenPatterns();
+    return reply.send({ success: true, data: result });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /api/v2/anti-hallucination/stats
+  // -------------------------------------------------------------------------
+  app.get('/stats', {
+    schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireTrustLevel('trusted')],
+  }, async (_request, reply) => {
+    const result = await antiHallucinationService.getCheckStats();
+    return reply.send({ success: true, data: result });
+  });
+
+  // -------------------------------------------------------------------------
   // GET /api/v2/anti-hallucination/checks/:checkId
   // -------------------------------------------------------------------------
   app.get('/checks/:checkId', {
     schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
+    const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const { checkId } = request.params as { checkId: string };
 
-    const result = await antiHallucinationService.getCheck(checkId);
+    const result = await antiHallucinationService.getCheck(checkId, nodeId);
     if (!result) {
       return reply.status(404).send({
         success: false,
@@ -65,13 +176,14 @@ export async function antiHallucinationRoutes(
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const { limit, offset } = request.query as Record<string, string | undefined>;
 
     const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
     const parsedOffset = offset ? Number(offset) : 0;
 
     const result = await antiHallucinationService.listChecks(
-      auth.node_id,
+      nodeId,
       parsedLimit,
       parsedOffset,
     );
@@ -84,6 +196,7 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/anchors', {
     schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
     const { type, limit, offset } = request.query as Record<string, string | undefined>;
 
@@ -104,7 +217,7 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.post('/anchors', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
     const body = request.body as {
       type: string;
@@ -143,6 +256,7 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/graph/nodes', {
     schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
     const {
       type,
@@ -172,6 +286,7 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/graph/nodes/:nodeId', {
     schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
 
@@ -192,7 +307,7 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.post('/graph/nodes', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
     const body = request.body as {
       node_id: string;
@@ -226,6 +341,7 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/graph/edges', {
     schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
     const {
       source_id,
@@ -252,7 +368,7 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.post('/graph/edges', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
     const body = request.body as {
       source_id: string;
@@ -286,8 +402,30 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/chains/:assetId', {
     schema: { tags: ['AntiHallucination'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
+    const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const { assetId } = request.params as { assetId: string };
+    const asset = await app.prisma.asset.findUnique({
+      where: { asset_id: assetId },
+      select: { author_id: true, status: true },
+    });
+
+    if (!asset) {
+      return reply.status(404).send({
+        success: false,
+        error: 'Capability chain not found',
+        message: `No capability chain found for asset '${assetId}'`,
+      });
+    }
+
+    const canRead = asset.author_id === nodeId
+      || asset.status === 'published'
+      || asset.status === 'promoted';
+    if (!canRead) {
+      throw new ForbiddenError('Cannot access capability chain for this asset');
+    }
 
     const result = await antiHallucinationService.getCapabilityChain(assetId);
     if (!result) {

@@ -11,6 +11,29 @@ import { NotFoundError, ValidationError } from '../shared/errors';
 
 let prisma = new PrismaClient();
 
+const FORBIDDEN_PATTERNS = [
+  {
+    id: 'todo-fixme-hack',
+    category: 'maintainability',
+    description: 'TODO, FIXME, HACK, or XXX markers left in code',
+  },
+  {
+    id: 'hardcoded-secrets',
+    category: 'security',
+    description: 'Potential hardcoded secrets, API keys, passwords, or tokens',
+  },
+  {
+    id: 'placeholder-stubs',
+    category: 'correctness',
+    description: 'Placeholder implementations or not-implemented stubs',
+  },
+  {
+    id: 'repeated-magic-numbers',
+    category: 'quality',
+    description: 'Repeated numeric literals that should likely be named constants',
+  },
+] as const;
+
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
@@ -123,10 +146,34 @@ export async function performCheck(
   return check as unknown as HallucinationCheck;
 }
 
-export async function getCheck(checkId: string): Promise<HallucinationCheck | null> {
+export async function validateCode(
+  nodeId: string,
+  codeContent: string,
+  assetId?: string,
+): Promise<HallucinationCheck> {
+  return performCheck(nodeId, codeContent, 'validate', assetId);
+}
+
+export async function detectHallucination(
+  nodeId: string,
+  codeContent: string,
+  assetId?: string,
+): Promise<HallucinationCheck> {
+  return performCheck(nodeId, codeContent, 'detect', assetId);
+}
+
+export async function getCheck(
+  checkId: string,
+  nodeId?: string,
+): Promise<HallucinationCheck | null> {
   const check = await prisma.hallucinationCheck.findUnique({
     where: { check_id: checkId },
   });
+
+  if (check && nodeId && check.node_id !== nodeId) {
+    return null;
+  }
+
   return check as unknown as HallucinationCheck | null;
 }
 
@@ -145,6 +192,132 @@ export async function listChecks(
     prisma.hallucinationCheck.count({ where: { node_id: nodeId } }),
   ]);
   return { items: items as unknown as HallucinationCheck[], total };
+}
+
+export async function getConfidence(
+  nodeId: string,
+  query: {
+    checkId?: string;
+    assetId?: string;
+  } = {},
+): Promise<{
+  check_id: string;
+  asset_id: string | null;
+  confidence: number;
+  validation_type: string;
+  has_hallucination: boolean;
+  alert_count: number;
+  summary: string | null;
+  created_at: Date;
+}> {
+  let check: HallucinationCheck | null;
+
+  if (query.checkId) {
+    const directCheck = await prisma.hallucinationCheck.findUnique({
+      where: { check_id: query.checkId },
+    });
+    check = directCheck as unknown as HallucinationCheck | null;
+    if (!check || check.node_id !== nodeId) {
+      throw new NotFoundError('HallucinationCheck', query.checkId);
+    }
+  } else {
+    const latestCheck = await prisma.hallucinationCheck.findFirst({
+      where: {
+        node_id: nodeId,
+        ...(query.assetId ? { asset_id: query.assetId } : {}),
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    check = latestCheck as unknown as HallucinationCheck | null;
+    if (!check) {
+      throw new NotFoundError('HallucinationCheck', query.assetId ?? nodeId);
+    }
+  }
+
+  const result = (check.result ?? {}) as Record<string, unknown>;
+  const alertCount = typeof result.alert_count === 'number'
+    ? result.alert_count
+    : Array.isArray(check.alerts)
+      ? check.alerts.length
+      : 0;
+
+  return {
+    check_id: check.check_id,
+    asset_id: check.asset_id ?? null,
+    confidence: check.confidence,
+    validation_type: check.validation_type,
+    has_hallucination: result.has_hallucination === true,
+    alert_count: alertCount,
+    summary: typeof result.summary === 'string' ? result.summary : null,
+    created_at: check.created_at,
+  };
+}
+
+export function listForbiddenPatterns(): Array<{
+  id: string;
+  category: string;
+  description: string;
+}> {
+  return FORBIDDEN_PATTERNS.map((pattern) => ({ ...pattern }));
+}
+
+export async function getCheckStats(): Promise<{
+  total_checks: number;
+  avg_confidence: number;
+  checks_with_alerts: number;
+  alert_rate: number;
+  recent_24h: number;
+  by_validation_type: Record<string, number>;
+}> {
+  const checks = await prisma.hallucinationCheck.findMany({
+    select: {
+      validation_type: true,
+      confidence: true,
+      result: true,
+      created_at: true,
+    },
+  });
+
+  const totalChecks = checks.length;
+  if (totalChecks === 0) {
+    return {
+      total_checks: 0,
+      avg_confidence: 0,
+      checks_with_alerts: 0,
+      alert_rate: 0,
+      recent_24h: 0,
+      by_validation_type: {},
+    };
+  }
+
+  const recentThreshold = Date.now() - 24 * 60 * 60 * 1000;
+  let confidenceSum = 0;
+  let checksWithAlerts = 0;
+  let recent24h = 0;
+  const byValidationType: Record<string, number> = {};
+
+  for (const check of checks) {
+    confidenceSum += check.confidence;
+    if (check.created_at.getTime() >= recentThreshold) {
+      recent24h += 1;
+    }
+
+    byValidationType[check.validation_type] = (byValidationType[check.validation_type] ?? 0) + 1;
+
+    const result = (check.result ?? {}) as Record<string, unknown>;
+    if (result.has_hallucination === true) {
+      checksWithAlerts += 1;
+    }
+  }
+
+  return {
+    total_checks: totalChecks,
+    avg_confidence: confidenceSum / totalChecks,
+    checks_with_alerts: checksWithAlerts,
+    alert_rate: checksWithAlerts / totalChecks,
+    recent_24h: recent24h,
+    by_validation_type: byValidationType,
+  };
 }
 
 // ------------------------------------------------------------------

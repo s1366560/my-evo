@@ -208,6 +208,9 @@ export async function buildApp() {
   const { accountRoutes } = await import('./account/routes');
   await app.register(accountRoutes, { prefix: '/account' });
 
+  const { onboardingRoutes } = await import('./onboarding/routes');
+  await app.register(onboardingRoutes, { prefix: '/onboarding' });
+
   const { verifiableTrustRoutes } = await import('./verifiable_trust/routes');
   await app.register(verifiableTrustRoutes, { prefix: '/trust' });
 
@@ -235,6 +238,9 @@ export async function buildApp() {
 
   const { subscriptionRoutes } = await import('./subscription/routes');
   await app.register(subscriptionRoutes, { prefix: '/api/v2/subscription' });
+
+  const { subscriptionPublicRoutes } = await import('./subscription/public-routes');
+  await app.register(subscriptionPublicRoutes, { prefix: '/subscription' });
 
   const { questionRoutes } = await import('./questions/routes');
   await app.register(questionRoutes, { prefix: '/api/v2/questions' });
@@ -407,6 +413,9 @@ export async function buildApp() {
 
   const { memoryGraphRoutes } = await import('./memory_graph/routes');
   await app.register(memoryGraphRoutes, { prefix: '/api/v2/memory-graph' });
+
+  const { memoryGraphSpecRoutes } = await import('./memory_graph/spec-routes');
+  await app.register(memoryGraphSpecRoutes, { prefix: '/api/v2/memory/graph' });
 
   return app;
 }

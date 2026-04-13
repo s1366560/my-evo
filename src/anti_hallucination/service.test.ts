@@ -4,8 +4,13 @@ import { NotFoundError, ValidationError } from '../shared/errors';
 
 const {
   performCheck,
+  validateCode,
+  detectHallucination,
   getCheck,
   listChecks,
+  getConfidence,
+  listForbiddenPatterns,
+  getCheckStats,
   listAnchors,
   addAnchor,
   listGraphNodes,
@@ -20,6 +25,7 @@ const mockPrisma = {
   hallucinationCheck: {
     create: jest.fn(),
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     findMany: jest.fn(),
     count: jest.fn(),
   },
@@ -136,6 +142,24 @@ describe('Anti-Hallucination Service', () => {
       expect(result.has_hallucination).toBe(true);
       expect(result.alerts).toContain('Repeated magic numbers detected (consider using named constants)');
     });
+
+    it('should detect repeated placeholder stubs', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-5',
+        node_id: 'node-1',
+        has_hallucination: true,
+        alert_count: 1,
+        result: {},
+        confidence: 0.8,
+        alerts: ['Multiple placeholder or stub patterns detected'],
+        validation_type: 'code_review',
+      });
+
+      const code = Array.from({ length: 6 }, () => 'return null;').join('\n');
+      const result = await performCheck('node-1', code, 'code_review') as any;
+
+      expect(result.alerts).toContain('Multiple placeholder or stub patterns detected');
+    });
   });
 
   describe('getCheck', () => {
@@ -143,14 +167,62 @@ describe('Anti-Hallucination Service', () => {
       const mockCheck = { check_id: 'chk-1', node_id: 'node-1' };
       mockPrisma.hallucinationCheck.findUnique.mockResolvedValue(mockCheck);
 
-      const result = await getCheck('chk-1');
+      const result = await getCheck('chk-1', 'node-1');
       expect(result).toEqual(mockCheck);
     });
 
     it('should return null when check not found', async () => {
       mockPrisma.hallucinationCheck.findUnique.mockResolvedValue(null);
-      const result = await getCheck('nonexistent');
+      const result = await getCheck('nonexistent', 'node-1');
       expect(result).toBeNull();
+    });
+
+    it('should hide checks owned by another node', async () => {
+      mockPrisma.hallucinationCheck.findUnique.mockResolvedValue({ check_id: 'chk-1', node_id: 'node-2' });
+
+      const result = await getCheck('chk-1', 'node-1');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('validateCode and detectHallucination', () => {
+    it('should create validation-specific checks', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-validate',
+        node_id: 'node-1',
+        validation_type: 'validate',
+        confidence: 0.9,
+      });
+
+      await validateCode('node-1', 'const x = 1;');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            validation_type: 'validate',
+          }),
+        }),
+      );
+    });
+
+    it('should create detection-specific checks', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-detect',
+        node_id: 'node-1',
+        validation_type: 'detect',
+        confidence: 0.8,
+      });
+
+      await detectHallucination('node-1', 'const secret = "abc123456";');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            validation_type: 'detect',
+          }),
+        }),
+      );
     });
   });
 
@@ -178,6 +250,105 @@ describe('Anti-Hallucination Service', () => {
       expect(mockPrisma.hallucinationCheck.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 1, skip: 0 }),
       );
+    });
+  });
+
+  describe('getConfidence', () => {
+    it('should return the latest confidence record for a node asset', async () => {
+      mockPrisma.hallucinationCheck.findFirst.mockResolvedValue({
+        check_id: 'chk-latest',
+        node_id: 'node-1',
+        asset_id: 'asset-1',
+        confidence: 0.92,
+        validation_type: 'check',
+        result: {
+          has_hallucination: false,
+          alert_count: 0,
+          summary: 'No obvious hallucinations detected',
+        },
+        created_at: new Date('2025-01-02T00:00:00Z'),
+      });
+
+      const result = await getConfidence('node-1', { assetId: 'asset-1' });
+
+      expect(result.check_id).toBe('chk-latest');
+      expect(result.asset_id).toBe('asset-1');
+      expect(result.confidence).toBe(0.92);
+      expect(mockPrisma.hallucinationCheck.findFirst).toHaveBeenCalledWith({
+        where: { node_id: 'node-1', asset_id: 'asset-1' },
+        orderBy: { created_at: 'desc' },
+      });
+    });
+
+    it('should look up a specific check id and fall back to alert array length', async () => {
+      mockPrisma.hallucinationCheck.findUnique.mockResolvedValue({
+        check_id: 'chk-direct',
+        node_id: 'node-1',
+        asset_id: null,
+        confidence: 0.75,
+        validation_type: 'detect',
+        result: { has_hallucination: true, summary: 'Potential issue' },
+        alerts: ['issue-1', 'issue-2'],
+        created_at: new Date('2025-01-03T00:00:00Z'),
+      });
+
+      const result = await getConfidence('node-1', { checkId: 'chk-direct' });
+
+      expect(result.alert_count).toBe(2);
+      expect(result.has_hallucination).toBe(true);
+    });
+  });
+
+  describe('listForbiddenPatterns', () => {
+    it('should expose the configured forbidden pattern catalog', () => {
+      const patterns = listForbiddenPatterns();
+
+      expect(patterns).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'todo-fixme-hack' }),
+          expect.objectContaining({ id: 'hardcoded-secrets' }),
+        ]),
+      );
+    });
+  });
+
+  describe('getCheckStats', () => {
+    it('should summarize global anti-hallucination checks', async () => {
+      mockPrisma.hallucinationCheck.findMany.mockResolvedValue([
+        {
+          validation_type: 'check',
+          confidence: 0.9,
+          result: { has_hallucination: false },
+          created_at: new Date(),
+        },
+        {
+          validation_type: 'detect',
+          confidence: 0.6,
+          result: { has_hallucination: true },
+          created_at: new Date(),
+        },
+      ]);
+
+      const result = await getCheckStats();
+
+      expect(result.total_checks).toBe(2);
+      expect(result.checks_with_alerts).toBe(1);
+      expect(result.by_validation_type).toEqual({ check: 1, detect: 1 });
+    });
+
+    it('should return empty stats when no checks exist', async () => {
+      mockPrisma.hallucinationCheck.findMany.mockResolvedValue([]);
+
+      const result = await getCheckStats();
+
+      expect(result).toEqual({
+        total_checks: 0,
+        avg_confidence: 0,
+        checks_with_alerts: 0,
+        alert_rate: 0,
+        recent_24h: 0,
+        by_validation_type: {},
+      });
     });
   });
 

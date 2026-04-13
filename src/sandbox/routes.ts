@@ -1,13 +1,38 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth } from '../shared/auth';
+import { requireAuth, requireTrustLevel } from '../shared/auth';
 import { EvoMapError } from '../shared/errors';
+import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as service from './service';
+
+function toSpecIsolationMode(isolationLevel?: string): string {
+  if (isolationLevel === 'soft') {
+    return 'soft-tagged';
+  }
+
+  if (isolationLevel === 'hard') {
+    return 'hard-isolated';
+  }
+
+  return isolationLevel ?? 'soft-tagged';
+}
+
+async function resolveSandboxNodeId(
+  app: FastifyInstance,
+  auth: NonNullable<import('fastify').FastifyRequest['auth']>,
+) {
+  return resolveAuthorizedNodeId(app, auth, {
+    missingNodeMessage: 'No accessible node found for current credentials',
+  });
+}
 
 export async function sandboxRoutes(app: FastifyInstance) {
   // List sandboxes
   app.get('/sandboxes', {
     schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
   }, async (request) => {
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
     const query = request.query as {
       state?: string;
       isolation_level?: string;
@@ -20,6 +45,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       query.isolation_level,
       query.limit ? parseInt(query.limit, 10) : 20,
       query.offset ? parseInt(query.offset, 10) : 0,
+      nodeId,
     );
 
     return {
@@ -28,12 +54,64 @@ export async function sandboxRoutes(app: FastifyInstance) {
     };
   });
 
+  app.get('/list', {
+    schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const query = request.query as {
+      status?: string;
+      state?: string;
+      isolation_mode?: string;
+      isolation_level?: string;
+      limit?: string;
+      offset?: string;
+    };
+
+    const result = await service.listSandboxes(
+      query.status ?? query.state,
+      query.isolation_mode === 'soft-tagged'
+        ? 'soft'
+        : query.isolation_mode === 'hard-isolated'
+          ? 'hard'
+          : query.isolation_level,
+      query.limit ? parseInt(query.limit, 10) : 20,
+      query.offset ? parseInt(query.offset, 10) : 0,
+      nodeId,
+    );
+
+    return {
+      success: true,
+      data: {
+        sandboxes: result.items.map((sandbox) => ({
+          sandbox_id: sandbox.sandbox_id,
+          name: sandbox.name,
+          status: sandbox.state,
+          isolation_mode: toSpecIsolationMode(sandbox.isolation_level),
+        })),
+        total: result.total,
+      },
+    };
+  });
+
+  app.get('/stats', {
+    schema: { tags: ['Sandbox'] },
+    preHandler: [requireTrustLevel('trusted')],
+  }, async (_request) => {
+    const stats = await service.getSandboxStats();
+    return { success: true, data: stats };
+  });
+
   // Get sandbox detail
   app.get('/:sandboxId', {
     schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { sandboxId: string };
-    const sandbox = await service.getSandbox(params.sandboxId);
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const sandbox = await service.getSandbox(params.sandboxId, nodeId);
     return { success: true, data: sandbox };
   });
 
@@ -43,6 +121,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
     const body = request.body as {
       name: string;
       description: string;
@@ -56,7 +135,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     }
 
     const sandbox = await service.createSandbox(
-      auth.node_id,
+      nodeId,
       body.name,
       body.description,
       body.isolation_level,
@@ -68,12 +147,63 @@ export async function sandboxRoutes(app: FastifyInstance) {
     return { success: true, data: sandbox };
   });
 
+  app.post('/create', {
+    schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const body = request.body as {
+      name?: string;
+      description?: string;
+      isolation_mode?: string;
+      base_gene_id?: string;
+      experiment_config?: Record<string, unknown>;
+      tags?: string[];
+    };
+
+    if (!body.name) {
+      throw new EvoMapError('name is required', 'VALIDATION_ERROR', 400);
+    }
+
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const sandbox = await service.createSandbox(
+      nodeId,
+      body.name,
+      body.description ?? `Sandbox experiment for ${body.base_gene_id ?? body.name}`,
+      body.isolation_mode === 'soft-tagged'
+        ? 'soft'
+        : body.isolation_mode === 'hard-isolated'
+          ? 'hard'
+          : body.isolation_mode,
+      undefined,
+      body.tags,
+      {
+        base_gene_id: body.base_gene_id ?? null,
+        experiment_config: body.experiment_config ?? {},
+        expires_at: expiresAt,
+      },
+    );
+
+    return reply.send({
+      success: true,
+      data: {
+        sandbox_id: sandbox.sandbox_id,
+        status: sandbox.state,
+        isolation_mode: toSpecIsolationMode(sandbox.isolation_level),
+        expires_at: expiresAt,
+      },
+    });
+  });
+
   // Update sandbox
   app.put('/:sandboxId', {
     schema: { tags: ['Sandbox'] },
     preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { sandboxId: string };
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
     const body = request.body as {
       name?: string;
       description?: string;
@@ -84,7 +214,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       metadata?: Record<string, unknown>;
     };
 
-    const sandbox = await service.updateSandbox(params.sandboxId, body);
+    const sandbox = await service.updateSandbox(params.sandboxId, nodeId, body);
     return { success: true, data: sandbox };
   });
 
@@ -95,7 +225,8 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    await service.deleteSandbox(params.sandboxId, auth.node_id);
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    await service.deleteSandbox(params.sandboxId, nodeId);
     return { success: true, data: null };
   });
 
@@ -106,7 +237,8 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const member = await service.joinSandbox(params.sandboxId, auth.node_id);
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const member = await service.joinSandbox(params.sandboxId, nodeId);
     return { success: true, data: member };
   });
 
@@ -117,16 +249,20 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    await service.leaveSandbox(params.sandboxId, auth.node_id);
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    await service.leaveSandbox(params.sandboxId, nodeId);
     return { success: true, data: null };
   });
 
   // List members
   app.get('/:sandboxId/members', {
     schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { sandboxId: string };
-    const members = await service.listMembers(params.sandboxId);
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const members = await service.listMembers(params.sandboxId, nodeId);
     return { success: true, data: members };
   });
 
@@ -137,6 +273,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
     const body = request.body as {
       invitee: string;
       role?: string;
@@ -148,7 +285,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
 
     const invite = await service.inviteMember(
       params.sandboxId,
-      auth.node_id,
+      nodeId,
       body.invitee,
       body.role,
     );
@@ -160,9 +297,12 @@ export async function sandboxRoutes(app: FastifyInstance) {
   // List sandbox assets
   app.get('/:sandboxId/assets', {
     schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { sandboxId: string };
-    const assets = await service.listAssets(params.sandboxId);
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const assets = await service.listAssets(params.sandboxId, nodeId);
     return { success: true, data: assets };
   });
 
@@ -173,6 +313,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
     const body = request.body as {
       asset_id: string;
       asset_type: string;
@@ -187,7 +328,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       throw new EvoMapError('asset_id, asset_type, name, and content are required', 'VALIDATION_ERROR', 400);
     }
 
-    const asset = await service.addAsset(params.sandboxId, auth.node_id, {
+    const asset = await service.addAsset(params.sandboxId, nodeId, {
       asset_id: body.asset_id,
       asset_type: body.asset_type,
       name: body.name,
@@ -201,6 +342,114 @@ export async function sandboxRoutes(app: FastifyInstance) {
     return { success: true, data: asset };
   });
 
+  app.post('/:sandboxId/asset', {
+    schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const params = request.params as { sandboxId: string };
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const body = request.body as { asset_id?: string };
+
+    if (!body.asset_id) {
+      throw new EvoMapError('asset_id is required', 'VALIDATION_ERROR', 400);
+    }
+
+    const result = await service.attachExistingAssetToSandbox(
+      params.sandboxId,
+      nodeId,
+      body.asset_id,
+    );
+
+    return { success: true, data: result };
+  });
+
+  app.post('/:sandboxId/experiment', {
+    schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const params = request.params as { sandboxId: string };
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const body = request.body as {
+      experiment_type?: string;
+      target_gene?: string;
+      mutation_strategy?: string;
+      parameters?: Record<string, unknown>;
+    };
+
+    if (!body.experiment_type) {
+      throw new EvoMapError('experiment_type is required', 'VALIDATION_ERROR', 400);
+    }
+
+    const result = await service.runExperiment(params.sandboxId, nodeId, {
+      experiment_type: body.experiment_type,
+      target_gene: body.target_gene,
+      mutation_strategy: body.mutation_strategy,
+      parameters: body.parameters,
+    });
+
+    return { success: true, data: result };
+  });
+
+  app.post('/:sandboxId/modify', {
+    schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const params = request.params as { sandboxId: string };
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const body = request.body as {
+      asset_id?: string;
+      modifications?: Record<string, unknown>;
+    };
+
+    if (!body.asset_id) {
+      throw new EvoMapError('asset_id is required', 'VALIDATION_ERROR', 400);
+    }
+    if (!body.modifications || typeof body.modifications !== 'object') {
+      throw new EvoMapError('modifications are required', 'VALIDATION_ERROR', 400);
+    }
+
+    const result = await service.modifySandboxAsset(
+      params.sandboxId,
+      nodeId,
+      body.asset_id,
+      body.modifications,
+    );
+    return { success: true, data: result };
+  });
+
+  app.post('/:sandboxId/complete', {
+    schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const params = request.params as { sandboxId: string };
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const body = (request.body as {
+      promote_assets?: string[];
+      summary?: string;
+    } | undefined) ?? {};
+
+    const result = await service.completeSandbox(params.sandboxId, nodeId, {
+      promote_assets: body.promote_assets,
+      summary: body.summary,
+    });
+    return { success: true, data: result };
+  });
+
+  app.get('/:sandboxId/compare', {
+    schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const params = request.params as { sandboxId: string };
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const result = await service.compareSandbox(params.sandboxId, nodeId);
+    return { success: true, data: result };
+  });
+
   // Request promotion
   app.post('/:sandboxId/promote', {
     schema: { tags: ['Sandbox'] },
@@ -208,6 +457,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
     const body = request.body as { asset_id: string };
 
     if (!body.asset_id) {
@@ -216,7 +466,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
 
     const request2 = await service.requestPromotion(
       params.sandboxId,
-      auth.node_id,
+      nodeId,
       body.asset_id,
     );
 
@@ -227,9 +477,12 @@ export async function sandboxRoutes(app: FastifyInstance) {
   // List promotion requests
   app.get('/:sandboxId/promotions', {
     schema: { tags: ['Sandbox'] },
+    preHandler: [requireAuth()],
   }, async (request) => {
     const params = request.params as { sandboxId: string };
-    const promotions = await service.listPromotions(params.sandboxId);
+    const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
+    const promotions = await service.listPromotions(params.sandboxId, nodeId);
     return { success: true, data: promotions };
   });
 
@@ -240,10 +493,11 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string; requestId: string };
     const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
     const result = await service.approvePromotion(
       params.sandboxId,
       params.requestId,
-      auth.node_id,
+      nodeId,
     );
     return { success: true, data: result };
   });
@@ -255,11 +509,12 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string; requestId: string };
     const auth = request.auth!;
+    const nodeId = await resolveSandboxNodeId(app, auth);
     const body = request.body as { note?: string };
     const result = await service.rejectPromotion(
       params.sandboxId,
       params.requestId,
-      auth.node_id,
+      nodeId,
       body.note ?? '',
     );
     return { success: true, data: result };

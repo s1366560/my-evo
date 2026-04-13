@@ -9,6 +9,8 @@ import * as quality from './quality';
 
 let prisma = new PrismaClient();
 
+type SkillStoreClient = PrismaClient | Prisma.TransactionClient;
+
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
   ranking.setPrisma(client);
@@ -16,6 +18,10 @@ export function setPrisma(client: PrismaClient): void {
 }
 
 function getPrismaClient(prismaClient?: PrismaClient): PrismaClient {
+  return prismaClient ?? prisma;
+}
+
+function getSkillStoreClient(prismaClient?: SkillStoreClient): SkillStoreClient {
   return prismaClient ?? prisma;
 }
 
@@ -77,13 +83,21 @@ export async function listSkills(
   return { items: items as unknown as Skill[], total };
 }
 
-export async function getSkill(skillId: string, prismaClient?: PrismaClient): Promise<Skill | null> {
-  const client = getPrismaClient(prismaClient);
+export async function getSkill(
+  skillId: string,
+  prismaClient?: SkillStoreClient,
+  requesterId?: string,
+): Promise<Skill | null> {
+  const client = getSkillStoreClient(prismaClient);
   const skill = await client.skill.findUnique({
     where: { skill_id: skillId },
   });
 
   if (skill && skill.deleted_at) {
+    return null;
+  }
+
+  if (skill && skill.status !== 'published' && skill.author_id !== requesterId) {
     return null;
   }
 
@@ -110,9 +124,9 @@ interface CreateSkillData {
 export async function createSkill(
   authorId: string,
   data: CreateSkillData,
-  prismaClient?: PrismaClient,
+  prismaClient?: SkillStoreClient,
 ): Promise<Skill> {
-  const client = getPrismaClient(prismaClient);
+  const client = getSkillStoreClient(prismaClient);
   if (!data.name || data.name.trim().length === 0) {
     throw new ValidationError('name is required');
   }
@@ -159,6 +173,53 @@ interface UpdateSkillData {
   examples?: string[];
   tags?: string[];
   source_capsules?: string[];
+}
+
+interface SkillVersionSnapshot {
+  version: string;
+  name: string;
+  description: string;
+  category: string;
+  price_credits: number;
+  code_template: string | null;
+  parameters: Prisma.JsonValue | null;
+  steps: string[];
+  examples: string[];
+  tags: string[];
+  source_capsules: string[];
+}
+
+function buildSkillVersionSnapshot(skill: Skill): SkillVersionSnapshot {
+  return {
+    version: skill.version,
+    name: skill.name,
+    description: skill.description,
+    category: skill.category,
+    price_credits: skill.price_credits,
+    code_template: skill.code_template ?? null,
+    parameters: (skill.parameters as Prisma.JsonValue | null) ?? null,
+    steps: skill.steps,
+    examples: skill.examples,
+    tags: skill.tags,
+    source_capsules: skill.source_capsules,
+  };
+}
+
+function normalizeSkillVersions(versions: unknown): SkillVersionSnapshot[] {
+  return Array.isArray(versions)
+    ? versions.filter((version): version is SkillVersionSnapshot =>
+      typeof version === 'object' && version !== null && 'version' in version)
+    : [];
+}
+
+function getNextPatchVersion(version: string): string {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) {
+    return '1.0.1';
+  }
+
+  const [, major, minor, patch] = match;
+  return `${major}.${minor}.${Number(patch) + 1}`;
 }
 
 function buildSkillUpdateData(updates: UpdateSkillData): Prisma.SkillUpdateInput {
@@ -271,9 +332,9 @@ export async function deleteSkill(
 export async function publishSkill(
   skillId: string,
   authorId: string,
-  prismaClient?: PrismaClient,
+  prismaClient?: SkillStoreClient,
 ): Promise<Skill> {
-  const client = getPrismaClient(prismaClient);
+  const client = getSkillStoreClient(prismaClient);
   const skill = await client.skill.findUnique({ where: { skill_id: skillId } });
 
   if (!skill) {
@@ -298,6 +359,21 @@ export async function publishSkill(
   });
 
   return updated as unknown as Skill;
+}
+
+export async function createPublishedSkill(
+  authorId: string,
+  data: CreateSkillData,
+  prismaClient?: PrismaClient,
+): Promise<Skill> {
+  const client = getPrismaClient(prismaClient);
+
+  const published = await client.$transaction(async (tx) => {
+    const created = await createSkill(authorId, data, tx);
+    return publishSkill(created.skill_id, authorId, tx);
+  });
+
+  return published as unknown as Skill;
 }
 
 export async function publishSkillWithUpdates(
@@ -338,6 +414,111 @@ export async function publishSkillWithUpdates(
   });
 
   return published as unknown as Skill;
+}
+
+export async function updateSkillVersion(
+  skillId: string,
+  authorId: string,
+  updates: UpdateSkillData & { version?: string },
+  prismaClient?: PrismaClient,
+): Promise<Skill> {
+  const client = getPrismaClient(prismaClient);
+  const { version, ...skillUpdates } = updates;
+  const updateData = buildSkillUpdateData(skillUpdates);
+
+  const updated = await client.$transaction(async (tx) => {
+    const skill = await tx.skill.findUnique({ where: { skill_id: skillId } });
+
+    if (!skill) {
+      throw new NotFoundError('Skill', skillId);
+    }
+
+    if (skill.deleted_at) {
+      throw new NotFoundError('Skill', skillId);
+    }
+
+    if (skill.author_id !== authorId) {
+      throw new ValidationError('You can only update your own skills');
+    }
+
+    const versions = normalizeSkillVersions(skill.versions);
+    const nextVersion = version?.trim() || getNextPatchVersion(skill.version);
+
+    return tx.skill.update({
+      where: { skill_id: skillId },
+      data: {
+        ...updateData,
+        version: nextVersion,
+        versions: [...versions, buildSkillVersionSnapshot(skill)] as unknown as Prisma.InputJsonValue,
+      },
+    });
+  });
+
+  return updated as unknown as Skill;
+}
+
+export async function rollbackSkillVersion(
+  skillId: string,
+  authorId: string,
+  targetVersion?: string,
+  prismaClient?: PrismaClient,
+): Promise<Skill> {
+  const client = getPrismaClient(prismaClient);
+
+  const rolledBack = await client.$transaction(async (tx) => {
+    const skill = await tx.skill.findUnique({ where: { skill_id: skillId } });
+
+    if (!skill) {
+      throw new NotFoundError('Skill', skillId);
+    }
+
+    if (skill.deleted_at) {
+      throw new NotFoundError('Skill', skillId);
+    }
+
+    if (skill.author_id !== authorId) {
+      throw new ValidationError('You can only rollback your own skills');
+    }
+
+    const versions = normalizeSkillVersions(skill.versions);
+    if (versions.length === 0) {
+      throw new ValidationError('No previous version is available for rollback');
+    }
+
+    const targetIndex = targetVersion
+      ? versions.findIndex((version) => version.version === targetVersion)
+      : versions.length - 1;
+
+    if (targetIndex < 0) {
+      throw new NotFoundError('Skill version', targetVersion ?? 'latest');
+    }
+
+    const target = versions[targetIndex]!;
+    const currentSnapshot = buildSkillVersionSnapshot(skill);
+    const remainingVersions = versions.filter((_, index) => index !== targetIndex);
+
+    return tx.skill.update({
+      where: { skill_id: skillId },
+      data: {
+        name: target.name,
+        description: target.description,
+        category: target.category,
+        price_credits: target.price_credits,
+        code_template: target.code_template,
+        parameters: target.parameters === null
+          ? Prisma.JsonNull
+          : target.parameters as Prisma.InputJsonValue,
+        steps: target.steps,
+        examples: target.examples,
+        tags: target.tags,
+        source_capsules: target.source_capsules,
+        version: target.version,
+        versions: [...remainingVersions, currentSnapshot] as unknown as Prisma.InputJsonValue,
+      },
+    });
+  });
+
+  return rolledBack as unknown as Skill;
 }
 
 // ------------------------------------------------------------------
@@ -576,6 +757,30 @@ export async function restoreSkill(
   return updated as unknown as Skill;
 }
 
+export async function permanentlyDeleteSkill(
+  skillId: string,
+  authorId: string,
+  prismaClient?: PrismaClient,
+): Promise<{ deleted: true }> {
+  const client = getPrismaClient(prismaClient);
+  const skill = await client.skill.findUnique({ where: { skill_id: skillId } });
+
+  if (!skill) {
+    throw new NotFoundError('Skill', skillId);
+  }
+
+  if (skill.author_id !== authorId) {
+    throw new ValidationError('You can only permanently delete your own skills');
+  }
+
+  await client.$transaction(async (tx) => {
+    await tx.skillRating.deleteMany({ where: { skill_id: skillId } });
+    await tx.skill.delete({ where: { skill_id: skillId } });
+  });
+
+  return { deleted: true };
+}
+
 // ------------------------------------------------------------------
 // My Skills
 // ------------------------------------------------------------------
@@ -598,4 +803,47 @@ export async function getMySkills(
   ]);
 
   return { items: items as unknown as Skill[], total };
+}
+
+export async function getSkillStoreStats(
+  prismaClient?: PrismaClient,
+): Promise<{
+  total_skills: number;
+  published: number;
+  pending: number;
+  deleted: number;
+  total_downloads: number;
+  avg_rating: number;
+  total_authors: number;
+}> {
+  const client = getPrismaClient(prismaClient);
+  const skills = await client.skill.findMany({
+    select: {
+      author_id: true,
+      status: true,
+      deleted_at: true,
+      download_count: true,
+      rating: true,
+      rating_count: true,
+    },
+  });
+
+  const totalSkills = skills.length;
+  const published = skills.filter((skill) => skill.status === 'published' && !skill.deleted_at).length;
+  const pending = skills.filter((skill) => skill.status !== 'published' && !skill.deleted_at).length;
+  const deleted = skills.filter((skill) => Boolean(skill.deleted_at)).length;
+  const totalDownloads = skills.reduce((sum, skill) => sum + skill.download_count, 0);
+  const totalAuthors = new Set(skills.map((skill) => skill.author_id)).size;
+  const ratingWeight = skills.reduce((sum, skill) => sum + skill.rating_count, 0);
+  const ratingSum = skills.reduce((sum, skill) => sum + skill.rating * skill.rating_count, 0);
+
+  return {
+    total_skills: totalSkills,
+    published,
+    pending,
+    deleted,
+    total_downloads: totalDownloads,
+    avg_rating: ratingWeight > 0 ? ratingSum / ratingWeight : 0,
+    total_authors: totalAuthors,
+  };
 }

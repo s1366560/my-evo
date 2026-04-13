@@ -1,30 +1,54 @@
 import fastify, { type FastifyInstance } from 'fastify';
 import { skillStoreRoutes } from './routes';
+import { UnauthorizedError } from '../shared/errors';
 
 let mockAuth = {
   node_id: 'node-1',
   auth_type: 'session',
   trust_level: 'trusted',
+  userId: 'user-1',
 };
 
 const mockListSkills = jest.fn();
 const mockGetCategories = jest.fn();
 const mockGetFeaturedSkills = jest.fn();
 const mockGetSkill = jest.fn();
+const mockAuthenticate = jest.fn();
 const mockCreateSkill = jest.fn();
+const mockCreatePublishedSkill = jest.fn();
 const mockUpdateSkill = jest.fn();
 const mockDeleteSkill = jest.fn();
 const mockPublishSkill = jest.fn();
+const mockUpdateSkillVersion = jest.fn();
+const mockRollbackSkillVersion = jest.fn();
+const mockRestoreSkill = jest.fn();
+const mockPermanentlyDeleteSkill = jest.fn();
+const mockGetSkillStoreStats = jest.fn();
+const mockGetMySkills = jest.fn();
 const mockRateSkill = jest.fn();
 const mockDownloadSkill = jest.fn();
 
 jest.mock('../shared/auth', () => ({
+  authenticate: (...args: unknown[]) => mockAuthenticate(...args),
   requireAuth: () => async (
     request: {
       auth?: {
         node_id: string;
         auth_type?: string;
         trust_level?: string;
+        userId?: string;
+      };
+    },
+  ) => {
+    request.auth = mockAuth;
+  },
+  requireTrustLevel: () => async (
+    request: {
+      auth?: {
+        node_id: string;
+        auth_type?: string;
+        trust_level?: string;
+        userId?: string;
       };
     },
   ) => {
@@ -39,9 +63,16 @@ jest.mock('./service', () => ({
   getFeaturedSkills: (...args: unknown[]) => mockGetFeaturedSkills(...args),
   getSkill: (...args: unknown[]) => mockGetSkill(...args),
   createSkill: (...args: unknown[]) => mockCreateSkill(...args),
+  createPublishedSkill: (...args: unknown[]) => mockCreatePublishedSkill(...args),
   updateSkill: (...args: unknown[]) => mockUpdateSkill(...args),
   deleteSkill: (...args: unknown[]) => mockDeleteSkill(...args),
   publishSkill: (...args: unknown[]) => mockPublishSkill(...args),
+  updateSkillVersion: (...args: unknown[]) => mockUpdateSkillVersion(...args),
+  rollbackSkillVersion: (...args: unknown[]) => mockRollbackSkillVersion(...args),
+  restoreSkill: (...args: unknown[]) => mockRestoreSkill(...args),
+  permanentlyDeleteSkill: (...args: unknown[]) => mockPermanentlyDeleteSkill(...args),
+  getSkillStoreStats: (...args: unknown[]) => mockGetSkillStoreStats(...args),
+  getMySkills: (...args: unknown[]) => mockGetMySkills(...args),
   rateSkill: (...args: unknown[]) => mockRateSkill(...args),
   downloadSkill: (...args: unknown[]) => mockDownloadSkill(...args),
 }));
@@ -54,15 +85,28 @@ function buildApp(prisma: unknown): FastifyInstance {
 
 describe('Skill store routes', () => {
   let app: FastifyInstance;
-  let prisma: { marker: string };
+  let prisma: {
+    marker: string;
+    node: {
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+    };
+  };
 
   beforeEach(async () => {
     mockAuth = {
       node_id: 'node-1',
       auth_type: 'session',
       trust_level: 'trusted',
+      userId: 'user-1',
     };
-    prisma = { marker: 'skill-store-prisma' };
+    prisma = {
+      marker: 'skill-store-prisma',
+      node: {
+        findFirst: jest.fn().mockResolvedValue({ node_id: 'node-1' }),
+        findMany: jest.fn().mockResolvedValue([{ node_id: 'node-1' }]),
+      },
+    };
     app = buildApp(prisma);
     await app.register(skillStoreRoutes, { prefix: '/skills' });
     await app.ready();
@@ -77,9 +121,11 @@ describe('Skill store routes', () => {
     mockListSkills.mockResolvedValue({ items: [], total: 0 });
     mockGetCategories.mockResolvedValue([{ category: 'engineering', count: 1 }]);
     mockGetFeaturedSkills.mockResolvedValue([{ skill_id: 'skill-1' }]);
+    mockGetSkillStoreStats.mockResolvedValue({ total_skills: 1 });
     mockGetSkill.mockResolvedValue({ skill_id: 'skill-1', name: 'Review helper' });
+    mockAuthenticate.mockResolvedValue(mockAuth);
 
-    const [listRes, categoriesRes, featuredRes, detailRes] = await Promise.all([
+    const [listRes, categoriesRes, featuredRes, statsRes, detailRes] = await Promise.all([
       app.inject({
         method: 'GET',
         url: '/skills?category=engineering&tags=typescript&search=review&limit=5&offset=2&sort=rating',
@@ -94,6 +140,10 @@ describe('Skill store routes', () => {
       }),
       app.inject({
         method: 'GET',
+        url: '/skills/stats',
+      }),
+      app.inject({
+        method: 'GET',
         url: '/skills/skill-1',
       }),
     ]);
@@ -101,20 +151,85 @@ describe('Skill store routes', () => {
     expect(listRes.statusCode).toBe(200);
     expect(categoriesRes.statusCode).toBe(200);
     expect(featuredRes.statusCode).toBe(200);
+    expect(statsRes.statusCode).toBe(200);
     expect(detailRes.statusCode).toBe(200);
     expect(mockListSkills).toHaveBeenCalledWith('engineering', ['typescript'], 'review', 5, 2, 'rating', prisma);
     expect(mockGetCategories).toHaveBeenCalledWith(prisma);
     expect(mockGetFeaturedSkills).toHaveBeenCalledWith(4, prisma);
-    expect(mockGetSkill).toHaveBeenCalledWith('skill-1', prisma);
+    expect(mockGetSkillStoreStats).toHaveBeenCalledWith(prisma);
+    expect(mockGetSkill).toHaveBeenCalledWith('skill-1', prisma, undefined);
+    expect(mockAuthenticate).not.toHaveBeenCalled();
+  });
+
+  it('passes the authenticated node when reading skill detail with credentials', async () => {
+    mockGetSkill.mockResolvedValue({ skill_id: 'skill-1', name: 'Draft helper', status: 'pending' });
+    mockAuthenticate.mockResolvedValue(mockAuth);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/skills/skill-1',
+      headers: {
+        authorization: 'Bearer test-token',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+    expect(mockGetSkill).toHaveBeenCalledWith('skill-1', prisma, 'node-1');
+  });
+
+  it('falls back to public skill reads when optional auth is stale', async () => {
+    mockAuthenticate.mockRejectedValue(new UnauthorizedError('Invalid session token'));
+    mockGetSkill.mockResolvedValue({ skill_id: 'skill-1', status: 'published' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/skills/skill-1',
+      headers: {
+        authorization: 'Bearer stale-token',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetSkill).toHaveBeenCalledWith('skill-1', prisma, undefined);
+  });
+
+  it('falls back to public skill reads when a valid session cannot resolve a unique node', async () => {
+    mockAuthenticate.mockResolvedValue({
+      node_id: 'user-1',
+      auth_type: 'session',
+      trust_level: 'trusted',
+      userId: 'user-1',
+    });
+    prisma.node.findFirst.mockResolvedValue(null);
+    prisma.node.findMany.mockResolvedValue([{ node_id: 'node-1' }, { node_id: 'node-2' }]);
+    mockGetSkill.mockResolvedValue({ skill_id: 'skill-1', status: 'published' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/skills/skill-1',
+      headers: {
+        authorization: 'Bearer valid-session-proxy',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetSkill).toHaveBeenCalledWith('skill-1', prisma, undefined);
   });
 
   it('passes app prisma to create, update, delete, and publish routes', async () => {
     mockCreateSkill.mockResolvedValue({ skill_id: 'skill-1' });
+    mockCreatePublishedSkill.mockResolvedValue({ skill_id: 'skill-1', status: 'published' });
     mockUpdateSkill.mockResolvedValue({ skill_id: 'skill-1', name: 'Updated' });
     mockDeleteSkill.mockResolvedValue(undefined);
     mockPublishSkill.mockResolvedValue({ skill_id: 'skill-1', status: 'published' });
+    mockUpdateSkillVersion.mockResolvedValue({ skill_id: 'skill-1', version: '1.0.1' });
+    mockRollbackSkillVersion.mockResolvedValue({ skill_id: 'skill-1', version: '1.0.0' });
+    mockRestoreSkill.mockResolvedValue({ skill_id: 'skill-1', status: 'published' });
+    mockPermanentlyDeleteSkill.mockResolvedValue({ deleted: true });
+    mockGetMySkills.mockResolvedValue({ items: [{ skill_id: 'skill-1' }], total: 1 });
 
-    const [createRes, updateRes, deleteRes, publishRes] = await Promise.all([
+    const [createRes, publishCreateRes, updateRes, versionUpdateRes, deleteRes, deleteAliasRes, publishRes, rollbackRes, restoreRes, permanentDeleteRes, myRes] = await Promise.all([
       app.inject({
         method: 'POST',
         url: '/skills',
@@ -126,6 +241,15 @@ describe('Skill store routes', () => {
         },
       }),
       app.inject({
+        method: 'POST',
+        url: '/skills/publish',
+        payload: {
+          name: 'Review helper',
+          description: 'Reviews code',
+          category: 'engineering',
+        },
+      }),
+      app.inject({
         method: 'PUT',
         url: '/skills/skill-1',
         payload: {
@@ -133,19 +257,55 @@ describe('Skill store routes', () => {
         },
       }),
       app.inject({
+        method: 'POST',
+        url: '/skills/skill-1/update',
+        payload: {
+          version: '1.0.1',
+          description: 'Updated description',
+        },
+      }),
+      app.inject({
         method: 'DELETE',
         url: '/skills/skill-1',
+      }),
+      app.inject({
+        method: 'DELETE',
+        url: '/skills/skill-1/delete',
       }),
       app.inject({
         method: 'POST',
         url: '/skills/skill-1/publish',
       }),
+      app.inject({
+        method: 'POST',
+        url: '/skills/skill-1/rollback',
+        payload: { version: '1.0.0' },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/skills/skill-1/restore',
+      }),
+      app.inject({
+        method: 'DELETE',
+        url: '/skills/skill-1/permanent-delete',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/skills/my',
+      }),
     ]);
 
     expect(createRes.statusCode).toBe(201);
+    expect(publishCreateRes.statusCode).toBe(201);
     expect(updateRes.statusCode).toBe(200);
+    expect(versionUpdateRes.statusCode).toBe(200);
     expect(deleteRes.statusCode).toBe(200);
+    expect(deleteAliasRes.statusCode).toBe(200);
     expect(publishRes.statusCode).toBe(200);
+    expect(rollbackRes.statusCode).toBe(200);
+    expect(restoreRes.statusCode).toBe(200);
+    expect(permanentDeleteRes.statusCode).toBe(200);
+    expect(myRes.statusCode).toBe(200);
     expect(mockCreateSkill).toHaveBeenCalledWith('node-1', {
       name: 'Review helper',
       description: 'Reviews code',
@@ -158,9 +318,66 @@ describe('Skill store routes', () => {
       tags: ['typescript'],
       source_capsules: undefined,
     }, prisma);
+    expect(mockCreatePublishedSkill).toHaveBeenCalledWith('node-1', {
+      name: 'Review helper',
+      description: 'Reviews code',
+      category: 'engineering',
+      price_credits: undefined,
+      code_template: undefined,
+      parameters: undefined,
+      steps: undefined,
+      examples: undefined,
+      tags: undefined,
+      source_capsules: undefined,
+    }, prisma);
     expect(mockUpdateSkill).toHaveBeenCalledWith('skill-1', 'node-1', { name: 'Updated' }, prisma);
+    expect(mockUpdateSkillVersion).toHaveBeenCalledWith(
+      'skill-1',
+      'node-1',
+      { version: '1.0.1', description: 'Updated description' },
+      prisma,
+    );
     expect(mockDeleteSkill).toHaveBeenCalledWith('skill-1', 'node-1', prisma);
     expect(mockPublishSkill).toHaveBeenCalledWith('skill-1', 'node-1', prisma);
+    expect(mockRollbackSkillVersion).toHaveBeenCalledWith('skill-1', 'node-1', '1.0.0', prisma);
+    expect(mockRestoreSkill).toHaveBeenCalledWith('skill-1', 'node-1', prisma);
+    expect(mockPermanentlyDeleteSkill).toHaveBeenCalledWith('skill-1', 'node-1', prisma);
+    expect(mockGetMySkills).toHaveBeenCalledWith('node-1', 20, 0, prisma);
+  });
+
+  it('resolves owned nodes for session-authenticated write routes', async () => {
+    mockAuth = {
+      node_id: 'user-1',
+      auth_type: 'session',
+      trust_level: 'trusted',
+      userId: 'user-1',
+    };
+    prisma.node.findFirst.mockResolvedValue({ node_id: 'node-2' });
+    mockCreateSkill.mockResolvedValue({ skill_id: 'skill-1' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/skills',
+      payload: {
+        name: 'Review helper',
+        description: 'Reviews code',
+        category: 'engineering',
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockCreateSkill).toHaveBeenCalledWith('node-2', {
+      name: 'Review helper',
+      description: 'Reviews code',
+      category: 'engineering',
+      price_credits: undefined,
+      code_template: undefined,
+      parameters: undefined,
+      steps: undefined,
+      examples: undefined,
+      tags: undefined,
+      source_capsules: undefined,
+    }, prisma);
   });
 
   it('passes app prisma to rate and download routes', async () => {

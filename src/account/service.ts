@@ -93,6 +93,56 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   },
 ];
 
+function cloneOnboardingStep(step: OnboardingStep): OnboardingStep {
+  return { ...step };
+}
+
+export function getOnboardingSteps(): OnboardingStep[] {
+  return ONBOARDING_STEPS.map(cloneOnboardingStep);
+}
+
+export function getOnboardingStepDetail(step: number): OnboardingStep {
+  const onboardingStep = ONBOARDING_STEPS.find((item) => item.step === step);
+  if (!onboardingStep) {
+    throw new NotFoundError('Onboarding step', String(step));
+  }
+
+  return cloneOnboardingStep(onboardingStep);
+}
+
+function getValidCompletedOnboardingSteps(completedSteps: number[]): number[] {
+  const completedStepSet = new Set(completedSteps);
+  return ONBOARDING_STEPS
+    .map((step) => step.step)
+    .filter((step) => completedStepSet.has(step));
+}
+
+function buildOnboardingJourney(state: OnboardingState) {
+  const validCompletedSteps = getValidCompletedOnboardingSteps(state.completed_steps as number[]);
+  const completedStepSet = new Set(validCompletedSteps);
+  const nextStep = ONBOARDING_STEPS.find((step) => !completedStepSet.has(step.step)) ?? null;
+
+  return {
+    agent_id: state.agent_id,
+    current_step: nextStep?.step ?? ONBOARDING_STEPS.length,
+    total_steps: ONBOARDING_STEPS.length,
+    progress_percentage: Math.round((validCompletedSteps.length / ONBOARDING_STEPS.length) * 100),
+    completed_steps: validCompletedSteps,
+    steps: ONBOARDING_STEPS.map((step) => ({
+      step: step.step,
+      title: step.title,
+      completed: completedStepSet.has(step.step),
+    })),
+    next_step: nextStep
+      ? {
+        step: nextStep.step,
+        title: nextStep.title,
+        action_url: nextStep.action_url,
+      }
+      : null,
+  };
+}
+
 export async function createApiKey(
   userId: string,
   name: string,
@@ -306,11 +356,21 @@ export async function getOnboardingState(
   };
 }
 
+export async function getOnboardingJourney(
+  agentId: string,
+  prismaClient?: PrismaClient,
+): Promise<ReturnType<typeof buildOnboardingJourney>> {
+  const state = await getOnboardingState(agentId, prismaClient);
+  return buildOnboardingJourney(state);
+}
+
 export async function completeOnboardingStep(
   agentId: string,
   step: number,
   prismaClient?: PrismaClient,
 ): Promise<OnboardingState> {
+  getOnboardingStepDetail(step);
+
   const client = getPrismaClient(prismaClient);
   const state = await client.onboardingState.findUnique({
     where: { agent_id: agentId },
@@ -322,12 +382,9 @@ export async function completeOnboardingStep(
 
   const completedSteps = [
     ...new Set([...(state.completed_steps as number[]), step]),
-  ].sort();
+  ].sort((left, right) => left - right);
 
-  const currentStep =
-    step >= ONBOARDING_STEPS.length
-      ? ONBOARDING_STEPS.length
-      : step + 1;
+  const currentStep = Math.min(step + 1, ONBOARDING_STEPS.length);
 
   const updated = await client.onboardingState.update({
     where: { agent_id: agentId },

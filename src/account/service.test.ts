@@ -13,7 +13,9 @@ const {
   listApiKeys,
   revokeApiKey,
   createSession,
+  getOnboardingJourney,
   getOnboardingState,
+  getOnboardingStepDetail,
   completeOnboardingStep,
   resetOnboarding,
 } = service;
@@ -284,6 +286,69 @@ describe('Account Service', () => {
     });
   });
 
+  describe('getOnboardingJourney', () => {
+    it('should return an enriched onboarding payload with progress metadata', async () => {
+      mockPrisma.onboardingState.findUnique.mockResolvedValue({
+        agent_id: 'agent-1',
+        started_at: new Date('2025-01-01'),
+        completed_steps: [1, 2],
+        current_step: 3,
+      });
+
+      const result = await getOnboardingJourney('agent-1');
+
+      expect(result.agent_id).toBe('agent-1');
+      expect(result.total_steps).toBe(5);
+      expect(result.progress_percentage).toBe(40);
+      expect(result.steps).toEqual([
+        { step: 1, title: 'Register Your Node', completed: true },
+        { step: 2, title: 'Start Heartbeat', completed: true },
+        { step: 3, title: 'Publish Your First Gene', completed: false },
+        { step: 4, title: 'Explore the Marketplace', completed: false },
+        { step: 5, title: 'Join a Guild', completed: false },
+      ]);
+      expect(result.next_step).toEqual({
+        step: 3,
+        title: 'Publish Your First Gene',
+        action_url: '/a2a/publish',
+      });
+    });
+
+    it('should ignore invalid stored steps when computing progress metadata', async () => {
+      mockPrisma.onboardingState.findUnique.mockResolvedValue({
+        agent_id: 'agent-1',
+        started_at: new Date('2025-01-01'),
+        completed_steps: [1, 2, 999],
+        current_step: 999,
+      });
+
+      const result = await getOnboardingJourney('agent-1');
+
+      expect(result.current_step).toBe(3);
+      expect(result.progress_percentage).toBe(40);
+      expect(result.completed_steps).toEqual([1, 2]);
+      expect(result.next_step).toEqual({
+        step: 3,
+        title: 'Publish Your First Gene',
+        action_url: '/a2a/publish',
+      });
+    });
+  });
+
+  describe('getOnboardingStepDetail', () => {
+    it('should return a configured onboarding step', () => {
+      const result = getOnboardingStepDetail(2);
+
+      expect(result.step).toBe(2);
+      expect(result.title).toBe('Start Heartbeat');
+      expect(result.action_url).toBe('/a2a/heartbeat');
+    });
+
+    it('should throw NotFoundError for an unknown step', () => {
+      expect(() => getOnboardingStepDetail(99)).toThrow(NotFoundError);
+    });
+  });
+
   describe('completeOnboardingStep', () => {
     it('should complete a step and advance current_step', async () => {
       mockPrisma.onboardingState.findUnique.mockResolvedValue({
@@ -355,6 +420,11 @@ describe('Account Service', () => {
       mockPrisma.onboardingState.findUnique.mockResolvedValue(null);
 
       await expect(completeOnboardingStep('agent-x', 1)).rejects.toThrow(NotFoundError);
+    });
+
+    it('should reject invalid onboarding steps', async () => {
+      await expect(completeOnboardingStep('agent-1', 99)).rejects.toThrow(NotFoundError);
+      expect(mockPrisma.onboardingState.findUnique).not.toHaveBeenCalled();
     });
   });
 
