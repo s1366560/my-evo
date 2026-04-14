@@ -27,6 +27,15 @@ import {
 import { createUnconfiguredPrismaClient } from '../shared/prisma';
 
 let prisma = createUnconfiguredPrismaClient();
+const ALLOWED_API_KEY_SCOPES = new Set([
+  'read',
+  'kg',
+  'assets',
+  'bounty',
+  'swarm',
+  'analytics',
+  'search',
+]);
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
@@ -164,6 +173,16 @@ export async function createApiKey(
     throw new ValidationError('At least one scope is required');
   }
 
+  const normalizedScopes = [...new Set(scopes.map((scope) => scope.trim()).filter(Boolean))];
+  if (normalizedScopes.length === 0) {
+    throw new ValidationError('At least one scope is required');
+  }
+
+  const invalidScope = normalizedScopes.find((scope) => !ALLOWED_API_KEY_SCOPES.has(scope));
+  if (invalidScope) {
+    throw new ValidationError(`Invalid API key scope: ${invalidScope}`);
+  }
+
   const existingCount = await client.apiKey.count({
     where: { user_id: userId },
   });
@@ -186,7 +205,7 @@ export async function createApiKey(
       key_hash: keyHash,
       prefix,
       name,
-      scopes,
+      scopes: normalizedScopes,
       expires_at: expiresAt ? new Date(expiresAt) : null,
       user_id: userId,
     },

@@ -25,6 +25,15 @@ function getSkillStoreClient(prismaClient?: SkillStoreClient): SkillStoreClient 
   return prismaClient ?? prisma;
 }
 
+function hasPassedModeration(skill: {
+  l1_passed: boolean;
+  l2_passed: boolean;
+  l3_passed: boolean;
+  l4_passed: boolean;
+}): boolean {
+  return skill.l1_passed && skill.l2_passed && skill.l3_passed && skill.l4_passed;
+}
+
 // ------------------------------------------------------------------
 // List / Get
 // ------------------------------------------------------------------
@@ -353,6 +362,10 @@ export async function publishSkill(
     throw new ValidationError('Skill is already published');
   }
 
+  if (!hasPassedModeration(skill)) {
+    throw new ValidationError('Skill must complete moderation before publishing');
+  }
+
   const updated = await client.skill.update({
     where: { skill_id: skillId },
     data: { status: 'published' },
@@ -366,14 +379,7 @@ export async function createPublishedSkill(
   data: CreateSkillData,
   prismaClient?: PrismaClient,
 ): Promise<Skill> {
-  const client = getPrismaClient(prismaClient);
-
-  const published = await client.$transaction(async (tx) => {
-    const created = await createSkill(authorId, data, tx);
-    return publishSkill(created.skill_id, authorId, tx);
-  });
-
-  return published as unknown as Skill;
+  return createSkill(authorId, data, prismaClient as SkillStoreClient | undefined);
 }
 
 export async function publishSkillWithUpdates(
@@ -402,6 +408,10 @@ export async function publishSkillWithUpdates(
 
     if (skill.status === 'published') {
       throw new ValidationError('Skill is already published');
+    }
+
+    if (!hasPassedModeration(skill)) {
+      throw new ValidationError('Skill must complete moderation before publishing');
     }
 
     return tx.skill.update({

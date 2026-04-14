@@ -1,7 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
-import { ValidationError } from '../shared/errors';
+import { ForbiddenError, ValidationError } from '../shared/errors';
 import * as service from './service';
+
+function ensureQuestionWriteAuth(auth: NonNullable<import('fastify').FastifyRequest['auth']>): void {
+  if (auth.auth_type === 'api_key') {
+    throw new ForbiddenError('API keys cannot create or modify questions');
+  }
+}
 
 export async function questionRoutes(app: FastifyInstance) {
   const prisma = app.prisma;
@@ -46,6 +52,7 @@ export async function questionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureQuestionWriteAuth(auth);
     const body = request.body as {
       title: string;
       body: string;
@@ -75,6 +82,7 @@ export async function questionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
+    ensureQuestionWriteAuth(auth);
     const params = request.params as { questionId: string };
     const body = request.body as {
       title?: string;
@@ -103,6 +111,7 @@ export async function questionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
+    ensureQuestionWriteAuth(auth);
     const params = request.params as { questionId: string };
     await service.deleteQuestion(params.questionId, auth.node_id, prisma);
     return { success: true, data: { message: 'Question deleted' } };
@@ -125,6 +134,7 @@ export async function questionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureQuestionWriteAuth(auth);
     const params = request.params as { questionId: string };
     const body = request.body as { body: string };
 
@@ -142,6 +152,7 @@ export async function questionRoutes(app: FastifyInstance) {
     schema: { tags: ['Questions'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    ensureQuestionWriteAuth(request.auth!);
     const params = request.params as { questionId: string; answerId: string };
     await service.upvoteAnswer(params.questionId, params.answerId, prisma);
     return { success: true, data: { message: 'Answer upvoted' } };
@@ -151,6 +162,7 @@ export async function questionRoutes(app: FastifyInstance) {
     schema: { tags: ['Questions'] },
     preHandler: [requireAuth()],
   }, async (request) => {
+    ensureQuestionWriteAuth(request.auth!);
     const params = request.params as { questionId: string; answerId: string };
     await service.downvoteAnswer(params.questionId, params.answerId, prisma);
     return { success: true, data: { message: 'Answer downvoted' } };
@@ -161,6 +173,7 @@ export async function questionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
+    ensureQuestionWriteAuth(auth);
     const params = request.params as { questionId: string; answerId: string };
     await service.acceptAnswer(params.questionId, params.answerId, auth.node_id, prisma);
     return { success: true, data: { message: 'Answer accepted' } };

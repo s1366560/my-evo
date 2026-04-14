@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { requireTrustLevel } from '../shared/auth';
 import {
   implementRBAC,
   roleHasPermission,
@@ -18,7 +19,13 @@ import {
   DEFAULT_RATE_LIMITS,
 } from './service';
 import type { SecurityEventType, AnomalySignal } from './schemas';
-import { ValidationError } from '../shared/errors';
+import { ForbiddenError, ValidationError } from '../shared/errors';
+
+function ensureSecurityAdminAuth(auth: NonNullable<import('fastify').FastifyRequest['auth']>): void {
+  if (auth.auth_type === 'api_key') {
+    throw new ForbiddenError('API keys cannot mutate the security control plane');
+  }
+}
 
 export async function securityRoutes(app: FastifyInstance): Promise<void> {
   // ===== RBAC =====
@@ -57,7 +64,9 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   // POST /security/rbac/assign — assign role to node
   app.post('/security/rbac/assign', {
     schema: { tags: ['Security'] },
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
+    ensureSecurityAdminAuth(request.auth!);
     const body = request.body as { node_id: string; role: string };
     if (!body.node_id || !body.role) {
       throw new ValidationError('node_id and role are required');
@@ -145,7 +154,9 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   // DELETE /security/rate-limit/:identifier — clear rate limit counter
   app.delete('/security/rate-limit/:identifier', {
     schema: { tags: ['Security'] },
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
+    ensureSecurityAdminAuth(request.auth!);
     const { identifier } = request.params as { identifier: string };
     clearRateLimit(identifier);
     return reply.send({ success: true, message: 'Rate limit cleared' });
@@ -156,7 +167,9 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   // POST /security/events — log a security event
   app.post('/security/events', {
     schema: { tags: ['Security'] },
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
+    ensureSecurityAdminAuth(request.auth!);
     const body = request.body as {
       type: SecurityEventType;
       identifier: string;
@@ -192,7 +205,9 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   // PATCH /security/events/:eventId/resolve — resolve an event
   app.patch('/security/events/:eventId/resolve', {
     schema: { tags: ['Security'] },
+    preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
+    ensureSecurityAdminAuth(request.auth!);
     const { eventId } = request.params as { eventId: string };
     const resolved = resolveSecurityEvent(eventId);
     if (!resolved) {

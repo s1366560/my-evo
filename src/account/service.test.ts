@@ -146,6 +146,34 @@ describe('Account Service', () => {
       const result = await createApiKey('user-1', 'Last Key', ['kg']);
       expect(result.id).toBe('key-max');
     });
+
+    it('should reject unknown scopes', async () => {
+      await expect(
+        createApiKey('user-1', 'Bad Key', ['admin']),
+      ).rejects.toThrow('Invalid API key scope: admin');
+    });
+
+    it('should deduplicate and trim scopes before persistence', async () => {
+      mockPrisma.apiKey.count.mockResolvedValue(0);
+      mockPrisma.apiKey.create.mockResolvedValue({
+        id: 'key-clean',
+        prefix: 'ek_ab',
+        name: 'Clean Key',
+        scopes: ['kg', 'read'],
+        expires_at: null,
+        created_at: new Date('2025-01-01'),
+      });
+
+      await createApiKey('user-1', 'Clean Key', [' kg ', 'read', 'kg']);
+
+      expect(mockPrisma.apiKey.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            scopes: ['kg', 'read'],
+          }),
+        }),
+      );
+    });
   });
 
   describe('listApiKeys', () => {

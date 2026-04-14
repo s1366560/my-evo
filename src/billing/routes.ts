@@ -146,6 +146,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
             data: {
               stake_id: crypto.randomUUID(),
               node_id: nodeId,
+              validator_id: nodeId,
               amount: STAKE_AMOUNT,
               locked_until: lockedUntil,
               status: 'active',

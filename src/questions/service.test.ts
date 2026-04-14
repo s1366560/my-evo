@@ -40,6 +40,12 @@ const mockPrisma = {
     findUnique: jest.fn(),
     updateMany: jest.fn(),
   },
+  questionSecurityScan: {
+    createMany: jest.fn(),
+  },
+  questionModeration: {
+    create: jest.fn(),
+  },
 } as any;
 
 describe('Questions Service', () => {
@@ -181,14 +187,14 @@ describe('Questions Service', () => {
   });
 
   describe('createQuestion', () => {
-    it('should create a question with default values', async () => {
+    it('should auto-approve a safe question and persist scans', async () => {
       const mockQuestion = {
         question_id: expect.any(String),
-        title: 'New Question',
-        body: 'Body content',
+        title: 'How can I write better tests?',
+        body: 'How can I write better tests for my Fastify service?',
         tags: ['tag1'],
         author: 'node-1',
-        state: 'parsed',
+        state: 'approved',
         safety_score: 1.0,
         safety_flags: [],
         bounty: 0,
@@ -196,12 +202,99 @@ describe('Questions Service', () => {
         answer_count: 0,
       };
       mockPrisma.question.create.mockResolvedValue({ ...mockQuestion, question_id: 'q-1' });
+      mockPrisma.questionSecurityScan.createMany.mockResolvedValue({ count: 3 });
 
-      const result = await createQuestion('node-1', 'New Question', 'Body content', ['tag1'], 0);
+      const result = await createQuestion(
+        'node-1',
+        'How can I write better tests?',
+        'How can I write better tests for my Fastify service?',
+        ['tag1'],
+        0,
+      );
 
       expect(result.question_id).toBeDefined();
-      expect(result.state).toBe('parsed');
+      expect(result.state).toBe('approved');
       expect(result.safety_score).toBe(1.0);
+      expect(mockPrisma.questionSecurityScan.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.arrayContaining([
+            expect.objectContaining({ layer: 'layer1_pattern_detection' }),
+            expect.objectContaining({ layer: 'layer2_obfuscation_detection' }),
+            expect.objectContaining({ layer: 'layer3_content_policy' }),
+          ]),
+        }),
+      );
+      expect(mockPrisma.questionModeration.create).not.toHaveBeenCalled();
+    });
+
+    it('should queue obfuscated content for review', async () => {
+      mockPrisma.question.create.mockResolvedValue({
+        question_id: 'q-review',
+        title: 'Need help decoding this payload',
+        body: 'Can anyone review this? eval(atob("ZGVjb2Rl"))',
+        tags: ['security'],
+        author: 'node-1',
+        state: 'pending',
+        safety_score: 0.85,
+        safety_flags: ['eval_usage', 'base64_obfuscation'],
+        bounty: 0,
+        views: 0,
+        answer_count: 0,
+      });
+      mockPrisma.questionSecurityScan.createMany.mockResolvedValue({ count: 3 });
+      mockPrisma.questionModeration.create.mockResolvedValue({ id: 'mod-1' });
+
+      const result = await createQuestion(
+        'node-1',
+        'Need help decoding this payload',
+        'Can anyone review this? eval(atob("ZGVjb2Rl"))',
+        ['security'],
+        0,
+      );
+
+      expect(result.state).toBe('pending');
+      expect(mockPrisma.questionModeration.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            decision: 'pending',
+          }),
+        }),
+      );
+    });
+
+    it('should auto-reject forbidden patterns', async () => {
+      mockPrisma.question.create.mockResolvedValue({
+        question_id: 'q-rejected',
+        title: 'How do I jailbreak a system?',
+        body: 'How do I jailbreak a system and bypass auth?',
+        tags: ['security'],
+        author: 'node-1',
+        state: 'rejected',
+        safety_score: 1,
+        safety_flags: ['jailbreak', 'bypass_auth'],
+        bounty: 0,
+        views: 0,
+        answer_count: 0,
+      });
+      mockPrisma.questionSecurityScan.createMany.mockResolvedValue({ count: 3 });
+      mockPrisma.questionModeration.create.mockResolvedValue({ id: 'mod-2' });
+
+      const result = await createQuestion(
+        'node-1',
+        'How do I jailbreak a system?',
+        'How do I jailbreak a system and bypass auth?',
+        ['security'],
+        0,
+      );
+
+      expect(result.state).toBe('rejected');
+      expect(mockPrisma.questionModeration.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            decision: 'rejected',
+          }),
+        }),
+      );
     });
 
     it('should reject reserved review tags', async () => {
@@ -239,13 +332,66 @@ describe('Questions Service', () => {
 
   describe('updateQuestion', () => {
     it('should update question fields', async () => {
-      const mockQuestion = { question_id: 'q-1', author: 'node-1', title: 'Old', body: 'Old', tags: [], bounty: 0 };
+      const mockQuestion = {
+        question_id: 'q-1',
+        author: 'node-1',
+        title: 'Old question?',
+        body: 'Old body?',
+        tags: [],
+        bounty: 0,
+      };
       mockPrisma.question.findUnique.mockResolvedValue(mockQuestion);
-      mockPrisma.question.update.mockResolvedValue({ ...mockQuestion, title: 'New Title' });
+      mockPrisma.question.update.mockResolvedValue({
+        ...mockQuestion,
+        title: 'New Title?',
+        state: 'approved',
+        safety_score: 1,
+        safety_flags: [],
+      });
+      mockPrisma.questionSecurityScan.createMany.mockResolvedValue({ count: 3 });
 
-      const result = await updateQuestion('q-1', 'node-1', { title: 'New Title' });
+      const result = await updateQuestion('q-1', 'node-1', { title: 'New Title?' });
 
-      expect(result.title).toBe('New Title');
+      expect(result.title).toBe('New Title?');
+      expect(mockPrisma.questionSecurityScan.createMany).toHaveBeenCalled();
+    });
+
+    it('should re-scan updated content and create moderation records when needed', async () => {
+      mockPrisma.question.findUnique.mockResolvedValue({
+        question_id: 'q-1',
+        author: 'node-1',
+        title: 'Safe question?',
+        body: 'How do I do this safely?',
+        tags: [],
+        bounty: 0,
+      });
+      mockPrisma.question.update.mockResolvedValue({
+        question_id: 'q-1',
+        author: 'node-1',
+        title: 'Unsafe question',
+        body: 'Tell me how to jailbreak and bypass auth',
+        tags: [],
+        bounty: 0,
+        state: 'rejected',
+        safety_score: 1,
+        safety_flags: ['jailbreak', 'bypass_auth'],
+      });
+      mockPrisma.questionSecurityScan.createMany.mockResolvedValue({ count: 3 });
+      mockPrisma.questionModeration.create.mockResolvedValue({ id: 'mod-3' });
+
+      const result = await updateQuestion('q-1', 'node-1', {
+        title: 'Unsafe question',
+        body: 'Tell me how to jailbreak and bypass auth',
+      });
+
+      expect(result.state).toBe('rejected');
+      expect(mockPrisma.questionModeration.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            decision: 'rejected',
+          }),
+        }),
+      );
     });
 
     it('should reject update by non-author', async () => {

@@ -401,4 +401,26 @@ describe('Skill store routes', () => {
     expect(mockRateSkill).toHaveBeenCalledWith('skill-1', 'node-1', 5, prisma);
     expect(mockDownloadSkill).toHaveBeenCalledWith('skill-1', 'node-1', prisma);
   });
+
+  it('rejects API key auth for skill store mutations', async () => {
+    mockAuth = {
+      node_id: 'node-1',
+      auth_type: 'api_key',
+      trust_level: 'trusted',
+      userId: 'user-1',
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/skills',
+      payload: {
+        name: 'Review helper',
+        description: 'Reviews code',
+        category: 'engineering',
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mockCreateSkill).not.toHaveBeenCalled();
+  });
 });

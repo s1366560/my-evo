@@ -26,11 +26,12 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
     schema: { tags: ['Trust'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const body = request.body as {
       stake_id: string;
     };
 
-    const result = await trustService.release(body.stake_id);
+    const result = await trustService.release(body.stake_id, auth.node_id);
 
     return reply.send({ success: true, data: result });
   });
@@ -39,11 +40,12 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
     schema: { tags: ['Trust'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const body = request.body as {
       stake_id: string;
     };
 
-    const result = await trustService.claimReward(body.stake_id);
+    const result = await trustService.claimReward(body.stake_id, auth.node_id);
 
     return reply.send({ success: true, data: result });
   });
@@ -92,6 +94,14 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
     const result = await trustService.listAttestations(node_id);
 
+    return reply.send({ success: true, data: result });
+  });
+
+  app.get('/pending', {
+    schema: { tags: ['Trust'] },
+    preHandler: [requireTrustLevel('trusted')],
+  }, async (_request, reply) => {
+    const result = await trustService.listPendingStakes();
     return reply.send({ success: true, data: result });
   });
 }

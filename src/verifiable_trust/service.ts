@@ -74,6 +74,7 @@ export async function stake(
     data: {
       stake_id: crypto.randomUUID(),
       node_id: nodeId,
+      validator_id: validatorId,
       amount,
       locked_until: lockedUntil,
       status: 'active',
@@ -83,6 +84,7 @@ export async function stake(
   return {
     stake_id: stakeRecord.stake_id,
     node_id: stakeRecord.node_id,
+    validator_id: stakeRecord.validator_id,
     amount: stakeRecord.amount,
     staked_at: stakeRecord.staked_at.toISOString(),
     locked_until: stakeRecord.locked_until.toISOString(),
@@ -92,9 +94,10 @@ export async function stake(
 
 export async function release(
   stakeId: string,
+  actorId: string,
 ): Promise<ValidatorStake> {
   const stakeRecord = await prisma.validatorStake.findUnique({
-    where: { node_id: stakeId },
+    where: { stake_id: stakeId },
   });
 
   if (!stakeRecord) {
@@ -105,6 +108,10 @@ export async function release(
     throw new ValidationError('Only active stakes can be released');
   }
 
+  if (stakeRecord.validator_id !== actorId) {
+    throw new ForbiddenError('Only the staking validator can release this stake');
+  }
+
   if (new Date(stakeRecord.locked_until) > new Date()) {
     throw new ValidationError('Stake is still locked');
   }
@@ -113,18 +120,18 @@ export async function release(
   const returnAmount = stakeRecord.amount - penalty;
 
   const node = await prisma.node.findFirst({
-    where: { node_id: stakeRecord.node_id },
+    where: { node_id: stakeRecord.validator_id },
   });
 
   if (node) {
     await prisma.node.update({
-      where: { node_id: stakeRecord.node_id },
+      where: { node_id: stakeRecord.validator_id },
       data: { credit_balance: { increment: returnAmount } },
     });
 
     await prisma.creditTransaction.create({
       data: {
-        node_id: stakeRecord.node_id,
+        node_id: stakeRecord.validator_id,
         amount: returnAmount,
         type: 'stake_release',
         description: `Released stake ${stakeId}, penalty: ${penalty}`,
@@ -134,13 +141,14 @@ export async function release(
   }
 
   const updated = await prisma.validatorStake.update({
-    where: { node_id: stakeRecord.node_id },
+    where: { stake_id: stakeRecord.stake_id },
     data: { status: 'released' },
   });
 
   return {
     stake_id: updated.stake_id,
     node_id: updated.node_id,
+    validator_id: updated.validator_id,
     amount: updated.amount,
     staked_at: updated.staked_at.toISOString(),
     locked_until: updated.locked_until.toISOString(),
@@ -152,7 +160,7 @@ export async function slash(
   stakeId: string,
 ): Promise<ValidatorStake> {
   const stakeRecord = await prisma.validatorStake.findUnique({
-    where: { node_id: stakeId },
+    where: { stake_id: stakeId },
   });
 
   if (!stakeRecord) {
@@ -209,13 +217,14 @@ export async function slash(
   }
 
   const updated = await prisma.validatorStake.update({
-    where: { node_id: stakeRecord.node_id },
+    where: { stake_id: stakeRecord.stake_id },
     data: { status: 'slashed' },
   });
 
   return {
     stake_id: updated.stake_id,
     node_id: updated.node_id,
+    validator_id: updated.validator_id,
     amount: updated.amount,
     staked_at: updated.staked_at.toISOString(),
     locked_until: updated.locked_until.toISOString(),
@@ -225,9 +234,10 @@ export async function slash(
 
 export async function claimReward(
   stakeId: string,
+  actorId: string,
 ): Promise<{ reward: number; stake: ValidatorStake }> {
   const stakeRecord = await prisma.validatorStake.findUnique({
-    where: { node_id: stakeId },
+    where: { stake_id: stakeId },
   });
 
   if (!stakeRecord) {
@@ -238,6 +248,10 @@ export async function claimReward(
     throw new ValidationError('Only active stakes can claim rewards');
   }
 
+  if (stakeRecord.validator_id !== actorId) {
+    throw new ForbiddenError('Only the staking validator can claim rewards for this stake');
+  }
+
   if (new Date(stakeRecord.locked_until) > new Date()) {
     throw new ValidationError('Stake lock period has not ended');
   }
@@ -245,18 +259,18 @@ export async function claimReward(
   const reward = Math.ceil(stakeRecord.amount * TRUST_REWARD_RATE);
 
   const node = await prisma.node.findFirst({
-    where: { node_id: stakeRecord.node_id },
+    where: { node_id: stakeRecord.validator_id },
   });
 
   if (node) {
     await prisma.node.update({
-      where: { node_id: stakeRecord.node_id },
+      where: { node_id: stakeRecord.validator_id },
       data: { credit_balance: { increment: reward } },
     });
 
     await prisma.creditTransaction.create({
       data: {
-        node_id: stakeRecord.node_id,
+        node_id: stakeRecord.validator_id,
         amount: reward,
         type: 'stake_release',
         description: `Staking reward for ${stakeId}`,
@@ -267,15 +281,34 @@ export async function claimReward(
 
   return {
     reward,
-    stake: {
-      stake_id: stakeRecord.stake_id,
-      node_id: stakeRecord.node_id,
-      amount: stakeRecord.amount,
-      staked_at: stakeRecord.staked_at.toISOString(),
-      locked_until: stakeRecord.locked_until.toISOString(),
+      stake: {
+        stake_id: stakeRecord.stake_id,
+        node_id: stakeRecord.node_id,
+        validator_id: stakeRecord.validator_id,
+        amount: stakeRecord.amount,
+        staked_at: stakeRecord.staked_at.toISOString(),
+        locked_until: stakeRecord.locked_until.toISOString(),
       status: stakeRecord.status as ValidatorStake['status'],
     },
   };
+}
+
+export async function listPendingStakes(): Promise<ValidatorStake[]> {
+  const stakes = await prisma.validatorStake.findMany({
+    where: { status: 'active' },
+    orderBy: { staked_at: 'asc' },
+    take: 50,
+  });
+
+  return stakes.map((stake) => ({
+    stake_id: stake.stake_id,
+    node_id: stake.node_id,
+    validator_id: stake.validator_id,
+    amount: stake.amount,
+    staked_at: stake.staked_at.toISOString(),
+    locked_until: stake.locked_until.toISOString(),
+    status: stake.status as ValidatorStake['status'],
+  }));
 }
 
 export async function verifyNode(

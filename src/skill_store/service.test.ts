@@ -993,12 +993,9 @@ describe('SkillStore Service', () => {
   });
 
   describe('createPublishedSkill', () => {
-    it('should create and publish a skill atomically', async () => {
+    it('should create a pending skill submission', async () => {
       const pendingSkill = mockSkill({ skill_id: 'sk-1', author_id: 'node-1', status: 'pending' });
-      const publishedSkill = mockSkill({ skill_id: 'sk-1', author_id: 'node-1', status: 'published' });
       mockPrisma.skill.create.mockResolvedValue(pendingSkill);
-      mockPrisma.skill.findUnique.mockResolvedValue(pendingSkill);
-      mockPrisma.skill.update.mockResolvedValue(publishedSkill);
 
       const result = await service.createPublishedSkill('node-1', {
         name: 'New Skill',
@@ -1006,8 +1003,9 @@ describe('SkillStore Service', () => {
         category: 'coding',
       });
 
-      expect(result.status).toBe('published');
-      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe('pending');
+      expect(mockPrisma.skill.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.skill.update).not.toHaveBeenCalled();
     });
   });
 
@@ -1033,7 +1031,15 @@ describe('SkillStore Service', () => {
 
   describe('publishSkill', () => {
     it('should publish a skill', async () => {
-      mockPrisma.skill.findUnique.mockResolvedValue({ skill_id: 'sk-1', author_id: 'node-1', status: 'pending' });
+      mockPrisma.skill.findUnique.mockResolvedValue({
+        skill_id: 'sk-1',
+        author_id: 'node-1',
+        status: 'pending',
+        l1_passed: true,
+        l2_passed: true,
+        l3_passed: true,
+        l4_passed: true,
+      });
       mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1', status: 'published' });
 
       const result = await service.publishSkill('sk-1', 'node-1');
@@ -1048,6 +1054,10 @@ describe('SkillStore Service', () => {
         skill_id: 'sk-1',
         author_id: 'node-1',
         status: 'pending',
+        l1_passed: true,
+        l2_passed: true,
+        l3_passed: true,
+        l4_passed: true,
       });
       mockPrisma.skill.update.mockResolvedValue({
         skill_id: 'sk-1',
@@ -1395,6 +1405,22 @@ describe('SkillStore Service', () => {
         skill_id: 'sk-1', author_id: 'node-1', status: 'published',
       });
       await expect(service.publishSkill('sk-1', 'node-1')).rejects.toThrow('already published');
+    });
+
+    it('should throw ValidationError when moderation is incomplete', async () => {
+      mockPrisma.skill.findUnique.mockResolvedValue({
+        skill_id: 'sk-1',
+        author_id: 'node-1',
+        status: 'pending',
+        l1_passed: true,
+        l2_passed: true,
+        l3_passed: false,
+        l4_passed: false,
+      });
+
+      await expect(service.publishSkill('sk-1', 'node-1')).rejects.toThrow(
+        'Skill must complete moderation before publishing',
+      );
     });
   });
 

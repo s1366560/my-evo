@@ -671,6 +671,7 @@ export type StakeStatus = 'active' | 'released' | 'slashed';
 export interface ValidatorStake {
   stake_id: string;
   node_id: string;
+  validator_id: string;
   amount: number;
   staked_at: string;
   locked_until: string;

@@ -17,6 +17,7 @@ const {
   getTrustLevel,
   getStats,
   listAttestations,
+  listPendingStakes,
 } = service;
 
 const mockPrisma = {
@@ -62,6 +63,7 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.validatorStake.create.mockResolvedValue({
         stake_id: 'stake-1',
         node_id: 'node-1',
+        validator_id: 'validator-1',
         amount: 100,
         staked_at: new Date(),
         locked_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
@@ -72,7 +74,7 @@ describe('Verifiable Trust Service', () => {
 
       expect(result.stake_id).toBe('stake-1');
       expect(result.node_id).toBe('node-1');
-      expect(result.node_id).toBe('node-1');
+      expect(result.validator_id).toBe('validator-1');
       expect(result.amount).toBe(100);
       expect(result.status).toBe('active');
     });
@@ -106,6 +108,7 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.validatorStake.create.mockResolvedValue({
         stake_id: 'stake-1',
         node_id: 'node-1',
+        validator_id: 'validator-1',
         amount: 200,
         staked_at: new Date(),
         locked_until: new Date(),
@@ -131,6 +134,7 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.validatorStake.create.mockResolvedValue({
         stake_id: 'stake-1',
         node_id: 'node-1',
+        validator_id: 'validator-1',
         amount: 100,
         staked_at: new Date(),
         locked_until: new Date(),
@@ -155,7 +159,7 @@ describe('Verifiable Trust Service', () => {
     const unlockedStake = {
       stake_id: 'stake-1',
       node_id: 'node-1',
-      target_id: 'validator-1',
+      validator_id: 'validator-1',
       amount: 100,
       staked_at: new Date(),
       locked_until: new Date(Date.now() - 24 * 60 * 60 * 1000), // past
@@ -172,15 +176,22 @@ describe('Verifiable Trust Service', () => {
         status: 'released',
       });
 
-      const result = await release('stake-1');
+      const result = await release('stake-1', 'validator-1');
 
       expect(result.status).toBe('released');
+      expect(mockPrisma.validatorStake.findUnique).toHaveBeenCalledWith({
+        where: { stake_id: 'stake-1' },
+      });
+      expect(mockPrisma.validatorStake.update).toHaveBeenCalledWith({
+        where: { stake_id: 'stake-1' },
+        data: { status: 'released' },
+      });
     });
 
     it('should throw NotFoundError when stake not found', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(null);
 
-      await expect(release('nonexistent')).rejects.toThrow(NotFoundError);
+      await expect(release('nonexistent', 'validator-1')).rejects.toThrow(NotFoundError);
     });
 
     it('should throw ValidationError when stake is not active', async () => {
@@ -189,7 +200,7 @@ describe('Verifiable Trust Service', () => {
         status: 'released',
       });
 
-      await expect(release('stake-1')).rejects.toThrow(ValidationError);
+      await expect(release('stake-1', 'validator-1')).rejects.toThrow(ValidationError);
     });
 
     it('should throw ValidationError when stake is still locked', async () => {
@@ -198,7 +209,7 @@ describe('Verifiable Trust Service', () => {
         locked_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // future
       });
 
-      await expect(release('stake-1')).rejects.toThrow(ValidationError);
+      await expect(release('stake-1', 'validator-1')).rejects.toThrow(ValidationError);
     });
 
     it('should apply release penalty and return remaining amount', async () => {
@@ -211,7 +222,7 @@ describe('Verifiable Trust Service', () => {
         status: 'released',
       });
 
-      await release('stake-1');
+      await release('stake-1', 'validator-1');
 
       // penalty = ceil(100 * 0.10) = 10, returnAmount = 100 - 10 = 90
       expect(mockPrisma.node.update).toHaveBeenCalledWith(
@@ -231,7 +242,7 @@ describe('Verifiable Trust Service', () => {
         status: 'released',
       });
 
-      await release('stake-1');
+      await release('stake-1', 'validator-1');
 
       expect(mockPrisma.creditTransaction.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -250,10 +261,16 @@ describe('Verifiable Trust Service', () => {
         status: 'released',
       });
 
-      const result = await release('stake-1');
+      const result = await release('stake-1', 'validator-1');
 
       expect(result.status).toBe('released');
       expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject release by another validator', async () => {
+      mockPrisma.validatorStake.findUnique.mockResolvedValue(unlockedStake);
+
+      await expect(release('stake-1', 'validator-2')).rejects.toThrow('Only the staking validator can release this stake');
     });
   });
 
@@ -261,7 +278,7 @@ describe('Verifiable Trust Service', () => {
     const activeStake = {
       stake_id: 'stake-1',
       node_id: 'node-1',
-      target_id: 'validator-1',
+      validator_id: 'validator-1',
       amount: 100,
       staked_at: new Date(),
       locked_until: new Date(),
@@ -282,6 +299,13 @@ describe('Verifiable Trust Service', () => {
       const result = await slash('stake-1');
 
       expect(result.status).toBe('slashed');
+      expect(mockPrisma.validatorStake.findUnique).toHaveBeenCalledWith({
+        where: { stake_id: 'stake-1' },
+      });
+      expect(mockPrisma.validatorStake.update).toHaveBeenCalledWith({
+        where: { stake_id: 'stake-1' },
+        data: { status: 'slashed' },
+      });
     });
 
     it('should throw NotFoundError when stake not found', async () => {
@@ -408,7 +432,7 @@ describe('Verifiable Trust Service', () => {
     const unlockedStake = {
       stake_id: 'stake-1',
       node_id: 'node-1',
-      target_id: 'validator-1',
+      validator_id: 'validator-1',
       amount: 100,
       staked_at: new Date(),
       locked_until: new Date(Date.now() - 24 * 60 * 60 * 1000),
@@ -421,17 +445,20 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
 
-      const result = await claimReward('stake-1');
+      const result = await claimReward('stake-1', 'validator-1');
 
       // reward = ceil(100 * 0.05) = 5
       expect(result.reward).toBe(5);
       expect(result.stake.stake_id).toBe('stake-1');
+      expect(mockPrisma.validatorStake.findUnique).toHaveBeenCalledWith({
+        where: { stake_id: 'stake-1' },
+      });
     });
 
     it('should throw NotFoundError when stake not found', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(null);
 
-      await expect(claimReward('nonexistent')).rejects.toThrow(NotFoundError);
+      await expect(claimReward('nonexistent', 'validator-1')).rejects.toThrow(NotFoundError);
     });
 
     it('should throw ValidationError when stake is not active', async () => {
@@ -440,7 +467,7 @@ describe('Verifiable Trust Service', () => {
         status: 'released',
       });
 
-      await expect(claimReward('stake-1')).rejects.toThrow(ValidationError);
+      await expect(claimReward('stake-1', 'validator-1')).rejects.toThrow(ValidationError);
     });
 
     it('should throw ValidationError when lock period has not ended', async () => {
@@ -449,7 +476,7 @@ describe('Verifiable Trust Service', () => {
         locked_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       });
 
-      await expect(claimReward('stake-1')).rejects.toThrow(ValidationError);
+      await expect(claimReward('stake-1', 'validator-1')).rejects.toThrow(ValidationError);
     });
 
     it('should credit reward to validator', async () => {
@@ -458,7 +485,7 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
 
-      await claimReward('stake-1');
+      await claimReward('stake-1', 'validator-1');
 
       expect(mockPrisma.node.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -471,10 +498,18 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(unlockedStake);
       mockPrisma.node.findFirst.mockResolvedValue(null);
 
-      const result = await claimReward('stake-1');
+      const result = await claimReward('stake-1', 'validator-1');
 
       expect(result.reward).toBe(5);
       expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject reward claims by another validator', async () => {
+      mockPrisma.validatorStake.findUnique.mockResolvedValue(unlockedStake);
+
+      await expect(claimReward('stake-1', 'validator-2')).rejects.toThrow(
+        'Only the staking validator can claim rewards for this stake',
+      );
     });
   });
 
@@ -802,6 +837,41 @@ describe('Verifiable Trust Service', () => {
 
       expect(result[0]!.verified_at).toBe(verifiedAt.toISOString());
       expect(result[0]!.expires_at).toBe(expiresAt.toISOString());
+    });
+  });
+
+  describe('listPendingStakes', () => {
+    it('should return active stakes ordered by staked_at', async () => {
+      mockPrisma.validatorStake.findMany.mockResolvedValue([
+        {
+          stake_id: 'stake-1',
+          node_id: 'node-1',
+          validator_id: 'validator-1',
+          amount: 100,
+          staked_at: new Date('2026-01-01T00:00:00.000Z'),
+          locked_until: new Date('2026-01-08T00:00:00.000Z'),
+          status: 'active',
+        },
+      ]);
+
+      const result = await listPendingStakes();
+
+      expect(result).toEqual([
+        {
+          stake_id: 'stake-1',
+          node_id: 'node-1',
+          validator_id: 'validator-1',
+          amount: 100,
+          staked_at: '2026-01-01T00:00:00.000Z',
+          locked_until: '2026-01-08T00:00:00.000Z',
+          status: 'active',
+        },
+      ]);
+      expect(mockPrisma.validatorStake.findMany).toHaveBeenCalledWith({
+        where: { status: 'active' },
+        orderBy: { staked_at: 'asc' },
+        take: 50,
+      });
     });
   });
 });

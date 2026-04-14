@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { authenticate, requireAuth, requireTrustLevel } from '../shared/auth';
 import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as skillStoreService from './service';
-import { UnauthorizedError, ValidationError } from '../shared/errors';
+import { ForbiddenError, UnauthorizedError, ValidationError } from '../shared/errors';
 
 async function authenticateIfPresent(request: Parameters<typeof authenticate>[0]) {
   const hasSessionToken = Boolean(
@@ -33,6 +33,12 @@ async function resolveSkillNodeId(
   return resolveAuthorizedNodeId(app, auth, {
     missingNodeMessage: 'No accessible node found for current credentials',
   });
+}
+
+function ensureSkillWriteAuth(auth: NonNullable<import('fastify').FastifyRequest['auth']>): void {
+  if (auth.auth_type === 'api_key') {
+    throw new ForbiddenError('API keys cannot modify skill store state');
+  }
 }
 
 export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
@@ -111,6 +117,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { limit, offset } = request.query as Record<string, string | undefined>;
     const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
@@ -165,6 +172,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const body = request.body as {
       name: string;
@@ -210,6 +218,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const body = request.body as {
       name: string;
@@ -248,6 +257,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
     const body = request.body as {
@@ -272,6 +282,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
     const body = request.body as {
@@ -300,6 +311,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -312,6 +324,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -327,6 +340,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -339,6 +353,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
     const body = (request.body as { version?: string } | undefined) ?? {};
@@ -357,6 +372,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -369,6 +385,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -404,6 +421,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
     const body = request.body as { rating: number };
@@ -430,6 +448,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
