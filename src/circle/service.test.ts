@@ -3,6 +3,7 @@ import * as service from './service';
 import {
   createCircle,
   joinCircle,
+  leaveCircle,
   startRound,
   contributeGene,
   submitAsset,
@@ -264,6 +265,63 @@ describe('Circle Service', () => {
 
       await expect(joinCircle('circle-1', 'node-1'))
         .rejects.toThrow(ConflictError);
+    });
+  });
+
+  describe('leaveCircle', () => {
+    it('should remove a participant before rounds start', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        rounds: [],
+      });
+      mockPrisma.circle.update.mockResolvedValue({
+        ...mockCircleRecord,
+        participant_count: 2,
+        members: ['creator-1', 'node-2'],
+      });
+
+      const result = await leaveCircle('circle-1', 'node-1');
+
+      expect(result.participant_count).toBe(2);
+      expect(mockPrisma.circle.update).toHaveBeenCalledWith({
+        where: { circle_id: 'circle-1' },
+        data: {
+          members: ['creator-1', 'node-2'],
+          participant_count: 2,
+        },
+      });
+    });
+
+    it('should reject creators leaving their own circle', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        creator_id: 'node-1',
+      });
+
+      await expect(leaveCircle('circle-1', 'node-1'))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should reject leaving once rounds have started', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        rounds: [{ round_number: 1, status: 'ongoing' }],
+      });
+
+      await expect(leaveCircle('circle-1', 'node-1'))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should reject non-members leaving the circle', async () => {
+      mockPrisma.circle.findUnique.mockResolvedValue({
+        ...mockCircleRecord,
+        members: ['creator-1', 'node-2'],
+        participant_count: 2,
+        rounds: [],
+      });
+
+      await expect(leaveCircle('circle-1', 'node-1'))
+        .rejects.toThrow(ValidationError);
     });
   });
 

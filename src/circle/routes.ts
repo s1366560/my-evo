@@ -6,10 +6,22 @@ import * as circleService from './service';
 export async function circleRoutes(app: FastifyInstance): Promise<void> {
   const prisma = app.prisma;
 
-  app.post('/', {
-    schema: { tags: ['Circle'] },
-    preHandler: [requireAuth()],
-  }, async (request, reply) => {
+  const toCircleListItem = (circle: Record<string, unknown>) => ({
+    circle_id: circle.circle_id,
+    name: circle.name,
+    description: circle.description,
+    theme: circle.theme,
+    status: circle.status,
+    creator_id: circle.creator_id,
+    participant_count: circle.participant_count,
+    gene_pool_size: Array.isArray(circle.gene_pool) ? circle.gene_pool.length : 0,
+    rounds_completed: circle.rounds_completed,
+    entry_fee: circle.entry_fee,
+    prize_pool: circle.prize_pool,
+    created_at: (circle.created_at as Date).toISOString(),
+  });
+
+  async function createCircleHandler(request: any, reply: any) {
     const auth = request.auth!;
     const body = request.body as {
       name: string;
@@ -25,7 +37,38 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     );
 
     return reply.status(201).send({ success: true, data: result });
-  });
+  }
+
+  async function listCirclesHandler(request: any, reply: any) {
+    const { limit, offset } = request.query;
+
+    const [circles, total] = await Promise.all([
+      prisma.circle.findMany({
+        orderBy: { created_at: 'desc' },
+        take: limit ? Number(limit) : 20,
+        skip: offset ? Number(offset) : 0,
+      }),
+      prisma.circle.count(),
+    ]);
+
+    return reply.send({
+      success: true,
+      data: {
+        items: circles.map((circle: Record<string, unknown>) => toCircleListItem(circle)),
+        total,
+      },
+    });
+  }
+
+  app.post('/', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, createCircleHandler);
+
+  app.post('/create', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, createCircleHandler);
 
   app.post('/:circleId/join', {
     schema: { tags: ['Circle'] },
@@ -35,6 +78,21 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
     const { circleId } = request.params as { circleId: string };
 
     const result = await circleService.joinCircle(
+      circleId,
+      auth.node_id,
+    );
+
+    return reply.send({ success: true, data: result });
+  });
+
+  app.post('/:circleId/leave', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { circleId } = request.params as { circleId: string };
+
+    const result = await circleService.leaveCircle(
       circleId,
       auth.node_id,
     );
@@ -68,6 +126,18 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/:circleId/start-round', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { circleId } = request.params as { circleId: string };
+
+    const result = await circleService.startRound(circleId, auth.node_id);
+
+    return reply.send({ success: true, data: result });
+  });
+
+  app.post('/:circleId/round', {
     schema: { tags: ['Circle'] },
     preHandler: [requireAuth()],
   }, async (request, reply) => {
@@ -149,36 +219,42 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/', {
     schema: { tags: ['Circle'] },
+  }, listCirclesHandler);
+
+  app.get('/list', {
+    schema: { tags: ['Circle'] },
+  }, listCirclesHandler);
+
+  app.get('/my', {
+    schema: { tags: ['Circle'] },
+    preHandler: [requireAuth()],
   }, async (request, reply) => {
+    const auth = request.auth!;
     const { limit, offset } = request.query as Record<string, string | undefined>;
+    const take = limit ? Number(limit) : 20;
+    const skip = offset ? Number(offset) : 0;
 
-    const [circles, total] = await Promise.all([
-      prisma.circle.findMany({
-        orderBy: { created_at: 'desc' },
-        take: limit ? Number(limit) : 20,
-        skip: offset ? Number(offset) : 0,
-      }),
-      prisma.circle.count(),
-    ]);
+    const circles = await prisma.circle.findMany({
+      orderBy: { created_at: 'desc' },
+    });
 
-    const items = circles.map((c: Record<string, unknown>) => ({
-      circle_id: c.circle_id,
-      name: c.name,
-      description: c.description,
-      theme: c.theme,
-        status: c.status,
-        creator_id: c.creator_id,
-        participant_count: c.participant_count,
-        gene_pool_size: Array.isArray(c.gene_pool) ? c.gene_pool.length : 0,
-        rounds_completed: c.rounds_completed,
-        entry_fee: c.entry_fee,
-        prize_pool: c.prize_pool,
-      created_at: (c.created_at as Date).toISOString(),
-    }));
+    const myCircles = circles.filter((circle: Record<string, unknown>) => {
+      if (circle.creator_id === auth.node_id) {
+        return true;
+      }
+
+      return Array.isArray(circle.members)
+        && circle.members.some((member) => member === auth.node_id);
+    });
 
     return reply.send({
       success: true,
-      data: { items, total },
+      data: {
+        items: myCircles
+          .slice(skip, skip + take)
+          .map((circle: Record<string, unknown>) => toCircleListItem(circle)),
+        total: myCircles.length,
+      },
     });
   });
 
@@ -215,6 +291,26 @@ export async function circleRoutes(app: FastifyInstance): Promise<void> {
         prize_pool: circle.prize_pool,
         created_at: circle.created_at.toISOString(),
       },
+    });
+  });
+
+  app.get('/:circleId/rounds', {
+    schema: { tags: ['Circle'] },
+  }, async (request, reply) => {
+    const { circleId } = request.params as { circleId: string };
+
+    const circle = await prisma.circle.findUnique({
+      where: { circle_id: circleId },
+      select: { rounds: true },
+    });
+
+    if (!circle) {
+      throw new NotFoundError('Circle', circleId);
+    }
+
+    return reply.send({
+      success: true,
+      data: Array.isArray(circle.rounds) ? circle.rounds : [],
     });
   });
 }

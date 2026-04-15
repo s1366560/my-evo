@@ -1,6 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
-import { authenticate, requireAuth, requireNodeSecretAuth } from '../shared/auth';
+import {
+  authenticate,
+  requireAuth,
+  requireNoActiveQuarantine,
+  requireNodeSecretAuth,
+} from '../shared/auth';
 import { PROTOCOL_NAME, PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from '../shared/constants';
 import {
   EvoMapError,
@@ -421,7 +426,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   // Adapts protocol format -> assets service PublishPayload
   app.post('/publish', {
     schema: { tags: ['A2A'] },
-    preHandler: requireAuth(),
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as {
@@ -645,7 +650,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   // POST /a2a/bid/place — create a bid request (self-bounty)
   app.post('/bid/place', {
     schema: { tags: ['Bounty'] },
-    preHandler: requireAuth(),
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = ((request.body as {
@@ -674,7 +679,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/bid/:bountyId', {
     schema: { tags: ['Bounty'] },
-    preHandler: requireAuth(),
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const { bountyId } = request.params as { bountyId: string };
@@ -733,7 +738,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   // ---------------------------------------------------------------------------
   app.post('/ask', {
     schema: { tags: ['Bounty'] },
-    preHandler: requireAuth(),
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = ((request.body as {
@@ -1115,7 +1120,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
         },
       },
     },
-    preHandler: requireAuth(),
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request) => {
     const auth = request.auth!;
     const sellerId = requireMarketplaceNodeId(auth.node_id);
@@ -1162,7 +1167,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
         },
       },
     },
-    preHandler: requireAuth(),
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request) => {
     const auth = request.auth!;
     const buyerId = requireMarketplaceNodeId(auth.node_id);
@@ -1202,7 +1207,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
         },
       },
     },
-    preHandler: requireAuth(),
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request) => {
     const auth = request.auth!;
     const buyerId = requireMarketplaceNodeId(auth.node_id);
@@ -1260,7 +1265,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
         },
       },
     },
-    preHandler: requireAuth(),
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request) => {
     const auth = request.auth!;
     const sellerId = requireMarketplaceNodeId(auth.node_id);
@@ -1765,7 +1770,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/task/:taskId/commitment', {
     schema: { tags: ['Task'] },
-    preHandler: requireAuth(),
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const { taskId } = request.params as { taskId: string };

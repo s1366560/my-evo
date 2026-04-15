@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth, requireTrustLevel } from '../shared/auth';
+import { requireAuth } from '../shared/auth';
 import { EvoMapError } from '../shared/errors';
 import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as service from './service';
@@ -14,6 +14,40 @@ function toSpecIsolationMode(isolationLevel?: string): string {
   }
 
   return isolationLevel ?? 'soft-tagged';
+}
+
+function getSandboxExperiments(metadata: unknown): Array<Record<string, unknown>> {
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+    return [];
+  }
+
+  const experiments = (metadata as Record<string, unknown>).experiments;
+  return Array.isArray(experiments)
+    ? experiments.filter(
+        (experiment): experiment is Record<string, unknown> =>
+          typeof experiment === 'object' && experiment !== null && !Array.isArray(experiment),
+      )
+    : [];
+}
+
+function toSpecSandboxDetail(sandbox: Record<string, any>) {
+  return {
+    sandbox_id: sandbox.sandbox_id,
+    name: sandbox.name,
+    description: sandbox.description,
+    status: sandbox.state,
+    isolation_mode: toSpecIsolationMode(sandbox.isolation_level),
+    assets: Array.isArray(sandbox.assets)
+      ? sandbox.assets
+        .map((asset) => asset?.asset_id)
+        .filter((assetId): assetId is string => typeof assetId === 'string' && assetId.length > 0)
+      : [],
+    experiments: getSandboxExperiments(sandbox.metadata),
+    members: sandbox.members,
+    created_by: sandbox.created_by,
+    created_at: sandbox.created_at,
+    updated_at: sandbox.updated_at,
+  };
 }
 
 async function resolveSandboxNodeId(
@@ -97,7 +131,6 @@ export async function sandboxRoutes(app: FastifyInstance) {
 
   app.get('/stats', {
     schema: { tags: ['Sandbox'] },
-    preHandler: [requireTrustLevel('trusted')],
   }, async (_request) => {
     const stats = await service.getSandboxStats();
     return { success: true, data: stats };
@@ -112,7 +145,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveSandboxNodeId(app, auth);
     const sandbox = await service.getSandbox(params.sandboxId, nodeId);
-    return { success: true, data: sandbox };
+    return { success: true, data: toSpecSandboxDetail(sandbox as Record<string, any>) };
   });
 
   // Create sandbox

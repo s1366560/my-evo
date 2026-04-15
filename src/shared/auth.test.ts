@@ -2,6 +2,7 @@ import {
   authenticate,
   checkQuarantine,
   requireAuth,
+  requireNoActiveQuarantine,
 } from './auth';
 import {
   QuarantineError,
@@ -124,6 +125,29 @@ describe('shared/auth', () => {
     await expect(checkQuarantine('node-4', mockPrisma as any)).rejects.toThrow(QuarantineError);
     expect(mockPrisma.quarantineRecord.findFirst).toHaveBeenCalledWith({
       where: { node_id: 'node-4', is_active: true },
+    });
+  });
+
+  it('blocks requests with active quarantine after auth has been set', async () => {
+    const mockPrisma = createMockPrisma();
+    mockPrisma.quarantineRecord.findFirst.mockResolvedValue({
+      level: 'L1',
+    });
+
+    const request = {
+      auth: {
+        node_id: 'node-5',
+        auth_type: 'session',
+        trust_level: 'verified',
+      },
+      headers: {},
+      cookies: {},
+      server: { prisma: mockPrisma },
+    } as any;
+
+    await expect(requireNoActiveQuarantine()(request, {} as any)).rejects.toThrow(QuarantineError);
+    expect(mockPrisma.quarantineRecord.findFirst).toHaveBeenCalledWith({
+      where: { node_id: 'node-5', is_active: true },
     });
   });
 });

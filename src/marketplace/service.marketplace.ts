@@ -10,7 +10,30 @@ import {
 let prisma = new PrismaClient();
 
 const SERVICE_REVIEW_TAG = 'service_review';
-const SERVICE_LISTING_STATUSES = ['active', 'paused', 'archived'] as const;
+const SERVICE_LISTING_STATUSES = [
+  'active',
+  'paused',
+  'archived',
+  'cancelled',
+  'sold',
+  'expired',
+] as const;
+const SERVICE_PRICE_TYPES = [
+  'free',
+  'per_use',
+  'subscription',
+  'one_time',
+  'fixed',
+  'auction',
+  'rental',
+] as const;
+const SERVICE_LICENSE_TYPES = [
+  'open_source',
+  'proprietary',
+  'custom',
+  'exclusive',
+  'non-exclusive',
+] as const;
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
@@ -25,9 +48,9 @@ export interface ServiceListingInput {
   description: string;
   category: string;
   tags: string[];
-  price_type: 'free' | 'per_use' | 'subscription' | 'one_time';
+  price_type: typeof SERVICE_PRICE_TYPES[number];
   price_credits?: number;
-  license_type: 'open_source' | 'proprietary' | 'custom';
+  license_type: typeof SERVICE_LICENSE_TYPES[number];
 }
 
 export interface ServiceListing {
@@ -42,6 +65,17 @@ export interface ServiceListing {
   license_type: string;
   status: string;
   created_at: string;
+}
+
+export interface ServiceListingDetail extends ServiceListing {
+  stats: {
+    views: number;
+    purchases: number;
+    rating: number;
+    rating_count: number;
+  };
+  updated_at: string;
+  expires_at?: string;
 }
 
 export interface ServicePurchase {
@@ -141,9 +175,23 @@ function normalizeServiceRating(rating: number): number {
 
 function normalizeServiceStatus(status: string): typeof SERVICE_LISTING_STATUSES[number] {
   if (!SERVICE_LISTING_STATUSES.includes(status as typeof SERVICE_LISTING_STATUSES[number])) {
-    throw new ValidationError('status must be one of active, paused, archived');
+    throw new ValidationError('status must be one of active, paused, archived, cancelled, sold, expired');
   }
   return status as typeof SERVICE_LISTING_STATUSES[number];
+}
+
+function normalizeServicePriceType(priceType: string): typeof SERVICE_PRICE_TYPES[number] {
+  if (!SERVICE_PRICE_TYPES.includes(priceType as typeof SERVICE_PRICE_TYPES[number])) {
+    throw new ValidationError('price_type must be one of free, per_use, subscription, one_time, fixed, auction, rental');
+  }
+  return priceType as typeof SERVICE_PRICE_TYPES[number];
+}
+
+function normalizeServiceLicenseType(licenseType: string): typeof SERVICE_LICENSE_TYPES[number] {
+  if (!SERVICE_LICENSE_TYPES.includes(licenseType as typeof SERVICE_LICENSE_TYPES[number])) {
+    throw new ValidationError('license_type must be one of open_source, proprietary, custom, exclusive, non-exclusive');
+  }
+  return licenseType as typeof SERVICE_LICENSE_TYPES[number];
 }
 
 function getServiceReviewId(listingId: string, buyerId: string): string {
@@ -207,6 +255,8 @@ export async function createServiceListing(
   prismaClient?: PrismaClient,
 ): Promise<ServiceListing> {
   const client = getPrismaClient(prismaClient);
+  const normalizedPriceType = normalizeServicePriceType(input.price_type);
+  const normalizedLicenseType = normalizeServiceLicenseType(input.license_type);
   if (!input.title || input.title.trim().length === 0) {
     throw new ValidationError('Title is required');
   }
@@ -216,7 +266,7 @@ export async function createServiceListing(
   if (!input.category || input.category.trim().length === 0) {
     throw new ValidationError('Category is required');
   }
-  if (input.price_type !== 'free' && (input.price_credits === undefined || input.price_credits <= 0)) {
+  if (normalizedPriceType !== 'free' && (input.price_credits === undefined || input.price_credits <= 0)) {
     throw new ValidationError('price_credits is required for non-free listings');
   }
 
@@ -227,7 +277,7 @@ export async function createServiceListing(
     throw new NotFoundError('Seller node', sellerId);
   }
 
-  const listingId = `svc-${crypto.randomUUID()}`;
+  const listingId = `listing_${crypto.randomUUID()}`;
   const listing = await client.serviceListing.create({
     data: {
       listing_id: listingId,
@@ -236,9 +286,9 @@ export async function createServiceListing(
       description: input.description.trim(),
       category: input.category,
       tags: input.tags ?? [],
-      price_type: input.price_type,
+      price_type: normalizedPriceType,
       price_credits: input.price_credits ?? 0,
-      license_type: input.license_type,
+      license_type: normalizedLicenseType,
       status: 'active',
     },
   });
@@ -382,6 +432,58 @@ export async function getMyPurchases(
   };
 }
 
+async function buildServiceListingStats(
+  client: PrismaClient,
+  listingId: string,
+): Promise<ServiceListingDetail['stats']> {
+  const [purchases, reviews] = await Promise.all([
+    client.servicePurchase.count({ where: { listing_id: listingId } }),
+    client.question.findMany({
+      where: getServiceReviewFilter(listingId),
+      select: { tags: true },
+    }),
+  ]);
+
+  const ratings = reviews.flatMap((review) =>
+    review.tags
+      .filter((tag) => tag.startsWith('rating:'))
+      .map((tag) => Number(tag.slice('rating:'.length)))
+      .filter((value) => Number.isFinite(value)),
+  );
+
+  const ratingCount = ratings.length;
+  const rating = ratingCount > 0
+    ? Number((ratings.reduce((sum, value) => sum + value, 0) / ratingCount).toFixed(2))
+    : 0;
+
+  return {
+    views: 0,
+    purchases,
+    rating,
+    rating_count: ratingCount,
+  };
+}
+
+export async function getServiceListing(
+  listingId: string,
+  prismaClient?: PrismaClient,
+): Promise<ServiceListingDetail> {
+  const client = getPrismaClient(prismaClient);
+  const listing = await client.serviceListing.findFirst({
+    where: { listing_id: listingId },
+  });
+
+  if (!listing) {
+    throw new NotFoundError('ServiceListing', listingId);
+  }
+
+  return {
+    ...toServiceListing(listing),
+    stats: await buildServiceListingStats(client, listingId),
+    updated_at: listing.created_at.toISOString(),
+  };
+}
+
 export async function updateServiceListing(
   sellerId: string,
   listingId: string,
@@ -391,8 +493,9 @@ export async function updateServiceListing(
     category?: string;
     tags?: string[];
     price_credits?: number;
+    price_type?: typeof SERVICE_PRICE_TYPES[number];
     status?: string;
-    license_type?: 'open_source' | 'proprietary' | 'custom';
+    license_type?: typeof SERVICE_LICENSE_TYPES[number];
   },
   prismaClient?: PrismaClient,
 ): Promise<ServiceListing> {
@@ -420,16 +523,28 @@ export async function updateServiceListing(
   if (updates.price_credits !== undefined && updates.price_credits < 0) {
     throw new ValidationError('price_credits cannot be negative');
   }
+  if (updates.price_type !== undefined && updates.price_type.trim().length === 0) {
+    throw new ValidationError('price_type cannot be empty');
+  }
   if (updates.status !== undefined && updates.status.trim().length === 0) {
     throw new ValidationError('status cannot be empty');
   }
+  const normalizedPriceType = updates.price_type !== undefined
+    ? normalizeServicePriceType(updates.price_type.trim())
+    : undefined;
   const normalizedStatus = updates.status !== undefined
     ? normalizeServiceStatus(updates.status.trim())
     : undefined;
+  const normalizedLicenseType = updates.license_type !== undefined
+    ? normalizeServiceLicenseType(updates.license_type)
+    : undefined;
 
   const nextPrice = updates.price_credits ?? listing.price_credits;
+  const requestedPriceType = normalizedPriceType ?? (nextPrice > 0
+    ? (listing.price_type === 'free' ? 'fixed' : listing.price_type)
+    : 'free');
   const nextPriceType = nextPrice > 0
-    ? (listing.price_type === 'free' ? 'one_time' : listing.price_type)
+    ? requestedPriceType
     : 'free';
 
   const updated = await client.serviceListing.update({
@@ -440,12 +555,21 @@ export async function updateServiceListing(
       ...(updates.category !== undefined ? { category: updates.category.trim() } : {}),
       ...(updates.tags !== undefined ? { tags: updates.tags } : {}),
       ...(updates.price_credits !== undefined ? { price_credits: nextPrice, price_type: nextPriceType } : {}),
+      ...(updates.price_credits === undefined && normalizedPriceType !== undefined ? { price_type: nextPriceType } : {}),
       ...(normalizedStatus !== undefined ? { status: normalizedStatus } : {}),
-      ...(updates.license_type !== undefined ? { license_type: updates.license_type } : {}),
+      ...(normalizedLicenseType !== undefined ? { license_type: normalizedLicenseType } : {}),
     },
   });
 
   return toServiceListing(updated);
+}
+
+export async function cancelServiceListing(
+  sellerId: string,
+  listingId: string,
+  prismaClient?: PrismaClient,
+): Promise<ServiceListing> {
+  return updateServiceListing(sellerId, listingId, { status: 'cancelled' }, prismaClient);
 }
 
 export async function rateService(

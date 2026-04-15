@@ -268,6 +268,53 @@ export async function joinCircle(
   return toCircle(updated as unknown as Record<string, unknown>);
 }
 
+export async function leaveCircle(
+  circleId: string,
+  nodeId: string,
+): Promise<Circle> {
+  const circle = await prisma.circle.findUnique({
+    where: { circle_id: circleId },
+  });
+
+  if (!circle) {
+    throw new NotFoundError('Circle', circleId);
+  }
+
+  if (circle.creator_id === nodeId) {
+    throw new ValidationError('Creator cannot leave the circle');
+  }
+
+  if (circle.status !== 'active') {
+    throw new ValidationError('Circle is not active');
+  }
+
+  const rounds = (circle.rounds as unknown as CircleRound[]) ?? [];
+  if (rounds.length > 0) {
+    throw new ValidationError('Cannot leave a circle that has started');
+  }
+
+  if (!hasAuthoritativeMemberRoster(circle)) {
+    throw new ConflictError('Circle member roster requires migration backfill before accepting leaves');
+  }
+
+  const memberIds = getCircleMemberIds(circle);
+  const filteredMembers = memberIds.filter((memberId) => memberId !== nodeId);
+
+  if (filteredMembers.length === memberIds.length) {
+    throw new ValidationError('Not a member of this circle');
+  }
+
+  const updated = await prisma.circle.update({
+    where: { circle_id: circleId },
+    data: {
+      members: filteredMembers as unknown as Prisma.InputJsonValue,
+      participant_count: filteredMembers.length,
+    },
+  });
+
+  return toCircle(updated as unknown as Record<string, unknown>);
+}
+
 export async function startRound(
   circleId: string,
   requesterId: string,

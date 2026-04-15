@@ -171,6 +171,39 @@ describe('Sandbox routes', () => {
     expect(mockListSandboxes).toHaveBeenCalledWith(undefined, undefined, 20, 0, 'node-2');
   });
 
+  it('keeps sandbox stats publicly readable per the architecture contract', async () => {
+    mockAuth = {
+      node_id: 'node-9',
+      auth_type: 'node_secret',
+      trust_level: 'basic',
+      userId: undefined,
+    };
+    mockGetSandboxStats.mockResolvedValue({
+      total_sandboxes: 2,
+      active: 1,
+      completed: 1,
+      total_experiments: 4,
+      promotion_rate: 0.5,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/sandbox/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      data: {
+        total_sandboxes: 2,
+        active: 1,
+        completed: 1,
+        total_experiments: 4,
+        promotion_rate: 0.5,
+      },
+    });
+  });
+
   it('supports experiment, asset, modify, complete, and compare compatibility routes', async () => {
     mockRunExperiment.mockResolvedValue({ experiment_id: 'exp-1', status: 'running', estimated_time_minutes: 5 });
     mockAttachExistingAssetToSandbox.mockResolvedValue({ status: 'ok', sandbox_asset_count: 3 });
@@ -237,7 +270,18 @@ describe('Sandbox routes', () => {
   });
 
   it('protects sandbox detail reads and scopes them to the authenticated node', async () => {
-    mockGetSandbox.mockResolvedValue({ sandbox_id: 'sbx-1', members: [], assets: [] });
+    mockGetSandbox.mockResolvedValue({
+      sandbox_id: 'sbx-1',
+      name: 'Experiment A',
+      description: 'Sandbox details',
+      state: 'active',
+      isolation_level: 'soft',
+      members: [],
+      assets: [{ asset_id: 'gene-1' }, { asset_id: 'gene-2' }],
+      metadata: {
+        experiments: [{ id: 'exp-1', status: 'completed', result: 'improved +12% accuracy' }],
+      },
+    });
 
     const response = await app.inject({
       method: 'GET',
@@ -246,5 +290,17 @@ describe('Sandbox routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetSandbox).toHaveBeenCalledWith('sbx-1', 'node-1');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        sandbox_id: 'sbx-1',
+        name: 'Experiment A',
+        description: 'Sandbox details',
+        status: 'active',
+        isolation_mode: 'soft-tagged',
+        assets: ['gene-1', 'gene-2'],
+        experiments: [{ id: 'exp-1', status: 'completed', result: 'improved +12% accuracy' }],
+      }),
+    });
   });
 });

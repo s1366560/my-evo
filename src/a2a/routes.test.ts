@@ -6,7 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import fastify from 'fastify';
 import { a2aRoutes } from './routes';
-import { UnauthorizedError, ValidationError } from '../shared/errors';
+import { QuarantineError, UnauthorizedError, ValidationError } from '../shared/errors';
 
 // ─── Mock auth middleware ───────────────────────────────────────────────────────
 
@@ -14,6 +14,7 @@ let mockNodeId = 'node-test-001';
 let mockAuthType: string | undefined;
 let mockAuthScopes: string[] | undefined;
 let mockNodeSecretAuthAllowed = true;
+let mockQuarantineLevel: string | null = null;
 
 // Store the original request auth setter to call from within the route
 let capturedRequest: { auth?: { node_id: string } } | null = null;
@@ -42,6 +43,12 @@ const mockRequireNodeSecretAuth = () => async (
   }
   request.auth = { node_id: mockNodeId, auth_type: 'node_secret' };
   capturedRequest = request;
+};
+
+const mockRequireNoActiveQuarantine = () => async () => {
+  if (mockQuarantineLevel) {
+    throw new QuarantineError(mockQuarantineLevel);
+  }
 };
 
 // ─── Mock publishAsset ────────────────────────────────────────────────────────
@@ -221,6 +228,7 @@ jest.mock('./assets_service', () => ({
 
 jest.mock('../shared/auth', () => ({
   requireAuth: () => mockRequireAuth(),
+  requireNoActiveQuarantine: () => mockRequireNoActiveQuarantine(),
   requireNodeSecretAuth: () => mockRequireNodeSecretAuth(),
   authenticate: (request: unknown) => mockAuthenticate(request),
 }));
@@ -259,6 +267,10 @@ function buildApp(): FastifyInstance {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
+beforeEach(() => {
+  mockQuarantineLevel = null;
+});
+
 describe('POST /a2a/publish', () => {
   let app: FastifyInstance;
 
@@ -274,6 +286,29 @@ describe('POST /a2a/publish', () => {
 
   afterEach(async () => {
     await app.close();
+  });
+
+  it('should return 403 when the authenticated node is quarantined', async () => {
+    mockQuarantineLevel = 'L2';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'publish',
+        message_id: 'msg_quarantined_publish',
+        sender_id: mockNodeId,
+        timestamp: freshTimestamp(),
+        payload: { assets: [{ type: 'Gene', asset_id: 'sha256:test' }] },
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.payload).message).toContain('quarantine');
+    expect(mockPublishAsset).not.toHaveBeenCalled();
   });
 
   it('should return 400 when protocol field is missing', async () => {
@@ -855,6 +890,26 @@ describe('A2A service marketplace routes', () => {
       price_credits: 25,
       license_type: 'open_source',
     }, currentPrisma);
+  });
+
+  it('should return 403 for marketplace publish when the node is quarantined', async () => {
+    mockQuarantineLevel = 'L1';
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/service/publish',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        title: 'Review service',
+        description: 'I review code',
+        price: 25,
+        category: 'engineering',
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.payload).message).toContain('quarantine');
+    expect(mockCreateServiceListing).not.toHaveBeenCalled();
   });
 
   it('should accept legacy publish payload aliases', async () => {
@@ -2032,6 +2087,7 @@ describe('A2A directory routes', () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
+    mockQuarantineLevel = null;
     app = buildApp();
     await app.register(a2aRoutes, { prefix: '/a2a' });
     await app.ready();

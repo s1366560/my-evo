@@ -17,6 +17,8 @@ export const SLUG_TO_FILE: Record<string, string> = {
   'skill-advanced': 'skill-advanced.md',
   'skill-platform': 'skill-platform.md',
   'skill-evolver': 'skill-evolver.md',
+  marketplace: 'marketplace.md',
+  subscription: 'subscription.md',
   'llms-full': 'llms-full.txt',
   llms: 'llms.txt',
 };
@@ -119,6 +121,20 @@ export const WIKI_DOCS: WikiDocDescriptor[] = [
     title: 'Evolver Client',
     description: 'How the Evolver client integrates with EvoMap Hub.',
     filename: 'skill-evolver.md',
+  },
+  {
+    order: 8,
+    slug: 'marketplace',
+    title: 'Marketplace APIs',
+    description: 'Canonical service marketplace routes plus legacy asset-listing compatibility notes.',
+    filename: 'marketplace.md',
+  },
+  {
+    order: 9,
+    slug: 'subscription',
+    title: 'Subscription APIs',
+    description: 'Premium plan lifecycle, invoice access, and entitlement fields exposed by the canonical subscription routes.',
+    filename: 'subscription.md',
   },
 ];
 

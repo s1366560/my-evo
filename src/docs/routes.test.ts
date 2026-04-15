@@ -9,8 +9,10 @@ import {
 describe('Docs wiki helpers', () => {
   it('should read a document by slug', () => {
     const content = readDocBySlug('skill', 'en');
+    const marketplace = readDocBySlug('marketplace', 'en');
 
     expect(content.length).toBeGreaterThan(0);
+    expect(marketplace).toContain('Marketplace APIs');
   });
 
   it('should build a structured wiki index', () => {
@@ -20,6 +22,8 @@ describe('Docs wiki helpers', () => {
     expect(result.count).toBeGreaterThan(0);
     expect(result.docs[0]!.url_markdown).toContain('/docs/en/');
     expect(result.access.full_wiki_json).toContain('format=json');
+    expect(result.docs.some((doc) => doc.slug === 'marketplace')).toBe(true);
+    expect(result.docs.some((doc) => doc.slug === 'subscription')).toBe(true);
   });
 
   it('should build a structured full wiki response', () => {

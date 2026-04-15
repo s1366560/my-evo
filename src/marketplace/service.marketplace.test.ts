@@ -16,12 +16,14 @@ const mockPrisma = {
   },
   servicePurchase: {
     findFirst: jest.fn(),
+    count: jest.fn(),
   },
   node: {
     findFirst: jest.fn(),
   },
   question: {
     findFirst: jest.fn(),
+    findMany: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
     upsert: jest.fn(),
@@ -39,23 +41,25 @@ describe('Service marketplace helpers', () => {
     mockPrisma.serviceListing.count.mockResolvedValue(0);
     mockPrisma.serviceListing.findFirst.mockResolvedValue(null);
     mockPrisma.servicePurchase.findFirst.mockResolvedValue(null);
+    mockPrisma.servicePurchase.count.mockResolvedValue(0);
     mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1' });
     mockPrisma.question.findFirst.mockResolvedValue(null);
+    mockPrisma.question.findMany.mockResolvedValue([]);
   });
 
   describe('searchServiceListings', () => {
     it('should search active listings with text and category filters', async () => {
       const createdAt = new Date('2026-01-01T00:00:00Z');
       mockPrisma.serviceListing.findMany.mockResolvedValue([{
-        listing_id: 'svc-1',
+        listing_id: 'listing_1',
         seller_id: 'node-1',
         title: 'Code review service',
         description: 'Review TypeScript code',
         category: 'engineering',
         tags: ['typescript'],
-        price_type: 'one_time',
+        price_type: 'fixed',
         price_credits: 50,
-        license_type: 'open_source',
+        license_type: 'non-exclusive',
         status: 'active',
         created_at: createdAt,
       }]);
@@ -69,7 +73,7 @@ describe('Service marketplace helpers', () => {
       });
 
       expect(result.total).toBe(1);
-      expect(result.items[0]?.listing_id).toBe('svc-1');
+      expect(result.items[0]?.listing_id).toBe('listing_1');
       expect(mockPrisma.serviceListing.findMany).toHaveBeenCalledWith({
         where: {
           status: 'active',
@@ -88,11 +92,55 @@ describe('Service marketplace helpers', () => {
     });
   });
 
+  describe('getServiceListing', () => {
+    it('should return listing details with derived marketplace stats', async () => {
+      const createdAt = new Date('2026-01-01T00:00:00Z');
+      mockPrisma.serviceListing.findFirst.mockResolvedValue({
+        listing_id: 'listing_1',
+        seller_id: 'node-1',
+        title: 'Review service',
+        description: 'Review TypeScript code',
+        category: 'engineering',
+        tags: ['typescript'],
+        price_type: 'fixed',
+        price_credits: 50,
+        license_type: 'exclusive',
+        status: 'active',
+        created_at: createdAt,
+      });
+      mockPrisma.servicePurchase.count.mockResolvedValue(3);
+      mockPrisma.question.findMany.mockResolvedValue([
+        { tags: ['service_review', 'service:listing_1', 'rating:5'] },
+        { tags: ['service_review', 'service:listing_1', 'rating:3'] },
+      ]);
+
+      const result = await service.getServiceListing('listing_1');
+
+      expect(result).toMatchObject({
+        listing_id: 'listing_1',
+        price_type: 'fixed',
+        license_type: 'exclusive',
+        stats: {
+          views: 0,
+          purchases: 3,
+          rating: 4,
+          rating_count: 2,
+        },
+      });
+      expect(mockPrisma.question.findMany).toHaveBeenCalledWith({
+        where: {
+          tags: { hasEvery: ['service_review', 'service:listing_1'] },
+        },
+        select: { tags: true },
+      });
+    });
+  });
+
   describe('updateServiceListing', () => {
     it('should update seller-owned listings and normalize price type', async () => {
       const createdAt = new Date('2026-01-01T00:00:00Z');
       mockPrisma.serviceListing.findFirst.mockResolvedValue({
-        listing_id: 'svc-1',
+        listing_id: 'listing_1',
         seller_id: 'node-1',
         title: 'Old',
         description: 'Old desc',
@@ -100,40 +148,40 @@ describe('Service marketplace helpers', () => {
         tags: [],
         price_type: 'free',
         price_credits: 0,
-        license_type: 'open_source',
+        license_type: 'exclusive',
         status: 'active',
         created_at: createdAt,
       });
       mockPrisma.serviceListing.update.mockResolvedValue({
-        listing_id: 'svc-1',
+        listing_id: 'listing_1',
         seller_id: 'node-1',
         title: 'New',
         description: 'Updated desc',
         category: 'engineering',
         tags: [],
-        price_type: 'one_time',
+        price_type: 'fixed',
         price_credits: 25,
-        license_type: 'open_source',
+        license_type: 'exclusive',
         status: 'paused',
         created_at: createdAt,
       });
 
-      const result = await service.updateServiceListing('node-1', 'svc-1', {
+      const result = await service.updateServiceListing('node-1', 'listing_1', {
         title: 'New',
         description: 'Updated desc',
         price_credits: 25,
         status: 'paused',
       });
 
-      expect(result.price_type).toBe('one_time');
+      expect(result.price_type).toBe('fixed');
       expect(result.status).toBe('paused');
       expect(mockPrisma.serviceListing.update).toHaveBeenCalledWith({
-        where: { listing_id: 'svc-1' },
+        where: { listing_id: 'listing_1' },
         data: {
           title: 'New',
           description: 'Updated desc',
           price_credits: 25,
-          price_type: 'one_time',
+          price_type: 'fixed',
           status: 'paused',
         },
       });
@@ -141,30 +189,70 @@ describe('Service marketplace helpers', () => {
 
     it('should reject updates from non-sellers', async () => {
       mockPrisma.serviceListing.findFirst.mockResolvedValue({
-        listing_id: 'svc-1',
+        listing_id: 'listing_1',
         seller_id: 'node-2',
       });
 
       await expect(
-        service.updateServiceListing('node-1', 'svc-1', { title: 'Nope' }),
+        service.updateServiceListing('node-1', 'listing_1', { title: 'Nope' }),
       ).rejects.toThrow(ForbiddenError);
     });
 
     it('should reject invalid listing statuses', async () => {
       mockPrisma.serviceListing.findFirst.mockResolvedValue({
-        listing_id: 'svc-1',
+        listing_id: 'listing_1',
         seller_id: 'node-1',
         price_type: 'free',
         price_credits: 0,
       });
 
       await expect(
-        service.updateServiceListing('node-1', 'svc-1', { status: 'deleted' }),
+        service.updateServiceListing('node-1', 'listing_1', { status: 'deleted' }),
       ).rejects.toThrow(ValidationError);
     });
   });
 
   describe('createServiceListing', () => {
+    it('should persist architecture-native price and license enums', async () => {
+      const createdAt = new Date('2026-01-03T00:00:00Z');
+      mockPrisma.serviceListing.create.mockResolvedValue({
+        listing_id: 'listing_1',
+        seller_id: 'node-1',
+        title: 'Review service',
+        description: 'I review code',
+        category: 'engineering',
+        tags: ['typescript'],
+        price_type: 'fixed',
+        price_credits: 50,
+        license_type: 'non-exclusive',
+        status: 'active',
+        created_at: createdAt,
+      });
+
+      const result = await service.createServiceListing('node-1', {
+        title: 'Review service',
+        description: 'I review code',
+        category: 'engineering',
+        tags: ['typescript'],
+        price_type: 'fixed',
+        price_credits: 50,
+        license_type: 'non-exclusive',
+      });
+
+      expect(result).toMatchObject({
+        listing_id: 'listing_1',
+        price_type: 'fixed',
+        license_type: 'non-exclusive',
+      });
+      expect(mockPrisma.serviceListing.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          listing_id: expect.stringMatching(/^listing_/),
+          price_type: 'fixed',
+          license_type: 'non-exclusive',
+        }),
+      });
+    });
+
     it('should reject unknown sellers', async () => {
       mockPrisma.node.findFirst.mockResolvedValue(null);
 

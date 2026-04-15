@@ -25,7 +25,7 @@ function formatSubscriptionStatusResponse(
     api_rate_limit_per_min: plan.limits.api_calls_per_minute,
     max_swarm_nodes: plan.limits.max_swarm_nodes,
     concurrent_sandboxes: plan.limits.concurrent_sandboxes,
-    carbon_tax_multiplier: carbonTaxMultiplier,
+    carbon_tax_multiplier: normalizeMultiplier(carbonTaxMultiplier),
   } : undefined;
   const nextCharge = getSubscriptionCharge(subscription.plan, subscription.billing_cycle);
 
@@ -44,6 +44,22 @@ function formatSubscriptionStatusResponse(
     },
     data: subscription,
   };
+}
+
+function normalizeMultiplier(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().replace(/x$/i, '');
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
 }
 
 function formatCancellationResponse(

@@ -186,6 +186,14 @@ export function requireNodeSecretAuth() {
   };
 }
 
+export function requireNoActiveQuarantine() {
+  return async (request: FastifyRequest, _reply: FastifyReply) => {
+    const auth = request.auth ?? await authenticate(request);
+    await checkQuarantine(auth.node_id, getPrismaClient(request));
+    request.auth = auth;
+  };
+}
+
 export function requireScope(scope: string) {
   return async (request: FastifyRequest, _reply: FastifyReply) => {
     const auth = await authenticate(request);

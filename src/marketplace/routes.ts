@@ -1,11 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { requireAuth } from '../shared/auth';
+import { requireAuth, requireNoActiveQuarantine } from '../shared/auth';
 import * as marketplaceService from './service';
 import * as pricingService from './pricing';
 import * as serviceMarketplaceService from './service.marketplace';
 import type { AssetType } from '../shared/types';
 
 export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
+  const hasLegacyListingFilters = (query: Record<string, string | undefined>): boolean =>
+    ['type', 'minPrice', 'maxPrice', 'sort'].some((key) => query[key] !== undefined);
+
   const sendPricing = async (
     request: FastifyRequest<{ Params: { listingId: string } }>,
     reply: FastifyReply,
@@ -17,7 +20,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/list', {
     schema: { tags: ['Marketplace'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as {
@@ -39,7 +42,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/buy/:listingId', {
     schema: { tags: ['Marketplace'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const { listingId } = request.params as { listingId: string };
@@ -72,18 +75,30 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
   app.get('/listings', {
     schema: { tags: ['Marketplace'] },
   }, async (request, reply) => {
-    const { type, minPrice, maxPrice, sort, limit, offset } =
+    const query =
       request.query as Record<string, string | undefined>;
 
-    const result = await marketplaceService.getListings(
-      type,
-      minPrice ? Number(minPrice) : undefined,
-      maxPrice ? Number(maxPrice) : undefined,
-      (sort as 'price_asc' | 'price_desc' | 'newest') ?? 'newest',
-      limit ? Number(limit) : 20,
-      offset ? Number(offset) : 0,
-      app.prisma,
-    );
+    if (hasLegacyListingFilters(query)) {
+      const result = await marketplaceService.getListings(
+        query.type,
+        query.minPrice ? Number(query.minPrice) : undefined,
+        query.maxPrice ? Number(query.maxPrice) : undefined,
+        (query.sort as 'price_asc' | 'price_desc' | 'newest') ?? 'newest',
+        query.limit ? Number(query.limit) : 20,
+        query.offset ? Number(query.offset) : 0,
+        app.prisma,
+      );
+
+      return reply.send({ success: true, data: result });
+    }
+
+    const result = await serviceMarketplaceService.searchServiceListings({
+      query: query.q,
+      category: query.category,
+      include_inactive: query.include_inactive === 'true',
+      limit: query.limit ? Number(query.limit) : 20,
+      offset: query.offset ? Number(query.offset) : 0,
+    }, app.prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -126,13 +141,13 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           description: { type: 'string' },
           category: { type: 'string' },
           tags: { type: 'array', items: { type: 'string' } },
-          price_type: { type: 'string', enum: ['free', 'per_use', 'subscription', 'one_time'] },
+          price_type: { type: 'string', enum: ['free', 'per_use', 'subscription', 'one_time', 'fixed', 'auction', 'rental'] },
           price_credits: { type: 'number' },
-          license_type: { type: 'string', enum: ['open_source', 'proprietary', 'custom'] },
+          license_type: { type: 'string', enum: ['open_source', 'proprietary', 'custom', 'exclusive', 'non-exclusive'] },
         },
       },
     },
-    preHandler: [requireAuth()],
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as {
@@ -140,9 +155,9 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       description: string;
       category: string;
       tags?: string[];
-      price_type: 'free' | 'per_use' | 'subscription' | 'one_time';
+      price_type: 'free' | 'per_use' | 'subscription' | 'one_time' | 'fixed' | 'auction' | 'rental';
       price_credits?: number;
-      license_type: 'open_source' | 'proprietary' | 'custom';
+      license_type: 'open_source' | 'proprietary' | 'custom' | 'exclusive' | 'non-exclusive';
     };
 
     const listing = await serviceMarketplaceService.createServiceListing(auth.node_id, {
@@ -158,6 +173,67 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ success: true, data: listing });
   });
 
+  app.get('/listings/:id', {
+    schema: {
+      tags: ['Marketplace'],
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+    },
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const listing = await serviceMarketplaceService.getServiceListing(id, app.prisma);
+    return reply.send({ success: true, data: listing });
+  });
+
+  app.put('/listings/:id', {
+    schema: {
+      tags: ['Marketplace'],
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+      body: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          description: { type: 'string' },
+          category: { type: 'string' },
+          tags: { type: 'array', items: { type: 'string' } },
+          price_type: { type: 'string', enum: ['free', 'per_use', 'subscription', 'one_time', 'fixed', 'auction', 'rental'] },
+          price_credits: { type: 'number' },
+          license_type: { type: 'string', enum: ['open_source', 'proprietary', 'custom', 'exclusive', 'non-exclusive'] },
+          status: { type: 'string', enum: ['active', 'paused', 'archived', 'cancelled', 'sold', 'expired'] },
+        },
+      },
+    },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { id } = request.params as { id: string };
+    const body = (request.body as {
+      title?: string;
+      description?: string;
+      category?: string;
+      tags?: string[];
+      price_type?: 'free' | 'per_use' | 'subscription' | 'one_time' | 'fixed' | 'auction' | 'rental';
+      price_credits?: number;
+      license_type?: 'open_source' | 'proprietary' | 'custom' | 'exclusive' | 'non-exclusive';
+      status?: 'active' | 'paused' | 'archived' | 'cancelled' | 'sold' | 'expired';
+    } | undefined) ?? {};
+
+    const listing = await serviceMarketplaceService.updateServiceListing(auth.node_id, id, body, app.prisma);
+    return reply.send({ success: true, data: listing });
+  });
+
+  app.post('/listings/:id/cancel', {
+    schema: {
+      tags: ['Marketplace'],
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+    },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { id } = request.params as { id: string };
+    const listing = await serviceMarketplaceService.cancelServiceListing(auth.node_id, id, app.prisma);
+    return reply.send({ success: true, data: listing });
+  });
+
   // POST /marketplace/purchases — purchase a service [auth]
   app.post('/purchases', {
     schema: {
@@ -170,7 +246,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
         },
       },
     },
-    preHandler: [requireAuth()],
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as { listing_id: string };
@@ -205,7 +281,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
         properties: { id: { type: 'string' } },
       },
     },
-    preHandler: [requireAuth()],
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const { id } = request.params as { id: string };
@@ -225,7 +301,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
         properties: { reason: { type: 'string' } },
       },
     },
-    preHandler: [requireAuth()],
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const { id } = request.params as { id: string };

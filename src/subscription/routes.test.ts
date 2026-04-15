@@ -182,7 +182,7 @@ describe('Subscription routes', () => {
         billing_cycle: 'monthly',
         next_charge: 2000,
         features: {
-          carbon_tax_multiplier: '1x',
+          carbon_tax_multiplier: 1,
         },
       },
     });

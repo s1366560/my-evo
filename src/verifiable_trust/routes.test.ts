@@ -1,11 +1,13 @@
 import fastify, { type FastifyInstance } from 'fastify';
 import { verifiableTrustRoutes } from './routes';
+import { QuarantineError } from '../shared/errors';
 
 let mockAuth = {
   node_id: 'trusted-node',
   auth_type: 'node_secret',
   trust_level: 'trusted',
 };
+let mockQuarantineLevel: string | null = null;
 
 const mockStake = jest.fn();
 const mockRelease = jest.fn();
@@ -50,6 +52,11 @@ jest.mock('../shared/auth', () => ({
   ) => {
     request.auth = mockAuth;
   },
+  requireNoActiveQuarantine: () => async () => {
+    if (mockQuarantineLevel) {
+      throw new QuarantineError(mockQuarantineLevel);
+    }
+  },
 }));
 
 jest.mock('./service', () => ({
@@ -72,6 +79,7 @@ describe('Verifiable trust routes', () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
+    mockQuarantineLevel = null;
     mockAuth = {
       node_id: 'trusted-node',
       auth_type: 'node_secret',
@@ -111,6 +119,23 @@ describe('Verifiable trust routes', () => {
       trust_level: 'verified',
     });
     expect(mockVerifyNode).toHaveBeenCalledWith('trusted-node', 'node-1', 'Looks good');
+  });
+
+  it('blocks stake creation while the validator is quarantined', async () => {
+    mockQuarantineLevel = 'L3';
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/trust/stake',
+      payload: {
+        target_node_id: 'node-1',
+        stake_amount: 100,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.payload).message).toContain('quarantine');
+    expect(mockStake).not.toHaveBeenCalled();
   });
 
   it('slashes the validator stake when verification_result is fail', async () => {

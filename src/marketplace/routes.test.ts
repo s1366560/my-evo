@@ -1,13 +1,19 @@
 import fastify, { type FastifyInstance } from 'fastify';
 import { marketplaceRoutes } from './routes';
+import { QuarantineError } from '../shared/errors';
 
 let mockAuth = {
   node_id: 'node-1',
   auth_type: 'session',
   trust_level: 'trusted',
 };
+let mockQuarantineLevel: string | null = null;
 
 const mockCreateServiceListing = jest.fn();
+const mockSearchServiceListings = jest.fn();
+const mockGetServiceListing = jest.fn();
+const mockUpdateServiceListing = jest.fn();
+const mockCancelServiceListing = jest.fn();
 const mockPurchaseService = jest.fn();
 const mockGetMyPurchases = jest.fn();
 const mockConfirmPurchase = jest.fn();
@@ -35,11 +41,20 @@ jest.mock('../shared/auth', () => ({
   ) => {
     request.auth = mockAuth;
   },
+  requireNoActiveQuarantine: () => async () => {
+    if (mockQuarantineLevel) {
+      throw new QuarantineError(mockQuarantineLevel);
+    }
+  },
 }));
 
 jest.mock('./service.marketplace', () => ({
   ...jest.requireActual('./service.marketplace'),
   createServiceListing: (...args: unknown[]) => mockCreateServiceListing(...args),
+  searchServiceListings: (...args: unknown[]) => mockSearchServiceListings(...args),
+  getServiceListing: (...args: unknown[]) => mockGetServiceListing(...args),
+  updateServiceListing: (...args: unknown[]) => mockUpdateServiceListing(...args),
+  cancelServiceListing: (...args: unknown[]) => mockCancelServiceListing(...args),
   purchaseService: (...args: unknown[]) => mockPurchaseService(...args),
   getMyPurchases: (...args: unknown[]) => mockGetMyPurchases(...args),
   confirmPurchase: (...args: unknown[]) => mockConfirmPurchase(...args),
@@ -75,6 +90,7 @@ describe('Marketplace routes', () => {
   let prisma: { marker: string };
 
   beforeEach(async () => {
+    mockQuarantineLevel = null;
     mockAuth = {
       node_id: 'node-1',
       auth_type: 'session',
@@ -92,7 +108,7 @@ describe('Marketplace routes', () => {
   });
 
   it('passes app prisma to listing creation and purchase routes', async () => {
-    mockCreateServiceListing.mockResolvedValue({ listing_id: 'svc-1' });
+    mockCreateServiceListing.mockResolvedValue({ listing_id: 'listing_1' });
     mockPurchaseService.mockResolvedValue({ purchase_id: 'pur-1' });
 
     const [createRes, purchaseRes] = await Promise.all([
@@ -104,16 +120,16 @@ describe('Marketplace routes', () => {
           description: 'I review code',
           category: 'engineering',
           tags: ['typescript'],
-          price_type: 'one_time',
+          price_type: 'fixed',
           price_credits: 25,
-          license_type: 'open_source',
+          license_type: 'non-exclusive',
         },
       }),
       app.inject({
         method: 'POST',
         url: '/marketplace/purchases',
         payload: {
-          listing_id: 'svc-1',
+          listing_id: 'listing_1',
         },
       }),
     ]);
@@ -125,11 +141,48 @@ describe('Marketplace routes', () => {
       description: 'I review code',
       category: 'engineering',
       tags: ['typescript'],
-      price_type: 'one_time',
+      price_type: 'fixed',
       price_credits: 25,
-      license_type: 'open_source',
+      license_type: 'non-exclusive',
     }, prisma);
-    expect(mockPurchaseService).toHaveBeenCalledWith('node-1', 'svc-1', prisma);
+    expect(mockPurchaseService).toHaveBeenCalledWith('node-1', 'listing_1', prisma);
+  });
+
+  it('blocks listing creation when the node is quarantined', async () => {
+    mockQuarantineLevel = 'L2';
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/marketplace/listings',
+      payload: {
+        title: 'Review service',
+        description: 'I review code',
+        category: 'engineering',
+        price_type: 'one_time',
+        price_credits: 25,
+        license_type: 'open_source',
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.payload).message).toContain('quarantine');
+    expect(mockCreateServiceListing).not.toHaveBeenCalled();
+  });
+
+  it('blocks purchases when the node is quarantined', async () => {
+    mockQuarantineLevel = 'L1';
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/marketplace/purchases',
+      payload: {
+        listing_id: 'svc-1',
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.payload).message).toContain('quarantine');
+    expect(mockPurchaseService).not.toHaveBeenCalled();
   });
 
   it('passes app prisma to legacy marketplace routes', async () => {
@@ -177,6 +230,58 @@ describe('Marketplace routes', () => {
     expect(mockCancelListing).toHaveBeenCalledWith('node-1', 'listing-1', prisma);
     expect(mockGetListings).toHaveBeenCalledWith('Gene', 5, 20, 'price_desc', 3, 1, prisma);
     expect(mockGetLegacyTransactionHistory).toHaveBeenCalledWith('node-1', 2, 1, prisma);
+  });
+
+  it('routes service-listing reads and writes through the canonical marketplace endpoints', async () => {
+    mockSearchServiceListings.mockResolvedValue({ items: [{ listing_id: 'listing_1' }], total: 1 });
+    mockGetServiceListing.mockResolvedValue({ listing_id: 'listing_1', stats: { purchases: 2 } });
+    mockUpdateServiceListing.mockResolvedValue({ listing_id: 'listing_1', status: 'active' });
+    mockCancelServiceListing.mockResolvedValue({ listing_id: 'listing_1', status: 'cancelled' });
+
+    const [searchRes, detailRes, updateRes, cancelRes] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/marketplace/listings?q=review&category=engineering&limit=5&offset=1&include_inactive=true',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/marketplace/listings/listing_1',
+      }),
+      app.inject({
+        method: 'PUT',
+        url: '/marketplace/listings/listing_1',
+        payload: {
+          title: 'Updated title',
+          price_type: 'auction',
+          price_credits: 90,
+          license_type: 'exclusive',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/marketplace/listings/listing_1/cancel',
+      }),
+    ]);
+
+    expect(searchRes.statusCode).toBe(200);
+    expect(detailRes.statusCode).toBe(200);
+    expect(updateRes.statusCode).toBe(200);
+    expect(cancelRes.statusCode).toBe(200);
+    expect(mockSearchServiceListings).toHaveBeenCalledWith({
+      query: 'review',
+      category: 'engineering',
+      include_inactive: true,
+      limit: 5,
+      offset: 1,
+    }, prisma);
+    expect(mockGetServiceListing).toHaveBeenCalledWith('listing_1', prisma);
+    expect(mockUpdateServiceListing).toHaveBeenCalledWith('node-1', 'listing_1', {
+      title: 'Updated title',
+      price_type: 'auction',
+      price_credits: 90,
+      license_type: 'exclusive',
+    }, prisma);
+    expect(mockCancelServiceListing).toHaveBeenCalledWith('node-1', 'listing_1', prisma);
   });
 
   it('passes app prisma to marketplace pricing routes', async () => {

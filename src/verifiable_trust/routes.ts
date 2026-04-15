@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth, requireNodeSecretAuth } from '../shared/auth';
+import { requireAuth, requireNoActiveQuarantine, requireNodeSecretAuth } from '../shared/auth';
 import { TRUST_REWARD_RATE } from '../shared/constants';
 import * as trustService from './service';
 import { ForbiddenError, TrustLevelError, ValidationError } from '../shared/errors';
@@ -15,7 +15,7 @@ function ensureNodeSecretAuth(
 export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void> {
   app.post('/stake', {
     schema: { tags: ['Trust'] },
-    preHandler: [requireNodeSecretAuth()],
+    preHandler: [requireNodeSecretAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureNodeSecretAuth(auth);
@@ -60,7 +60,7 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
   app.post('/release', {
     schema: { tags: ['Trust'] },
-    preHandler: [requireNodeSecretAuth()],
+    preHandler: [requireNodeSecretAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureNodeSecretAuth(auth);
@@ -82,7 +82,7 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
   app.post('/claim', {
     schema: { tags: ['Trust'] },
-    preHandler: [requireNodeSecretAuth()],
+    preHandler: [requireNodeSecretAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureNodeSecretAuth(auth);
@@ -97,7 +97,7 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
   app.post('/verify', {
     schema: { tags: ['Trust'] },
-    preHandler: [requireNodeSecretAuth()],
+    preHandler: [requireNodeSecretAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureNodeSecretAuth(auth);
