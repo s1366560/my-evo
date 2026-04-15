@@ -3,28 +3,31 @@ import { authenticate, requireAuth } from '../shared/auth';
 import { EvoMapError, ValidationError } from '../shared/errors';
 import * as service from './service';
 
+type BountyMilestoneBody = {
+  milestone_id?: string;
+  title: string;
+  description: string;
+  percentage: number;
+  status?: 'pending' | 'in_progress' | 'completed' | 'verified';
+  deliverable?: string;
+};
+
+type CreateBountyBody = {
+  title: string;
+  description: string;
+  requirements?: string[];
+  required_signals?: string[];
+  acceptance_criteria?: string;
+  amount?: number;
+  reward?: number;
+  milestones?: BountyMilestoneBody[];
+  deadline: string;
+};
+
 export async function bountyRoutes(app: FastifyInstance) {
   async function createBountyHandler(request: FastifyRequest, reply: { status(code: number): void }) {
     const auth = request.auth!;
-    const body = ((request.body as {
-      title: string;
-      description: string;
-      requirements?: string[];
-      required_signals?: string[];
-      acceptance_criteria?: string;
-      amount?: number;
-      reward?: number;
-      deadline: string;
-    } | undefined) ?? {}) as {
-      title: string;
-      description: string;
-      requirements?: string[];
-      required_signals?: string[];
-      acceptance_criteria?: string;
-      amount?: number;
-      reward?: number;
-      deadline: string;
-    };
+    const body = ((request.body as CreateBountyBody | undefined) ?? {}) as CreateBountyBody;
 
     const amount = body.amount ?? body.reward;
     const requirements = [...(body.requirements ?? body.required_signals ?? [])];
@@ -43,6 +46,7 @@ export async function bountyRoutes(app: FastifyInstance) {
       requirements,
       amount,
       body.deadline,
+      body.milestones ?? [],
     );
 
     void reply.status(201);
@@ -187,6 +191,7 @@ export async function bountyRoutes(app: FastifyInstance) {
       content?: string;
       deliverable?: unknown;
       attachments?: string[];
+      milestone_id?: string;
     };
     const content = body.content ?? (body.deliverable ? JSON.stringify(body.deliverable) : undefined);
 
@@ -199,6 +204,7 @@ export async function bountyRoutes(app: FastifyInstance) {
       auth.node_id,
       content,
       body.attachments ?? [],
+      body.milestone_id,
     );
 
     return { success: true, data: result };
@@ -213,6 +219,7 @@ export async function bountyRoutes(app: FastifyInstance) {
     const body = request.body as {
       accepted: boolean;
       comments?: string;
+      milestone_id?: string;
     };
 
     if (body.accepted === undefined || body.accepted === null) {
@@ -224,6 +231,7 @@ export async function bountyRoutes(app: FastifyInstance) {
       auth.node_id,
       body.accepted,
       body.comments,
+      body.milestone_id,
     );
 
     return { success: true, data: bounty };

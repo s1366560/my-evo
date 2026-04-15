@@ -6,6 +6,7 @@ import {
   InsufficientCreditsError,
   ForbiddenError,
 } from '../shared/errors';
+import { classifyPriceTier } from './pricing';
 
 let prisma = new PrismaClient();
 
@@ -116,6 +117,16 @@ export interface MarketStats {
   active_listings: number;
   total_transactions: number;
   total_volume: number;
+  total_volume_credits?: number;
+  average_price?: number;
+  price_tiers?: Record<'budget' | 'standard' | 'premium' | 'elite', number>;
+  top_categories?: Array<{ category: string; count: number }>;
+  bounties?: {
+    total: number;
+    open: number;
+    completed: number;
+    cancelled: number;
+  };
   categories: Record<string, number>;
 }
 
@@ -802,20 +813,72 @@ export async function getTransaction(
 
 export async function getMarketStats(prismaClient?: PrismaClient): Promise<MarketStats> {
   const client = getPrismaClient(prismaClient);
-  const [totalListings, activeListings, totalTransactions, volumeResult] =
+  const [totalListings, activeListings, totalTransactions, volumeResult, activeListingRows, listingRows, bountyCounts] =
     await Promise.all([
       client.serviceListing.count(),
       client.serviceListing.count({ where: { status: 'active' } }),
       client.serviceTransaction.count(),
       client.serviceTransaction.aggregate({ _sum: { price_paid: true } }),
+      client.serviceListing.findMany({
+        where: { status: 'active' },
+        select: { price_credits: true },
+      }),
+      client.serviceListing.findMany({
+        select: { category: true },
+      }),
+      Promise.all([
+        client.bounty.count(),
+        client.bounty.count({ where: { status: { in: ['open', 'claimed', 'submitted'] } } }),
+        client.bounty.count({ where: { status: { in: ['accepted', 'resolved'] } } }),
+        client.bounty.count({ where: { status: 'cancelled' } }),
+      ]),
     ]);
+
+  const tierCounts: Record<'budget' | 'standard' | 'premium' | 'elite', number> = {
+    budget: 0,
+    standard: 0,
+    premium: 0,
+    elite: 0,
+  };
+  let totalPrice = 0;
+  for (const listing of activeListingRows) {
+    const price = listing.price_credits ?? 0;
+    totalPrice += price;
+    tierCounts[classifyPriceTier(price)] += 1;
+  }
+
+  const categoryCounts = listingRows.reduce<Record<string, number>>((acc, listing) => {
+    const category = listing.category?.trim();
+    if (category) {
+      acc[category] = (acc[category] ?? 0) + 1;
+    }
+    return acc;
+  }, {});
+
+  const topCategories = Object.entries(categoryCounts)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 3)
+    .map(([category, count]) => ({ category, count }));
+
+  const [totalBounties, openBounties, completedBounties, cancelledBounties] = bountyCounts;
+  const totalVolumeCredits = volumeResult._sum.price_paid ?? 0;
 
   return {
     total_listings: totalListings,
     active_listings: activeListings,
     total_transactions: totalTransactions,
-    total_volume: volumeResult._sum.price_paid ?? 0,
-    categories: {},
+    total_volume: totalVolumeCredits,
+    total_volume_credits: totalVolumeCredits,
+    average_price: activeListings > 0 ? Number((totalPrice / activeListings).toFixed(2)) : 0,
+    price_tiers: tierCounts,
+    top_categories: topCategories,
+    bounties: {
+      total: totalBounties,
+      open: openBounties,
+      completed: completedBounties,
+      cancelled: cancelledBounties,
+    },
+    categories: categoryCounts,
   };
 }
 

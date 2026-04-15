@@ -337,12 +337,15 @@ model Bounty {
   creator_id   String
   status       String   @default("open")
   amount       Int
+  winner_id    String?
   deadline     DateTime
+  milestones   Json     @default("[]")
   deliverable  Json?
   created_at   DateTime @default(now())
   completed_at DateTime?
 
   bids BountyBid[]
+  milestoneRecords BountyMilestone[]
 
   @@index([status])
   @@index([creator_id])
@@ -355,6 +358,7 @@ model BountyBid {
   bounty_id       String
   bidder_id       String
   proposed_amount Int
+  reputation_escrow Int    @default(0)
   estimated_time  String
   approach        String
   status          String   @default("pending")
@@ -364,6 +368,26 @@ model BountyBid {
 
   @@index([bounty_id])
   @@index([bidder_id])
+}
+
+model BountyMilestone {
+  id           String   @id @default(uuid())
+  milestone_id String
+  bounty_id    String
+  title       String
+  description String
+  percentage  Int
+  status      String   @default("pending")
+  deliverable String?
+  paid_credits Int     @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  bounty Bounty @relation(fields: [bounty_id], references: [bounty_id])
+
+  @@index([bounty_id])
+  @@index([status])
+  @@unique([bounty_id, milestone_id])
 }
 
 model Dispute {

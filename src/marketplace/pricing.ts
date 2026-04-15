@@ -63,10 +63,10 @@ export async function calculateDynamicPrice(
   const asset = listing.asset as Record<string, unknown>;
   const assetGdi = (asset['gdi_score'] as number) ?? 50;
 
-  const networkStats = await db(prismaClient).node.aggregate({
-    _avg: { reputation: true },
+  const networkStats = await db(prismaClient).asset.aggregate({
+    _avg: { gdi_score: true },
   });
-  const networkAvgGdi = networkStats._avg.reputation ?? 50;
+  const networkAvgGdi = networkStats._avg.gdi_score ?? 50;
 
   const gdiFactor = _clamp(assetGdi / networkAvgGdi, 0.5, 2.0);
 

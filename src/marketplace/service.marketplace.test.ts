@@ -18,6 +18,14 @@ const mockPrisma = {
     findFirst: jest.fn(),
     count: jest.fn(),
   },
+  serviceTransaction: {
+    count: jest.fn(),
+    aggregate: jest.fn(),
+    findMany: jest.fn(),
+  },
+  bounty: {
+    count: jest.fn(),
+  },
   node: {
     findFirst: jest.fn(),
   },
@@ -42,6 +50,10 @@ describe('Service marketplace helpers', () => {
     mockPrisma.serviceListing.findFirst.mockResolvedValue(null);
     mockPrisma.servicePurchase.findFirst.mockResolvedValue(null);
     mockPrisma.servicePurchase.count.mockResolvedValue(0);
+    mockPrisma.serviceTransaction.count.mockResolvedValue(0);
+    mockPrisma.serviceTransaction.aggregate.mockResolvedValue({ _sum: { price_paid: 0 } });
+    mockPrisma.serviceTransaction.findMany.mockResolvedValue([]);
+    mockPrisma.bounty.count.mockResolvedValue(0);
     mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1' });
     mockPrisma.question.findFirst.mockResolvedValue(null);
     mockPrisma.question.findMany.mockResolvedValue([]);
@@ -132,6 +144,66 @@ describe('Service marketplace helpers', () => {
           tags: { hasEvery: ['service_review', 'service:listing_1'] },
         },
         select: { tags: true },
+      });
+    });
+  });
+
+  describe('getMarketStats', () => {
+    it('should expose credit-marketplace stats aligned with Chapter 21', async () => {
+      mockPrisma.serviceListing.count
+        .mockResolvedValueOnce(4)
+        .mockResolvedValueOnce(3);
+      mockPrisma.serviceTransaction.count.mockResolvedValue(6);
+      mockPrisma.serviceTransaction.aggregate.mockResolvedValue({ _sum: { price_paid: 1260 } });
+      mockPrisma.serviceListing.findMany
+        .mockResolvedValueOnce([
+          { price_credits: 80 },
+          { price_credits: 220 },
+          { price_credits: 1800 },
+        ])
+        .mockResolvedValueOnce([
+          { category: 'code_review' },
+          { category: 'translation' },
+          { category: 'code_review' },
+          { category: 'data_analysis' },
+        ]);
+      mockPrisma.bounty.count
+        .mockResolvedValueOnce(7)
+        .mockResolvedValueOnce(3)
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(1);
+
+      const result = await service.getMarketStats();
+
+      expect(result).toEqual({
+        total_listings: 4,
+        active_listings: 3,
+        total_transactions: 6,
+        total_volume: 1260,
+        total_volume_credits: 1260,
+        average_price: 700,
+        price_tiers: {
+          budget: 1,
+          standard: 1,
+          premium: 1,
+          elite: 0,
+        },
+        top_categories: [
+          { category: 'code_review', count: 2 },
+          { category: 'data_analysis', count: 1 },
+          { category: 'translation', count: 1 },
+        ],
+        bounties: {
+          total: 7,
+          open: 3,
+          completed: 2,
+          cancelled: 1,
+        },
+        categories: {
+          code_review: 2,
+          translation: 1,
+          data_analysis: 1,
+        },
       });
     });
   });

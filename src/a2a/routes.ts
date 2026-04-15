@@ -647,34 +647,42 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   // Aliases for /a2a/bid/* (delegates to /api/v2/bounty)
   // ---------------------------------------------------------------------------
 
-  // POST /a2a/bid/place — create a bid request (self-bounty)
+  // POST /a2a/bid/place — submit a bid on an existing bounty
   app.post('/bid/place', {
     schema: { tags: ['Bounty'] },
     preHandler: [requireAuth(), requireNoActiveQuarantine()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = ((request.body as {
-      amount: number;
-      estimatedTime: string;
-      approach: string;
+      bounty_id?: string;
+      amount?: number;
+      bid_amount?: number;
+      estimatedTime?: string;
+      estimated_completion?: string;
+      approach?: string;
+      proposal?: string;
     } | undefined) ?? {}) as {
-      amount: number;
-      estimatedTime: string;
-      approach: string;
+      bounty_id?: string;
+      amount?: number;
+      bid_amount?: number;
+      estimatedTime?: string;
+      estimated_completion?: string;
+      approach?: string;
+      proposal?: string;
     };
-    if (!body.amount || !body.estimatedTime || !body.approach) {
-      throw new EvoMapError('amount, estimatedTime, and approach are required', 'VALIDATION_ERROR', 400);
+    const bidAmount = body.bid_amount ?? body.amount;
+    const estimatedCompletion = body.estimated_completion ?? body.estimatedTime;
+    const proposal = body.proposal ?? body.approach;
+    if (!body.bounty_id || !bidAmount || !estimatedCompletion || !proposal) {
+      throw new EvoMapError(
+        'bounty_id, bid_amount/amount, estimated_completion/estimatedTime, and proposal/approach are required',
+        'VALIDATION_ERROR',
+        400,
+      );
     }
-    const { createBounty } = await import('../bounty/service');
-    const bounty = await createBounty(
-      auth.node_id,
-      `Bid Request: ${body.approach.slice(0, 80)}`,
-      body.approach,
-      [],
-      body.amount,
-      new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    );
-    return reply.status(201).send({ success: true, data: { bounty, bid: null } });
+    const { placeBid } = await import('../bounty/service');
+    const bid = await placeBid(body.bounty_id, auth.node_id, bidAmount, estimatedCompletion, proposal);
+    return reply.status(201).send({ success: true, data: bid });
   });
 
   app.post('/bid/:bountyId', {
@@ -700,15 +708,39 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: bid });
   });
 
-  // GET /a2a/bid/list — list bids for the authenticated node
+  // GET /a2a/bid/list — list bids for the authenticated node or visible bids for a bounty
   app.get('/bid/list', {
     schema: { tags: ['Bounty'] },
     preHandler: requireAuth(),
   }, async (request) => {
     const auth = request.auth!;
-    const { listBids } = await import('../bounty/service');
-    const bids = await listBids(auth.node_id);
+    const { bounty_id } = request.query as { bounty_id?: string };
+    const { listBids, listBidsForBounty } = await import('../bounty/service');
+    const bids = bounty_id ? await listBidsForBounty(bounty_id, auth.node_id) : await listBids(auth.node_id);
     return { success: true, data: bids };
+  });
+
+  // POST /a2a/bid/accept — accept a bid for a bounty
+  app.post('/bid/accept', {
+    schema: {
+      tags: ['Bounty'],
+      body: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['bounty_id', 'bid_id'],
+        properties: {
+          bounty_id: { type: 'string' },
+          bid_id: { type: 'string' },
+        },
+      },
+    },
+    preHandler: [requireAuth(), requireNoActiveQuarantine()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as { bounty_id: string; bid_id: string };
+    const { acceptBid } = await import('../bounty/service');
+    const bounty = await acceptBid(body.bounty_id, body.bid_id, auth.node_id);
+    return { success: true, data: bounty };
   });
 
   // POST /a2a/bid/withdraw — withdraw a bid

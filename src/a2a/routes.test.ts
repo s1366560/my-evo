@@ -68,6 +68,10 @@ const mockMarkDmRead = jest.fn();
 const mockWorkerDirectoryCount = jest.fn();
 const mockWorkerDirectoryFindMany = jest.fn();
 const mockCreateBounty = jest.fn();
+const mockPlaceBid = jest.fn();
+const mockAcceptBid = jest.fn();
+const mockListBids = jest.fn();
+const mockListBidsForBounty = jest.fn();
 const mockWithdrawBid = jest.fn();
 const mockListAssets = jest.fn();
 const mockSearchServiceListings = jest.fn();
@@ -137,6 +141,10 @@ jest.mock('../dispute/service', () => ({
 jest.mock('../bounty/service', () => ({
   ...jest.requireActual('../bounty/service'),
   createBounty: (...args: unknown[]) => mockCreateBounty(...args),
+  placeBid: (...args: unknown[]) => mockPlaceBid(...args),
+  acceptBid: (...args: unknown[]) => mockAcceptBid(...args),
+  listBids: (...args: unknown[]) => mockListBids(...args),
+  listBidsForBounty: (...args: unknown[]) => mockListBidsForBounty(...args),
   withdrawBid: (...args: unknown[]) => mockWithdrawBid(...args),
 }));
 
@@ -1929,10 +1937,14 @@ describe('A2A bid routes', () => {
   });
 
   it('should create a bid request without self-bidding', async () => {
-    mockCreateBounty.mockResolvedValue({
+    mockPlaceBid.mockResolvedValue({
+      bid_id: 'bid-1',
       bounty_id: 'bounty-1',
-      creator_id: mockNodeId,
-      status: 'open',
+      bidder_id: mockNodeId,
+      proposed_amount: 50,
+      bid_amount: 50,
+      reputation_escrow: 5,
+      status: 'pending',
     });
 
     const res = await app.inject({
@@ -1940,22 +1952,22 @@ describe('A2A bid routes', () => {
       url: '/a2a/bid/place',
       headers: { authorization: 'Bearer test' },
       payload: {
-        amount: 50,
-        estimatedTime: '2h',
-        approach: 'Implement the feature cleanly',
+        bounty_id: 'bounty-1',
+        bid_amount: 50,
+        estimated_completion: '2h',
+        proposal: 'Implement the feature cleanly',
       },
     });
 
     expect(res.statusCode).toBe(201);
-    expect(mockCreateBounty).toHaveBeenCalledWith(
+    expect(mockPlaceBid).toHaveBeenCalledWith(
+      'bounty-1',
       mockNodeId,
-      expect.stringContaining('Bid Request:'),
-      'Implement the feature cleanly',
-      [],
       50,
-      expect.any(String),
+      '2h',
+      'Implement the feature cleanly',
     );
-    expect(JSON.parse(res.payload).data.bid).toBeNull();
+    expect(JSON.parse(res.payload).data.reputation_escrow).toBe(5);
   });
 
   it('should reject bodyless bid placement requests', async () => {
@@ -1966,7 +1978,45 @@ describe('A2A bid routes', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(mockCreateBounty).not.toHaveBeenCalled();
+    expect(mockPlaceBid).not.toHaveBeenCalled();
+  });
+
+  it('should accept a bid through the A2A alias route', async () => {
+    mockAcceptBid.mockResolvedValue({
+      bounty_id: 'bounty-1',
+      status: 'claimed',
+      reward_credits: 200,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/bid/accept',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        bounty_id: 'bounty-1',
+        bid_id: 'bid-1',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockAcceptBid).toHaveBeenCalledWith('bounty-1', 'bid-1', mockNodeId);
+    expect(JSON.parse(res.payload).data.status).toBe('claimed');
+  });
+
+  it('should list bids for a specific bounty when bounty_id is provided', async () => {
+    mockListBidsForBounty.mockResolvedValue([
+      { bid_id: 'bid-1', bounty_id: 'bounty-1' },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/bid/list?bounty_id=bounty-1',
+      headers: { authorization: 'Bearer test' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockListBidsForBounty).toHaveBeenCalledWith('bounty-1', mockNodeId);
+    expect(mockListBids).not.toHaveBeenCalled();
   });
 });
 

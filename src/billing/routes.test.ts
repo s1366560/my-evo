@@ -22,6 +22,7 @@ const mockPrisma = {
     updateMany: jest.fn(),
   },
   validatorStake: {
+    findFirst: jest.fn(),
     findUnique: jest.fn(),
     create: jest.fn(),
     upsert: jest.fn(),
@@ -80,11 +81,11 @@ describe('Billing routes', () => {
     mockPrisma.node.findUnique
       .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 700 })
       .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 200 });
-    mockPrisma.validatorStake.findUnique.mockResolvedValue(null);
+    mockPrisma.validatorStake.findFirst.mockResolvedValue(null);
     mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.creditTransaction.create.mockResolvedValue({});
     mockPrisma.validatorStake.create.mockResolvedValue({ amount: 500 });
-    mockPrisma.validatorStake.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ amount: 500, status: 'active' });
+    mockPrisma.validatorStake.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ amount: 500, status: 'active' });
 
     const response = await app.inject({
       method: 'POST',
@@ -108,7 +109,7 @@ describe('Billing routes', () => {
     mockPrisma.node.findUnique
       .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 700 })
       .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 200 });
-    mockPrisma.validatorStake.findUnique.mockResolvedValue(null);
+    mockPrisma.validatorStake.findFirst.mockResolvedValue(null);
     mockPrisma.node.updateMany.mockResolvedValue({ count: 0 });
 
     const response = await app.inject({
@@ -122,7 +123,7 @@ describe('Billing routes', () => {
 
   it('returns already staked when the node already has an active validator stake', async () => {
     mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', credit_balance: 700 });
-    mockPrisma.validatorStake.findUnique.mockResolvedValue({ node_id: 'node-1', amount: 500, status: 'active' });
+    mockPrisma.validatorStake.findFirst.mockResolvedValue({ node_id: 'node-1', amount: 500, status: 'active' });
 
     const response = await app.inject({
       method: 'POST',
@@ -137,7 +138,7 @@ describe('Billing routes', () => {
     mockPrisma.node.findUnique
       .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 700 })
       .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 200 });
-    mockPrisma.validatorStake.findUnique
+    mockPrisma.validatorStake.findFirst
       .mockResolvedValueOnce({ node_id: 'node-1', amount: 0, status: 'withdrawn' })
       .mockResolvedValueOnce({ node_id: 'node-1', amount: 500, status: 'active' });
     mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
@@ -176,11 +177,11 @@ describe('Billing routes', () => {
     });
 
     expect(response.statusCode).toBe(403);
-    expect(mockPrisma.validatorStake.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.validatorStake.findFirst).not.toHaveBeenCalled();
   });
 
   it('uses the authenticated node when unstaking without a request body', async () => {
-    mockPrisma.validatorStake.findUnique.mockResolvedValue(null);
+    mockPrisma.validatorStake.findFirst.mockResolvedValue(null);
 
     const response = await app.inject({
       method: 'POST',
@@ -188,7 +189,7 @@ describe('Billing routes', () => {
     });
 
     expect(response.statusCode).toBe(404);
-    expect(mockPrisma.validatorStake.findUnique).toHaveBeenCalledWith({
+    expect(mockPrisma.validatorStake.findFirst).toHaveBeenCalledWith({
       where: { node_id: 'node-1' },
     });
   });

@@ -58,7 +58,7 @@ function createMockPrisma(overrides = {}) {
       update: jest.fn(),
       aggregate: jest.fn(),
     },
-    asset: { findUnique: jest.fn() },
+    asset: { findUnique: jest.fn(), aggregate: jest.fn() },
     gene: { findUnique: jest.fn() },
     capsule: { findUnique: jest.fn() },
     recipe: { findUnique: jest.fn() },
@@ -180,8 +180,8 @@ describe('Marketplace — All Modules', () => {
               asset: { asset_id: 'asset-1', gdi_score: 72, downloads: 50 },
             }),
           },
-          node: {
-            aggregate: jest.fn().mockResolvedValue({ _avg: { reputation: 54.3 } }),
+          asset: {
+            aggregate: jest.fn().mockResolvedValue({ _avg: { gdi_score: 54.3 } }),
           },
           similarityRecord: {
             count: jest.fn().mockResolvedValue(3),

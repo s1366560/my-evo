@@ -3,9 +3,10 @@ import type {
   Bounty,
   Bid,
   Deliverable,
+  Milestone,
 } from '../shared/types';
 
-export { BountyStatus, Bounty, Bid, Deliverable };
+export { BountyStatus, Bounty, Bid, Deliverable, Milestone };
 
 export interface CreateBountyInput {
   creatorId: string;

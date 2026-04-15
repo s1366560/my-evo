@@ -34,3 +34,81 @@
   - `npm run lint` passed with no ESLint violations under `src/**/*.ts`.
   - `npm test -- --runInBand` passed: 93/93 suites, 2679/2679 tests, 0 snapshots.
   - This worker change was plan-artifact-only, so no additional module-specific test additions were required under the no-test exception rule.
+
+## Wave 3 — Chapter 21 Credit Marketplace parity slice
+- Timestamp: 2026-04-15T17:46:00+08:00
+- Result: PASS
+- Commands:
+  - `npm test -- --runInBand --coverage=false src/bounty/service.test.ts src/a2a/routes.test.ts src/marketplace/service.marketplace.test.ts src/marketplace/routes.test.ts`
+  - `npm run typecheck`
+  - `npm run lint`
+- Touched files:
+  - `src/a2a/routes.ts`
+  - `src/a2a/routes.test.ts`
+  - `src/bounty/service.ts`
+  - `src/bounty/service.test.ts`
+  - `src/bounty/types.ts`
+  - `src/marketplace/service.marketplace.ts`
+  - `src/marketplace/service.marketplace.test.ts`
+  - `src/marketplace/routes.test.ts`
+  - `src/shared/types.ts`
+  - `.omx/plans/gap-register-architecture-gap-remediation.md`
+  - `.omx/plans/contract-change-ledger-architecture-gap-remediation.md`
+- Cross-module checks:
+  - A2A bid alias flow ↔ bounty service semantics
+  - Marketplace public stats ↔ service marketplace aggregates ↔ bounty counts
+- Notes:
+  - `/a2a/bid/place` now targets an existing bounty instead of creating a self-bounty stub.
+  - `/a2a/bid/accept` was added to match the documented Chapter-21 accept flow.
+  - Bid results now expose `bid_amount`, `estimated_completion`, `proposal`, and `reputation_escrow` aliases.
+  - Service marketplace stats now expose `total_volume_credits`, `average_price`, `price_tiers`, `top_categories`, and `bounties`.
+  - Bounty milestones are now persisted, escrow is tracked explicitly, and cancel/expire flows release bidder escrow.
+  - Dynamic pricing now uses network asset GDI averages instead of node reputation averages.
+  - Milestone submissions/reviews now support partial payout and final accepted-bounty settlement from the stored milestone metadata.
+  - Chapter 21 remains partially divergent because milestone progression is still stored inside bounty metadata instead of being modeled as a dedicated relational state machine.
+
+## Final Global Gates — Post Chapter 21 follow-up
+- Timestamp: 2026-04-15T18:36:40+08:00
+- Result: PASS
+- Commands:
+  - `npm run typecheck`
+  - `npm run lint`
+  - `npm run build`
+  - `npm test -- --runInBand`
+- Touched files:
+  - `prisma/schema.prisma`
+  - `src/a2a/routes.ts`
+  - `src/a2a/routes.test.ts`
+  - `src/billing/routes.ts`
+  - `src/billing/routes.test.ts`
+  - `src/bounty/routes.ts`
+  - `src/bounty/service.ts`
+  - `src/bounty/service.test.ts`
+  - `src/bounty/types.ts`
+  - `src/marketplace/pricing.ts`
+  - `src/marketplace/routes.test.ts`
+  - `src/marketplace/service.marketplace.ts`
+  - `src/marketplace/service.marketplace.test.ts`
+  - `src/marketplace/service.test.ts`
+  - `src/shared/types.ts`
+- Cross-module checks:
+  - A2A bid aliases ↔ bounty service state transitions
+  - Prisma bounty schema ↔ billing validator stake route compatibility
+  - Dynamic pricing ↔ marketplace route/service expectations
+- Notes:
+  - Full repo gates passed after the Chapter 21 follow-up changes.
+  - `npm test -- --runInBand` passed: 93/93 suites, 2707/2707 tests, 0 snapshots.
+  - Chapter 21 backend parity is now materially closed: milestone persistence, partial milestone payout, escrow release, bid aliases, dynamic pricing, and market stats all have green regression coverage.
+  - The remaining design compromise is compatibility dual-write (`Bounty.milestones` JSON + `BountyMilestone` relation), which is now tracked as a future cleanup choice rather than an active backend gap.
+
+### Wave 3 follow-up — Ralph review fixes
+- Timestamp: 2026-04-15T18:10:00+08:00
+- Result: PASS
+- Reason:
+  - Fixed `acceptBid` to load and validate the bounty/bid snapshot inside the serializable transaction before rejecting competitor bids and refunding reputation escrow.
+  - Fixed `reviewDeliverable` to reload the accepted bounty with `bids` included so Chapter-21 aliases like `winner_id`, `reward_credits`, and `bid_amount` remain present on the review response path.
+- Commands:
+  - `npm test -- --runInBand --coverage=false src/bounty/service.test.ts src/a2a/routes.test.ts src/marketplace/service.marketplace.test.ts src/marketplace/routes.test.ts`
+  - `npm run typecheck`
+  - `npm run lint`
+  - `npm run build`

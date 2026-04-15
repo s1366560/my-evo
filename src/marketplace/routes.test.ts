@@ -350,7 +350,13 @@ describe('Marketplace routes', () => {
   it('passes app prisma to transaction, stats, and balance routes', async () => {
     mockGetTransactionHistory.mockResolvedValue([]);
     mockGetTransaction.mockResolvedValue({ transaction_id: 'tx-1' });
-    mockGetMarketStats.mockResolvedValue({ total_listings: 1 });
+    mockGetMarketStats.mockResolvedValue({
+      total_listings: 1,
+      total_volume_credits: 250,
+      average_price: 125,
+      price_tiers: { budget: 0, standard: 1, premium: 0, elite: 0 },
+      bounties: { total: 2, open: 1, completed: 1, cancelled: 0 },
+    });
     mockGetBalance.mockResolvedValue({ node_id: 'node-1', credit_balance: 100 });
 
     const [transactionsRes, detailRes, statsRes, balanceRes] = await Promise.all([
@@ -376,6 +382,16 @@ describe('Marketplace routes', () => {
     expect(detailRes.statusCode).toBe(200);
     expect(statsRes.statusCode).toBe(200);
     expect(balanceRes.statusCode).toBe(200);
+    expect(JSON.parse(statsRes.payload)).toEqual({
+      success: true,
+      data: {
+        total_listings: 1,
+        total_volume_credits: 250,
+        average_price: 125,
+        price_tiers: { budget: 0, standard: 1, premium: 0, elite: 0 },
+        bounties: { total: 2, open: 1, completed: 1, cancelled: 0 },
+      },
+    });
     expect(mockGetTransactionHistory).toHaveBeenCalledWith('node-1', 4, 1, prisma);
     expect(mockGetTransaction).toHaveBeenCalledWith('node-1', 'tx-1', prisma);
     expect(mockGetMarketStats).toHaveBeenCalledWith(prisma);

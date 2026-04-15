@@ -346,7 +346,10 @@ export interface Bounty {
   creator_id: string;
   status: BountyStatus;
   amount: number;
+  reward_credits?: number;
   deadline: string;
+  winner_id?: string;
+  milestones?: Milestone[];
   bids: Bid[];
   deliverable?: Deliverable;
   created_at: string;
@@ -358,10 +361,23 @@ export interface Bid {
   bounty_id: string;
   bidder_id: string;
   proposed_amount: number;
+  bid_amount?: number;
   estimated_time: string;
+  estimated_completion?: string;
   approach: string;
-  status: 'pending' | 'accepted' | 'rejected';
+  proposal?: string;
+  reputation_escrow?: number;
+  status: 'pending' | 'accepted' | 'rejected' | 'withdrawn';
   submitted_at: string;
+}
+
+export interface Milestone {
+  milestone_id: string;
+  title: string;
+  description: string;
+  percentage: number;
+  status: 'pending' | 'in_progress' | 'completed' | 'verified';
+  deliverable?: string;
 }
 
 export interface Deliverable {

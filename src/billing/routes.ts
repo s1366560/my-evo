@@ -93,7 +93,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           };
         }
 
-        const existing = await tx.validatorStake.findUnique({ where: { node_id: nodeId } });
+        const existing = await tx.validatorStake.findFirst({ where: { node_id: nodeId } });
         if (existing?.status === 'active') {
           return {
             kind: 'error' as const,
@@ -155,7 +155,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
         }
 
         const updatedNode = await tx.node.findUnique({ where: { node_id: nodeId } });
-        const stake = await tx.validatorStake.findUnique({ where: { node_id: nodeId } });
+        const stake = await tx.validatorStake.findFirst({ where: { node_id: nodeId } });
 
         if (!stake || stake.status !== 'active') {
           throw new RetryableStakeConflictError('Stake state changed before commit');
@@ -178,7 +178,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
       });
     } catch (error) {
       if (isRetryableTransactionError(error)) {
-        const currentStake = await app.prisma.validatorStake.findUnique({ where: { node_id: nodeId } });
+        const currentStake = await app.prisma.validatorStake.findFirst({ where: { node_id: nodeId } });
         if (currentStake?.status === 'active') {
           return reply.status(409).send({
             error: 'already_staked',
@@ -211,7 +211,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     const nodeId = resolveSelfNodeId(auth.node_id, body.node_id);
 
     const result = await app.prisma.$transaction(async (tx) => {
-      const stake = await tx.validatorStake.findUnique({ where: { node_id: nodeId } });
+      const stake = await tx.validatorStake.findFirst({ where: { node_id: nodeId } });
       if (!stake || stake.status !== 'active') {
         return {
           kind: 'error' as const,
@@ -267,7 +267,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Billing'] },
   }, async (request) => {
     const { nodeId } = request.params as { nodeId: string };
-    const stake = await app.prisma.validatorStake.findUnique({ where: { node_id: nodeId } });
+    const stake = await app.prisma.validatorStake.findFirst({ where: { node_id: nodeId } });
     if (!stake) return { nodeId, status: 'not_staked', stakedAmount: 0 };
 
     const node = await app.prisma.node.findUnique({ where: { node_id: nodeId } });
