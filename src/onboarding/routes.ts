@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth } from '../shared/auth';
-import { ValidationError } from '../shared/errors';
+import { requireAuth, requireNodeSecretAuth } from '../shared/auth';
+import { ForbiddenError, ValidationError } from '../shared/errors';
 import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as accountService from '../account/service';
 
@@ -11,18 +11,28 @@ function buildOnboardingJourneyPayload(result: Awaited<ReturnType<typeof account
     current_step: result.current_step,
     total_steps: result.total_steps,
     progress_percentage: result.progress_percentage,
+    completed_steps: result.completed_steps,
     steps: result.steps,
     next_step: result.next_step,
     data: result,
   };
 }
 
+function ensureNodeSecretAuth(
+  auth: NonNullable<import('fastify').FastifyRequest['auth']>,
+): void {
+  if (auth.auth_type !== 'node_secret') {
+    throw new ForbiddenError('Node secret credentials are required for onboarding routes');
+  }
+}
+
 export async function onboardingRoutes(app: FastifyInstance): Promise<void> {
   app.get('/agent', {
     schema: { tags: ['Account'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const { agent_id } = request.query as { agent_id?: string };
     const agentId = await resolveAuthorizedNodeId(app, auth, {
       requestedNodeId: agent_id,
@@ -36,9 +46,10 @@ export async function onboardingRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/agent/complete', {
     schema: { tags: ['Account'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const body = (request.body as { agent_id?: string; step?: number } | undefined) ?? {};
     if (!body.step || !Number.isInteger(body.step) || body.step < 1) {
       throw new ValidationError('Valid step number is required');
@@ -62,9 +73,10 @@ export async function onboardingRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/agent/reset', {
     schema: { tags: ['Account'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const body = (request.body as { agent_id?: string } | undefined) ?? {};
     const agentId = await resolveAuthorizedNodeId(app, auth, {
       requestedNodeId: body.agent_id,

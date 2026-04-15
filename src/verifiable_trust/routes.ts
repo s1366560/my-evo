@@ -1,15 +1,24 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth, requireTrustLevel } from '../shared/auth';
+import { requireAuth, requireNodeSecretAuth } from '../shared/auth';
 import { TRUST_REWARD_RATE } from '../shared/constants';
 import * as trustService from './service';
-import { ValidationError } from '../shared/errors';
+import { ForbiddenError, TrustLevelError, ValidationError } from '../shared/errors';
+
+function ensureNodeSecretAuth(
+  auth: NonNullable<import('fastify').FastifyRequest['auth']>,
+): void {
+  if (auth.auth_type !== 'node_secret') {
+    throw new ForbiddenError('Node secret credentials are required for trust stake operations');
+  }
+}
 
 export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void> {
   app.post('/stake', {
     schema: { tags: ['Trust'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const body = request.body as {
       node_id?: string;
       target_node_id?: string;
@@ -48,9 +57,10 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
   app.post('/release', {
     schema: { tags: ['Trust'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const body = request.body as {
       stake_id: string;
     };
@@ -69,9 +79,10 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
   app.post('/claim', {
     schema: { tags: ['Trust'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const body = request.body as {
       stake_id: string;
     };
@@ -83,9 +94,13 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
   app.post('/verify', {
     schema: { tags: ['Trust'] },
-    preHandler: [requireTrustLevel('trusted')],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
+    if (auth.trust_level !== 'trusted') {
+      throw new TrustLevelError('trusted', auth.trust_level);
+    }
     const body = request.body as {
       target_node_id?: string;
       verification_notes?: string;
@@ -93,8 +108,12 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
       evidence?: string;
       target_id?: string;
       notes?: string;
+      validator_id?: string;
     };
     const targetId = body.target_node_id ?? body.target_id;
+    if (body.validator_id && body.validator_id !== auth.node_id) {
+      throw new ValidationError('validator_id must match the authenticated validator');
+    }
     const notes = [
       body.verification_notes,
       body.evidence,
@@ -104,6 +123,24 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
     if (!targetId) {
       throw new ValidationError('target_node_id is required');
+    }
+
+    const verificationResult = body.verification_result?.trim().toLowerCase();
+    if (verificationResult && !['pass', 'passed', 'approve', 'approved', 'fail', 'failed', 'reject', 'rejected'].includes(verificationResult)) {
+      throw new ValidationError('verification_result must be pass or fail');
+    }
+
+    if (verificationResult === 'fail' || verificationResult === 'failed' || verificationResult === 'reject' || verificationResult === 'rejected') {
+      const result = await trustService.failVerification(auth.node_id, targetId);
+      return reply.send({
+        success: true,
+        status: result.status,
+        stake_id: result.stake_id,
+        amount_returned: result.amount_returned,
+        penalty: result.penalty,
+        trust_level: result.trust_level,
+        data: result,
+      });
     }
 
     const result = await trustService.verifyNode(
@@ -129,7 +166,11 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
     const result = await trustService.getTrustLevel(nodeId);
 
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      ...result,
+      data: result,
+    });
   });
 
   app.get('/stats', {
@@ -137,7 +178,11 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
   }, async (_request, reply) => {
     const result = await trustService.getStats();
 
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      ...result,
+      data: result,
+    });
   });
 
   app.get('/attestations', {

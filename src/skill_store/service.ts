@@ -1,7 +1,8 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import crypto from 'crypto';
 import type { Skill, SkillRating } from '@prisma/client';
-import { NotFoundError, ValidationError } from '../shared/errors';
+import { InsufficientCreditsError, NotFoundError, ValidationError } from '../shared/errors';
+import { SKILL_DOWNLOAD_COST } from '../shared/constants';
 import * as ranking from './ranking';
 import * as recommendation from './recommendation';
 import * as distillation from './distillation';
@@ -10,6 +11,81 @@ import * as quality from './quality';
 let prisma = new PrismaClient();
 
 type SkillStoreClient = PrismaClient | Prisma.TransactionClient;
+type DiscoverableSkillStatus = 'approved' | 'published';
+
+const DISCOVERABLE_SKILL_STATUSES: DiscoverableSkillStatus[] = ['approved', 'published'];
+const AUTO_MODERATION_REVIEWER = 'system:auto';
+const SKILL_RESTORE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const FORBIDDEN_SKILL_KEYWORDS = [
+  'hack',
+  'exploit',
+  'malware',
+  'phishing',
+  'ransomware',
+  'keylogger',
+  'rootkit',
+  'backdoor',
+  'trojan',
+  'ddos',
+] as const;
+const SKILL_SIGNAL_PATTERNS = [
+  { pattern: /ignore\s+(all\s+)?previous\s+instructions/i, reason: 'jailbreak pattern detected' },
+  { pattern: /system\s+prompt/i, reason: 'prompt injection pattern detected' },
+  { pattern: /developer\s+instructions/i, reason: 'prompt injection pattern detected' },
+  { pattern: /bypass\s+(all\s+)?restrictions/i, reason: 'malicious instruction pattern detected' },
+  { pattern: /disable\s+safety/i, reason: 'malicious instruction pattern detected' },
+  { pattern: /\brm\s+-rf\b/i, reason: 'malicious command detected' },
+] as const;
+
+interface SkillModerationInput {
+  name: string;
+  description: string;
+  code_template: string | null;
+  steps: string[];
+  examples: string[];
+  parameters: unknown;
+}
+
+interface SkillModerationDecision {
+  approved: boolean;
+  rejection_reason?: string;
+  data: Prisma.SkillUpdateInput;
+}
+
+function buildRejectedModerationDecision(
+  rejectionReason: string,
+  failedLayer: 1 | 2 | 3,
+  reviewedAt: Date,
+): SkillModerationDecision {
+  return {
+    approved: false,
+    rejection_reason: rejectionReason,
+    data: {
+      status: 'rejected',
+      l1_passed: failedLayer > 1,
+      l2_passed: failedLayer > 2,
+      l3_passed: false,
+      l4_passed: false,
+      reviewed_at: reviewedAt,
+      reviewer: AUTO_MODERATION_REVIEWER,
+    },
+  };
+}
+
+function buildApprovedModerationDecision(reviewedAt: Date): SkillModerationDecision {
+  return {
+    approved: true,
+    data: {
+      status: 'approved',
+      l1_passed: true,
+      l2_passed: true,
+      l3_passed: true,
+      l4_passed: true,
+      reviewed_at: reviewedAt,
+      reviewer: AUTO_MODERATION_REVIEWER,
+    },
+  };
+}
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
@@ -34,9 +110,134 @@ function hasPassedModeration(skill: {
   return skill.l1_passed && skill.l2_passed && skill.l3_passed && skill.l4_passed;
 }
 
+function isDiscoverableSkillStatus(status: string | null | undefined): status is DiscoverableSkillStatus {
+  return DISCOVERABLE_SKILL_STATUSES.includes(status as DiscoverableSkillStatus);
+}
+
+function buildDiscoverableSkillWhere(extra: Prisma.SkillWhereInput = {}): Prisma.SkillWhereInput {
+  return {
+    ...extra,
+    status: { in: [...DISCOVERABLE_SKILL_STATUSES] },
+    deleted_at: null,
+  };
+}
+
+function stringifyParameters(parameters: Prisma.JsonValue | Record<string, unknown> | null | undefined): string {
+  if (!parameters) {
+    return '';
+  }
+
+  try {
+    return JSON.stringify(parameters);
+  } catch {
+    return '';
+  }
+}
+
+function getSkillNarrativeText(skill: SkillModerationInput): string {
+  return [
+    skill.name,
+    skill.description,
+    ...(skill.steps ?? []),
+    ...(skill.examples ?? []),
+    stringifyParameters(skill.parameters as Prisma.JsonValue | Record<string, unknown> | null | undefined),
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ');
+}
+
+function getSkillModerationText(skill: SkillModerationInput): string {
+  return [
+    skill.name,
+    skill.description,
+    skill.code_template ?? '',
+    ...(skill.steps ?? []),
+    ...(skill.examples ?? []),
+    stringifyParameters(skill.parameters as Prisma.JsonValue | Record<string, unknown> | null | undefined),
+  ].join('\n');
+}
+
+function getSpecialCharacterRatio(text: string): number {
+  const normalized = text.replace(/\s+/g, '');
+  if (normalized.length === 0) {
+    return 0;
+  }
+
+  const specialMatches = normalized.match(/[^a-zA-Z0-9\u4e00-\u9fff.,;:!?()[\]{}"'`_-]/g) ?? [];
+  return specialMatches.length / normalized.length;
+}
+
+function evaluateSkillModeration(skill: SkillModerationInput): SkillModerationDecision {
+  const reviewedAt = new Date();
+  const moderationText = getSkillModerationText(skill);
+  const normalizedText = moderationText.toLowerCase();
+  const narrativeText = getSkillNarrativeText(skill);
+
+  const blockedKeyword = FORBIDDEN_SKILL_KEYWORDS.find((keyword) => normalizedText.includes(keyword));
+  if (blockedKeyword) {
+    return buildRejectedModerationDecision(
+      `Skill failed keyword scan: forbidden keyword '${blockedKeyword}' detected`,
+      1,
+      reviewedAt,
+    );
+  }
+
+  const hasStructuredContent = Boolean(
+    skill.code_template?.trim()
+      || (skill.steps?.length ?? 0) > 0
+      || (skill.examples?.length ?? 0) > 0
+      || stringifyParameters(skill.parameters as Prisma.JsonValue | Record<string, unknown> | null | undefined),
+  );
+  if (narrativeText.trim().length < 50 || !hasStructuredContent) {
+    return buildRejectedModerationDecision(
+      'Skill failed semantic check: content must be descriptive and structurally complete',
+      2,
+      reviewedAt,
+    );
+  }
+
+  if (getSpecialCharacterRatio(narrativeText) > 0.15) {
+    return buildRejectedModerationDecision(
+      'Skill failed semantic check: special character ratio exceeds 15%',
+      2,
+      reviewedAt,
+    );
+  }
+
+  const matchedSignal = SKILL_SIGNAL_PATTERNS.find(({ pattern }) => pattern.test(moderationText));
+  if (matchedSignal) {
+    return buildRejectedModerationDecision(
+      `Skill failed signal check: ${matchedSignal.reason}`,
+      3,
+      reviewedAt,
+    );
+  }
+
+  return buildApprovedModerationDecision(reviewedAt);
+}
+
+function resetModerationState(): Prisma.SkillUpdateInput {
+  return {
+    status: 'pending',
+    l1_passed: false,
+    l2_passed: false,
+    l3_passed: false,
+    l4_passed: false,
+    reviewed_at: null,
+    reviewer: null,
+  };
+}
+
 // ------------------------------------------------------------------
 // List / Get
 // ------------------------------------------------------------------
+
+export interface SkillListResult {
+  items: Skill[];
+  total: number;
+  next_cursor: string | null;
+  has_more: boolean;
+}
 
 export async function listSkills(
   category?: string,
@@ -45,13 +246,11 @@ export async function listSkills(
   limit = 20,
   offset = 0,
   sort = 'recent',
+  cursor?: string,
   prismaClient?: PrismaClient,
-): Promise<{ items: Skill[]; total: number }> {
+): Promise<SkillListResult> {
   const client = getPrismaClient(prismaClient);
-  const where: Record<string, unknown> = {
-    status: 'published',
-    deleted_at: null,
-  };
+  const where: Prisma.SkillWhereInput = buildDiscoverableSkillWhere();
 
   if (category) {
     where.category = category;
@@ -71,25 +270,37 @@ export async function listSkills(
   let orderBy: Record<string, string> = { updated_at: 'desc' };
   if (sort === 'rating') {
     orderBy = { rating: 'desc' };
-  } else if (sort === 'downloads') {
+  } else if (sort === 'downloads' || sort === 'popular') {
     orderBy = { download_count: 'desc' };
+  } else if (sort === 'newest' || sort === 'recent') {
+    orderBy = { created_at: 'desc' };
   } else if (sort === 'price_asc') {
     orderBy = { price_credits: 'asc' };
   } else if (sort === 'price_desc') {
     orderBy = { price_credits: 'desc' };
   }
 
-  const [items, total] = await Promise.all([
+  const [rawItems, total] = await Promise.all([
     client.skill.findMany({
       where,
       orderBy,
-      take: limit,
-      skip: offset,
+      take: limit + 1,
+      skip: cursor ? 1 : offset,
+      ...(cursor ? { cursor: { skill_id: cursor } } : {}),
     }),
     client.skill.count({ where }),
   ]);
 
-  return { items: items as unknown as Skill[], total };
+  const hasMore = rawItems.length > limit;
+  const items = rawItems.slice(0, limit) as unknown as Skill[];
+  const nextCursor = hasMore ? items[items.length - 1]?.skill_id ?? null : null;
+
+  return {
+    items,
+    total,
+    next_cursor: nextCursor,
+    has_more: hasMore,
+  };
 }
 
 export async function getSkill(
@@ -106,7 +317,7 @@ export async function getSkill(
     return null;
   }
 
-  if (skill && skill.status !== 'published' && skill.author_id !== requesterId) {
+  if (skill && !isDiscoverableSkillStatus(skill.status) && skill.author_id !== requesterId) {
     return null;
   }
 
@@ -129,6 +340,11 @@ interface CreateSkillData {
   tags?: string[];
   source_capsules?: string[];
 }
+
+export type DownloadSkillResult = Skill & {
+  credits_charged: number;
+  remaining_credits: number;
+};
 
 export async function createSkill(
   authorId: string,
@@ -330,7 +546,10 @@ export async function deleteSkill(
 
   await client.skill.update({
     where: { skill_id: skillId },
-    data: { deleted_at: new Date() },
+    data: {
+      deleted_at: new Date(),
+      status: 'deleted',
+    },
   });
 }
 
@@ -358,18 +577,19 @@ export async function publishSkill(
     throw new ValidationError('You can only publish your own skills');
   }
 
-  if (skill.status === 'published') {
+  if (isDiscoverableSkillStatus(skill.status)) {
     throw new ValidationError('Skill is already published');
   }
 
-  if (!hasPassedModeration(skill)) {
-    throw new ValidationError('Skill must complete moderation before publishing');
-  }
-
+  const moderation = evaluateSkillModeration(skill);
   const updated = await client.skill.update({
     where: { skill_id: skillId },
-    data: { status: 'published' },
+    data: moderation.data,
   });
+
+  if (!moderation.approved) {
+    throw new ValidationError(moderation.rejection_reason ?? 'Skill failed moderation');
+  }
 
   return updated as unknown as Skill;
 }
@@ -379,7 +599,9 @@ export async function createPublishedSkill(
   data: CreateSkillData,
   prismaClient?: PrismaClient,
 ): Promise<Skill> {
-  return createSkill(authorId, data, prismaClient as SkillStoreClient | undefined);
+  const client = getSkillStoreClient(prismaClient as SkillStoreClient | undefined);
+  const created = await createSkill(authorId, data, client);
+  return created as unknown as Skill;
 }
 
 export async function publishSkillWithUpdates(
@@ -406,21 +628,32 @@ export async function publishSkillWithUpdates(
       throw new ValidationError('You can only publish your own skills');
     }
 
-    if (skill.status === 'published') {
+    if (isDiscoverableSkillStatus(skill.status)) {
       throw new ValidationError('Skill is already published');
     }
 
-    if (!hasPassedModeration(skill)) {
-      throw new ValidationError('Skill must complete moderation before publishing');
-    }
+    const moderation = evaluateSkillModeration({
+      name: updates.name?.trim() ?? skill.name,
+      description: updates.description?.trim() ?? skill.description,
+      code_template: updates.code_template !== undefined ? updates.code_template : skill.code_template,
+      parameters: updates.parameters !== undefined ? updates.parameters : skill.parameters,
+      steps: updates.steps ?? skill.steps,
+      examples: updates.examples ?? skill.examples,
+    });
 
-    return tx.skill.update({
+    const updated = await tx.skill.update({
       where: { skill_id: skillId },
       data: {
         ...updateData,
-        status: 'published',
+        ...moderation.data,
       },
     });
+
+    if (!moderation.approved) {
+      throw new ValidationError(moderation.rejection_reason ?? 'Skill failed moderation');
+    }
+
+    return updated;
   });
 
   return published as unknown as Skill;
@@ -460,6 +693,7 @@ export async function updateSkillVersion(
         ...updateData,
         version: nextVersion,
         versions: [...versions, buildSkillVersionSnapshot(skill)] as unknown as Prisma.InputJsonValue,
+        ...resetModerationState(),
       },
     });
   });
@@ -587,28 +821,94 @@ export async function downloadSkill(
   skillId: string,
   nodeId: string,
   prismaClient?: PrismaClient,
-): Promise<Skill> {
+): Promise<DownloadSkillResult> {
   const client = getPrismaClient(prismaClient);
-  const skill = await client.skill.findUnique({ where: { skill_id: skillId } });
+  const downloaded = await client.$transaction(async (tx) => {
+    const skill = await tx.skill.findUnique({ where: { skill_id: skillId } });
 
-  if (!skill) {
-    throw new NotFoundError('Skill', skillId);
-  }
+    if (!skill) {
+      throw new NotFoundError('Skill', skillId);
+    }
 
-  if (skill.deleted_at) {
-    throw new NotFoundError('Skill', skillId);
-  }
+    if (skill.deleted_at) {
+      throw new NotFoundError('Skill', skillId);
+    }
 
-  if (skill.status !== 'published') {
-    throw new ValidationError('Only published skills can be downloaded');
-  }
+    if (!isDiscoverableSkillStatus(skill.status)) {
+      throw new ValidationError('Only approved skills can be downloaded');
+    }
 
-  const updated = await client.skill.update({
-    where: { skill_id: skillId },
-    data: { download_count: { increment: 1 } },
+    if (skill.author_id === nodeId) {
+      throw new ValidationError('Cannot download your own skill');
+    }
+
+    const buyer = await tx.node.findUnique({
+      where: { node_id: nodeId },
+    });
+
+    if (!buyer) {
+      throw new NotFoundError('Node', nodeId);
+    }
+
+    const author = await tx.node.findUnique({
+      where: { node_id: skill.author_id },
+    });
+
+    if (!author) {
+      throw new NotFoundError('Node', skill.author_id);
+    }
+
+    const creditsCharged = SKILL_DOWNLOAD_COST;
+    if (buyer.credit_balance < creditsCharged) {
+      throw new InsufficientCreditsError(creditsCharged, buyer.credit_balance);
+    }
+
+    const updatedSkill = await tx.skill.update({
+      where: { skill_id: skillId },
+      data: { download_count: { increment: 1 } },
+    });
+
+    let remainingCredits = buyer.credit_balance;
+    remainingCredits = buyer.credit_balance - creditsCharged;
+
+    await tx.node.update({
+      where: { node_id: nodeId },
+      data: { credit_balance: { decrement: creditsCharged } },
+    });
+
+    await tx.node.update({
+      where: { node_id: skill.author_id },
+      data: { credit_balance: { increment: creditsCharged } },
+    });
+
+    await tx.creditTransaction.create({
+      data: {
+        node_id: nodeId,
+        amount: -creditsCharged,
+        type: 'skill_download',
+        description: `Downloaded skill ${skillId}`,
+        balance_after: remainingCredits,
+      },
+    });
+
+    await tx.creditTransaction.create({
+      data: {
+        node_id: skill.author_id,
+        amount: creditsCharged,
+        type: 'skill_sale',
+        description: `Skill ${skillId} downloaded by ${nodeId}`,
+        balance_after: author.credit_balance + creditsCharged,
+      },
+    });
+
+    return {
+      ...(updatedSkill as unknown as Skill),
+      credits_charged: creditsCharged,
+      remaining_credits: remainingCredits,
+    };
   });
 
-  return updated as unknown as Skill;
+  return downloaded;
 }
 
 // ------------------------------------------------------------------
@@ -619,7 +919,7 @@ export async function getCategories(prismaClient?: PrismaClient): Promise<Array<
   const client = getPrismaClient(prismaClient);
   const result = await client.skill.groupBy({
     by: ['category'],
-    where: { status: 'published', deleted_at: null },
+    where: buildDiscoverableSkillWhere(),
     _count: { category: true },
     orderBy: { _count: { category: 'desc' } },
   });
@@ -637,7 +937,7 @@ export async function getCategories(prismaClient?: PrismaClient): Promise<Array<
 export async function getFeaturedSkills(limit = 10, prismaClient?: PrismaClient): Promise<Skill[]> {
   const client = getPrismaClient(prismaClient);
   const skills = await client.skill.findMany({
-    where: { status: 'published', deleted_at: null },
+    where: buildDiscoverableSkillWhere(),
     orderBy: [{ rating: 'desc' }, { download_count: 'desc' }],
     take: limit,
   });
@@ -759,9 +1059,16 @@ export async function restoreSkill(
     throw new ValidationError('You can only restore your own skills');
   }
 
+  if (Date.now() - skill.deleted_at.getTime() > SKILL_RESTORE_WINDOW_MS) {
+    throw new ValidationError('Skill can only be restored within 30 days of deletion');
+  }
+
   const updated = await client.skill.update({
     where: { skill_id: skillId },
-    data: { deleted_at: null, status: 'published' },
+    data: {
+      deleted_at: null,
+      status: hasPassedModeration(skill) || isDiscoverableSkillStatus(skill.status) ? 'approved' : 'pending',
+    },
   });
 
   return updated as unknown as Skill;
@@ -839,8 +1146,8 @@ export async function getSkillStoreStats(
   });
 
   const totalSkills = skills.length;
-  const published = skills.filter((skill) => skill.status === 'published' && !skill.deleted_at).length;
-  const pending = skills.filter((skill) => skill.status !== 'published' && !skill.deleted_at).length;
+  const published = skills.filter((skill) => isDiscoverableSkillStatus(skill.status) && !skill.deleted_at).length;
+  const pending = skills.filter((skill) => skill.status === 'pending' && !skill.deleted_at).length;
   const deleted = skills.filter((skill) => Boolean(skill.deleted_at)).length;
   const totalDownloads = skills.reduce((sum, skill) => sum + skill.download_count, 0);
   const totalAuthors = new Set(skills.map((skill) => skill.author_id)).size;

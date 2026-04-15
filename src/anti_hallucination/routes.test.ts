@@ -15,9 +15,24 @@ const mockGetCheck = jest.fn();
 const mockGetConfidence = jest.fn();
 const mockListForbiddenPatterns = jest.fn();
 const mockGetCheckStats = jest.fn();
+const mockAddAnchor = jest.fn();
+const mockUpsertGraphNode = jest.fn();
+const mockCreateGraphEdge = jest.fn();
 
 jest.mock('../shared/auth', () => ({
   requireAuth: () => async (
+    request: {
+      auth?: {
+        node_id: string;
+        auth_type?: string;
+        trust_level?: string;
+        userId?: string;
+      };
+    },
+  ) => {
+    request.auth = mockAuth;
+  },
+  requireNodeSecretAuth: () => async (
     request: {
       auth?: {
         node_id: string;
@@ -52,6 +67,9 @@ jest.mock('./service', () => ({
   getConfidence: (...args: unknown[]) => mockGetConfidence(...args),
   listForbiddenPatterns: (...args: unknown[]) => mockListForbiddenPatterns(...args),
   getCheckStats: (...args: unknown[]) => mockGetCheckStats(...args),
+  addAnchor: (...args: unknown[]) => mockAddAnchor(...args),
+  upsertGraphNode: (...args: unknown[]) => mockUpsertGraphNode(...args),
+  createGraphEdge: (...args: unknown[]) => mockCreateGraphEdge(...args),
 }));
 
 function buildApp(): FastifyInstance {
@@ -94,11 +112,12 @@ describe('Anti-hallucination routes', () => {
       payload: {
         code_content: 'const x = 1;',
         asset_id: 'asset-1',
+        language: 'typescript',
       },
     });
 
     expect(response.statusCode).toBe(201);
-    expect(mockValidateCode).toHaveBeenCalledWith('node-1', 'const x = 1;', 'asset-1');
+    expect(mockValidateCode).toHaveBeenCalledWith('node-1', 'const x = 1;', 'asset-1', 'typescript');
   });
 
   it('supports the check endpoint with architecture-compatible payload fields', async () => {
@@ -107,9 +126,14 @@ describe('Anti-hallucination routes', () => {
       confidence: 0.91,
       validation_type: 'check',
       result: {
+        passed: false,
         has_hallucination: true,
         checks_passed: false,
         summary: 'Detected 1 potential issue(s) in code',
+        validations: [
+          { type: 'syntax', passed: true, message: 'Syntax valid' },
+          { type: 'security', passed: true, message: 'No security risks detected' },
+        ],
         details: ['Potential hardcoded secret or credential detected'],
         alerts: [
           {
@@ -141,13 +165,18 @@ describe('Anti-hallucination routes', () => {
     expect(payload).toMatchObject({
       passed: false,
       confidence: 0.91,
-      validations: [
+      validations: expect.arrayContaining([
         {
-          type: 'check',
-          passed: false,
-          message: 'Detected 1 potential issue(s) in code',
+          type: 'syntax',
+          passed: true,
+          message: 'Syntax valid',
         },
-      ],
+        {
+          type: 'security',
+          passed: true,
+          message: 'No security risks detected',
+        },
+      ]),
     });
     expect(payload.alerts).toEqual([
       expect.objectContaining({
@@ -170,15 +199,13 @@ describe('Anti-hallucination routes', () => {
     );
   });
 
-  it('resolves owned nodes for session-authenticated validation', async () => {
+  it('rejects session-authenticated validation', async () => {
     mockAuth = {
       node_id: 'user-1',
       auth_type: 'session',
       trust_level: 'trusted',
       userId: 'user-1',
     };
-    (app.prisma as any).node.findFirst.mockResolvedValue({ node_id: 'node-2' });
-    mockValidateCode.mockResolvedValue({ check_id: 'chk-validate' });
 
     const response = await app.inject({
       method: 'POST',
@@ -188,8 +215,55 @@ describe('Anti-hallucination routes', () => {
       },
     });
 
-    expect(response.statusCode).toBe(201);
-    expect(mockValidateCode).toHaveBeenCalledWith('node-2', 'const x = 1;', undefined);
+    expect(response.statusCode).toBe(403);
+    expect(mockValidateCode).not.toHaveBeenCalled();
+  });
+
+  it('rejects session-authenticated anti-hallucination mutations', async () => {
+    mockAuth = {
+      node_id: 'user-1',
+      auth_type: 'session',
+      trust_level: 'trusted',
+      userId: 'user-1',
+    };
+
+    const [anchorResponse, nodeResponse, edgeResponse] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/anti/anchors',
+        payload: {
+          type: 'document',
+          source: 'spec',
+          confidence: 0.9,
+          expires_at: '2099-01-01T00:00:00.000Z',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/anti/graph/nodes',
+        payload: {
+          node_id: 'node-1',
+          type: 'concept',
+          label: 'Spec anchor',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/anti/graph/edges',
+        payload: {
+          source_id: 'node-1',
+          target_id: 'node-2',
+          relation: 'depends_on',
+        },
+      }),
+    ]);
+
+    expect(anchorResponse.statusCode).toBe(403);
+    expect(nodeResponse.statusCode).toBe(403);
+    expect(edgeResponse.statusCode).toBe(403);
+    expect(mockAddAnchor).not.toHaveBeenCalled();
+    expect(mockUpsertGraphNode).not.toHaveBeenCalled();
+    expect(mockCreateGraphEdge).not.toHaveBeenCalled();
   });
 
   it('supports the detect endpoint', async () => {

@@ -10,10 +10,25 @@ let mockAuth = {
 const mockStake = jest.fn();
 const mockRelease = jest.fn();
 const mockVerifyNode = jest.fn();
+const mockFailVerification = jest.fn();
+const mockGetTrustLevel = jest.fn();
+const mockGetStats = jest.fn();
+const mockListAttestations = jest.fn();
 const mockListPendingStakes = jest.fn();
 
 jest.mock('../shared/auth', () => ({
   requireAuth: () => async (
+    request: {
+      auth?: {
+        node_id: string;
+        auth_type?: string;
+        trust_level?: string;
+      };
+    },
+  ) => {
+    request.auth = mockAuth;
+  },
+  requireNodeSecretAuth: () => async (
     request: {
       auth?: {
         node_id: string;
@@ -42,6 +57,10 @@ jest.mock('./service', () => ({
   stake: (...args: unknown[]) => mockStake(...args),
   release: (...args: unknown[]) => mockRelease(...args),
   verifyNode: (...args: unknown[]) => mockVerifyNode(...args),
+  failVerification: (...args: unknown[]) => mockFailVerification(...args),
+  getTrustLevel: (...args: unknown[]) => mockGetTrustLevel(...args),
+  getStats: (...args: unknown[]) => mockGetStats(...args),
+  listAttestations: (...args: unknown[]) => mockListAttestations(...args),
   listPendingStakes: (...args: unknown[]) => mockListPendingStakes(...args),
 }));
 
@@ -94,6 +113,37 @@ describe('Verifiable trust routes', () => {
     expect(mockVerifyNode).toHaveBeenCalledWith('trusted-node', 'node-1', 'Looks good');
   });
 
+  it('slashes the validator stake when verification_result is fail', async () => {
+    mockFailVerification.mockResolvedValue({
+      status: 'slashed',
+      stake_id: 'stake-1',
+      node_id: 'node-1',
+      validator_id: 'trusted-node',
+      amount_returned: 90,
+      penalty: 10,
+      trust_level: 'unverified',
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/trust/verify',
+      payload: {
+        target_node_id: 'node-1',
+        verification_result: 'fail',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      status: 'slashed',
+      stake_id: 'stake-1',
+      amount_returned: 90,
+      penalty: 10,
+      trust_level: 'unverified',
+    });
+    expect(mockFailVerification).toHaveBeenCalledWith('trusted-node', 'node-1');
+  });
+
   it('accepts documented stake request fields and returns compatibility fields', async () => {
     mockAuth = {
       node_id: 'validator-node',
@@ -144,6 +194,66 @@ describe('Verifiable trust routes', () => {
     expect(mockListPendingStakes).toHaveBeenCalledTimes(1);
   });
 
+  it('returns trust level compatibility fields at the top level', async () => {
+    mockGetTrustLevel.mockResolvedValue({
+      node_id: 'node-1',
+      trust_level: 'verified',
+      attestations: [
+        {
+          validator_id: 'trusted-node',
+          trust_level: 'verified',
+          stake_amount: 100,
+          verified_at: '2026-04-15T00:00:00Z',
+          expires_at: '2026-05-15T00:00:00Z',
+        },
+      ],
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/trust/level/node-1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetTrustLevel).toHaveBeenCalledWith('node-1');
+    expect(JSON.parse(response.payload)).toMatchObject({
+      node_id: 'node-1',
+      trust_level: 'verified',
+      attestations: [
+        expect.objectContaining({
+          validator_id: 'trusted-node',
+          trust_level: 'verified',
+          stake_amount: 100,
+        }),
+      ],
+    });
+  });
+
+  it('returns trust stats compatibility fields at the top level', async () => {
+    mockGetStats.mockResolvedValue({
+      total_attestations: 456,
+      active_stakes: 234,
+      total_staked_credits: 23400,
+      verified_nodes: 189,
+      trusted_validators: 23,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/trust/stats',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetStats).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      total_attestations: 456,
+      active_stakes: 234,
+      total_staked_credits: 23400,
+      verified_nodes: 189,
+      trusted_validators: 23,
+    });
+  });
+
   it('rejects mismatched validator_id on stake requests', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -187,5 +297,45 @@ describe('Verifiable trust routes', () => {
       penalty: 10,
       trust_level: 'unverified',
     });
+  });
+
+  it('rejects session-authenticated trust stake operations', async () => {
+    mockAuth = {
+      node_id: 'user-1',
+      auth_type: 'session',
+      trust_level: 'trusted',
+    };
+
+    const [stakeResponse, verifyResponse, claimResponse] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/trust/stake',
+        payload: {
+          target_node_id: 'node-1',
+          stake_amount: 100,
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/trust/verify',
+        payload: {
+          target_node_id: 'node-1',
+          verification_result: 'pass',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/trust/claim',
+        payload: {
+          stake_id: 'stake-1',
+        },
+      }),
+    ]);
+
+    expect(stakeResponse.statusCode).toBe(403);
+    expect(verifyResponse.statusCode).toBe(403);
+    expect(claimResponse.statusCode).toBe(403);
+    expect(mockStake).not.toHaveBeenCalled();
+    expect(mockVerifyNode).not.toHaveBeenCalled();
   });
 });

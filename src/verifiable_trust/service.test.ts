@@ -14,6 +14,7 @@ const {
   slash,
   claimReward,
   verifyNode,
+  failVerification,
   getTrustLevel,
   getStats,
   listAttestations,
@@ -56,6 +57,7 @@ describe('Verifiable Trust Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.validatorStake.count.mockResolvedValue(0);
     mockPrisma.validatorStake.findMany.mockResolvedValue([]);
     mockPrisma.trustAttestation.create.mockResolvedValue({ attestation_id: 'att-default' });
     mockPrisma.trustAttestation.deleteMany.mockResolvedValue({ count: 1 });
@@ -64,6 +66,7 @@ describe('Verifiable Trust Service', () => {
 
   describe('stake', () => {
     it('should create a stake with valid parameters', async () => {
+      mockPrisma.validatorStake.count.mockResolvedValue(1);
       mockPrisma.node.findFirst.mockResolvedValue({
         node_id: 'validator-1',
         credit_balance: 500,
@@ -101,7 +104,37 @@ describe('Verifiable Trust Service', () => {
       await expect(stake('node-1', 'validator-1', 100)).rejects.toThrow(NotFoundError);
     });
 
+    it('should reject duplicate active stakes from the same validator to the same node', async () => {
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({
+          node_id: 'validator-1',
+          credit_balance: 500,
+          trust_level: 'trusted',
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-1',
+          credit_balance: 500,
+          trust_level: 'unverified',
+          reputation: 60,
+        });
+      mockPrisma.validatorStake.findMany.mockResolvedValueOnce([
+        {
+          stake_id: 'stake-existing',
+          node_id: 'node-1',
+          validator_id: 'validator-1',
+          amount: 100,
+          staked_at: new Date(),
+          locked_until: new Date(),
+          status: 'active',
+        },
+      ]);
+
+      await expect(stake('node-1', 'validator-1', 100)).rejects.toThrow(ValidationError);
+      expect(mockPrisma.node.updateMany).not.toHaveBeenCalled();
+    });
+
     it('should allow non-trusted validators to stake when they have enough credits', async () => {
+      mockPrisma.validatorStake.count.mockResolvedValue(1);
       mockPrisma.node.findFirst.mockResolvedValue({
         node_id: 'validator-1',
         credit_balance: 500,
@@ -146,6 +179,7 @@ describe('Verifiable Trust Service', () => {
     });
 
     it('should decrement validator credit balance', async () => {
+      mockPrisma.validatorStake.count.mockResolvedValue(1);
       mockPrisma.node.findFirst.mockResolvedValue({
         node_id: 'validator-1',
         credit_balance: 500,
@@ -175,6 +209,7 @@ describe('Verifiable Trust Service', () => {
     });
 
     it('should create a credit transaction', async () => {
+      mockPrisma.validatorStake.count.mockResolvedValue(1);
       mockPrisma.node.findFirst.mockResolvedValue({
         node_id: 'validator-1',
         credit_balance: 500,
@@ -206,6 +241,7 @@ describe('Verifiable Trust Service', () => {
     });
 
     it('should set the target trust level to verified while issuing a verified attestation', async () => {
+      mockPrisma.validatorStake.count.mockResolvedValue(1);
       mockPrisma.node.findFirst
         .mockResolvedValueOnce({
           node_id: 'validator-1',
@@ -216,6 +252,7 @@ describe('Verifiable Trust Service', () => {
           node_id: 'node-1',
           credit_balance: 500,
           trust_level: 'trusted',
+          reputation: 70,
         });
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
@@ -243,6 +280,42 @@ describe('Verifiable Trust Service', () => {
           }),
         }),
       );
+    });
+
+    it('should promote a node to trusted once it has three active stakes and enough reputation', async () => {
+      mockPrisma.validatorStake.count.mockResolvedValue(3);
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({
+          node_id: 'validator-1',
+          credit_balance: 500,
+          trust_level: 'trusted',
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-1',
+          credit_balance: 500,
+          trust_level: 'verified',
+          reputation: 85,
+        });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.validatorStake.create.mockResolvedValue({
+        stake_id: 'stake-3',
+        node_id: 'node-1',
+        validator_id: 'validator-1',
+        amount: 100,
+        staked_at: new Date(),
+        locked_until: new Date(),
+        status: 'active',
+      });
+      mockPrisma.trustAttestation.create.mockResolvedValue({ attestation_id: 'att-3' });
+
+      const result = await stake('node-1', 'validator-1', 100);
+
+      expect(result.trust_level).toBe('trusted');
+      expect(mockPrisma.node.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: { trust_level: 'trusted' },
+      });
     });
 
     it('should reject stakes when the transactional debit cannot reserve enough credits', async () => {
@@ -346,14 +419,16 @@ describe('Verifiable Trust Service', () => {
 
     it('should recalculate the target trust level after release based on remaining stakes', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(unlockedStake);
-      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'validator-1', credit_balance: 400 });
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 400 })
+        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'trusted', reputation: 85 });
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.validatorStake.update.mockResolvedValue({
         ...unlockedStake,
         status: 'released',
       });
-      mockPrisma.validatorStake.findMany.mockResolvedValue([{ amount: 100 }]);
+      mockPrisma.validatorStake.count.mockResolvedValue(1);
 
       const result = await release('stake-1', 'validator-1');
 
@@ -697,18 +772,18 @@ describe('Verifiable Trust Service', () => {
     it('should verify a target node with a trusted validator', async () => {
       mockPrisma.node.findFirst
         .mockResolvedValueOnce({ node_id: 'validator-1', trust_level: 'trusted' })
-        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'unverified' });
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'unverified', reputation: 60 });
       mockPrisma.validatorStake.findMany.mockResolvedValue([
         { amount: 100 },
-        { amount: 200 },
       ]);
+      mockPrisma.validatorStake.count.mockResolvedValue(1);
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.trustAttestation.create.mockResolvedValue({
         attestation_id: 'att-1',
         validator_id: 'validator-1',
         node_id: 'target-1',
         trust_level: 'verified',
-        stake_amount: 300,
+        stake_amount: 100,
         verified_at: new Date(),
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         signature: 'abc123',
@@ -722,21 +797,21 @@ describe('Verifiable Trust Service', () => {
       expect(result.trust_level).toBe('verified');
     });
 
-    it('should assign trusted level when total staked >= 500', async () => {
+    it('should assign trusted level when the target has three active stakes and enough reputation', async () => {
       mockPrisma.node.findFirst
         .mockResolvedValueOnce({ node_id: 'validator-1', trust_level: 'trusted' })
-        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'unverified' });
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'verified', reputation: 80 });
       mockPrisma.validatorStake.findMany.mockResolvedValue([
-        { amount: 300 },
-        { amount: 250 },
+        { amount: 100 },
       ]);
+      mockPrisma.validatorStake.count.mockResolvedValue(3);
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.trustAttestation.create.mockResolvedValue({
         attestation_id: 'att-2',
         validator_id: 'validator-1',
         node_id: 'target-1',
         trust_level: 'trusted',
-        stake_amount: 550,
+        stake_amount: 100,
         verified_at: new Date(),
         expires_at: new Date(),
         signature: 'def456',
@@ -747,17 +822,18 @@ describe('Verifiable Trust Service', () => {
       expect(result.trust_level).toBe('trusted');
     });
 
-    it('should preserve trusted targets during explicit verification', async () => {
+    it('should downgrade a trusted target when it no longer meets the trusted threshold', async () => {
       mockPrisma.node.findFirst
         .mockResolvedValueOnce({ node_id: 'validator-1', trust_level: 'trusted' })
-        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'trusted' });
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'trusted', reputation: 90 });
       mockPrisma.validatorStake.findMany.mockResolvedValue([{ amount: 100 }]);
+      mockPrisma.validatorStake.count.mockResolvedValue(1);
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.trustAttestation.create.mockResolvedValue({
         attestation_id: 'att-keep-trusted',
         validator_id: 'validator-1',
         node_id: 'target-1',
-        trust_level: 'trusted',
+        trust_level: 'verified',
         stake_amount: 100,
         verified_at: new Date(),
         expires_at: new Date(),
@@ -766,10 +842,10 @@ describe('Verifiable Trust Service', () => {
 
       const result = await verifyNode('validator-1', 'target-1', 'Keep trusted');
 
-      expect(result.trust_level).toBe('trusted');
+      expect(result.trust_level).toBe('verified');
       expect(mockPrisma.node.update).toHaveBeenCalledWith({
         where: { node_id: 'target-1' },
-        data: { trust_level: 'trusted' },
+        data: { trust_level: 'verified' },
       });
     });
 
@@ -799,15 +875,16 @@ describe('Verifiable Trust Service', () => {
     it('should create attestation with signature', async () => {
       mockPrisma.node.findFirst
         .mockResolvedValueOnce({ node_id: 'validator-1', trust_level: 'trusted' })
-        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'unverified' });
-      mockPrisma.validatorStake.findMany.mockResolvedValue([]);
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'unverified', reputation: 40 });
+      mockPrisma.validatorStake.findMany.mockResolvedValue([{ amount: 100 }]);
+      mockPrisma.validatorStake.count.mockResolvedValue(1);
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.trustAttestation.create.mockResolvedValue({
         attestation_id: 'att-3',
         validator_id: 'validator-1',
         node_id: 'target-1',
         trust_level: 'verified',
-        stake_amount: 0,
+        stake_amount: 100,
         verified_at: new Date(),
         expires_at: new Date(),
         signature: 'signed-hash',
@@ -820,10 +897,77 @@ describe('Verifiable Trust Service', () => {
           data: expect.objectContaining({
             validator_id: 'validator-1',
             node_id: 'target-1',
+            stake_amount: 100,
             signature: expect.any(String),
           }),
         }),
       );
+    });
+
+    it('should reject verification when the validator has no active stake on the target', async () => {
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({ node_id: 'validator-1', trust_level: 'trusted' })
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'unverified', reputation: 40 });
+      mockPrisma.validatorStake.findMany.mockResolvedValue([]);
+
+      await expect(verifyNode('validator-1', 'target-1', 'notes')).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe('failVerification', () => {
+    it('should slash the validator stake when verification fails', async () => {
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({ node_id: 'validator-1', trust_level: 'trusted', reputation: 90 })
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'verified', reputation: 60 })
+        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 })
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'unverified', reputation: 60 })
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'unverified', reputation: 60 });
+      mockPrisma.validatorStake.findMany.mockResolvedValue([
+        {
+          stake_id: 'stake-1',
+          node_id: 'target-1',
+          validator_id: 'validator-1',
+          amount: 100,
+          staked_at: new Date(),
+          locked_until: new Date(),
+          status: 'active',
+        },
+      ]);
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.validatorStake.update.mockResolvedValue({
+        stake_id: 'stake-1',
+        node_id: 'target-1',
+        validator_id: 'validator-1',
+        amount: 100,
+        staked_at: new Date(),
+        locked_until: new Date(),
+        status: 'slashed',
+      });
+      mockPrisma.validatorStake.count.mockResolvedValue(0);
+
+      const result = await failVerification('validator-1', 'target-1');
+
+      expect(result).toMatchObject({
+        status: 'slashed',
+        stake_id: 'stake-1',
+        amount_returned: 90,
+        penalty: 10,
+        trust_level: 'unverified',
+      });
+      expect(mockPrisma.node.update).toHaveBeenCalledWith({
+        where: { node_id: 'validator-1' },
+        data: { reputation: { decrement: 5 } },
+      });
+    });
+
+    it('should throw when the validator has no active stake on the target', async () => {
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({ node_id: 'validator-1', trust_level: 'trusted', reputation: 90 })
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'verified', reputation: 60 });
+      mockPrisma.validatorStake.findMany.mockResolvedValue([]);
+
+      await expect(failVerification('validator-1', 'target-1')).rejects.toThrow(NotFoundError);
     });
   });
 

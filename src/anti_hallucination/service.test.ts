@@ -57,6 +57,7 @@ describe('Anti-Hallucination Service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.hallucinationCheck.findMany.mockResolvedValue([]);
   });
 
   describe('performCheck', () => {
@@ -118,6 +119,64 @@ describe('Anti-Hallucination Service', () => {
     it('should reject empty code content', async () => {
       await expect(performCheck('node-1', '', 'code_review')).rejects.toThrow(ValidationError);
       await expect(performCheck('node-1', '   ', 'code_review')).rejects.toThrow(ValidationError);
+    });
+
+    it('should pass language through validateCode for validator-aware checks', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-validate-lang',
+        node_id: 'node-1',
+        result: {},
+        confidence: 0.95,
+        alerts: [],
+        validation_type: 'validate',
+      });
+
+      await validateCode('node-1', 'const x = 1;', 'asset-1', 'typescript');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              language: 'typescript',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('does not execute user code for unit_test validation types', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-static-unit-test',
+        node_id: 'node-1',
+        result: {},
+        confidence: 0.4,
+        alerts: [],
+        validation_type: 'unit_test',
+      });
+
+      await performCheck(
+        'node-1',
+        'console.log("should not execute"); process.exit(1);',
+        'unit_test',
+        'asset-2',
+        'javascript',
+      );
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              validations: [
+                {
+                  type: 'unit_test',
+                  passed: false,
+                  message: 'Unit-test execution unavailable for this language',
+                },
+              ],
+            }),
+          }),
+        }),
+      );
     });
 
     it('should reject missing validation_type', async () => {
@@ -195,6 +254,409 @@ describe('Anti-Hallucination Service', () => {
           }),
         }),
       );
+    });
+
+    it('should detect invalid API calls and persist structured validation output', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-7',
+        node_id: 'node-1',
+        confidence: 0.57,
+        validation_type: 'check',
+      });
+
+      await performCheck(
+        'node-1',
+        "import requests\nresponse = requests.download('https://example.com/file.zip')",
+        'check',
+        'asset-2',
+        'python',
+        [{ type: 'document', source: 'requests-docs', confidence: 0.95 }],
+      );
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            validation_type: 'check',
+            result: expect.objectContaining({
+              passed: false,
+              validations: expect.arrayContaining([
+                expect.objectContaining({ type: 'syntax', passed: true }),
+              ]),
+              alerts: expect.arrayContaining([
+                expect.objectContaining({
+                  type: 'invalid_api',
+                  level: 'L3',
+                  message: 'requests.download() does not exist in the requests library',
+                  suggestion: expect.stringContaining('requests.get()'),
+                }),
+              ]),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should use generic nearest-api suggestions for other allowlisted modules', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-8',
+        node_id: 'node-1',
+        confidence: 0.6,
+        validation_type: 'check',
+      });
+
+      await performCheck('node-1', 'import json\nvalue = json.lods("{}")', 'check');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              alerts: expect.arrayContaining([
+                expect.objectContaining({
+                  type: 'invalid_api',
+                  suggestion: 'Did you mean: json.loads() ?',
+                }),
+              ]),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should keep unknown modules out of the invalid-api detector', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-9',
+        node_id: 'node-1',
+        confidence: 0.9,
+        validation_type: 'check',
+      });
+
+      await performCheck('node-1', 'customSdk.fetchThing()', 'check');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              alerts: [],
+              passed: true,
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should mark syntax validation as failed when delimiters are unbalanced', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-10',
+        node_id: 'node-1',
+        confidence: 0.4,
+        validation_type: 'syntax',
+      });
+
+      await performCheck('node-1', 'function broken( { return 1; }', 'syntax');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              passed: false,
+              validations: [{ type: 'syntax', passed: false, message: 'Syntax appears invalid' }],
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should report unavailable runtime validation when benchmark execution cannot run', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-11',
+        node_id: 'node-1',
+        confidence: 0.9,
+        validation_type: 'benchmark',
+      });
+
+      await performCheck('node-1', 'const stable = 1;', 'benchmark');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              validations: [{ type: 'benchmark', passed: false, message: 'Benchmark execution unavailable for this language' }],
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should deduplicate repeated credential alerts and fail weak trust anchors', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-12',
+        node_id: 'node-1',
+        confidence: 0.34,
+        validation_type: 'check',
+      });
+
+      await performCheck(
+        'node-1',
+        'password = "secret"\nsecret = "another"\nkey = "third"',
+        'check',
+        'asset-3',
+        'python',
+        [{ type: 'document', source: 'unverified-note', confidence: 0.2 }],
+      );
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              alert_count: 1,
+              alerts: [
+                expect.objectContaining({
+                  type: 'security_risk',
+                  message: 'Potential hardcoded secret or credential detected',
+                }),
+              ],
+              validations: expect.arrayContaining([
+                expect.objectContaining({
+                  type: 'trust_anchor',
+                  passed: false,
+                  message: 'Trust anchors are too weak (avg confidence 0.20)',
+                }),
+              ]),
+              passed: false,
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should keep javascript syntax validation static-only', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-13',
+        node_id: 'node-1',
+        confidence: 0.95,
+        validation_type: 'syntax',
+      });
+
+      await performCheck('node-1', 'const answer = 42;\nconsole.log(answer);', 'syntax', undefined, 'javascript');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              validations: [
+                expect.objectContaining({
+                  type: 'syntax',
+                  passed: true,
+                  message: 'syntax validation passed',
+                }),
+              ],
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should keep bash syntax validation static-only', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-14',
+        node_id: 'node-1',
+        confidence: 0.95,
+        validation_type: 'syntax',
+      });
+
+      await performCheck('node-1', 'echo hello\nif [ 1 -eq 1 ]; then echo ok; fi', 'syntax', undefined, 'bash');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              validations: [
+                expect.objectContaining({
+                  type: 'syntax',
+                  passed: true,
+                  message: 'syntax validation passed',
+                }),
+              ],
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should mark python unit-test validation as unavailable without execution', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-15',
+        node_id: 'node-1',
+        confidence: 0.95,
+        validation_type: 'unit_test',
+      });
+
+      await performCheck('node-1', 'print("unit ok")', 'unit_test', undefined, 'python');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              validations: [
+                expect.objectContaining({
+                  type: 'unit_test',
+                  passed: false,
+                  message: 'Unit-test execution unavailable for this language',
+                }),
+              ],
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should mark javascript integration validation as unavailable without execution', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-16',
+        node_id: 'node-1',
+        confidence: 0.95,
+        validation_type: 'integration',
+      });
+
+      await performCheck('node-1', 'console.log("integration ok");', 'integration', undefined, 'js');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              validations: [
+                expect.objectContaining({
+                  type: 'integration',
+                  passed: false,
+                  message: 'Integration execution unavailable for this language',
+                }),
+              ],
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should mark bash benchmark validation as unavailable without execution', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-17',
+        node_id: 'node-1',
+        confidence: 0.95,
+        validation_type: 'benchmark',
+      });
+
+      await performCheck('node-1', 'echo benchmark-ok', 'benchmark', undefined, 'shell');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              validations: [
+                expect.objectContaining({
+                  type: 'benchmark',
+                  passed: false,
+                  message: 'Benchmark execution unavailable for this language',
+                }),
+              ],
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should fall back to linter-only validation when shell execution is unsupported for the type', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-18',
+        node_id: 'node-1',
+        confidence: 0.84,
+        validation_type: 'linter',
+      });
+
+      await performCheck('node-1', 'print("lint")', 'linter', undefined, 'python');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              validations: [
+                expect.objectContaining({
+                  type: 'linter',
+                  passed: true,
+                  message: 'No lint-style issues detected',
+                }),
+              ],
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should fall back to heuristic validation for unknown validation types and unsupported languages', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-19',
+        node_id: 'node-1',
+        confidence: 0.84,
+        validation_type: 'custom_scan',
+      });
+
+      await performCheck('node-1', 'puts "hello"', 'custom_scan', undefined, 'ruby');
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              validations: [
+                expect.objectContaining({
+                  type: 'custom_scan',
+                  passed: true,
+                  message: 'Heuristic validation completed',
+                }),
+              ],
+              language: 'ruby',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('should increase confidence when history is clean and recent', async () => {
+      mockPrisma.hallucinationCheck.findMany.mockResolvedValue([
+        {
+          created_at: new Date(Date.now() - 60 * 60 * 1000),
+          result: { passed: true, has_hallucination: false },
+        },
+      ]);
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-20',
+        node_id: 'node-1',
+        confidence: 0.96,
+        validation_type: 'check',
+      });
+
+      await performCheck('node-1', 'const stable = 1;', 'check', 'asset-4', 'javascript');
+
+      const [{ data }] = mockPrisma.hallucinationCheck.create.mock.calls.at(-1);
+      expect(data.confidence).toBeGreaterThan(0.92);
+    });
+
+    it('should decrease confidence when history contains recent failed checks', async () => {
+      mockPrisma.hallucinationCheck.findMany.mockResolvedValue([
+        {
+          created_at: new Date(Date.now() - 60 * 60 * 1000),
+          result: { passed: false, has_hallucination: true },
+        },
+      ]);
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-21',
+        node_id: 'node-1',
+        confidence: 0.78,
+        validation_type: 'check',
+      });
+
+      await performCheck('node-1', 'const stable = 1;', 'check', 'asset-5', 'javascript');
+
+      const [{ data }] = mockPrisma.hallucinationCheck.create.mock.calls.at(-1);
+      expect(data.confidence).toBeLessThan(0.92);
     });
   });
 
@@ -333,6 +795,22 @@ describe('Anti-Hallucination Service', () => {
       expect(result.alert_count).toBe(2);
       expect(result.has_hallucination).toBe(true);
     });
+
+    it('should throw when a direct check belongs to another node', async () => {
+      mockPrisma.hallucinationCheck.findUnique.mockResolvedValue({
+        check_id: 'chk-foreign',
+        node_id: 'node-2',
+        created_at: new Date(),
+      });
+
+      await expect(getConfidence('node-1', { checkId: 'chk-foreign' })).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw when no confidence record exists for the node', async () => {
+      mockPrisma.hallucinationCheck.findFirst.mockResolvedValue(null);
+
+      await expect(getConfidence('node-1', { assetId: 'asset-missing' })).rejects.toThrow(NotFoundError);
+    });
   });
 
   describe('listForbiddenPatterns', () => {
@@ -341,10 +819,11 @@ describe('Anti-Hallucination Service', () => {
 
       expect(patterns).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ id: 'todo-fixme-hack' }),
-          expect.objectContaining({ id: 'hardcoded-secrets' }),
+          expect.objectContaining({ id: 'eval-exec' }),
+          expect.objectContaining({ id: 'hardcoded-password' }),
         ]),
       );
+      expect(patterns).toHaveLength(10);
     });
   });
 
@@ -439,6 +918,13 @@ describe('Anti-Hallucination Service', () => {
     it('should reject past expiry date', async () => {
       const pastDate = new Date(Date.now() - 86400000);
       await expect(addAnchor('github', 'source', 0.9, pastDate)).rejects.toThrow(ValidationError);
+    });
+
+    it('should require both type and source', async () => {
+      const futureDate = new Date(Date.now() + 86400000);
+
+      await expect(addAnchor('', 'source', 0.9, futureDate)).rejects.toThrow(ValidationError);
+      await expect(addAnchor('github', '', 0.9, futureDate)).rejects.toThrow(ValidationError);
     });
   });
 
@@ -560,6 +1046,12 @@ describe('Anti-Hallucination Service', () => {
     it('should reject invalid weight', async () => {
       await expect(createGraphEdge('node-a', 'node-b', 'evolves_from', 1.5)).rejects.toThrow(ValidationError);
       await expect(createGraphEdge('node-a', 'node-b', 'evolves_from', -0.1)).rejects.toThrow(ValidationError);
+    });
+
+    it('should require source, target, and relation identifiers', async () => {
+      await expect(createGraphEdge('', 'node-b', 'evolves_from')).rejects.toThrow(ValidationError);
+      await expect(createGraphEdge('node-a', '', 'evolves_from')).rejects.toThrow(ValidationError);
+      await expect(createGraphEdge('node-a', 'node-b', '')).rejects.toThrow(ValidationError);
     });
   });
 

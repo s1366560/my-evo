@@ -35,6 +35,28 @@ type ReleaseResult = ValidatorStake & {
   trust_level: TrustLevel;
 };
 
+type FailedVerificationResult = {
+  status: 'slashed';
+  stake_id: string;
+  node_id: string;
+  validator_id: string;
+  amount_returned: number;
+  penalty: number;
+  trust_level: TrustLevel;
+};
+
+const FAILED_VERIFICATION_REPUTATION_PENALTY = 5;
+
+function deriveTrustLevel(activeStakeCount: number, reputation = 0): TrustLevel {
+  if (activeStakeCount >= 3 && reputation >= 80) {
+    return 'trusted';
+  }
+  if (activeStakeCount >= 1) {
+    return 'verified';
+  }
+  return 'unverified';
+}
+
 async function syncTrustAfterStakeSettlement(
   nodeId: string,
   validatorId: string,
@@ -47,26 +69,20 @@ async function syncTrustAfterStakeSettlement(
     },
   });
 
-  const remainingStakes = await prisma.validatorStake.findMany({
+  const remainingStakeCount = await prisma.validatorStake.count({
     where: {
       node_id: nodeId,
       status: 'active',
     },
-    select: { amount: true },
   });
-  const remainingStakeTotal = remainingStakes.reduce(
-    (sum: number, stake: { amount: number }) => sum + stake.amount,
-    0,
-  );
-  const trustLevel: TrustLevel = remainingStakeTotal >= 500
-    ? 'trusted'
-    : remainingStakeTotal >= 100
-      ? 'verified'
-      : fallbackLevel;
 
   const targetNode = await prisma.node.findFirst({
     where: { node_id: nodeId },
   });
+  const trustLevel: TrustLevel = targetNode
+    ? deriveTrustLevel(remainingStakeCount, targetNode.reputation)
+    : fallbackLevel;
+
   if (targetNode) {
     await prisma.node.update({
       where: { node_id: nodeId },
@@ -113,6 +129,20 @@ export async function stake(
       throw new NotFoundError('Node', nodeId);
     }
 
+    const existingStake = await tx.validatorStake.findMany({
+      where: {
+        node_id: nodeId,
+        validator_id: validatorId,
+        status: 'active',
+      },
+      orderBy: { staked_at: 'asc' },
+      take: 1,
+    });
+
+    if (existingStake.length > 0) {
+      throw new ValidationError('Validator already has an active stake for this node');
+    }
+
     const debitResult = await tx.node.updateMany({
       where: {
         node_id: validatorId,
@@ -150,9 +180,17 @@ export async function stake(
       },
     });
 
+    const activeStakeCount = await tx.validatorStake.count({
+      where: {
+        node_id: nodeId,
+        status: 'active',
+      },
+    });
+    const trustLevel = deriveTrustLevel(activeStakeCount, target.reputation);
+
     await tx.node.update({
       where: { node_id: nodeId },
-      data: { trust_level: 'verified' },
+      data: { trust_level: trustLevel },
     });
 
     const attestation = await tx.trustAttestation.create({
@@ -160,7 +198,7 @@ export async function stake(
         attestation_id: crypto.randomUUID(),
         validator_id: validatorId,
         node_id: nodeId,
-        trust_level: 'verified',
+        trust_level: trustLevel,
         stake_amount: amount,
         expires_at: new Date(
           Date.now() + ATTESTATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
@@ -172,7 +210,7 @@ export async function stake(
       },
     });
 
-    return { createdStake, attestation };
+    return { createdStake, attestation, trustLevel };
   });
 
   return {
@@ -184,7 +222,7 @@ export async function stake(
     locked_until: stakeRecord.createdStake.locked_until.toISOString(),
     status: stakeRecord.createdStake.status as ValidatorStake['status'],
     attestation_id: stakeRecord.attestation.attestation_id,
-    trust_level: 'verified',
+    trust_level: stakeRecord.trustLevel,
   };
 }
 
@@ -450,20 +488,24 @@ export async function verifyNode(
     throw new NotFoundError('Target node', targetId);
   }
 
-  const stakes = await prisma.validatorStake.findMany({
+  const validatorStakes = await prisma.validatorStake.findMany({
+    where: {
+      node_id: targetId,
+      validator_id: validatorId,
+      status: 'active',
+    },
+  });
+
+  if (validatorStakes.length === 0) {
+    throw new ValidationError('Validator must have an active stake for this node before verification');
+  }
+
+  const activeStakeCount = await prisma.validatorStake.count({
     where: { node_id: targetId, status: 'active' },
   });
 
-  const totalStaked = stakes.reduce((sum: number, s: { amount: number }) => sum + s.amount, 0);
-
-  const newLevel: TrustLevel =
-    target.trust_level === 'trusted'
-      ? 'trusted'
-      : totalStaked >= 500
-      ? 'trusted'
-      : totalStaked >= 100
-        ? 'verified'
-        : 'verified';
+  const totalStaked = validatorStakes.reduce((sum: number, s: { amount: number }) => sum + s.amount, 0);
+  const newLevel = deriveTrustLevel(activeStakeCount, target.reputation);
 
   await prisma.node.update({
     where: { node_id: targetId },
@@ -496,6 +538,68 @@ export async function verifyNode(
     verified_at: attestation.verified_at.toISOString(),
     expires_at: attestation.expires_at.toISOString(),
     signature: attestation.signature,
+  };
+}
+
+export async function failVerification(
+  validatorId: string,
+  targetId: string,
+): Promise<FailedVerificationResult> {
+  const validator = await prisma.node.findFirst({
+    where: { node_id: validatorId },
+  });
+
+  if (!validator) {
+    throw new NotFoundError('Validator', validatorId);
+  }
+
+  if (validator.trust_level !== 'trusted') {
+    throw new TrustLevelError('trusted', validator.trust_level);
+  }
+
+  const target = await prisma.node.findFirst({
+    where: { node_id: targetId },
+  });
+
+  if (!target) {
+    throw new NotFoundError('Target node', targetId);
+  }
+
+  const [stakeRecord] = await prisma.validatorStake.findMany({
+    where: {
+      node_id: targetId,
+      validator_id: validatorId,
+      status: 'active',
+    },
+    orderBy: { staked_at: 'asc' },
+    take: 1,
+  });
+
+  if (!stakeRecord) {
+    throw new NotFoundError('Active stake', `${validatorId}:${targetId}`);
+  }
+
+  const slashedStake = await slash(stakeRecord.stake_id);
+  const penalty = Math.ceil(stakeRecord.amount * TRUST_SLASH_PENALTY);
+  const amountReturned = stakeRecord.amount - penalty;
+
+  await prisma.node.update({
+    where: { node_id: validatorId },
+    data: { reputation: { decrement: FAILED_VERIFICATION_REPUTATION_PENALTY } },
+  });
+
+  const refreshedTarget = await prisma.node.findFirst({
+    where: { node_id: targetId },
+  });
+
+  return {
+    status: 'slashed',
+    stake_id: slashedStake.stake_id,
+    node_id: slashedStake.node_id,
+    validator_id: slashedStake.validator_id,
+    amount_returned: amountReturned,
+    penalty,
+    trust_level: (refreshedTarget?.trust_level as TrustLevel | undefined) ?? 'unverified',
   };
 }
 

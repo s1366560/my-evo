@@ -112,6 +112,24 @@ async function authenticateNodeSecret(
   };
 }
 
+export async function authenticateNodeSecretBearer(
+  request: FastifyRequest,
+): Promise<AuthResult> {
+  const prismaClient = getPrismaClient(request);
+  const authHeader = request.headers.authorization;
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new UnauthorizedError('Node secret bearer token is required');
+  }
+
+  const token = authHeader.slice(7);
+  if (token.startsWith('ek_')) {
+    throw new UnauthorizedError('Node secret bearer token is required');
+  }
+
+  return authenticateNodeSecret(prismaClient, token);
+}
+
 async function authenticateApiKey(
   prismaClient: PrismaClient,
   key: string,
@@ -159,6 +177,12 @@ export function requireTrustLevel(minLevel: TrustLevel) {
       throw new TrustLevelError(minLevel, auth.trust_level);
     }
     request.auth = auth;
+  };
+}
+
+export function requireNodeSecretAuth() {
+  return async (request: FastifyRequest, _reply: FastifyReply) => {
+    request.auth = await authenticateNodeSecretBearer(request);
   };
 }
 

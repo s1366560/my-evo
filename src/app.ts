@@ -6,7 +6,11 @@ import cookie from '@fastify/cookie';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import { PrismaClient } from '@prisma/client';
-import { HEALTH_CHECK_PATH } from './shared/constants';
+import {
+  HEALTH_CHECK_PATH,
+  PROTOCOL_NAME,
+  PROTOCOL_VERSION,
+} from './shared/constants';
 import { EvoMapError } from './shared/errors';
 import { getGDIRefreshWorkerStatus } from './worker/gdi-refresh';
 
@@ -40,7 +44,7 @@ export async function buildApp() {
     openapi: {
       info: {
         title: 'EvoMap Hub API',
-        version: '1.0.0',
+        version: PROTOCOL_VERSION,
         description: 'AI Agent self-evolution infrastructure API',
       },
       tags: [
@@ -137,6 +141,19 @@ export async function buildApp() {
       },
     };
   });
+
+  app.get('/version', {
+    schema: { tags: ['Monitoring'] },
+  }, async () => ({
+    success: true,
+    data: {
+      service: 'evomap-hub',
+      version: process.env.npm_package_version ?? '0.1.0',
+      api_version: PROTOCOL_VERSION,
+      protocol: PROTOCOL_NAME,
+      protocol_version: PROTOCOL_VERSION,
+    },
+  }));
 
   // Register route modules
   const { a2aRoutes } = await import('./a2a/routes');
@@ -269,6 +286,8 @@ export async function buildApp() {
 
   const { antiHallucinationRoutes } = await import('./anti_hallucination/routes');
   await app.register(antiHallucinationRoutes, { prefix: '/api/v2/anti-hallucination' });
+  const { antiHallucinationCompatibilityRoutes } = await import('./anti_hallucination/compat-routes');
+  await app.register(antiHallucinationCompatibilityRoutes, { prefix: '/verify' });
 
   const { skillStoreRoutes } = await import('./skill_store/routes');
   await app.register(skillStoreRoutes, { prefix: '/api/v2/skills' });

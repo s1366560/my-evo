@@ -415,7 +415,7 @@ model Appeal {
 model ValidatorStake {
   id            String   @id @default(cuid())
   stake_id     String   @unique
-  node_id      String   @unique
+  node_id      String
   validator_id String
   amount       Int      @default(500)
   staked_at    DateTime @default(now())

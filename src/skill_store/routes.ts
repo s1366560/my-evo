@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { authenticate, requireAuth } from '../shared/auth';
+import { authenticate, requireAuth, requireNodeSecretAuth } from '../shared/auth';
 import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as skillStoreService from './service';
 import { ForbiddenError, UnauthorizedError, ValidationError } from '../shared/errors';
@@ -41,13 +41,63 @@ function ensureSkillWriteAuth(auth: NonNullable<import('fastify').FastifyRequest
   }
 }
 
+function ensureNodeSecretAuth(auth: NonNullable<import('fastify').FastifyRequest['auth']>): void {
+  if (auth.auth_type !== 'node_secret') {
+    throw new ForbiddenError('Node secret credentials are required for skill store mutations');
+  }
+}
+
+type SkillWriteRequestBody = {
+  name: string;
+  description: string;
+  category: string;
+  price_credits?: number;
+  code_template?: string;
+  parameters?: Record<string, unknown>;
+  steps?: string[];
+  examples?: string[];
+  tags?: string[];
+  source_capsules?: string[];
+  content?: {
+    code_template?: string;
+    parameters?: Record<string, unknown>;
+    steps?: string[];
+    examples?: string[];
+  };
+};
+
+function normalizeSkillWriteInput(body: SkillWriteRequestBody) {
+  return {
+    name: body.name,
+    description: body.description,
+    category: body.category,
+    price_credits: body.price_credits,
+    code_template: body.code_template ?? body.content?.code_template,
+    parameters: body.parameters ?? body.content?.parameters,
+    steps: body.steps ?? body.content?.steps,
+    examples: body.examples ?? body.content?.examples,
+    tags: body.tags,
+    source_capsules: body.source_capsules,
+  };
+}
+
+function validateSkillWriteBody(body: SkillWriteRequestBody, options?: { allowDefaultCategory?: boolean }): void {
+  if (!body.name) {
+    throw new ValidationError('name is required');
+  }
+  if (!body.description) {
+    throw new ValidationError('description is required');
+  }
+  if (!options?.allowDefaultCategory && !body.category) {
+    throw new ValidationError('category is required');
+  }
+}
+
 export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
-  // -------------------------------------------------------------------------
-  // GET /api/v2/skills
-  // -------------------------------------------------------------------------
-  app.get('/', {
-    schema: { tags: ['SkillStore'] },
-  }, async (request, reply) => {
+  const listSkillsHandler = async (
+    request: import('fastify').FastifyRequest,
+    reply: import('fastify').FastifyReply,
+  ) => {
     const {
       category,
       tags,
@@ -55,6 +105,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       limit,
       offset,
       sort,
+      cursor,
     } = request.query as Record<string, string | string[] | undefined>;
 
     const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
@@ -75,11 +126,56 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       parsedLimit,
       parsedOffset,
       parsedSort,
+      Array.isArray(cursor) ? cursor[0] : cursor,
       app.prisma,
     );
 
-    return reply.send({ success: true, data: result });
-  });
+    return reply.send({
+      success: true,
+      skills: result.items,
+      next_cursor: result.next_cursor,
+      has_more: result.has_more,
+      data: result,
+    });
+  };
+
+  const downloadSkillHandler = async (
+    request: import('fastify').FastifyRequest,
+    reply: import('fastify').FastifyReply,
+  ) => {
+    const auth = request.auth!;
+    ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
+    const nodeId = await resolveSkillNodeId(app, auth);
+    const { skillId } = request.params as { skillId: string };
+
+    const result = await skillStoreService.downloadSkill(skillId, nodeId, app.prisma);
+    return reply.send({
+      success: true,
+      skill_id: result.skill_id,
+      name: result.name,
+      content: {
+        code_template: result.code_template,
+        parameters: result.parameters,
+        steps: result.steps,
+        examples: result.examples,
+      },
+      credits_charged: result.credits_charged,
+      remaining_credits: result.remaining_credits,
+      data: result,
+    });
+  };
+
+  // -------------------------------------------------------------------------
+  // GET /api/v2/skills
+  // -------------------------------------------------------------------------
+  app.get('/', {
+    schema: { tags: ['SkillStore'] },
+  }, listSkillsHandler);
+
+  app.get('/browse', {
+    schema: { tags: ['SkillStore'] },
+  }, listSkillsHandler);
 
   // -------------------------------------------------------------------------
   // GET /api/v2/skills/categories
@@ -113,10 +209,11 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/my', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { limit, offset } = request.query as Record<string, string | undefined>;
     const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
@@ -168,84 +265,48 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
   // -------------------------------------------------------------------------
   app.post('/', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
-    const body = request.body as {
-      name: string;
-      description: string;
-      category: string;
-      price_credits?: number;
-      code_template?: string;
-      parameters?: Record<string, unknown>;
-      steps?: string[];
-      examples?: string[];
-      tags?: string[];
-      source_capsules?: string[];
-    };
+    const body = request.body as SkillWriteRequestBody;
+    validateSkillWriteBody(body);
+    const input = normalizeSkillWriteInput(body);
 
-    if (!body.name) {
-      throw new ValidationError('name is required');
-    }
-    if (!body.description) {
-      throw new ValidationError('description is required');
-    }
-    if (!body.category) {
-      throw new ValidationError('category is required');
-    }
-
-    const result = await skillStoreService.createSkill(nodeId, {
-      name: body.name,
-      description: body.description,
-      category: body.category,
-      price_credits: body.price_credits,
-      code_template: body.code_template,
-      parameters: body.parameters,
-      steps: body.steps,
-      examples: body.examples,
-      tags: body.tags,
-      source_capsules: body.source_capsules,
-    }, app.prisma);
+    const result = await skillStoreService.createSkill(nodeId, input, app.prisma);
 
     return reply.status(201).send({ success: true, data: result });
   });
 
   app.post('/publish', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
-    const body = request.body as {
-      name: string;
-      description: string;
-      category: string;
-      price_credits?: number;
-      code_template?: string;
-      parameters?: Record<string, unknown>;
-      steps?: string[];
-      examples?: string[];
-      tags?: string[];
-      source_capsules?: string[];
-    };
+    const body = request.body as SkillWriteRequestBody;
+    validateSkillWriteBody(body, { allowDefaultCategory: true });
+    const input = normalizeSkillWriteInput({
+      ...body,
+      category: body.category ?? 'general',
+    });
 
-    const published = await skillStoreService.createPublishedSkill(nodeId, {
-      name: body.name,
-      description: body.description,
-      category: body.category,
-      price_credits: body.price_credits,
-      code_template: body.code_template,
-      parameters: body.parameters,
-      steps: body.steps,
-      examples: body.examples,
-      tags: body.tags,
-      source_capsules: body.source_capsules,
-    }, app.prisma);
+    const published = await skillStoreService.createPublishedSkill(nodeId, input, app.prisma);
 
-    return reply.status(201).send({ success: true, data: published });
+    return reply.status(201).send({
+      success: true,
+      skill_id: published.skill_id,
+      status: 'pending',
+      message: 'Skill submitted for review. Will be available after passing moderation pipeline.',
+      data: {
+        ...published,
+        status: 'pending',
+      },
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -253,10 +314,11 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
   // -------------------------------------------------------------------------
   app.put('/:skillId', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
     const body = request.body as {
@@ -272,16 +334,17 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       source_capsules?: string[];
     };
 
-    const result = await skillStoreService.updateSkill(skillId, nodeId, body, app.prisma);
+    const result = await skillStoreService.updateSkillVersion(skillId, nodeId, body, app.prisma);
     return reply.send({ success: true, data: result });
   });
 
   app.post('/:skillId/update', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
     const body = request.body as {
@@ -307,10 +370,11 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
   // -------------------------------------------------------------------------
   app.delete('/:skillId', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -320,10 +384,11 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/:skillId/delete', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -336,10 +401,11 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
   // -------------------------------------------------------------------------
   app.post('/:skillId/publish', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -349,10 +415,11 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/:skillId/rollback', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
     const body = (request.body as { version?: string } | undefined) ?? {};
@@ -368,10 +435,11 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/:skillId/restore', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -381,10 +449,11 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/:skillId/permanent-delete', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
 
@@ -417,10 +486,11 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
   // -------------------------------------------------------------------------
   app.post('/:skillId/rate', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureSkillWriteAuth(auth);
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { skillId } = request.params as { skillId: string };
     const body = request.body as { rating: number };
@@ -444,14 +514,15 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
   // -------------------------------------------------------------------------
   app.post('/:skillId/download', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireAuth()],
-  }, async (request, reply) => {
-    const auth = request.auth!;
-    ensureSkillWriteAuth(auth);
-    const nodeId = await resolveSkillNodeId(app, auth);
-    const { skillId } = request.params as { skillId: string };
+    preHandler: [requireNodeSecretAuth()],
+  }, downloadSkillHandler);
 
-    const result = await skillStoreService.downloadSkill(skillId, nodeId, app.prisma);
-    return reply.send({ success: true, data: result });
-  });
+  // -------------------------------------------------------------------------
+  // POST /api/v2/skills/:skillId/install
+  // Compatibility alias for architecture overview and older clients.
+  // -------------------------------------------------------------------------
+  app.post('/:skillId/install', {
+    schema: { tags: ['SkillStore'] },
+    preHandler: [requireNodeSecretAuth()],
+  }, downloadSkillHandler);
 }

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth, requireTrustLevel } from '../shared/auth';
+import { requireAuth, requireNodeSecretAuth, requireTrustLevel } from '../shared/auth';
 import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as antiHallucinationService from './service';
 import { ForbiddenError, ValidationError } from '../shared/errors';
@@ -13,6 +13,14 @@ async function resolveAntiHallucinationNodeId(
   });
 }
 
+function ensureNodeSecretAuth(
+  auth: NonNullable<import('fastify').FastifyRequest['auth']>,
+): void {
+  if (auth.auth_type !== 'node_secret') {
+    throw new ForbiddenError('Node secret credentials are required for anti-hallucination checks');
+  }
+}
+
 export async function antiHallucinationRoutes(
   app: FastifyInstance,
 ): Promise<void> {
@@ -22,7 +30,9 @@ export async function antiHallucinationRoutes(
     const rawResult = result?.result && typeof result.result === 'object'
       ? result.result as Record<string, unknown>
       : {};
-    const passed = rawResult.has_hallucination === false || rawResult.checks_passed === true;
+    const passed = typeof rawResult.passed === 'boolean'
+      ? rawResult.passed
+      : rawResult.has_hallucination === false || rawResult.checks_passed === true;
     const summary = typeof rawResult.summary === 'string'
       ? rawResult.summary
       : 'Check completed';
@@ -58,13 +68,22 @@ export async function antiHallucinationRoutes(
     return {
       passed,
       confidence: result.confidence,
-      validations: [
-        {
-          type: result.validation_type ?? 'heuristic',
-          passed,
-          message: summary,
-        },
-      ],
+      validations: Array.isArray(rawResult.validations)
+        ? rawResult.validations.map((validation) => {
+          const rawValidation = validation as Record<string, unknown>;
+          return {
+            type: typeof rawValidation.type === 'string' ? rawValidation.type : result.validation_type ?? 'heuristic',
+            passed: typeof rawValidation.passed === 'boolean' ? rawValidation.passed : passed,
+            message: typeof rawValidation.message === 'string' ? rawValidation.message : summary,
+          };
+        })
+        : [
+          {
+            type: result.validation_type ?? 'heuristic',
+            passed,
+            message: summary,
+          },
+        ],
       alerts,
       suggestions: Array.isArray(rawResult.suggestions)
         ? rawResult.suggestions.filter(
@@ -86,9 +105,10 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.post('/check', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const body = request.body as {
       code_content?: string;
@@ -103,7 +123,7 @@ export async function antiHallucinationRoutes(
       asset_id?: string;
     };
     const codeContent = getCodeContent(body);
-    const validationType = body.validation_type ?? (body.language ? 'check' : undefined);
+    const validationType = body.validation_type ?? 'check';
 
     if (!codeContent) {
       throw new ValidationError('code_content is required');
@@ -133,14 +153,16 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.post('/validate', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const body = request.body as {
       code_content?: string;
       code?: string;
       asset_id?: string;
+      language?: string;
     };
     const codeContent = getCodeContent(body);
 
@@ -152,6 +174,7 @@ export async function antiHallucinationRoutes(
       nodeId,
       codeContent,
       body.asset_id,
+      body.language,
     );
 
     return reply.status(201).send({ success: true, data: result });
@@ -162,9 +185,10 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.post('/detect', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const body = request.body as {
       code_content?: string;
@@ -191,9 +215,10 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/confidence', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const { check_id, asset_id } = request.query as {
       check_id?: string;
@@ -233,9 +258,10 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/checks/:checkId', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const { checkId } = request.params as { checkId: string };
 
@@ -256,9 +282,10 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/checks', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
+    ensureNodeSecretAuth(auth);
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const { limit, offset } = request.query as Record<string, string | undefined>;
 
@@ -302,6 +329,7 @@ export async function antiHallucinationRoutes(
     schema: { tags: ['AntiHallucination'] },
     preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
+    ensureNodeSecretAuth(request.auth!);
     const body = request.body as {
       type: string;
       source: string;
@@ -392,6 +420,7 @@ export async function antiHallucinationRoutes(
     schema: { tags: ['AntiHallucination'] },
     preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
+    ensureNodeSecretAuth(request.auth!);
     const body = request.body as {
       node_id: string;
       type: string;
@@ -453,6 +482,7 @@ export async function antiHallucinationRoutes(
     schema: { tags: ['AntiHallucination'] },
     preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
+    ensureNodeSecretAuth(request.auth!);
     const body = request.body as {
       source_id: string;
       target_id: string;
@@ -485,7 +515,7 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/chains/:assetId', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireAuth()],
+    preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);

@@ -73,4 +73,27 @@ describe('buildApp health wiring', () => {
 
     await app.close();
   });
+
+  it('exposes version metadata at the root version endpoint', async () => {
+    const { app } = await loadBuildApp('running');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/version',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      success: true,
+      data: {
+        service: 'evomap-hub',
+        version: '0.1.0',
+        api_version: '1.0.0',
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+      },
+    });
+
+    await app.close();
+  });
 });

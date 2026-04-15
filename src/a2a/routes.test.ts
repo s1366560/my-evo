@@ -1120,6 +1120,8 @@ describe('A2A skill routes', () => {
     mockListSkills.mockResolvedValue({
       items: [{ skill_id: 'skill-1', name: 'TypeScript review' }],
       total: 1,
+      next_cursor: null,
+      has_more: false,
     });
 
     const res = await app.inject({
@@ -1137,6 +1139,7 @@ describe('A2A skill routes', () => {
       5,
       2,
       'rating',
+      undefined,
       currentPrisma,
     );
   });
@@ -1145,6 +1148,8 @@ describe('A2A skill routes', () => {
     mockListSkills.mockResolvedValue({
       items: [{ skill_id: 'skill-2', name: 'Refactor helper' }],
       total: 1,
+      next_cursor: null,
+      has_more: false,
     });
 
     const res = await app.inject({
@@ -1168,6 +1173,7 @@ describe('A2A skill routes', () => {
       3,
       1,
       'downloads',
+      undefined,
       currentPrisma,
     );
   });

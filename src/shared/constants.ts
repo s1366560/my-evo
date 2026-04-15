@@ -215,6 +215,7 @@ export const LISTING_EXPIRY_DAYS = 30;
 export const BUYER_PROTECTION_H = 48;
 export const LOW_REP_PRICE_CAP_RATE = 0.5;
 export const LOW_REP_THRESHOLD = 30;
+export const SKILL_DOWNLOAD_COST = 5;
 
 // ===== Reading =====
 export const CONTENT_MAX_LENGTH = 50_000;

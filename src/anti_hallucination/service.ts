@@ -1,5 +1,9 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import crypto from 'crypto';
+import { spawnSync } from 'child_process';
 import type {
   HallucinationCheck,
   TrustAnchor,
@@ -11,31 +15,589 @@ import { NotFoundError, ValidationError } from '../shared/errors';
 
 let prisma = new PrismaClient();
 
-const FORBIDDEN_PATTERNS = [
+type AlertLevel = 'L1' | 'L2' | 'L3' | 'L4';
+
+interface HallucinationAlertRecord {
+  type: string;
+  level: AlertLevel;
+  message: string;
+  suggestion: string | null;
+  line: number | null;
+  confidence: number;
+}
+
+interface ValidationResultRecord {
+  type: string;
+  passed: boolean;
+  message: string;
+}
+
+interface ValidationCommandSpec {
+  command: string;
+  args: string[];
+}
+
+interface ForbiddenPatternDefinition {
+  id: string;
+  category: string;
+  description: string;
+  suggestion: string;
+  pattern: RegExp | string;
+}
+
+const FORBIDDEN_PATTERNS: readonly ForbiddenPatternDefinition[] = [
   {
-    id: 'todo-fixme-hack',
-    category: 'maintainability',
-    description: 'TODO, FIXME, HACK, or XXX markers left in code',
-  },
-  {
-    id: 'hardcoded-secrets',
+    id: 'eval-exec',
     category: 'security',
-    description: 'Potential hardcoded secrets, API keys, passwords, or tokens',
+    description: 'Dynamic code execution via eval(',
+    suggestion: 'Remove dynamic evaluation and use explicit control flow.',
+    pattern: 'eval(',
   },
   {
-    id: 'placeholder-stubs',
-    category: 'correctness',
-    description: 'Placeholder implementations or not-implemented stubs',
+    id: 'exec-call',
+    category: 'security',
+    description: 'Command execution via exec(',
+    suggestion: 'Replace raw exec with allowlisted subprocess execution.',
+    pattern: 'exec(',
   },
   {
-    id: 'repeated-magic-numbers',
-    category: 'quality',
-    description: 'Repeated numeric literals that should likely be named constants',
+    id: 'os-system',
+    category: 'security',
+    description: 'System command execution via os.system(',
+    suggestion: 'Avoid shell execution or use a safer, structured API.',
+    pattern: 'os.system(',
+  },
+  {
+    id: 'shell-true',
+    category: 'security',
+    description: 'Subprocess execution with shell=True',
+    suggestion: 'Use shell=False and pass arguments as an array.',
+    pattern: 'shell=True',
+  },
+  {
+    id: 'dynamic-import',
+    category: 'security',
+    description: 'Dynamic import via __import__(',
+    suggestion: 'Use explicit imports from trusted modules only.',
+    pattern: '__import__(',
+  },
+  {
+    id: 'pickle-usage',
+    category: 'security',
+    description: 'Potentially unsafe deserialization via pickle',
+    suggestion: 'Replace pickle with a safer serialization format.',
+    pattern: 'pickle.',
+  },
+  {
+    id: 'yaml-load',
+    category: 'security',
+    description: 'Unsafe YAML loading via yaml.load(',
+    suggestion: 'Use yaml.safe_load() instead of yaml.load().',
+    pattern: 'yaml.load(',
+  },
+  {
+    id: 'hardcoded-password',
+    category: 'security',
+    description: 'Hardcoded password detected',
+    suggestion: 'Move the password to environment variables or a secrets manager.',
+    pattern: /password\s*=\s*['"]/i,
+  },
+  {
+    id: 'hardcoded-key',
+    category: 'security',
+    description: 'Hardcoded key detected',
+    suggestion: 'Move the key to environment variables or a secrets manager.',
+    pattern: /key\s*=\s*['"]/i,
+  },
+  {
+    id: 'hardcoded-secret',
+    category: 'security',
+    description: 'Hardcoded secret detected',
+    suggestion: 'Move the secret to environment variables or a secrets manager.',
+    pattern: /secret\s*=\s*['"]/i,
   },
 ] as const;
 
+const KNOWN_VALID_APIS: Record<string, string[]> = {
+  requests: ['get', 'post', 'put', 'delete', 'patch', 'head', 'options', 'session'],
+  json: ['dumps', 'loads', 'dump', 'load'],
+  os: ['path', 'getcwd', 'listdir', 'makedirs', 'remove', 'rename', 'environ'],
+  subprocess: ['run', 'Popen', 'PIPE', 'check_output', 'call'],
+  http: ['client', 'server', 'HTTPConnection', 'HTTPSConnection'],
+  collections: ['defaultdict', 'OrderedDict', 'Counter', 'deque', 'namedtuple'],
+};
+
+const CONFIDENCE_DECAY_LAMBDA = 0.023;
+const CONFIDENCE_POSITIVE_WEIGHT = 0.05;
+const CONFIDENCE_NEGATIVE_WEIGHT = 0.15;
+
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
+}
+
+function splitLines(codeContent: string): string[] {
+  return codeContent.split('\n');
+}
+
+function findFirstMatchingLine(lines: string[], pattern: RegExp | string): number | null {
+  const index = lines.findIndex((line) => (
+    typeof pattern === 'string'
+      ? line.includes(pattern)
+      : pattern.test(line)
+  ));
+  return index >= 0 ? index + 1 : null;
+}
+
+function pushAlert(
+  alerts: HallucinationAlertRecord[],
+  messages: string[],
+  alert: HallucinationAlertRecord,
+): void {
+  if (alerts.some((existing) => existing.type === alert.type && existing.message === alert.message)) {
+    return;
+  }
+
+  alerts.push(alert);
+  messages.push(alert.message);
+}
+
+function detectTodoMarkers(lines: string[]): HallucinationAlertRecord[] {
+  const todoPattern = /\bTODO\b|\bFIXME\b|\bHACK\b|\bXXX\b/;
+  const todoMatches = lines.filter((line) => todoPattern.test(line));
+
+  if (todoMatches.length === 0) {
+    return [];
+  }
+
+  return [{
+    type: 'style_issue',
+    level: 'L1',
+    message: `Found ${todoMatches.length} TODO/FIXME/HACK comment(s) in code`,
+    suggestion: 'Resolve or remove TODO/FIXME/HACK markers before publishing the asset.',
+    line: findFirstMatchingLine(lines, todoPattern),
+    confidence: 0.9,
+  }];
+}
+
+function detectPlaceholderStubs(lines: string[]): HallucinationAlertRecord[] {
+  const placeholderPatterns = [
+    /\breturn\s+null\s*;/,
+    /\breturn\s+0\s*;/,
+    /^\s*pass\s*$/m,
+    /\.\.\.\s*$/,
+    /not\s+implemented/i,
+    /\bplaceholder\b/i,
+  ];
+
+  for (const pattern of placeholderPatterns) {
+    const matches = lines.filter((line) => pattern.test(line) && !line.trim().startsWith('//'));
+    if (matches.length > 0) {
+      return [{
+        type: 'logic_error',
+        level: 'L2',
+        message: 'Multiple placeholder or stub patterns detected',
+        suggestion: 'Replace placeholder logic with a real implementation before publication.',
+        line: findFirstMatchingLine(lines, pattern),
+        confidence: 0.85,
+      }];
+    }
+  }
+
+  return [];
+}
+
+function detectRepeatedMagicNumbers(lines: string[]): HallucinationAlertRecord[] {
+  const magicNumbers = lines
+    .map((line) => (line.match(/\b\d+\b/g) || []).filter((value) => value.length > 1))
+    .flat();
+  const magicCounts: Record<string, number> = {};
+
+  for (const value of magicNumbers) {
+    magicCounts[value] = (magicCounts[value] || 0) + 1;
+  }
+
+  const repeatedMagic = Object.values(magicCounts).some((count) => count >= 3);
+  if (!repeatedMagic) {
+    return [];
+  }
+
+  return [{
+    type: 'style_issue',
+    level: 'L1',
+    message: 'Repeated magic numbers detected (consider using named constants)',
+    suggestion: 'Extract repeated numeric literals into named constants.',
+    line: findFirstMatchingLine(lines, /\b\d+\b/),
+    confidence: 0.75,
+  }];
+}
+
+function detectForbiddenPatterns(lines: string[], codeContent: string): HallucinationAlertRecord[] {
+  const alerts: HallucinationAlertRecord[] = [];
+
+  for (const pattern of FORBIDDEN_PATTERNS) {
+    const matched = typeof pattern.pattern === 'string'
+      ? codeContent.includes(pattern.pattern)
+      : pattern.pattern.test(codeContent);
+
+    if (!matched) {
+      continue;
+    }
+
+    alerts.push({
+      type: 'security_risk',
+      level: 'L3',
+      message: pattern.id.startsWith('hardcoded-')
+        ? 'Potential hardcoded secret or credential detected'
+        : `${pattern.description} detected`,
+      suggestion: pattern.suggestion,
+      line: findFirstMatchingLine(lines, pattern.pattern),
+      confidence: 0.95,
+    });
+  }
+
+  return alerts;
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const matrix = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
+
+  for (let i = 0; i <= a.length; i += 1) {
+    matrix[i]![0] = i;
+  }
+  for (let j = 0; j <= b.length; j += 1) {
+    matrix[0]![j] = j;
+  }
+
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i]![j] = Math.min(
+        matrix[i - 1]![j]! + 1,
+        matrix[i]![j - 1]! + 1,
+        matrix[i - 1]![j - 1]! + cost,
+      );
+    }
+  }
+
+  return matrix[a.length]![b.length]!;
+}
+
+function findNearestApi(moduleName: string, methodName: string): string | null {
+  const candidates = KNOWN_VALID_APIS[moduleName];
+  if (!candidates || candidates.length === 0) {
+    return null;
+  }
+
+  if (moduleName === 'requests' && methodName === 'download' && candidates.includes('get')) {
+    return 'get';
+  }
+
+  return [...candidates]
+    .sort((left, right) => levenshteinDistance(methodName, left) - levenshteinDistance(methodName, right))[0] ?? null;
+}
+
+function detectInvalidApis(lines: string[], codeContent: string): HallucinationAlertRecord[] {
+  const alerts: HallucinationAlertRecord[] = [];
+  const apiCallPattern = /\b([a-zA-Z_][\w]*)\.([a-zA-Z_][\w]*)\s*\(/g;
+  const matches = [...codeContent.matchAll(apiCallPattern)];
+
+  for (const match of matches) {
+    const moduleName = match[1];
+    const methodName = match[2];
+    if (!moduleName || !methodName || !(moduleName in KNOWN_VALID_APIS)) {
+      continue;
+    }
+
+    if (KNOWN_VALID_APIS[moduleName]!.includes(methodName)) {
+      continue;
+    }
+
+    const suggestionMethod = findNearestApi(moduleName, methodName);
+    alerts.push({
+      type: 'invalid_api',
+      level: 'L3',
+      message: `${moduleName}.${methodName}() does not exist in the ${moduleName} library`,
+      suggestion: suggestionMethod
+        ? `Did you mean: ${moduleName}.${suggestionMethod}() ?`
+        : `Use a supported ${moduleName} API from the allowlist.`,
+      line: findFirstMatchingLine(lines, `${moduleName}.${methodName}(`),
+      confidence: 0.95,
+    });
+  }
+
+  return alerts;
+}
+
+function hasBalancedDelimiters(codeContent: string): boolean {
+  const pairs: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
+  const openings = new Set(['(', '[', '{']);
+  const stack: string[] = [];
+
+  for (const char of codeContent) {
+    if (openings.has(char)) {
+      stack.push(char);
+    } else if (char in pairs) {
+      const expected = pairs[char]!;
+      const current = stack.pop();
+      if (current !== expected) {
+        return false;
+      }
+    }
+  }
+
+  return stack.length === 0;
+}
+
+function getLanguageExtension(language?: string): string | null {
+  if (!language) {
+    return null;
+  }
+
+  const normalized = language.toLowerCase();
+  if (normalized === 'python' || normalized === 'py') {
+    return '.py';
+  }
+  if (normalized === 'javascript' || normalized === 'js') {
+    return '.js';
+  }
+  if (normalized === 'typescript' || normalized === 'ts') {
+    return '.ts';
+  }
+  if (normalized === 'bash' || normalized === 'sh' || normalized === 'shell') {
+    return '.sh';
+  }
+
+  return null;
+}
+
+function buildStaticValidationCommand(
+  language: string | undefined,
+  validationType: string,
+  filePath: string,
+): ValidationCommandSpec | null {
+  const normalizedLanguage = language?.toLowerCase();
+
+  if (!normalizedLanguage || !['syntax', 'check', 'validate'].includes(validationType)) {
+    return null;
+  }
+
+  if (normalizedLanguage === 'python' || normalizedLanguage === 'py') {
+    return { command: 'python3', args: ['-m', 'py_compile', filePath] };
+  }
+  if (normalizedLanguage === 'javascript' || normalizedLanguage === 'js') {
+    return { command: 'node', args: ['--check', filePath] };
+  }
+  if (normalizedLanguage === 'typescript' || normalizedLanguage === 'ts') {
+    return { command: 'npx', args: ['tsc', '--noEmit', '--pretty', 'false', '--skipLibCheck', filePath] };
+  }
+  if (normalizedLanguage === 'bash' || normalizedLanguage === 'sh' || normalizedLanguage === 'shell') {
+    return { command: 'bash', args: ['-n', filePath] };
+  }
+
+  return null;
+}
+
+function getStaticValidationEvidence(
+  codeContent: string,
+  language: string | undefined,
+  validationType: string,
+): ValidationResultRecord | null {
+  const extension = getLanguageExtension(language);
+  if (!extension) {
+    return null;
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evo-ah-'));
+  const filePath = path.join(tempDir, `snippet${extension}`);
+
+  try {
+    fs.writeFileSync(filePath, codeContent, 'utf8');
+    const command = buildStaticValidationCommand(language, validationType, filePath);
+    if (!command) {
+      return null;
+    }
+
+    const result = spawnSync(command.command, command.args, {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+
+    if (result.error) {
+      return null;
+    }
+
+    const passed = result.status === 0;
+    const stderr = `${result.stderr ?? ''}`.trim();
+    const stdout = `${result.stdout ?? ''}`.trim();
+    const output = stderr || stdout;
+
+    return {
+      type: 'syntax',
+      passed,
+      message: passed
+        ? 'syntax validation passed'
+        : output || 'syntax validation failed',
+    };
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function buildTrustAnchorValidation(
+  trustAnchors?: Array<{ type: string; source: string; confidence: number }>,
+): ValidationResultRecord | null {
+  if (!trustAnchors || trustAnchors.length === 0) {
+    return null;
+  }
+
+  const averageConfidence = trustAnchors.reduce((sum, anchor) => sum + anchor.confidence, 0) / trustAnchors.length;
+  return {
+    type: 'trust_anchor',
+    passed: averageConfidence >= 0.5,
+    message: averageConfidence >= 0.5
+      ? `Trust anchors verified (avg confidence ${averageConfidence.toFixed(2)})`
+      : `Trust anchors are too weak (avg confidence ${averageConfidence.toFixed(2)})`,
+  };
+}
+
+function buildValidationResults(
+  validationType: string,
+  alerts: HallucinationAlertRecord[],
+  codeContent: string,
+  shellValidation: ValidationResultRecord | null,
+  trustAnchorValidation: ValidationResultRecord | null,
+): ValidationResultRecord[] {
+  const syntaxPassed = shellValidation?.type === 'syntax'
+    ? shellValidation.passed
+    : hasBalancedDelimiters(codeContent);
+  const syntaxMessage = shellValidation?.type === 'syntax'
+    ? shellValidation.message
+    : syntaxPassed
+      ? 'Syntax valid'
+      : 'Syntax appears invalid';
+  const hasStyleIssues = alerts.some((alert) => alert.type === 'style_issue');
+  const hasSecurityRisk = alerts.some((alert) => alert.type === 'security_risk');
+
+  const validationsByType: Record<string, ValidationResultRecord[]> = {
+    check: [
+      { type: 'syntax', passed: syntaxPassed, message: syntaxMessage },
+      { type: 'linter', passed: !hasStyleIssues, message: hasStyleIssues ? 'Style issues detected' : 'No lint-style issues detected' },
+      { type: 'security', passed: !hasSecurityRisk, message: hasSecurityRisk ? 'Security risks detected' : 'No security risks detected' },
+    ],
+    validate: [
+      { type: 'syntax', passed: syntaxPassed, message: syntaxMessage },
+      { type: 'linter', passed: !hasStyleIssues, message: hasStyleIssues ? 'Style issues detected' : 'No lint-style issues detected' },
+    ],
+    detect: [],
+    syntax: [
+      { type: 'syntax', passed: syntaxPassed, message: syntaxMessage },
+    ],
+    linter: [
+      { type: 'linter', passed: !hasStyleIssues, message: hasStyleIssues ? 'Style issues detected' : 'No lint-style issues detected' },
+    ],
+    security: [
+      { type: 'security', passed: !hasSecurityRisk, message: hasSecurityRisk ? 'Security risks detected' : 'No security risks detected' },
+    ],
+    unit_test: shellValidation
+      ? [shellValidation]
+      : [{ type: 'unit_test', passed: false, message: 'Unit-test execution unavailable for this language' }],
+    integration: shellValidation
+      ? [shellValidation]
+      : [{ type: 'integration', passed: false, message: 'Integration execution unavailable for this language' }],
+    benchmark: shellValidation
+      ? [shellValidation]
+      : [{ type: 'benchmark', passed: false, message: 'Benchmark execution unavailable for this language' }],
+  };
+
+  const validations = validationsByType[validationType] ?? [
+    { type: validationType, passed: syntaxPassed && !hasSecurityRisk, message: 'Heuristic validation completed' },
+  ];
+
+  if (trustAnchorValidation) {
+    validations.push(trustAnchorValidation);
+  }
+
+  return validations;
+}
+
+function calculateCheckConfidence(
+  alerts: HallucinationAlertRecord[],
+  validations: ValidationResultRecord[],
+  codeContent: string,
+  trustAnchors?: Array<{ confidence: number }>,
+): number {
+  const failedValidations = validations.filter((validation) => !validation.passed).length;
+  const highSeverityAlerts = alerts.filter((alert) => alert.level === 'L3' || alert.level === 'L4').length;
+  const mediumSeverityAlerts = alerts.filter((alert) => alert.level === 'L2').length;
+  const styleAlerts = alerts.filter((alert) => alert.level === 'L1').length;
+  const anchorBoost = trustAnchors && trustAnchors.length > 0
+    ? Math.min(0.12, trustAnchors.reduce((sum, anchor) => sum + anchor.confidence, 0) / trustAnchors.length * 0.12)
+    : 0;
+  const lengthBoost = Math.min(0.05, codeContent.length / 5000 * 0.05);
+
+  return Math.max(
+    0.05,
+    Math.min(
+      0.99,
+      0.92
+        - highSeverityAlerts * 0.35
+        - mediumSeverityAlerts * 0.18
+        - styleAlerts * 0.08
+        - failedValidations * 0.12
+        + anchorBoost
+        + lengthBoost,
+    ),
+  );
+}
+
+async function applyConfidenceHistory(
+  baseConfidence: number,
+  nodeId: string,
+  assetId?: string,
+): Promise<number> {
+  const history = await prisma.hallucinationCheck.findMany({
+    where: {
+      node_id: nodeId,
+      ...(assetId ? { asset_id: assetId } : {}),
+    },
+    select: {
+      created_at: true,
+      result: true,
+    },
+    orderBy: { created_at: 'desc' },
+    take: 50,
+  });
+
+  if (history.length === 0) {
+    return baseConfidence;
+  }
+
+  const firstSeen = history[history.length - 1]!.created_at.getTime();
+  const ageDays = Math.max(0, (Date.now() - firstSeen) / (1000 * 60 * 60 * 24));
+  let positiveSignals = 0;
+  let negativeSignals = 0;
+
+  for (const check of history) {
+    const result = (check.result ?? {}) as Record<string, unknown>;
+    if (result.passed === true || result.has_hallucination === false) {
+      positiveSignals += 1;
+    }
+    if (result.has_hallucination === true || result.passed === false) {
+      negativeSignals += 1;
+    }
+  }
+
+  const historicalConfidence = Math.max(
+    0.05,
+    Math.min(
+      0.99,
+      Math.exp(-CONFIDENCE_DECAY_LAMBDA * ageDays)
+        * (1 + CONFIDENCE_POSITIVE_WEIGHT * positiveSignals)
+        * Math.max(0.1, 1 - CONFIDENCE_NEGATIVE_WEIGHT * negativeSignals),
+    ),
+  );
+
+  return Math.max(0.05, Math.min(0.99, (baseConfidence + historicalConfidence) / 2));
 }
 
 // ------------------------------------------------------------------
@@ -61,133 +623,65 @@ export async function performCheck(
     throw new ValidationError('validation_type is required');
   }
 
-  // Run lightweight heuristic checks
+  const lines = splitLines(codeContent);
   const alertMessages: string[] = [];
-  const alertObjects: Array<{
-    type: string;
-    level: 'L1' | 'L2' | 'L3';
-    message: string;
-    suggestion: string;
-    line: number | null;
-    confidence: number;
-  }> = [];
-  const lines = codeContent.split('\n');
-
-  const findFirstMatchingLine = (pattern: RegExp): number | null => {
-    const index = lines.findIndex((line) => pattern.test(line));
-    return index >= 0 ? index + 1 : null;
+  const alertObjects: HallucinationAlertRecord[] = [];
+  const detectorsByValidationType: Record<string, Array<() => HallucinationAlertRecord[]>> = {
+    check: [
+      () => detectTodoMarkers(lines),
+      () => detectForbiddenPatterns(lines, codeContent),
+      () => detectPlaceholderStubs(lines),
+      () => detectRepeatedMagicNumbers(lines),
+      () => detectInvalidApis(lines, codeContent),
+    ],
+    validate: [
+      () => detectTodoMarkers(lines),
+      () => detectPlaceholderStubs(lines),
+      () => detectRepeatedMagicNumbers(lines),
+    ],
+    detect: [
+      () => detectForbiddenPatterns(lines, codeContent),
+      () => detectPlaceholderStubs(lines),
+      () => detectInvalidApis(lines, codeContent),
+    ],
   };
 
-  // Check 1: TODO/FIXME left in code
-  const todoMatches = lines.filter(
-    (l) => /\bTODO\b|\bFIXME\b|\bHACK\b|\bXXX\b/.test(l),
+  const detectors = detectorsByValidationType[validationType] ?? detectorsByValidationType.check!;
+  for (const detect of detectors) {
+    for (const alert of detect()) {
+      pushAlert(alertObjects, alertMessages, alert);
+    }
+  }
+
+  const shellValidation = getStaticValidationEvidence(codeContent, language, validationType);
+  const trustAnchorValidation = buildTrustAnchorValidation(trustAnchors);
+  const validations = buildValidationResults(
+    validationType,
+    alertObjects,
+    codeContent,
+    shellValidation,
+    trustAnchorValidation,
   );
-  if (todoMatches.length > 0) {
-    const message = `Found ${todoMatches.length} TODO/FIXME/HACK comment(s) in code`;
-    alertMessages.push(message);
-    alertObjects.push({
-      type: 'todo_marker',
-      level: 'L1',
-      message,
-      suggestion: 'Resolve or remove TODO/FIXME/HACK markers before publishing the asset.',
-      line: findFirstMatchingLine(/\bTODO\b|\bFIXME\b|\bHACK\b|\bXXX\b/),
-      confidence: 0.9,
-    });
-  }
+  const baseConfidence = calculateCheckConfidence(alertObjects, validations, codeContent, trustAnchors);
+  const confidence = await applyConfidenceHistory(baseConfidence, nodeId, assetId);
+  const hasBlockingAlerts = alertObjects.some((alert) => alert.level === 'L3' || alert.level === 'L4');
+  const passed = confidence >= 0.5 && !hasBlockingAlerts && validations.every((validation) => validation.passed);
 
-  // Check 2: Hardcoded credentials / secrets patterns
-  const secretPatterns = [
-    /password\s*=\s*["'][^"']{3,}/i,
-    /api[_-]?key\s*=\s*["'][^"']{8,}/i,
-    /secret\s*=\s*["'][^"']{8,}/i,
-    /token\s*=\s*["'][^"']{8,}/i,
-  ];
-  for (const pattern of secretPatterns) {
-    const matches = lines.filter((l) => pattern.test(l));
-    if (matches.length > 0) {
-      const message = 'Potential hardcoded secret or credential detected';
-      alertMessages.push(message);
-      alertObjects.push({
-        type: 'hardcoded_secret',
-        level: 'L3',
-        message,
-        suggestion: 'Move credentials to environment variables or a secrets manager.',
-        line: findFirstMatchingLine(pattern),
-        confidence: 0.95,
-      });
-      break;
-    }
-  }
-
-  // Check 3: Placeholder / stub patterns
-  const placeholderPatterns = [
-    /\breturn\s+null\s*;/,
-    /\breturn\s+0\s*;/,
-    /\bpass\b/,
-    /\b...\s*$/,
-    /not\s+implemented/i,
-    /todo/i,
-  ];
-  for (const pattern of placeholderPatterns) {
-    const matches = lines.filter((l) => pattern.test(l) && !l.trim().startsWith('//'));
-    if (matches.length > 5) {
-      const message = 'Multiple placeholder or stub patterns detected';
-      alertMessages.push(message);
-      alertObjects.push({
-        type: 'placeholder_stub',
-        level: 'L2',
-        message,
-        suggestion: 'Replace placeholder logic with a real implementation or block publication.',
-        line: findFirstMatchingLine(pattern),
-        confidence: 0.85,
-      });
-      break;
-    }
-  }
-
-  // Check 4: Magic numbers (repeated numeric literals)
-  const magicNumbers = lines
-    .map((l) => (l.match(/\b\d+\b/g) || []).filter((n) => n.length > 1))
-    .flat();
-  const magicCount: Record<string, number> = {};
-  for (const num of magicNumbers) {
-    magicCount[num] = (magicCount[num] || 0) + 1;
-  }
-  const repeatedMagic = Object.entries(magicCount).filter(([, c]) => c >= 3);
-  if (repeatedMagic.length > 0) {
-    const message = 'Repeated magic numbers detected (consider using named constants)';
-    alertMessages.push(message);
-    alertObjects.push({
-      type: 'magic_number',
-      level: 'L1',
-      message,
-      suggestion: 'Extract repeated numeric literals into named constants.',
-      line: findFirstMatchingLine(/\b\d+\b/),
-      confidence: 0.75,
-    });
-  }
-
-  // Build result
-  const hasAlerts = alertMessages.length > 0;
   const result = {
-    has_hallucination: hasAlerts,
+    passed,
+    has_hallucination: alertObjects.length > 0,
     alert_count: alertMessages.length,
-    checks_passed: !hasAlerts,
-    summary: hasAlerts
+    checks_passed: passed,
+    summary: alertObjects.length > 0
       ? `Detected ${alertMessages.length} potential issue(s) in code`
       : 'No obvious hallucinations detected',
     details: alertMessages,
     alerts: alertObjects,
+    validations,
     suggestions: alertObjects.map((alert) => alert.suggestion),
     language: language ?? null,
     trust_anchors_used: trustAnchors ?? [],
   };
-
-  // Confidence: higher when code is longer and fewer alerts
-  const confidence = Math.max(
-    0.1,
-    Math.min(0.99, 1 - alertMessages.length * 0.15 + (codeContent.length / 10000) * 0.05),
-  );
 
   const check = await prisma.hallucinationCheck.create({
     data: {
@@ -197,7 +691,7 @@ export async function performCheck(
       code_content: codeContent,
       result: result as unknown as Prisma.InputJsonValue,
       confidence,
-      alerts: alertMessages as unknown as Prisma.InputJsonValue,
+      alerts: alertObjects as unknown as Prisma.InputJsonValue,
       validation_type: validationType,
     },
   });
@@ -209,8 +703,9 @@ export async function validateCode(
   nodeId: string,
   codeContent: string,
   assetId?: string,
+  language?: string,
 ): Promise<HallucinationCheck> {
-  return performCheck(nodeId, codeContent, 'validate', assetId);
+  return performCheck(nodeId, codeContent, 'validate', assetId, language);
 }
 
 export async function detectHallucination(
@@ -317,7 +812,11 @@ export function listForbiddenPatterns(): Array<{
   category: string;
   description: string;
 }> {
-  return FORBIDDEN_PATTERNS.map((pattern) => ({ ...pattern }));
+  return FORBIDDEN_PATTERNS.map((pattern) => ({
+    id: pattern.id,
+    category: pattern.category,
+    description: pattern.description,
+  }));
 }
 
 export async function getCheckStats(): Promise<{

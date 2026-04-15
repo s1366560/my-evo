@@ -13,6 +13,7 @@ import { assessQuality, generateSuggestions } from './quality';
 import type { SkillContent } from './quality';
 
 let prisma: PrismaClient | null = null;
+const DISCOVERABLE_SKILL_STATUSES = ['approved', 'published'];
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
@@ -254,7 +255,7 @@ export async function findComplementarySkills(
   // Find skills with overlapping tags but different categories (extensions/alternatives)
   const candidates = await db.skill.findMany({
     where: {
-      status: 'published',
+      status: { in: DISCOVERABLE_SKILL_STATUSES },
       deleted_at: null,
       skill_id: { not: skillId },
       OR: [

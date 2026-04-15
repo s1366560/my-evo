@@ -8,6 +8,7 @@ import type { Skill, Prisma } from '@prisma/client';
 import { PrismaClient } from '@prisma/client';
 
 let prisma: PrismaClient | null = null;
+const DISCOVERABLE_SKILL_STATUSES = ['approved', 'published'];
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
@@ -62,7 +63,7 @@ export async function rankSkills(
   const db = getPrisma();
 
   const where: Prisma.SkillWhereInput = {
-    status: 'published',
+    status: { in: DISCOVERABLE_SKILL_STATUSES },
     deleted_at: null,
     ...(category ? { category } : {}),
   };

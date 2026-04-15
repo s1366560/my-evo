@@ -30,6 +30,18 @@ jest.mock('../shared/auth', () => ({
   ) => {
     request.auth = mockAuth;
   },
+  requireNodeSecretAuth: () => async (
+    request: {
+      auth?: {
+        node_id: string;
+        auth_type?: string;
+        trust_level?: string;
+        userId?: string;
+      };
+    },
+  ) => {
+    request.auth = mockAuth;
+  },
 }));
 
 jest.mock('../account/service', () => ({
@@ -105,6 +117,7 @@ describe('Onboarding routes', () => {
       current_step: 2,
       total_steps: 4,
       progress_percentage: 25,
+      completed_steps: [1],
     });
     expect(mockGetOnboardingJourney).toHaveBeenCalledWith('node-1', prisma);
   });
@@ -148,7 +161,7 @@ describe('Onboarding routes', () => {
     expect(mockGetOnboardingJourney).toHaveBeenCalledWith('node-1', prisma);
   });
 
-  it('rejects mutating another agent when the caller does not own it', async () => {
+  it('rejects session-authenticated onboarding writes', async () => {
     mockAuth = {
       node_id: 'user-1',
       auth_type: 'session',
@@ -163,60 +176,24 @@ describe('Onboarding routes', () => {
       payload: { agent_id: 'node-2' },
     });
 
-    expect(response.statusCode).toBe(401);
+    expect(response.statusCode).toBe(403);
     expect(mockResetOnboarding).not.toHaveBeenCalled();
   });
 
-  it('requires an explicit agent_id when a session owns multiple nodes', async () => {
+  it('rejects session-authenticated onboarding reads', async () => {
     mockAuth = {
       node_id: 'user-1',
       auth_type: 'session',
       trust_level: 'trusted',
       userId: 'user-1',
     };
-    prisma.node.findFirst.mockResolvedValue(null);
-    prisma.node.findMany.mockResolvedValue([{ node_id: 'node-1' }, { node_id: 'node-2' }]);
-
     const response = await app.inject({
       method: 'GET',
       url: '/onboarding/agent',
     });
 
-    expect(response.statusCode).toBe(400);
+    expect(response.statusCode).toBe(403);
     expect(mockGetOnboardingJourney).not.toHaveBeenCalled();
-  });
-
-  it('allows a session caller to read onboarding for an owned secondary agent', async () => {
-    mockAuth = {
-      node_id: 'user-1',
-      auth_type: 'session',
-      trust_level: 'trusted',
-      userId: 'user-1',
-    };
-    prisma.node.findFirst.mockResolvedValue({ node_id: 'node-2' });
-    mockGetOnboardingJourney.mockResolvedValue({
-      agent_id: 'node-2',
-      current_step: 1,
-      total_steps: 4,
-      progress_percentage: 0,
-      completed_steps: [],
-      steps: [],
-      next_step: {
-        step: 1,
-        title: 'Register Your Agent',
-        action_url: '/a2a/hello',
-        action_method: 'POST',
-        estimated_time: '30 seconds',
-      },
-    });
-
-    const response = await app.inject({
-      method: 'GET',
-      url: '/onboarding/agent?agent_id=node-2',
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(mockGetOnboardingJourney).toHaveBeenCalledWith('node-2', prisma);
   });
 
   it('returns step detail metadata', async () => {

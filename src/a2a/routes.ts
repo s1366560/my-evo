@@ -849,6 +849,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       parsedLimit,
       parsedOffset,
       sort as string | undefined,
+      undefined,
       app.prisma,
     );
     return reply.send({ success: true, data: result });
@@ -874,6 +875,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       Math.min(body.limit ?? 20, 100),
       body.offset ?? 0,
       body.sort,
+      undefined,
       app.prisma,
     );
     return reply.send({ success: true, data: result });
