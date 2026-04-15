@@ -1159,6 +1159,105 @@ describe('Dispute Service', () => {
     });
   });
 
+  describe('resolveEscalatedDispute', () => {
+    it('should resolve an escalated dispute through council finalization', async () => {
+      const now = new Date('2026-01-03T00:00:00.000Z');
+      jest.useFakeTimers().setSystemTime(now);
+      const releaseArbitratorsSpy = jest.spyOn(arbitratorPool, 'releaseArbitrators')
+        .mockResolvedValue();
+
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_council',
+        status: 'escalated',
+        plaintiff_id: 'node-plaintiff',
+        defendant_id: 'node-defendant',
+        arbitrators: ['arb-1', 'arb-2'],
+        hearing_started_at: null,
+      });
+      mockPrisma.dispute.update.mockResolvedValue({
+        dispute_id: 'dsp_council',
+        status: 'resolved',
+        arbitrators: ['arb-1', 'arb-2'],
+        review_started_at: null,
+        hearing_started_at: now,
+        resolved_at: now,
+        ruling: { verdict: 'plaintiff_wins' },
+      });
+
+      const result = await service.resolveEscalatedDispute(
+        'dsp_council',
+        {
+          verdict: 'plaintiff_wins',
+          penalties: [{
+            target_node_id: 'node-defendant',
+            reputation_deduction: 15,
+            credit_fine: 100,
+            quarantine_level: 'L1',
+          }],
+          compensations: [{
+            recipient_node_id: 'node-plaintiff',
+            credit_amount: 80,
+            reputation_restore: 5,
+          }],
+        },
+        'moderator-1',
+      );
+
+      expect(mockPrisma.dispute.update).toHaveBeenCalledWith(expect.objectContaining({
+        where: { dispute_id: 'dsp_council' },
+        data: expect.objectContaining({
+          status: 'resolved',
+          council_session_id: null,
+        }),
+      }));
+      expect(releaseArbitratorsSpy).toHaveBeenCalledWith(['arb-1', 'arb-2']);
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.reputationEvent.create).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({
+        dispute_id: 'dsp_council',
+        status: 'resolved',
+        arbitrators: ['arb-1', 'arb-2'],
+        review_started_at: null,
+        hearing_started_at: now,
+        resolved_at: now,
+        ruling: { verdict: 'plaintiff_wins' },
+      });
+
+      releaseArbitratorsSpy.mockRestore();
+      jest.useRealTimers();
+    });
+
+    it('should reject non-escalated disputes', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_open',
+        status: 'under_review',
+        plaintiff_id: 'node-plaintiff',
+        defendant_id: 'node-defendant',
+      });
+
+      await expect(service.resolveEscalatedDispute(
+        'dsp_open',
+        { verdict: 'plaintiff_wins' },
+        'moderator-1',
+      )).rejects.toThrow(ConflictError);
+    });
+
+    it('should reject dispute parties from finalizing escalated disputes', async () => {
+      mockPrisma.dispute.findUnique.mockResolvedValue({
+        dispute_id: 'dsp_party',
+        status: 'escalated',
+        plaintiff_id: 'node-plaintiff',
+        defendant_id: 'node-defendant',
+      });
+
+      await expect(service.resolveEscalatedDispute(
+        'dsp_party',
+        { verdict: 'plaintiff_wins' },
+        'node-defendant',
+      )).rejects.toThrow(ForbiddenError);
+    });
+  });
+
   describe('validateEvidence', () => {
     it('should return valid=false for missing evidence', async () => {
       mockPrisma.dispute.findFirst.mockResolvedValue(null);

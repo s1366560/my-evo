@@ -1140,6 +1140,59 @@ export async function issueRuling(
   return toDisputeMutationResponse(updated);
 }
 
+export async function resolveEscalatedDispute(
+  disputeId: string,
+  ruling: object,
+  actorId: string,
+) {
+  if (!ruling || typeof ruling !== 'object' || Array.isArray(ruling)) {
+    throw new ValidationError('ruling must be an object');
+  }
+
+  const { updated, releasedArbitrators } = await runSerializableTransaction(async (tx) => {
+    const dispute = await tx.dispute.findUnique({
+      where: { dispute_id: disputeId },
+    });
+
+    if (!dispute) {
+      throw new NotFoundError('Dispute', disputeId);
+    }
+
+    if (dispute.status !== 'escalated') {
+      throw new ConflictError('Only escalated disputes can be resolved by council');
+    }
+
+    if (actorId === dispute.plaintiff_id || actorId === dispute.defendant_id) {
+      throw new ForbiddenError('Dispute parties cannot finalize escalated disputes');
+    }
+
+    const now = new Date();
+    const updated = await tx.dispute.update({
+      where: { dispute_id: disputeId },
+      data: {
+        status: 'resolved',
+        ruling: ruling as object,
+        resolved_at: now,
+        hearing_started_at: dispute.hearing_started_at ?? now,
+        council_session_id: null,
+      },
+    });
+
+    await applyRulingSideEffects(tx, disputeId, ruling, now);
+
+    return {
+      updated,
+      releasedArbitrators: getAssignedArbitrators(dispute),
+    };
+  });
+
+  if (releasedArbitrators.length > 0) {
+    await arbitratorPool.releaseArbitrators(releasedArbitrators);
+  }
+
+  return toDisputeMutationResponse(updated);
+}
+
 export async function autoGenerateRuling(disputeId: string, actorId: string): Promise<DisputeRuling> {
   const dispute = await prisma.dispute.findUnique({
     where: { dispute_id: disputeId },

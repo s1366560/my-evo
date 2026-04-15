@@ -249,7 +249,9 @@ export async function buildApp() {
   const { questionRoutes } = await import('./questions/routes');
   await app.register(questionRoutes, { prefix: '/api/v2/questions' });
 
-  const { disputeRoutes } = await import('./dispute/routes');
+  const {
+    disputeRoutes,
+  } = await import('./dispute/routes');
   await app.register(disputeRoutes, { prefix: '/api/v2/disputes' });
 
   const { sandboxRoutes } = await import('./sandbox/routes');

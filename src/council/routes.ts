@@ -1,7 +1,80 @@
 import type { FastifyInstance } from 'fastify';
-import { requireAuth } from '../shared/auth';
-import { EvoMapError } from '../shared/errors';
+import { requireAuth, requireTrustLevel } from '../shared/auth';
+import { EvoMapError, ForbiddenError, ValidationError } from '../shared/errors';
 import * as service from './service';
+import * as disputeService from '../dispute/service';
+
+function ensureCouncilResolutionAuth(auth: { auth_type?: string } | undefined): void {
+  if (!auth) {
+    throw new ForbiddenError('Authentication is required');
+  }
+
+  if (auth.auth_type !== 'node_secret') {
+    throw new ForbiddenError('Council dispute resolution requires node secret authentication');
+  }
+}
+
+function mapResolutionToVerdict(
+  resolution: string,
+): 'plaintiff_wins' | 'defendant_wins' | 'compromise' | 'no_fault' {
+  switch (resolution) {
+    case 'defendant_penalized':
+      return 'plaintiff_wins';
+    case 'plaintiff_denied':
+      return 'defendant_wins';
+    case 'compromise':
+      return 'compromise';
+    case 'dismissed':
+    case 'no_fault':
+      return 'no_fault';
+    default:
+      throw new ValidationError(
+        'resolution must be one of defendant_penalized, plaintiff_denied, compromise, dismissed, no_fault',
+      );
+  }
+}
+
+function buildExecutedActions(
+  penalty: {
+    reputation_deduction?: number;
+    credit_fine?: number;
+    quarantine_level?: string;
+  } | undefined,
+  compensation: {
+    recipient?: string;
+    credit_amount?: number;
+    reputation_restore?: number;
+  } | undefined,
+): string[] {
+  const actions: string[] = [];
+
+  if ((penalty?.reputation_deduction ?? 0) > 0) {
+    actions.push(`reputation_deducted: -${penalty!.reputation_deduction}`);
+  }
+  if ((penalty?.credit_fine ?? 0) > 0) {
+    actions.push(`credits_fined: -${penalty!.credit_fine}`);
+  }
+  if (penalty?.quarantine_level) {
+    const duration = penalty.quarantine_level === 'L1'
+      ? '24h'
+      : penalty.quarantine_level === 'L2'
+        ? '7d'
+        : '30d';
+    actions.push(`quarantine_applied: ${penalty.quarantine_level} (${duration})`);
+  }
+  if ((compensation?.credit_amount ?? 0) > 0 && compensation?.recipient) {
+    actions.push(
+      `compensation_paid: +${compensation.credit_amount} credits to ${compensation.recipient}`,
+    );
+  }
+  if ((compensation?.reputation_restore ?? 0) > 0 && compensation?.recipient) {
+    actions.push(
+      `reputation_restored: +${compensation.reputation_restore} to ${compensation.recipient}`,
+    );
+  }
+
+  return actions;
+}
 
 export async function councilRoutes(app: FastifyInstance) {
   const prisma = app.prisma;
@@ -157,6 +230,115 @@ export async function councilRoutes(app: FastifyInstance) {
     });
 
     return { success: true, data: deliberation };
+  });
+
+  app.post('/resolve-dispute', {
+    schema: { tags: ['Council'] },
+    preHandler: [requireTrustLevel('trusted')],
+  }, async (request) => {
+    ensureCouncilResolutionAuth(request.auth);
+    const auth = request.auth!;
+    const body = request.body as {
+      dispute_id?: string;
+      resolution?: string;
+      reasoning?: string;
+      penalty?: {
+        target_node_id?: string;
+        reputation_deduction?: number;
+        credit_fine?: number;
+        quarantine_level?: string;
+      };
+      compensation?: {
+        recipient?: string;
+        recipient_node_id?: string;
+        credit_amount?: number;
+        reputation_restore?: number;
+      };
+    };
+
+    if (!body.dispute_id) {
+      throw new ValidationError('dispute_id is required');
+    }
+    if (!body.resolution) {
+      throw new ValidationError('resolution is required');
+    }
+    if (!body.reasoning) {
+      throw new ValidationError('reasoning is required');
+    }
+
+    const dispute = await prisma.dispute.findUnique({
+      where: { dispute_id: body.dispute_id },
+      select: {
+        dispute_id: true,
+        plaintiff_id: true,
+        defendant_id: true,
+      },
+    });
+
+    if (!dispute) {
+      throw new ValidationError('Dispute not found');
+    }
+
+    const compensationRecipient = body.compensation?.recipient_node_id
+      ?? body.compensation?.recipient
+      ?? dispute.plaintiff_id;
+    const penaltyTarget = body.penalty?.target_node_id ?? dispute.defendant_id;
+    const verdict = mapResolutionToVerdict(body.resolution);
+    const ruling = {
+      ruling_id: `council-${body.dispute_id}`,
+      dispute_id: body.dispute_id,
+      verdict,
+      reasoning: body.reasoning,
+      penalties: body.penalty
+        ? [{
+          target_node_id: penaltyTarget,
+          reputation_deduction: body.penalty.reputation_deduction ?? 0,
+          credit_fine: body.penalty.credit_fine ?? 0,
+          quarantine_level: body.penalty.quarantine_level,
+        }]
+        : [],
+      compensations: body.compensation
+        ? [{
+          recipient_node_id: compensationRecipient,
+          credit_amount: body.compensation.credit_amount ?? 0,
+          reputation_restore: body.compensation.reputation_restore ?? 0,
+        }]
+        : [],
+      votes: [{
+        arbitrator_id: auth.node_id,
+        vote: verdict === 'plaintiff_wins'
+          ? 'plaintiff'
+          : verdict === 'defendant_wins'
+            ? 'defendant'
+            : verdict === 'compromise'
+              ? 'compromise'
+              : 'abstain',
+        reasoning: body.reasoning,
+      }],
+      ruled_at: new Date().toISOString(),
+      appeal_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    await disputeService.resolveEscalatedDispute(
+      body.dispute_id,
+      ruling,
+      auth.node_id,
+    );
+
+    return {
+      success: true,
+      status: 'ok',
+      dispute_id: body.dispute_id,
+      resolution: body.resolution,
+      executed_actions: buildExecutedActions(
+        body.penalty,
+        {
+          recipient: compensationRecipient,
+          credit_amount: body.compensation?.credit_amount,
+          reputation_restore: body.compensation?.reputation_restore,
+        },
+      ),
+    };
   });
 
   // ─── Council extensions ────────────────────────────────────────────────────────
