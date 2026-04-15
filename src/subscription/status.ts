@@ -1,5 +1,6 @@
-import { PrismaClient } from '@prisma/client';
-import { NotFoundError, ValidationError } from '../shared/errors';
+import { PrismaClient, Prisma } from '@prisma/client';
+import { NotFoundError, ValidationError, InsufficientCreditsError } from '../shared/errors';
+import { getPlan } from './plans';
 
 export type SubscriptionStatus = 'active' | 'expired' | 'cancelled' | 'grace_period' | 'paused';
 
@@ -25,6 +26,103 @@ export function setPrisma(client: PrismaClient): void {
   (prisma as unknown) = client;
 }
 
+async function chargeNodeCredits(
+  tx: Prisma.TransactionClient,
+  nodeId: string,
+  amount: number,
+): Promise<number | null> {
+  if (amount <= 0) {
+    return null;
+  }
+
+  const debit = await tx.node.updateMany({
+    where: {
+      node_id: nodeId,
+      credit_balance: { gte: amount },
+    },
+    data: {
+      credit_balance: { decrement: amount },
+    },
+  });
+
+  if (debit.count === 0) {
+    const currentNode = await tx.node.findUnique({
+      where: { node_id: nodeId },
+    });
+
+    if (!currentNode) {
+      throw new NotFoundError('Node', nodeId);
+    }
+
+    throw new InsufficientCreditsError(amount, currentNode.credit_balance);
+  }
+
+  const debitedNode = await tx.node.findUnique({
+    where: { node_id: nodeId },
+  });
+
+  if (!debitedNode) {
+    throw new NotFoundError('Node', nodeId);
+  }
+
+  return debitedNode.credit_balance;
+}
+
+function isMatchingActiveSubscription(
+  subscription: {
+    plan: string;
+    billing_cycle: string;
+    status: string;
+    current_period_end: Date;
+    auto_renew: boolean;
+  },
+  planId: string,
+  billingCycle: string,
+  autoRenew: boolean,
+  now: Date,
+): boolean {
+  return subscription.plan === planId
+    && subscription.billing_cycle === billingCycle
+    && subscription.status === 'active'
+    && new Date(subscription.current_period_end) > now
+    && subscription.auto_renew === autoRenew;
+}
+
+function isMatchingRenewedSubscription(
+  subscription: {
+    billing_cycle: string;
+    status: string;
+    current_period_end: Date;
+    auto_renew: boolean;
+    total_paid: number;
+  },
+  previousSubscription: {
+    current_period_end: Date;
+    total_paid: number;
+  },
+  billingCycle: string,
+  amount: number,
+  now: Date,
+): boolean {
+  return subscription.billing_cycle === billingCycle
+    && subscription.status === 'active'
+    && subscription.auto_renew
+    && subscription.total_paid === previousSubscription.total_paid + amount
+    && new Date(subscription.current_period_end) > now
+    && new Date(subscription.current_period_end) > new Date(previousSubscription.current_period_end);
+}
+
+function getPlanCharge(planId: string, billingCycle: string): number {
+  const plan = getPlan(planId as Parameters<typeof getPlan>[0]);
+  if (!plan) {
+    throw new ValidationError('Invalid planId. Must be free, premium, or ultra');
+  }
+
+  return billingCycle === 'annual'
+    ? plan.price_annual_credits
+    : plan.price_monthly_credits;
+}
+
 export async function activateSubscription(
   nodeId: string,
   planId: string,
@@ -47,41 +145,132 @@ export async function activateSubscription(
     periodEnd.setMonth(periodEnd.getMonth() + 1);
   }
 
-  const existing = await prisma.subscription.findUnique({
-    where: { node_id: nodeId },
+  const amount = getPlanCharge(planId, billingCycle);
+  const subscription = await prisma.$transaction(async (tx) => {
+    const [existing, node] = await Promise.all([
+      tx.subscription.findUnique({
+        where: { node_id: nodeId },
+      }),
+      tx.node.findUnique({
+        where: { node_id: nodeId },
+      }),
+    ]);
+
+    if (!node) {
+      throw new NotFoundError('Node', nodeId);
+    }
+    if (existing && isMatchingActiveSubscription(existing, planId, billingCycle, autoRenew, now)) {
+      return existing;
+    }
+
+    if (
+      existing
+      && existing.plan === planId
+      && existing.billing_cycle === billingCycle
+      && existing.status === 'active'
+      && new Date(existing.current_period_end) > now
+    ) {
+      return tx.subscription.update({
+        where: { node_id: nodeId },
+        data: { auto_renew: autoRenew },
+      });
+    }
+
+    let shouldCharge = amount > 0;
+
+    const nextSubscription = existing
+      ? await (async () => {
+        const transition = await tx.subscription.updateMany({
+          where: {
+            node_id: nodeId,
+            plan: existing.plan,
+            billing_cycle: existing.billing_cycle,
+            status: existing.status,
+            current_period_end: existing.current_period_end,
+            auto_renew: existing.auto_renew,
+            total_paid: existing.total_paid,
+          },
+          data: {
+            plan: planId,
+            billing_cycle: billingCycle,
+            status: 'active',
+            started_at: existing.started_at ?? now,
+            current_period_start: now,
+            current_period_end: periodEnd,
+            auto_renew: autoRenew,
+            ...(amount > 0 ? { total_paid: { increment: amount } } : {}),
+          },
+        });
+
+        if (transition.count === 0) {
+          const latest = await tx.subscription.findUnique({
+            where: { node_id: nodeId },
+          });
+
+          if (latest && isMatchingActiveSubscription(latest, planId, billingCycle, autoRenew, now)) {
+            shouldCharge = false;
+            return latest;
+          }
+
+          throw new ValidationError('Subscription changed concurrently. Please retry.');
+        }
+
+        const updatedSubscription = await tx.subscription.findUnique({
+          where: { node_id: nodeId },
+        });
+
+        if (!updatedSubscription) {
+          throw new NotFoundError('Subscription', nodeId);
+        }
+
+        return updatedSubscription;
+      })()
+      : await tx.subscription.create({
+        data: {
+          subscription_id: crypto.randomUUID(),
+          node_id: nodeId,
+          plan: planId,
+          billing_cycle: billingCycle,
+          status: 'active',
+          started_at: now,
+          current_period_start: now,
+          current_period_end: periodEnd,
+          auto_renew: autoRenew,
+          total_paid: amount,
+        },
+      });
+
+    if (shouldCharge) {
+      const balanceAfterCharge = await chargeNodeCredits(tx, nodeId, amount);
+
+      await tx.creditTransaction.create({
+        data: {
+          node_id: nodeId,
+          amount: -amount,
+          type: 'subscription_payment',
+          description: `Subscription change to ${planId} (${billingCycle})`,
+          balance_after: balanceAfterCharge!,
+        },
+      });
+
+      await tx.subscriptionInvoice.create({
+        data: {
+          invoice_id: crypto.randomUUID(),
+          subscription_id: nextSubscription.subscription_id,
+          node_id: nodeId,
+          plan: planId,
+          amount,
+          billing_cycle: billingCycle,
+          period_start: now,
+          period_end: periodEnd,
+          status: 'paid',
+          paid_at: now,
+        },
+      });
+    }
+
+    return nextSubscription;
   });
-
-  let subscription: Awaited<ReturnType<typeof prisma.subscription.upsert>>;
-
-  if (existing) {
-    subscription = await prisma.subscription.update({
-      where: { node_id: nodeId },
-      data: {
-        plan: planId,
-        billing_cycle: billingCycle,
-        status: 'active',
-        started_at: existing.started_at ?? now,
-        current_period_start: now,
-        current_period_end: periodEnd,
-        auto_renew: autoRenew,
-      },
-    });
-  } else {
-    subscription = await prisma.subscription.create({
-      data: {
-        subscription_id: crypto.randomUUID(),
-        node_id: nodeId,
-        plan: planId,
-        billing_cycle: billingCycle,
-        status: 'active',
-        started_at: now,
-        current_period_start: now,
-        current_period_end: periodEnd,
-        auto_renew: autoRenew,
-        total_paid: 0,
-      },
-    });
-  }
 
   return mapToInfo(subscription);
 }
@@ -100,7 +289,7 @@ export async function cancelSubscription(nodeId: string): Promise<void> {
   await prisma.subscription.update({
     where: { node_id: nodeId },
     data: {
-      status: 'cancelled',
+      status: subscription.status,
       auto_renew: false,
     },
   });
@@ -133,56 +322,109 @@ export async function renewSubscription(
 ): Promise<SubscriptionInfo> {
   if (!nodeId) throw new ValidationError('nodeId is required');
 
-  const subscription = await prisma.subscription.findUnique({
-    where: { node_id: nodeId },
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    const [subscription, node] = await Promise.all([
+      tx.subscription.findUnique({
+        where: { node_id: nodeId },
+      }),
+      tx.node.findUnique({
+        where: { node_id: nodeId },
+      }),
+    ]);
 
-  if (!subscription) {
-    throw new NotFoundError('Subscription', nodeId);
-  }
+    if (!subscription) {
+      throw new NotFoundError('Subscription', nodeId);
+    }
 
-  const cycle = billingCycle ?? subscription.billing_cycle;
-  const now = new Date();
-  const periodEnd = new Date(now);
+    const cycle = billingCycle ?? subscription.billing_cycle;
+    if (!['monthly', 'annual'].includes(cycle)) {
+      throw new ValidationError('Invalid billingCycle. Must be monthly or annual');
+    }
 
-  if (cycle === 'annual') {
-    periodEnd.setFullYear(periodEnd.getFullYear() + 1);
-  } else {
-    periodEnd.setMonth(periodEnd.getMonth() + 1);
-  }
+    const now = new Date();
+    const periodEnd = new Date(now);
+    if (cycle === 'annual') {
+      periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+    } else {
+      periodEnd.setMonth(periodEnd.getMonth() + 1);
+    }
 
-  const planPrices: Record<string, number> = {
-    premium: cycle === 'annual' ? 19200 : 2000,
-    ultra: cycle === 'annual' ? 96000 : 10000,
-  };
-  const amount = planPrices[subscription.plan] ?? 0;
+    const amount = getPlanCharge(subscription.plan, cycle);
 
-  const updated = await prisma.subscription.update({
-    where: { node_id: nodeId },
-    data: {
-      status: 'active',
-      billing_cycle: cycle,
-      current_period_start: now,
-      current_period_end: periodEnd,
-      auto_renew: true,
-      total_paid: subscription.total_paid + amount,
-    },
-  });
+    if (!node) {
+      throw new NotFoundError('Node', nodeId);
+    }
 
-  // Create invoice record
-  await prisma.subscriptionInvoice.create({
-    data: {
-      invoice_id: crypto.randomUUID(),
-      subscription_id: subscription.subscription_id,
-      node_id: nodeId,
-      plan: subscription.plan,
-      amount,
-      billing_cycle: cycle,
-      period_start: now,
-      period_end: periodEnd,
-      status: 'paid',
-      paid_at: now,
-    },
+    let shouldCharge = amount > 0;
+    const transition = await tx.subscription.updateMany({
+      where: {
+        node_id: nodeId,
+        billing_cycle: subscription.billing_cycle,
+        status: subscription.status,
+        current_period_start: subscription.current_period_start,
+        current_period_end: subscription.current_period_end,
+        auto_renew: subscription.auto_renew,
+        total_paid: subscription.total_paid,
+      },
+      data: {
+        status: 'active',
+        billing_cycle: cycle,
+        current_period_start: now,
+        current_period_end: periodEnd,
+        auto_renew: true,
+        ...(amount > 0 ? { total_paid: { increment: amount } } : {}),
+      },
+    });
+
+    const nextSubscription = await tx.subscription.findUnique({
+      where: { node_id: nodeId },
+    });
+
+    if (transition.count === 0) {
+      if (
+        nextSubscription
+        && isMatchingRenewedSubscription(nextSubscription, subscription, cycle, amount, now)
+      ) {
+        shouldCharge = false;
+      } else {
+        throw new ValidationError('Subscription changed concurrently. Please retry.');
+      }
+    }
+
+    if (!nextSubscription) {
+      throw new NotFoundError('Subscription', nodeId);
+    }
+
+    if (shouldCharge) {
+      const balanceAfterCharge = await chargeNodeCredits(tx, nodeId, amount);
+
+      await tx.creditTransaction.create({
+        data: {
+          node_id: nodeId,
+          amount: -amount,
+          type: 'subscription_payment',
+          description: `Subscription renewal for ${subscription.plan} (${cycle})`,
+          balance_after: balanceAfterCharge!,
+        },
+      });
+
+      await tx.subscriptionInvoice.create({
+        data: {
+          invoice_id: crypto.randomUUID(),
+          subscription_id: subscription.subscription_id,
+          node_id: nodeId,
+          plan: subscription.plan,
+          amount,
+          billing_cycle: cycle,
+          period_start: now,
+          period_end: periodEnd,
+          status: 'paid',
+          paid_at: now,
+        },
+      });
+    }
+
+    return nextSubscription;
   });
 
   return mapToInfo(updated);

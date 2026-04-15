@@ -21,6 +21,94 @@ function ensureNodeSecretAuth(
   }
 }
 
+function parseNonNegativeInteger(
+  value: string | undefined,
+  field: string,
+  defaultValue: number,
+): number {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  if (!/^\d+$/.test(value)) {
+    throw new ValidationError(`${field} must be a non-negative integer`);
+  }
+
+  return Number(value);
+}
+
+function getSingleQueryValue(
+  value: string | string[] | undefined,
+  field: string,
+): string | undefined {
+  if (Array.isArray(value)) {
+    throw new ValidationError(`${field} must not be repeated`);
+  }
+
+  return value;
+}
+
+function parseUnitInterval(
+  value: number | string | undefined,
+  field: string,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'string' && value.trim() === '') {
+    throw new ValidationError(`${field} must be a number between 0 and 1`);
+  }
+
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) {
+    throw new ValidationError(`${field} must be a number between 0 and 1`);
+  }
+
+  return parsed;
+}
+
+function normalizeTrustAnchors(
+  anchors: unknown,
+): Array<{ type: string; source: string; confidence: number }> | undefined {
+  if (anchors === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(anchors)) {
+    throw new ValidationError('trust_anchors must be an array');
+  }
+
+  return anchors.map((anchor, index) => {
+    const record = (anchor ?? {}) as Record<string, unknown>;
+    const type = typeof record.type === 'string'
+      ? record.type
+      : typeof record.source_type === 'string'
+        ? record.source_type
+        : undefined;
+    const source = typeof record.source === 'string'
+      ? record.source
+      : typeof record.source_id === 'string'
+        ? record.source_id
+        : undefined;
+    const confidence = parseUnitInterval(
+      typeof record.confidence === 'number' || typeof record.confidence === 'string'
+        ? record.confidence
+        : record.trust_score as number | string | undefined,
+      `trust_anchors[${index}].confidence`,
+    );
+
+    if (!type) {
+      throw new ValidationError(`trust_anchors[${index}].type is required`);
+    }
+    if (!source) {
+      throw new ValidationError(`trust_anchors[${index}].source is required`);
+    }
+    if (confidence === undefined) {
+      throw new ValidationError(`trust_anchors[${index}].confidence is required`);
+    }
+
+    return { type, source, confidence };
+  });
+}
+
 export async function antiHallucinationRoutes(
   app: FastifyInstance,
 ): Promise<void> {
@@ -124,6 +212,7 @@ export async function antiHallucinationRoutes(
     };
     const codeContent = getCodeContent(body);
     const validationType = body.validation_type ?? 'check';
+    const trustAnchors = normalizeTrustAnchors(body.trust_anchors);
 
     if (!codeContent) {
       throw new ValidationError('code_content is required');
@@ -138,7 +227,7 @@ export async function antiHallucinationRoutes(
       validationType,
       body.asset_id,
       body.language,
-      body.trust_anchors,
+      trustAnchors,
     );
 
     return reply.status(201).send({
@@ -221,13 +310,13 @@ export async function antiHallucinationRoutes(
     ensureNodeSecretAuth(auth);
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const { check_id, asset_id } = request.query as {
-      check_id?: string;
-      asset_id?: string;
+      check_id?: string | string[];
+      asset_id?: string | string[];
     };
 
     const result = await antiHallucinationService.getConfidence(nodeId, {
-      checkId: check_id,
-      assetId: asset_id,
+      checkId: getSingleQueryValue(check_id, 'check_id'),
+      assetId: getSingleQueryValue(asset_id, 'asset_id'),
     });
 
     return reply.send({ success: true, data: result });
@@ -287,10 +376,9 @@ export async function antiHallucinationRoutes(
     const auth = request.auth!;
     ensureNodeSecretAuth(auth);
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
-    const { limit, offset } = request.query as Record<string, string | undefined>;
-
-    const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
-    const parsedOffset = offset ? Number(offset) : 0;
+    const { limit, offset } = request.query as Record<string, string | string[] | undefined>;
+    const parsedLimit = Math.min(parseNonNegativeInteger(getSingleQueryValue(limit, 'limit'), 'limit', 20), 100);
+    const parsedOffset = parseNonNegativeInteger(getSingleQueryValue(offset, 'offset'), 'offset', 0);
 
     const result = await antiHallucinationService.listChecks(
       nodeId,
@@ -308,13 +396,12 @@ export async function antiHallucinationRoutes(
     schema: { tags: ['AntiHallucination'] },
     preHandler: [requireTrustLevel('trusted')],
   }, async (request, reply) => {
-    const { type, limit, offset } = request.query as Record<string, string | undefined>;
-
-    const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
-    const parsedOffset = offset ? Number(offset) : 0;
+    const { type, limit, offset } = request.query as Record<string, string | string[] | undefined>;
+    const parsedLimit = Math.min(parseNonNegativeInteger(getSingleQueryValue(limit, 'limit'), 'limit', 20), 100);
+    const parsedOffset = parseNonNegativeInteger(getSingleQueryValue(offset, 'offset'), 'offset', 0);
 
     const result = await antiHallucinationService.listAnchors(
-      type,
+      getSingleQueryValue(type, 'type'),
       parsedLimit,
       parsedOffset,
     );
@@ -349,13 +436,16 @@ export async function antiHallucinationRoutes(
     if (!body.expires_at) {
       throw new ValidationError('expires_at is required');
     }
-
+    const confidence = parseUnitInterval(body.confidence, 'confidence');
     const expiresAt = new Date(body.expires_at);
+    if (Number.isNaN(expiresAt.getTime())) {
+      throw new ValidationError('expires_at must be a valid ISO-8601 datetime');
+    }
 
     const result = await antiHallucinationService.addAnchor(
       body.type,
       body.source,
-      body.confidence,
+      confidence!,
       expiresAt,
     );
 
@@ -374,16 +464,17 @@ export async function antiHallucinationRoutes(
       min_confidence,
       limit,
       offset,
-    } = request.query as Record<string, string | undefined>;
+    } = request.query as Record<string, string | string[] | undefined>;
 
-    const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
-    const parsedOffset = offset ? Number(offset) : 0;
-    const parsedMinConfidence = min_confidence
-      ? Number(min_confidence)
-      : undefined;
+    const parsedLimit = Math.min(parseNonNegativeInteger(getSingleQueryValue(limit, 'limit'), 'limit', 20), 100);
+    const parsedOffset = parseNonNegativeInteger(getSingleQueryValue(offset, 'offset'), 'offset', 0);
+    const parsedMinConfidence = parseUnitInterval(
+      getSingleQueryValue(min_confidence, 'min_confidence'),
+      'min_confidence',
+    );
 
     const result = await antiHallucinationService.listGraphNodes(
-      type,
+      getSingleQueryValue(type, 'type'),
       parsedMinConfidence,
       parsedLimit,
       parsedOffset,
@@ -460,14 +551,14 @@ export async function antiHallucinationRoutes(
       target_id,
       limit,
       offset,
-    } = request.query as Record<string, string | undefined>;
+    } = request.query as Record<string, string | string[] | undefined>;
 
-    const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
-    const parsedOffset = offset ? Number(offset) : 0;
+    const parsedLimit = Math.min(parseNonNegativeInteger(getSingleQueryValue(limit, 'limit'), 'limit', 20), 100);
+    const parsedOffset = parseNonNegativeInteger(getSingleQueryValue(offset, 'offset'), 'offset', 0);
 
     const result = await antiHallucinationService.listGraphEdges(
-      source_id,
-      target_id,
+      getSingleQueryValue(source_id, 'source_id'),
+      getSingleQueryValue(target_id, 'target_id'),
       parsedLimit,
       parsedOffset,
     );

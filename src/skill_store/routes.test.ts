@@ -140,11 +140,11 @@ describe('Skill store routes', () => {
     const [listRes, browseRes, categoriesRes, featuredRes, statsRes, detailRes] = await Promise.all([
       app.inject({
         method: 'GET',
-        url: '/skills?category=engineering&tags=typescript&search=review&limit=5&offset=2&sort=popular&cursor=skill-0',
+        url: '/skills?category=engineering&tags=typescript&search=review&limit=5&sort=popular&cursor=skill-0',
       }),
       app.inject({
         method: 'GET',
-        url: '/skills/browse?category=engineering&tags=typescript&search=review&limit=5&offset=2&sort=popular&cursor=skill-0',
+        url: '/skills/browse?category=engineering&tags=typescript&search=review&limit=5&sort=popular&cursor=skill-0',
       }),
       app.inject({
         method: 'GET',
@@ -175,7 +175,7 @@ describe('Skill store routes', () => {
       ['typescript'],
       'review',
       5,
-      2,
+      0,
       'popular',
       'skill-0',
       prisma,
@@ -195,6 +195,29 @@ describe('Skill store routes', () => {
     expect(mockGetSkillStoreStats).toHaveBeenCalledWith(prisma);
     expect(mockGetSkill).toHaveBeenCalledWith('skill-1', prisma, undefined);
     expect(mockAuthenticate).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid public listing pagination and unsupported sort values', async () => {
+    const [listRes, featuredRes, repeatedScalarRes] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/skills?limit=bad&sort=oldest',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/skills/featured?limit=-1',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/skills?category=engineering&category=security&offset=1',
+      }),
+    ]);
+
+    expect(listRes.statusCode).toBe(400);
+    expect(featuredRes.statusCode).toBe(400);
+    expect(repeatedScalarRes.statusCode).toBe(400);
+    expect(mockListSkills).not.toHaveBeenCalled();
+    expect(mockGetFeaturedSkills).not.toHaveBeenCalled();
   });
 
   it('passes the authenticated node when reading skill detail with credentials', async () => {
@@ -391,6 +414,16 @@ describe('Skill store routes', () => {
     expect(mockGetMySkills).toHaveBeenCalledWith('node-1', 20, 0, prisma);
   });
 
+  it('rejects malformed pagination for my skills', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/skills/my?limit=NaN&offset=1',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockGetMySkills).not.toHaveBeenCalled();
+  });
+
   it('rejects session-authenticated write routes', async () => {
     mockAuth = {
       node_id: 'user-1',
@@ -508,6 +541,17 @@ describe('Skill store routes', () => {
         examples: ['review(service.ts)'],
       },
     });
+  });
+
+  it('rejects ratings outside the documented 1-5 range', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/skills/skill-1/rate',
+      payload: { rating: 6 },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockRateSkill).not.toHaveBeenCalled();
   });
 
   it('rejects API key auth for skill store mutations', async () => {

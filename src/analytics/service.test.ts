@@ -11,6 +11,7 @@ const {
   getBranchingMetrics,
   getTimeline,
   getSignalForecast,
+  listSignalForecasts,
   getGdiForecast,
   getRiskAlerts,
 } = service;
@@ -325,6 +326,60 @@ describe('Analytics Service', () => {
       expect(result.predicted_rank_7d).toBeGreaterThanOrEqual(1);
       expect(result.predicted_rank_14d).toBeGreaterThanOrEqual(1);
       expect(result.predicted_rank_30d).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('listSignalForecasts', () => {
+    it('should return forecasts for the most common published signals', async () => {
+      mockPrisma.asset.findMany.mockReset();
+      mockPrisma.asset.count.mockReset();
+      const now = Date.now();
+      const weekMs = 7 * 24 * 60 * 60 * 1000;
+
+      mockPrisma.asset.findMany
+        .mockResolvedValueOnce([
+          { signals: ['translation', 'security'] },
+          { signals: ['translation'] },
+          { signals: ['security', 'repair'] },
+        ])
+        .mockResolvedValueOnce([
+          { created_at: new Date(now) },
+          { created_at: new Date(now - weekMs) },
+        ])
+        .mockResolvedValueOnce([
+          { signals: ['translation', 'security'] },
+          { signals: ['translation'] },
+          { signals: ['security', 'repair'] },
+        ])
+        .mockResolvedValueOnce([
+          { created_at: new Date(now) },
+        ])
+        .mockResolvedValueOnce([
+          { signals: ['translation', 'security'] },
+          { signals: ['translation'] },
+          { signals: ['security', 'repair'] },
+        ]);
+      mockPrisma.asset.count
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(2);
+
+      const result = await listSignalForecasts(2);
+
+      expect(result).toHaveLength(2);
+      expect(result.map((forecast) => forecast.signal)).toEqual([
+        'security',
+        'translation',
+      ]);
+      expect(result.every((forecast) => forecast.predicted_rank_30d >= 1)).toBe(true);
+    });
+
+    it('should return an empty list when there are no published signals', async () => {
+      mockPrisma.asset.findMany.mockReset();
+      mockPrisma.asset.findMany.mockResolvedValueOnce([]);
+
+      const result = await listSignalForecasts();
+
+      expect(result).toEqual([]);
     });
   });
 

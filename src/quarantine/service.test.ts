@@ -150,9 +150,39 @@ describe('Quarantine Service', () => {
       await expect(quarantineNode('unknown', 'L1', 'manual')).rejects.toThrow(NotFoundError);
     });
 
-    it('should throw ValidationError when node is already quarantined', async () => {
+    it('should escalate when node receives a new violation during active quarantine', async () => {
       mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1', reputation: 60 });
-      mockPrisma.quarantineRecord.findFirst.mockResolvedValue({ id: 1, is_active: true });
+      mockPrisma.quarantineRecord.findFirst.mockResolvedValue({
+        id: 1,
+        node_id: 'node-1',
+        level: 'L1',
+        is_active: true,
+      });
+      mockPrisma.quarantineRecord.update.mockResolvedValue({
+        id: 1,
+        node_id: 'node-1',
+        level: 'L2',
+        reason: 'manual',
+        started_at: new Date(),
+        expires_at: futureDate,
+        auto_release_at: futureDate,
+        reputation_penalty: 15,
+        is_active: true,
+        violations: [],
+      });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.reputationEvent.create.mockResolvedValue({});
+
+      const result = await quarantineNode('node-1', 'L1', 'manual');
+
+      expect(result.level).toBe('L2');
+      expect(result.reason).toBe('manual');
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throw ValidationError when node is already at L3 quarantine', async () => {
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1', reputation: 60 });
+      mockPrisma.quarantineRecord.findFirst.mockResolvedValue({ id: 1, is_active: true, level: 'L3' });
 
       await expect(quarantineNode('node-1', 'L1', 'manual')).rejects.toThrow(ValidationError);
     });
@@ -314,7 +344,7 @@ describe('Quarantine Service', () => {
       expect(result!.is_active).toBe(true);
     });
 
-    it('should auto-release and return null when quarantine has expired', async () => {
+    it('should auto-release and return null when quarantine has expired and reputation is sufficient', async () => {
       mockPrisma.quarantineRecord.findFirst.mockResolvedValue({
         id: 1,
         node_id: 'node-1',
@@ -327,6 +357,7 @@ describe('Quarantine Service', () => {
         is_active: true,
         violations: [],
       });
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1', reputation: 60 });
       mockPrisma.quarantineRecord.update.mockResolvedValue({});
 
       const result = await checkQuarantineStatus('node-1');
@@ -337,6 +368,28 @@ describe('Quarantine Service', () => {
           data: { is_active: false },
         }),
       );
+    });
+
+    it('should keep expired quarantine active when reputation is below auto-release threshold', async () => {
+      mockPrisma.quarantineRecord.findFirst.mockResolvedValue({
+        id: 1,
+        node_id: 'node-1',
+        level: 'L2',
+        reason: 'content_violation',
+        started_at: new Date(),
+        expires_at: pastDate,
+        auto_release_at: pastDate,
+        reputation_penalty: 15,
+        is_active: true,
+        violations: [],
+      });
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1', reputation: 40 });
+
+      const result = await checkQuarantineStatus('node-1');
+
+      expect(result).not.toBeNull();
+      expect(result!.is_active).toBe(true);
+      expect(mockPrisma.quarantineRecord.update).not.toHaveBeenCalled();
     });
   });
 
@@ -674,6 +727,9 @@ describe('Quarantine Service', () => {
       ];
 
       mockPrisma.quarantineRecord.findMany.mockResolvedValue(expiredRecords);
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({ node_id: 'node-1', reputation: 60 })
+        .mockResolvedValueOnce({ node_id: 'node-2', reputation: 60 });
       mockPrisma.quarantineRecord.update.mockResolvedValue({});
 
       const count = await autoRelease();
@@ -705,6 +761,18 @@ describe('Quarantine Service', () => {
         }),
       );
     });
+
+    it('should skip auto release when reputation is below the threshold', async () => {
+      mockPrisma.quarantineRecord.findMany.mockResolvedValue([
+        { id: 1, node_id: 'node-1', auto_release_at: pastDate },
+      ]);
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1', reputation: 40 });
+
+      const count = await autoRelease();
+
+      expect(count).toBe(0);
+      expect(mockPrisma.quarantineRecord.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('escalateQuarantine', () => {
@@ -719,7 +787,7 @@ describe('Quarantine Service', () => {
         id: 1,
         node_id: 'node-1',
         level: 'L2',
-        reason: 'content_violation',
+        reason: 'manual',
         started_at: new Date(),
         expires_at: futureDate,
         auto_release_at: futureDate,
@@ -737,6 +805,40 @@ describe('Quarantine Service', () => {
       expect(mockPrisma.quarantineRecord.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ level: 'L2' }),
+        }),
+      );
+    });
+
+    it('should preserve the new violation reason when escalation is triggered from quarantineNode', async () => {
+      mockPrisma.quarantineRecord.findFirst.mockResolvedValue({
+        id: 1,
+        node_id: 'node-1',
+        level: 'L1',
+        is_active: true,
+        reason: 'content_violation',
+      });
+      mockPrisma.quarantineRecord.update.mockResolvedValue({
+        id: 1,
+        node_id: 'node-1',
+        level: 'L2',
+        reason: 'manual',
+        started_at: new Date(),
+        expires_at: futureDate,
+        auto_release_at: futureDate,
+        reputation_penalty: 15,
+        is_active: true,
+        violations: [],
+      });
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1', reputation: 50 });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.reputationEvent.create.mockResolvedValue({});
+
+      const result = await escalateQuarantine('node-1', 'manual');
+
+      expect(result.reason).toBe('manual');
+      expect(mockPrisma.quarantineRecord.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ reason: 'manual' }),
         }),
       );
     });

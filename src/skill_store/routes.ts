@@ -47,6 +47,43 @@ function ensureNodeSecretAuth(auth: NonNullable<import('fastify').FastifyRequest
   }
 }
 
+function parseNonNegativeInteger(
+  value: string | undefined,
+  field: string,
+  defaultValue: number,
+): number {
+  if (value === undefined) {
+    return defaultValue;
+  }
+  if (!/^\d+$/.test(value)) {
+    throw new ValidationError(`${field} must be a non-negative integer`);
+  }
+
+  return Number(value);
+}
+
+function getSingleQueryValue(
+  value: string | string[] | undefined,
+  field: string,
+): string | undefined {
+  if (Array.isArray(value)) {
+    throw new ValidationError(`${field} must not be repeated`);
+  }
+
+  return value;
+}
+
+function parseSortOption(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!['popular', 'newest', 'rating'].includes(value)) {
+    throw new ValidationError('sort must be one of popular, newest, or rating');
+  }
+
+  return value;
+}
+
 type SkillWriteRequestBody = {
   name: string;
   description: string;
@@ -108,25 +145,33 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       cursor,
     } = request.query as Record<string, string | string[] | undefined>;
 
-    const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
-    const parsedOffset = offset ? Number(offset) : 0;
+    const parsedLimit = Math.min(
+      parseNonNegativeInteger(getSingleQueryValue(limit, 'limit'), 'limit', 20),
+      100,
+    );
+    const parsedOffset = getSingleQueryValue(offset, 'offset');
     const parsedTags: string[] | undefined = Array.isArray(tags)
       ? (tags as string[])
       : tags
         ? [tags as string]
         : undefined;
-    const parsedSort: string | undefined = Array.isArray(sort)
-      ? (sort as string[])[0]
-      : (sort as string | undefined);
+    const parsedSort = parseSortOption(getSingleQueryValue(sort, 'sort'));
+    const parsedCategory = getSingleQueryValue(category, 'category');
+    const parsedSearch = getSingleQueryValue(search, 'search');
+    const parsedCursor = getSingleQueryValue(cursor, 'cursor');
+
+    if (parsedOffset !== undefined) {
+      throw new ValidationError('offset is not supported; use cursor for pagination');
+    }
 
     const result = await skillStoreService.listSkills(
-      category as string | undefined,
+      parsedCategory,
       parsedTags,
-      search as string | undefined,
+      parsedSearch,
       parsedLimit,
-      parsedOffset,
+      0,
       parsedSort,
-      Array.isArray(cursor) ? cursor[0] : cursor,
+      parsedCursor,
       app.prisma,
     );
 
@@ -194,7 +239,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['SkillStore'] },
   }, async (request, reply) => {
     const { limit } = request.query as Record<string, string | undefined>;
-    const parsedLimit = limit ? Math.min(Number(limit), 20) : 10;
+    const parsedLimit = Math.min(parseNonNegativeInteger(limit, 'limit', 10), 20);
 
     const result = await skillStoreService.getFeaturedSkills(parsedLimit, app.prisma);
     return reply.send({ success: true, data: result });
@@ -216,8 +261,8 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     ensureNodeSecretAuth(auth);
     const nodeId = await resolveSkillNodeId(app, auth);
     const { limit, offset } = request.query as Record<string, string | undefined>;
-    const parsedLimit = limit ? Math.min(Number(limit), 100) : 20;
-    const parsedOffset = offset ? Number(offset) : 0;
+    const parsedLimit = Math.min(parseNonNegativeInteger(limit, 'limit', 20), 100);
+    const parsedOffset = parseNonNegativeInteger(offset, 'offset', 0);
 
     const result = await skillStoreService.getMySkills(
       nodeId,
@@ -497,6 +542,9 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
 
     if (!body.rating) {
       throw new ValidationError('rating is required');
+    }
+    if (!Number.isInteger(body.rating) || body.rating < 1 || body.rating > 5) {
+      throw new ValidationError('rating must be an integer between 1 and 5');
     }
 
     const result = await skillStoreService.rateSkill(

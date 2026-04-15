@@ -19,6 +19,9 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
   }, async (request, reply) => {
     const auth = request.auth!;
     ensureNodeSecretAuth(auth);
+    if (auth.trust_level !== 'trusted') {
+      throw new TrustLevelError('trusted', auth.trust_level);
+    }
     const body = request.body as {
       node_id?: string;
       target_node_id?: string;

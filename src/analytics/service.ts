@@ -369,6 +369,36 @@ export async function getSignalForecast(
   };
 }
 
+export async function listSignalForecasts(
+  limit = 5,
+  prismaClient?: PrismaClient,
+): Promise<SignalForecast[]> {
+  const client = getPrismaClient(prismaClient);
+  const assets = await client.asset.findMany({
+    where: { status: 'published' },
+    select: { signals: true },
+  });
+
+  const signalCounts = new Map<string, number>();
+  for (const asset of assets) {
+    for (const signal of asset.signals) {
+      signalCounts.set(signal, (signalCounts.get(signal) ?? 0) + 1);
+    }
+  }
+
+  const topSignals = Array.from(signalCounts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([signal]) => signal);
+
+  const forecasts: SignalForecast[] = [];
+  for (const signal of topSignals) {
+    forecasts.push(await getSignalForecast(signal, client));
+  }
+
+  return forecasts;
+}
+
 export async function getGdiForecast(
   assetId: string,
   prismaClient?: PrismaClient,

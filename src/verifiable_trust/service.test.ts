@@ -133,32 +133,16 @@ describe('Verifiable Trust Service', () => {
       expect(mockPrisma.node.updateMany).not.toHaveBeenCalled();
     });
 
-    it('should allow non-trusted validators to stake when they have enough credits', async () => {
-      mockPrisma.validatorStake.count.mockResolvedValue(1);
+    it('should reject non-trusted validators before reserving stake credits', async () => {
       mockPrisma.node.findFirst.mockResolvedValue({
         node_id: 'validator-1',
         credit_balance: 500,
         trust_level: 'verified',
       });
-      mockPrisma.node.update.mockResolvedValue({});
-      mockPrisma.creditTransaction.create.mockResolvedValue({});
-      mockPrisma.validatorStake.create.mockResolvedValue({
-        stake_id: 'stake-1',
-        node_id: 'node-1',
-        validator_id: 'validator-1',
-        amount: 100,
-        staked_at: new Date(),
-        locked_until: new Date(),
-        status: 'active',
-      });
-      mockPrisma.trustAttestation.create.mockResolvedValue({
-        attestation_id: 'att-1',
-      });
 
-      const result = await stake('node-1', 'validator-1', 100);
-
-      expect(result.attestation_id).toBe('att-1');
-      expect(result.trust_level).toBe('verified');
+      await expect(stake('node-1', 'validator-1', 100)).rejects.toThrow(TrustLevelError);
+      expect(mockPrisma.node.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.validatorStake.create).not.toHaveBeenCalled();
     });
 
     it('should throw InsufficientCreditsError when validator has insufficient balance', async () => {
@@ -282,7 +266,7 @@ describe('Verifiable Trust Service', () => {
       );
     });
 
-    it('should promote a node to trusted once it has three active stakes and enough reputation', async () => {
+    it('should keep stake-issued attestations at verified even with enough active stakes for trusted', async () => {
       mockPrisma.validatorStake.count.mockResolvedValue(3);
       mockPrisma.node.findFirst
         .mockResolvedValueOnce({
@@ -311,11 +295,16 @@ describe('Verifiable Trust Service', () => {
 
       const result = await stake('node-1', 'validator-1', 100);
 
-      expect(result.trust_level).toBe('trusted');
+      expect(result.trust_level).toBe('verified');
       expect(mockPrisma.node.update).toHaveBeenCalledWith({
         where: { node_id: 'node-1' },
-        data: { trust_level: 'trusted' },
+        data: { trust_level: 'verified' },
       });
+      expect(mockPrisma.trustAttestation.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          trust_level: 'verified',
+        }),
+      }));
     });
 
     it('should reject stakes when the transactional debit cannot reserve enough credits', async () => {

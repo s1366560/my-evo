@@ -3,6 +3,17 @@ import { requireAuth } from '../shared/auth';
 import { EvoMapError, ForbiddenError } from '../shared/errors';
 import * as service from './service';
 
+function parseOptionalNonNegativeInteger(value: string | undefined, field: string): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!/^\d+$/.test(value)) {
+    throw new EvoMapError(`${field} must be a non-negative integer`, 'VALIDATION_ERROR', 400);
+  }
+
+  return Number(value);
+}
+
 export async function workerPoolRoutes(app: FastifyInstance) {
   async function sendWorkerList(request: {
     query: unknown;
@@ -19,8 +30,8 @@ export async function workerPoolRoutes(app: FastifyInstance) {
       q: query.q,
       skill: query.skill,
       available: query.available === 'true' ? true : query.available === 'false' ? false : undefined,
-      limit: query.limit ? parseInt(query.limit, 10) : 20,
-      offset: query.offset ? parseInt(query.offset, 10) : 0,
+      limit: parseOptionalNonNegativeInteger(query.limit, 'limit') ?? 20,
+      offset: parseOptionalNonNegativeInteger(query.offset, 'offset') ?? 0,
     });
 
     return {
@@ -55,8 +66,8 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     return service.listWorkersPublic({
       skill: query.skill,
       status: query.status,
-      limit: query.limit ? parseInt(query.limit, 10) : 20,
-      offset: query.offset ? parseInt(query.offset, 10) : 0,
+      limit: parseOptionalNonNegativeInteger(query.limit, 'limit') ?? 20,
+      offset: parseOptionalNonNegativeInteger(query.offset, 'offset') ?? 0,
     });
   }
 
@@ -145,12 +156,27 @@ export async function workerPoolRoutes(app: FastifyInstance) {
       throw new ForbiddenError('Cannot update another worker availability');
     }
 
-    const availability = body.availability
-      ?? (body.available ?? body.is_available ? 'active' : body.available === false || body.is_available === false ? 'busy' : undefined);
-    const available = availability === 'active' || availability === 'available';
-    if (available === undefined) {
+    if (body.availability !== undefined && typeof body.availability !== 'string') {
+      throw new EvoMapError('availability must be a string', 'VALIDATION_ERROR', 400);
+    }
+
+    const normalizedAvailability = typeof body.availability === 'string'
+      ? body.availability.trim().toLowerCase()
+      : undefined;
+    const availability = normalizedAvailability
+      ?? (typeof body.available === 'boolean'
+        ? (body.available ? 'active' : 'busy')
+        : typeof body.is_available === 'boolean'
+          ? (body.is_available ? 'active' : 'busy')
+          : undefined);
+    if (!availability) {
       throw new EvoMapError('availability is required', 'VALIDATION_ERROR', 400);
     }
+    if (!['active', 'available', 'busy'].includes(availability)) {
+      throw new EvoMapError('availability must be active, available, or busy', 'VALIDATION_ERROR', 400);
+    }
+
+    const available = availability === 'active' || availability === 'available';
 
     await service.setWorkerAvailability(params.nodeId, available);
     return {
@@ -175,8 +201,8 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     const result = await service.listSpecialists(
       query.specialty,
       query.available_only === 'true' ? true : query.available_only === 'false' ? false : undefined,
-      query.limit ? parseInt(query.limit, 10) : 20,
-      query.offset ? parseInt(query.offset, 10) : 0,
+      parseOptionalNonNegativeInteger(query.limit, 'limit') ?? 20,
+      parseOptionalNonNegativeInteger(query.offset, 'offset') ?? 0,
     );
     return {
       success: true,

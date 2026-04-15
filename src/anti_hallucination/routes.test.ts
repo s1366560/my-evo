@@ -12,10 +12,14 @@ const mockValidateCode = jest.fn();
 const mockDetectHallucination = jest.fn();
 const mockPerformCheck = jest.fn();
 const mockGetCheck = jest.fn();
+const mockListChecks = jest.fn();
 const mockGetConfidence = jest.fn();
 const mockListForbiddenPatterns = jest.fn();
 const mockGetCheckStats = jest.fn();
 const mockAddAnchor = jest.fn();
+const mockListAnchors = jest.fn();
+const mockListGraphNodes = jest.fn();
+const mockListGraphEdges = jest.fn();
 const mockUpsertGraphNode = jest.fn();
 const mockCreateGraphEdge = jest.fn();
 
@@ -64,10 +68,14 @@ jest.mock('./service', () => ({
   validateCode: (...args: unknown[]) => mockValidateCode(...args),
   detectHallucination: (...args: unknown[]) => mockDetectHallucination(...args),
   getCheck: (...args: unknown[]) => mockGetCheck(...args),
+  listChecks: (...args: unknown[]) => mockListChecks(...args),
   getConfidence: (...args: unknown[]) => mockGetConfidence(...args),
   listForbiddenPatterns: (...args: unknown[]) => mockListForbiddenPatterns(...args),
   getCheckStats: (...args: unknown[]) => mockGetCheckStats(...args),
   addAnchor: (...args: unknown[]) => mockAddAnchor(...args),
+  listAnchors: (...args: unknown[]) => mockListAnchors(...args),
+  listGraphNodes: (...args: unknown[]) => mockListGraphNodes(...args),
+  listGraphEdges: (...args: unknown[]) => mockListGraphEdges(...args),
   upsertGraphNode: (...args: unknown[]) => mockUpsertGraphNode(...args),
   createGraphEdge: (...args: unknown[]) => mockCreateGraphEdge(...args),
 }));
@@ -199,6 +207,44 @@ describe('Anti-hallucination routes', () => {
     );
   });
 
+  it('normalizes trust anchor fields from the architecture schema', async () => {
+    mockPerformCheck.mockResolvedValue({
+      check_id: 'chk-check-2',
+      confidence: 0.8,
+      validation_type: 'check',
+      result: {
+        passed: true,
+        has_hallucination: false,
+        checks_passed: true,
+        summary: 'No obvious hallucinations detected',
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/anti/check',
+      payload: {
+        code: 'print("ok")',
+        trust_anchors: [{
+          source_id: 'python-docs',
+          source_type: 'official_doc',
+          trust_score: 0.95,
+          last_verified: '2026-04-01T00:00:00.000Z',
+        }],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockPerformCheck).toHaveBeenCalledWith(
+      'node-1',
+      'print("ok")',
+      'check',
+      undefined,
+      undefined,
+      [{ type: 'official_doc', source: 'python-docs', confidence: 0.95 }],
+    );
+  });
+
   it('rejects session-authenticated validation', async () => {
     mockAuth = {
       node_id: 'user-1',
@@ -327,5 +373,89 @@ describe('Anti-hallucination routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetCheck).toHaveBeenCalledWith('chk-1', 'node-1');
+  });
+
+  it('rejects malformed pagination for check listings', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/anti/checks?limit=oops&offset=-1',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockListChecks).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid anchor confidence and invalid graph confidence filters', async () => {
+    const [anchorResponse, graphResponse] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/anti/anchors',
+        payload: {
+          type: 'document',
+          source: 'spec',
+          confidence: 1.2,
+          expires_at: '2099-01-01T00:00:00.000Z',
+        },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/anti/graph/nodes?min_confidence=high',
+      }),
+    ]);
+
+    expect(anchorResponse.statusCode).toBe(400);
+    expect(graphResponse.statusCode).toBe(400);
+    expect(mockAddAnchor).not.toHaveBeenCalled();
+    expect(mockListGraphNodes).not.toHaveBeenCalled();
+  });
+
+  it('rejects blank confidence values from compatibility payloads', async () => {
+    const [checkResponse, graphResponse] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/anti/check',
+        payload: {
+          code: 'print("ok")',
+          trust_anchors: [{
+            source_id: 'python-docs',
+            source_type: 'official_doc',
+            trust_score: '',
+          }],
+        },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/anti/graph/nodes?min_confidence=',
+      }),
+    ]);
+
+    expect(checkResponse.statusCode).toBe(400);
+    expect(graphResponse.statusCode).toBe(400);
+    expect(mockPerformCheck).not.toHaveBeenCalled();
+    expect(mockListGraphNodes).not.toHaveBeenCalled();
+  });
+
+  it('rejects repeated scalar query filters on anti-hallucination reads', async () => {
+    const [confidenceResponse, anchorsResponse, edgesResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/anti/confidence?asset_id=asset-1&asset_id=asset-2',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/anti/anchors?type=document&type=community',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/anti/graph/edges?source_id=node-a&source_id=node-b',
+      }),
+    ]);
+
+    expect(confidenceResponse.statusCode).toBe(400);
+    expect(anchorsResponse.statusCode).toBe(400);
+    expect(edgesResponse.statusCode).toBe(400);
+    expect(mockGetConfidence).not.toHaveBeenCalled();
+    expect(mockListAnchors).not.toHaveBeenCalled();
+    expect(mockListGraphEdges).not.toHaveBeenCalled();
   });
 });

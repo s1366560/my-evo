@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import {
+  InsufficientCreditsError,
   NotFoundError,
   ValidationError,
 } from '../shared/errors';
@@ -35,13 +36,19 @@ const {
 } = service;
 
 const mockPrisma = {
+  $transaction: jest.fn(),
   node: {
     findUnique: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
+  },
+  creditTransaction: {
+    create: jest.fn(),
   },
   subscription: {
     findUnique: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
     create: jest.fn(),
     upsert: jest.fn(),
   },
@@ -90,6 +97,9 @@ describe('Subscription Service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation(async (callback: any) => callback(mockPrisma));
+    mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.subscription.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.asset.count.mockResolvedValue(0);
     mockPrisma.directMessage.count.mockResolvedValue(0);
     mockPrisma.arenaMatch.count.mockResolvedValue(0);
@@ -211,16 +221,43 @@ describe('Subscription Service', () => {
         total_paid: 0,
       };
 
-      mockPrisma.subscription.findUnique.mockResolvedValue(mockSub);
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', credit_balance: 5000 });
+      mockPrisma.subscription.findUnique
+        .mockResolvedValueOnce(mockSub)
+        .mockResolvedValueOnce({
+          ...mockSub,
+          plan: 'premium',
+          total_paid: 2000,
+        });
+      mockPrisma.subscription.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.subscription.update.mockResolvedValue({
         ...mockSub,
         plan: 'premium',
+        total_paid: 2000,
       });
+      mockPrisma.subscriptionInvoice.create.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
 
       const result = await activateSubscription('node-1', 'premium');
       expect(result.plan).toBe('premium');
       expect(result.status).toBe('active');
-      expect(mockPrisma.subscription.update).toHaveBeenCalled();
+      expect(result.total_paid).toBe(2000);
+      expect(mockPrisma.subscription.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            total_paid: { increment: 2000 },
+          }),
+        }),
+      );
+      expect(mockPrisma.node.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            node_id: 'node-1',
+            credit_balance: { gte: 2000 },
+          }),
+        }),
+      );
+      expect(mockPrisma.subscriptionInvoice.create).toHaveBeenCalled();
     });
 
     it('should create subscription if not exists', async () => {
@@ -237,12 +274,17 @@ describe('Subscription Service', () => {
         total_paid: 0,
       };
 
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-2', credit_balance: 5000 });
       mockPrisma.subscription.findUnique.mockResolvedValue(null);
       mockPrisma.subscription.create.mockResolvedValue(newSub);
+      mockPrisma.subscriptionInvoice.create.mockResolvedValue({});
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
 
       const result = await activateSubscription('node-2', 'premium', 'monthly', true);
       expect(result.plan).toBe('premium');
       expect(mockPrisma.subscription.create).toHaveBeenCalled();
+      expect(mockPrisma.subscriptionInvoice.create).toHaveBeenCalled();
     });
 
     it('should throw ValidationError for invalid planId', async () => {
@@ -255,6 +297,120 @@ describe('Subscription Service', () => {
 
     it('should throw ValidationError for empty nodeId', async () => {
       await expect(activateSubscription('', 'premium')).rejects.toThrow(ValidationError);
+    });
+
+    it('should not re-charge unchanged active subscriptions', async () => {
+      const mockSub = {
+        subscription_id: 'sub_123',
+        node_id: 'node-1',
+        plan: 'premium',
+        billing_cycle: 'monthly',
+        status: 'active',
+        started_at: new Date(),
+        current_period_start: new Date(),
+        current_period_end: new Date(Date.now() + 86_400_000),
+        auto_renew: true,
+        total_paid: 2000,
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', credit_balance: 5000 });
+      mockPrisma.subscription.findUnique.mockResolvedValue(mockSub);
+
+      const result = await activateSubscription('node-1', 'premium', 'monthly', true);
+
+      expect(result.total_paid).toBe(2000);
+      expect(mockPrisma.subscription.update).not.toHaveBeenCalled();
+      expect(mockPrisma.node.update).not.toHaveBeenCalled();
+      expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+      expect(mockPrisma.subscriptionInvoice.create).not.toHaveBeenCalled();
+    });
+
+    it('should allow auto_renew-only updates without re-checking credits for an unchanged plan', async () => {
+      const mockSub = {
+        subscription_id: 'sub_123',
+        node_id: 'node-1',
+        plan: 'premium',
+        billing_cycle: 'monthly',
+        status: 'active',
+        started_at: new Date(),
+        current_period_start: new Date(),
+        current_period_end: new Date(Date.now() + 86_400_000),
+        auto_renew: true,
+        total_paid: 2000,
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', credit_balance: 0 });
+      mockPrisma.subscription.findUnique.mockResolvedValue(mockSub);
+      mockPrisma.subscription.update.mockResolvedValue({
+        ...mockSub,
+        auto_renew: false,
+      });
+
+      const result = await activateSubscription('node-1', 'premium', 'monthly', false);
+
+      expect(result.auto_renew).toBe(false);
+      expect(mockPrisma.node.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+      expect(mockPrisma.subscriptionInvoice.create).not.toHaveBeenCalled();
+    });
+
+    it('should treat a concurrent identical upgrade as idempotent without double charging', async () => {
+      const currentSub = {
+        subscription_id: 'sub_123',
+        node_id: 'node-1',
+        plan: 'free',
+        billing_cycle: 'monthly',
+        status: 'active',
+        started_at: new Date(),
+        current_period_start: new Date(),
+        current_period_end: new Date(Date.now() + 86_400_000),
+        auto_renew: true,
+        total_paid: 0,
+      };
+      const upgradedSub = {
+        ...currentSub,
+        plan: 'premium',
+        total_paid: 2000,
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', credit_balance: 5000 });
+      mockPrisma.subscription.findUnique
+        .mockResolvedValueOnce(currentSub)
+        .mockResolvedValueOnce(upgradedSub);
+      mockPrisma.subscription.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await activateSubscription('node-1', 'premium');
+
+      expect(result.plan).toBe('premium');
+      expect(mockPrisma.node.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+      expect(mockPrisma.subscriptionInvoice.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw when atomic credit deduction cannot reserve enough balance', async () => {
+      const mockSub = {
+        subscription_id: 'sub_123',
+        node_id: 'node-1',
+        plan: 'free',
+        billing_cycle: 'monthly',
+        status: 'active',
+        started_at: new Date(),
+        current_period_start: new Date(),
+        current_period_end: new Date(),
+        auto_renew: true,
+        total_paid: 0,
+      };
+
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 5000 })
+        .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 1000 });
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.subscription.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.subscription.findUnique.mockResolvedValue(mockSub);
+
+      await expect(activateSubscription('node-1', 'premium')).rejects.toThrow(InsufficientCreditsError);
+      expect(mockPrisma.subscription.update).not.toHaveBeenCalled();
+      expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
     });
   });
 
@@ -270,14 +426,14 @@ describe('Subscription Service', () => {
       mockPrisma.subscription.findUnique.mockResolvedValue(mockSub);
       mockPrisma.subscription.update.mockResolvedValue({
         ...mockSub,
-        status: 'cancelled',
+        status: 'active',
         auto_renew: false,
       });
 
       await cancelSubscription('node-1');
       expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: 'cancelled', auto_renew: false }),
+          data: expect.objectContaining({ status: 'active', auto_renew: false }),
         }),
       );
     });
@@ -285,6 +441,28 @@ describe('Subscription Service', () => {
     it('should throw NotFoundError for unknown node', async () => {
       mockPrisma.subscription.findUnique.mockResolvedValue(null);
       await expect(cancelSubscription('unknown')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should not reactivate paused subscriptions when cancelling auto renew', async () => {
+      const mockSub = {
+        subscription_id: 'sub_123',
+        node_id: 'node-1',
+        plan: 'premium',
+        status: 'paused',
+      };
+
+      mockPrisma.subscription.findUnique.mockResolvedValue(mockSub);
+      mockPrisma.subscription.update.mockResolvedValue({
+        ...mockSub,
+        auto_renew: false,
+      });
+
+      await cancelSubscription('node-1');
+      expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'paused', auto_renew: false }),
+        }),
+      );
     });
   });
 
@@ -344,18 +522,89 @@ describe('Subscription Service', () => {
 
       const updatedSub = { ...mockSub, total_paid: 4000 };
 
-      mockPrisma.subscription.findUnique.mockResolvedValue(mockSub);
-      mockPrisma.subscription.update.mockResolvedValue(updatedSub);
+      mockPrisma.subscription.findUnique
+        .mockResolvedValueOnce(mockSub)
+        .mockResolvedValueOnce(updatedSub);
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', credit_balance: 5000 });
+      mockPrisma.subscription.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.subscriptionInvoice.create.mockResolvedValue({});
 
       const result = await renewSubscription('node-1');
       expect(result.total_paid).toBe(4000);
+      expect(mockPrisma.subscription.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            total_paid: { increment: 2000 },
+          }),
+        }),
+      );
+      expect(mockPrisma.node.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            node_id: 'node-1',
+            credit_balance: { gte: 2000 },
+          }),
+        }),
+      );
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalled();
       expect(mockPrisma.subscriptionInvoice.create).toHaveBeenCalled();
+    });
+
+    it('should treat a concurrent identical renewal as idempotent without double charging', async () => {
+      const currentSub = {
+        subscription_id: 'sub_123',
+        node_id: 'node-1',
+        plan: 'premium',
+        billing_cycle: 'monthly',
+        status: 'active',
+        started_at: new Date(),
+        current_period_start: new Date('2026-03-01T00:00:00Z'),
+        current_period_end: new Date('2026-03-31T23:59:59Z'),
+        auto_renew: true,
+        total_paid: 2000,
+      };
+      const renewedSub = {
+        ...currentSub,
+        current_period_start: new Date('2026-04-01T00:00:00Z'),
+        current_period_end: new Date(Date.now() + 86_400_000 * 30),
+        total_paid: 4000,
+      };
+
+      mockPrisma.subscription.findUnique
+        .mockResolvedValueOnce(currentSub)
+        .mockResolvedValueOnce(renewedSub);
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', credit_balance: 5000 });
+      mockPrisma.subscription.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await renewSubscription('node-1');
+
+      expect(result.total_paid).toBe(4000);
+      expect(mockPrisma.node.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+      expect(mockPrisma.subscriptionInvoice.create).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundError for unknown node', async () => {
       mockPrisma.subscription.findUnique.mockResolvedValue(null);
       await expect(renewSubscription('unknown')).rejects.toThrow(NotFoundError);
+    });
+
+    it('should throw ValidationError for invalid renewal billing cycle', async () => {
+      mockPrisma.subscription.findUnique.mockResolvedValue({
+        subscription_id: 'sub_123',
+        node_id: 'node-1',
+        plan: 'premium',
+        billing_cycle: 'monthly',
+        status: 'active',
+        started_at: new Date(),
+        current_period_start: new Date(),
+        current_period_end: new Date(),
+        auto_renew: true,
+        total_paid: 2000,
+      });
+
+      await expect(renewSubscription('node-1', 'weekly')).rejects.toThrow(ValidationError);
     });
   });
 

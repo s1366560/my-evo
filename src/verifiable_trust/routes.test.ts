@@ -148,7 +148,7 @@ describe('Verifiable trust routes', () => {
     mockAuth = {
       node_id: 'validator-node',
       auth_type: 'node_secret',
-      trust_level: 'verified',
+      trust_level: 'trusted',
     };
     mockStake.mockResolvedValue({
       stake_id: 'stake-1',
@@ -180,6 +180,26 @@ describe('Verifiable trust routes', () => {
       trust_level: 'verified',
     });
     expect(mockStake).toHaveBeenCalledWith('node-1', 'validator-node', 100);
+  });
+
+  it('rejects non-trusted validators from stake requests before calling the service', async () => {
+    mockAuth = {
+      node_id: 'validator-node',
+      auth_type: 'node_secret',
+      trust_level: 'verified',
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/trust/stake',
+      payload: {
+        target_node_id: 'node-1',
+        stake_amount: 100,
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mockStake).not.toHaveBeenCalled();
   });
 
   it('keeps pending stakes public', async () => {

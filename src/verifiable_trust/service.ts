@@ -121,6 +121,10 @@ export async function stake(
       throw new NotFoundError('Validator', validatorId);
     }
 
+    if (validator.trust_level !== 'trusted') {
+      throw new TrustLevelError('trusted', validator.trust_level);
+    }
+
     const target = await tx.node.findFirst({
       where: { node_id: nodeId },
     });
@@ -180,13 +184,7 @@ export async function stake(
       },
     });
 
-    const activeStakeCount = await tx.validatorStake.count({
-      where: {
-        node_id: nodeId,
-        status: 'active',
-      },
-    });
-    const trustLevel = deriveTrustLevel(activeStakeCount, target.reputation);
+    const trustLevel: TrustLevel = 'verified';
 
     await tx.node.update({
       where: { node_id: nodeId },

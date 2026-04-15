@@ -228,4 +228,47 @@ describe('Worker pool routes', () => {
     expect(response.statusCode).toBe(403);
     expect(mockSetWorkerAvailability).not.toHaveBeenCalled();
   });
+
+  it('rejects availability updates without any availability field', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/workerpool/workers/node-1/availability',
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockSetWorkerAvailability).not.toHaveBeenCalled();
+  });
+
+  it('rejects unknown availability values', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/workerpool/workers/node-1/availability',
+      payload: { availability: 'offline' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockSetWorkerAvailability).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-string availability values', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v2/workerpool/workers/node-1/availability',
+      payload: { availability: 1 },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockSetWorkerAvailability).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed worker list pagination values', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/workerpool?limit=1abc&offset=1.5',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockListWorkers).not.toHaveBeenCalled();
+  });
 });

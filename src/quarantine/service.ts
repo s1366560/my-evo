@@ -16,6 +16,7 @@ import {
   L3_REPUTATION_PENALTY,
   MAX_REPUTATION,
   QUARANTINE_APPEAL_WINDOW_MS,
+  REPUTATION_MIN_AUTO_RELEASE,
 } from '../shared/constants';
 import {
   ConflictError,
@@ -41,6 +42,10 @@ const PENALTY_MAP: Record<QuarantineLevel, number> = {
   L2: L2_REPUTATION_PENALTY,
   L3: L3_REPUTATION_PENALTY,
 };
+
+function isEligibleForAutoRelease(reputation?: number): boolean {
+  return typeof reputation === 'number' && reputation >= REPUTATION_MIN_AUTO_RELEASE;
+}
 
 function toQuarantineRecord(
   record: Record<string, unknown>,
@@ -82,57 +87,63 @@ export async function quarantineNode(
   level: QuarantineLevel,
   reason: QuarantineReason,
 ): Promise<QuarantineRecord> {
-  const node = await prisma.node.findFirst({
-    where: { node_id: nodeId },
-  });
-
-  if (!node) {
-    throw new NotFoundError('Node', nodeId);
-  }
-
-  const existing = await prisma.quarantineRecord.findFirst({
-    where: { node_id: nodeId, is_active: true },
-  });
-
-  if (existing) {
-    throw new ValidationError('Node is already in quarantine');
-  }
-
   const duration = DURATION_MAP[level];
   const penalty = PENALTY_MAP[level];
   const now = new Date();
 
-  const record = await prisma.quarantineRecord.create({
-    data: {
-      node_id: nodeId,
-      level,
-      reason,
-      started_at: now,
-      expires_at: new Date(now.getTime() + duration),
-      auto_release_at: new Date(now.getTime() + duration),
-      reputation_penalty: penalty,
-      is_active: true,
-      violations: [],
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const [node, existing] = await Promise.all([
+      tx.node.findFirst({
+        where: { node_id: nodeId },
+      }),
+      tx.quarantineRecord.findFirst({
+        where: { node_id: nodeId, is_active: true },
+      }),
+    ]);
 
-  await prisma.node.update({
-    where: { node_id: nodeId },
-    data: {
-      reputation: Math.max(0, node.reputation - penalty),
-    },
-  });
+    if (!node) {
+      throw new NotFoundError('Node', nodeId);
+    }
+    if (existing) {
+      if (existing.level === 'L3') {
+        throw new ValidationError('Node is already at maximum quarantine level');
+      }
 
-  await prisma.reputationEvent.create({
-    data: {
-      node_id: nodeId,
-      event_type: `quarantine_${level}`,
-      delta: -penalty,
-      reason: `Quarantined at ${level}: ${reason}`,
-    },
-  });
+      return escalateQuarantineInTransaction(tx, nodeId, reason, existing);
+    }
 
-  return toQuarantineRecord(record as unknown as Record<string, unknown>);
+    const record = await tx.quarantineRecord.create({
+      data: {
+        node_id: nodeId,
+        level,
+        reason,
+        started_at: now,
+        expires_at: new Date(now.getTime() + duration),
+        auto_release_at: new Date(now.getTime() + duration),
+        reputation_penalty: penalty,
+        is_active: true,
+        violations: [],
+      },
+    });
+
+    await tx.node.update({
+      where: { node_id: nodeId },
+      data: {
+        reputation: Math.max(0, node.reputation - penalty),
+      },
+    });
+
+    await tx.reputationEvent.create({
+      data: {
+        node_id: nodeId,
+        event_type: `quarantine_${level}`,
+        delta: -penalty,
+        reason: `Quarantined at ${level}: ${reason}`,
+      },
+    });
+
+    return toQuarantineRecord(record as unknown as Record<string, unknown>);
+  });
 }
 
 export async function addViolation(
@@ -169,6 +180,14 @@ export async function checkQuarantineStatus(
   }
 
   if (new Date(active.expires_at) < new Date()) {
+    const node = await prisma.node.findFirst({
+      where: { node_id: nodeId },
+    });
+
+    if (!isEligibleForAutoRelease(node?.reputation)) {
+      return toQuarantineRecord(active as unknown as Record<string, unknown>);
+    }
+
     await prisma.quarantineRecord.update({
       where: { id: active.id },
       data: { is_active: false },
@@ -366,6 +385,14 @@ export async function autoRelease(): Promise<number> {
 
   let count = 0;
   for (const record of expired) {
+    const node = await prisma.node.findFirst({
+      where: { node_id: record.node_id },
+    });
+
+    if (!isEligibleForAutoRelease(node?.reputation)) {
+      continue;
+    }
+
     await prisma.quarantineRecord.update({
       where: { id: record.id },
       data: { is_active: false },
@@ -376,10 +403,17 @@ export async function autoRelease(): Promise<number> {
   return count;
 }
 
-export async function escalateQuarantine(
+async function escalateQuarantineInTransaction(
+  tx: Prisma.TransactionClient,
   nodeId: string,
+  reason?: QuarantineReason,
+  activeRecord?: {
+    id: string;
+    level: QuarantineLevel | string;
+    reason?: QuarantineReason | string;
+  },
 ): Promise<QuarantineRecord> {
-  const active = await prisma.quarantineRecord.findFirst({
+  const active = activeRecord ?? await tx.quarantineRecord.findFirst({
     where: { node_id: nodeId, is_active: true },
   });
 
@@ -405,37 +439,47 @@ export async function escalateQuarantine(
   const newDuration = DURATION_MAP[newLevel];
   const now = new Date();
 
-  const updated = await prisma.quarantineRecord.update({
+  const updated = await tx.quarantineRecord.update({
     where: { id: active.id },
     data: {
       level: newLevel,
+      reason: reason ?? (active.reason as QuarantineReason | undefined),
       expires_at: new Date(now.getTime() + newDuration),
       auto_release_at: new Date(now.getTime() + newDuration),
       reputation_penalty: PENALTY_MAP[newLevel],
     },
   });
 
-  const node = await prisma.node.findFirst({
+  const node = await tx.node.findFirst({
     where: { node_id: nodeId },
   });
 
   if (node) {
-    await prisma.node.update({
+    await tx.node.update({
       where: { node_id: nodeId },
       data: {
         reputation: Math.max(0, node.reputation - additionalPenalty),
       },
     });
 
-    await prisma.reputationEvent.create({
+    await tx.reputationEvent.create({
       data: {
         node_id: nodeId,
         event_type: `quarantine_escalated_${newLevel}`,
         delta: -additionalPenalty,
-        reason: `Quarantine escalated from ${currentLevel} to ${newLevel}`,
+        reason: `Quarantine escalated from ${currentLevel} to ${newLevel}${reason ? ` due to ${reason}` : ''}`,
       },
     });
   }
 
   return toQuarantineRecord(updated as unknown as Record<string, unknown>);
+}
+
+export async function escalateQuarantine(
+  nodeId: string,
+  reason?: QuarantineReason,
+): Promise<QuarantineRecord> {
+  return prisma.$transaction(async (tx) => {
+    return escalateQuarantineInTransaction(tx, nodeId, reason);
+  });
 }

@@ -155,10 +155,15 @@ describe('Subscription routes', () => {
 
   it('returns the authenticated node subscription on the canonical root route', async () => {
     mockGetSubscriptionStatus.mockResolvedValue({
+      subscription_id: 'sub-1',
       node_id: 'node-1',
       plan: 'premium',
       billing_cycle: 'monthly',
       status: 'active',
+      current_period_start: '2026-03-01T00:00:00Z',
+      current_period_end: '2026-03-31T23:59:59Z',
+      auto_renew: true,
+      total_paid: 2000,
     });
 
     const response = await app.inject({
@@ -168,6 +173,19 @@ describe('Subscription routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetSubscriptionStatus).toHaveBeenCalledWith('node-1');
+    expect(JSON.parse(response.payload)).toMatchObject({
+      success: true,
+      subscription: {
+        subscription_id: 'sub-1',
+        plan: 'premium',
+        status: 'active',
+        billing_cycle: 'monthly',
+        next_charge: 2000,
+        features: {
+          carbon_tax_multiplier: '1x',
+        },
+      },
+    });
   });
 
   it('allows session callers to manage subscriptions for owned nodes', async () => {
@@ -233,26 +251,53 @@ describe('Subscription routes', () => {
 
   it('changes and cancels subscriptions through canonical root routes', async () => {
     mockCreateOrUpdateSubscription.mockResolvedValue({
+      subscription_id: 'sub-1',
       node_id: 'node-1',
       plan: 'ultra',
       billing_cycle: 'monthly',
+      status: 'active',
+      current_period_start: '2026-03-01T00:00:00Z',
+      current_period_end: '2026-03-31T23:59:59Z',
+      auto_renew: true,
+      total_paid: 10000,
     });
     mockCancelSubscription.mockResolvedValue(undefined);
+    mockGetSubscriptionStatus
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        subscription_id: 'sub-1',
+        node_id: 'node-1',
+        plan: 'ultra',
+        billing_cycle: 'monthly',
+        status: 'active',
+        current_period_start: '2026-03-01T00:00:00Z',
+        current_period_end: '2026-03-31T23:59:59Z',
+        auto_renew: false,
+        total_paid: 10000,
+      });
 
-    const [changeResponse, cancelResponse] = await Promise.all([
-      app.inject({
-        method: 'POST',
-        url: '/subscription/change',
-        payload: { plan: 'enterprise', billing_cycle: 'monthly' },
-      }),
-      app.inject({
-        method: 'POST',
-        url: '/subscription/cancel',
-      }),
-    ]);
+    const changeResponse = await app.inject({
+      method: 'POST',
+      url: '/subscription/change',
+      payload: { plan: 'enterprise', billing_cycle: 'monthly' },
+    });
+    const cancelResponse = await app.inject({
+      method: 'POST',
+      url: '/subscription/cancel',
+    });
 
     expect(changeResponse.statusCode).toBe(200);
     expect(cancelResponse.statusCode).toBe(200);
+    expect(JSON.parse(changeResponse.payload)).toMatchObject({
+      status: 'ok',
+      amount_charged: 10000,
+      effective_immediately: true,
+    });
+    expect(JSON.parse(cancelResponse.payload)).toMatchObject({
+      status: 'ok',
+      downgrade_to: 'free',
+      grace_period_until: '2026-03-31T23:59:59Z',
+    });
     expect(mockCreateOrUpdateSubscription).toHaveBeenCalledWith(
       'node-1',
       'ultra',
@@ -260,5 +305,100 @@ describe('Subscription routes', () => {
       true,
     );
     expect(mockCancelSubscription).toHaveBeenCalledWith('node-1');
+    expect(mockGetSubscriptionStatus).toHaveBeenCalledWith('node-1');
+  });
+
+  it('returns a paused-aware cancel response when auto-renew is disabled on a paused subscription', async () => {
+    mockCancelSubscription.mockResolvedValue(undefined);
+    mockGetSubscriptionStatus.mockResolvedValue({
+      subscription_id: 'sub-1',
+      node_id: 'node-1',
+      plan: 'premium',
+      billing_cycle: 'monthly',
+      status: 'paused',
+      current_period_start: '2026-03-01T00:00:00Z',
+      current_period_end: '2026-03-31T23:59:59Z',
+      auto_renew: false,
+      total_paid: 2000,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/subscription/cancel',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      status: 'ok',
+      message: 'Auto-renew disabled while the subscription remains paused.',
+      grace_period_until: null,
+      downgrade_to: null,
+    });
+  });
+
+  it('lists invoices from the canonical root route', async () => {
+    mockListInvoices.mockResolvedValue({
+      items: [{ invoice_id: 'inv-1', amount: 2000 }],
+      total: 1,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/subscription/invoices?limit=10&offset=5',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockListInvoices).toHaveBeenCalledWith('node-1', 10, 5);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      success: true,
+      invoices: [{ invoice_id: 'inv-1', amount: 2000 }],
+      total: 1,
+    });
+  });
+
+  it('rejects invalid invoice pagination params', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/subscription/invoices?limit=-1&offset=abc',
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockListInvoices).not.toHaveBeenCalled();
+  });
+
+  it('does not double-charge unchanged subscription changes', async () => {
+    mockGetSubscriptionStatus.mockResolvedValue({
+      subscription_id: 'sub-1',
+      node_id: 'node-1',
+      plan: 'premium',
+      billing_cycle: 'monthly',
+      status: 'active',
+      current_period_start: '2026-03-01T00:00:00Z',
+      current_period_end: '2026-03-31T23:59:59Z',
+      auto_renew: true,
+      total_paid: 2000,
+    });
+    mockCreateOrUpdateSubscription.mockResolvedValue({
+      subscription_id: 'sub-1',
+      node_id: 'node-1',
+      plan: 'premium',
+      billing_cycle: 'monthly',
+      status: 'active',
+      current_period_start: '2026-03-01T00:00:00Z',
+      current_period_end: '2026-03-31T23:59:59Z',
+      auto_renew: true,
+      total_paid: 2000,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/subscription/change',
+      payload: { plan: 'premium', billing_cycle: 'monthly' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      amount_charged: 0,
+    });
   });
 });
