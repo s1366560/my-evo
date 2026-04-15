@@ -160,6 +160,42 @@ describe('Anti-Hallucination Service', () => {
 
       expect(result.alerts).toContain('Multiple placeholder or stub patterns detected');
     });
+
+    it('should persist compatibility metadata for language and trust anchors', async () => {
+      mockPrisma.hallucinationCheck.create.mockResolvedValue({
+        check_id: 'chk-6',
+        node_id: 'node-1',
+        has_hallucination: false,
+        alert_count: 0,
+        result: {
+          language: 'python',
+          trust_anchors_used: [{ type: 'document', source: 'requests-docs', confidence: 0.95 }],
+        },
+        confidence: 0.95,
+        alerts: [],
+        validation_type: 'check',
+      });
+
+      await performCheck(
+        'node-1',
+        'print("hello")',
+        'check',
+        'asset-1',
+        'python',
+        [{ type: 'document', source: 'requests-docs', confidence: 0.95 }],
+      );
+
+      expect(mockPrisma.hallucinationCheck.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            result: expect.objectContaining({
+              language: 'python',
+              trust_anchors_used: [{ type: 'document', source: 'requests-docs', confidence: 0.95 }],
+            }),
+          }),
+        }),
+      );
+    });
   });
 
   describe('getCheck', () => {

@@ -81,11 +81,17 @@ describe('Onboarding routes', () => {
     mockGetOnboardingJourney.mockResolvedValue({
       agent_id: 'node-1',
       current_step: 2,
-      total_steps: 5,
-      progress_percentage: 20,
+      total_steps: 4,
+      progress_percentage: 25,
       completed_steps: [1],
-      steps: [{ step: 1, title: 'Register Your Node', completed: true }],
-      next_step: { step: 2, title: 'Start Heartbeat', action_url: '/a2a/heartbeat' },
+      steps: [{ step: 1, title: 'Register Your Agent', completed: true }],
+      next_step: {
+        step: 2,
+        title: 'Publish Your First Capsule',
+        action_url: '/a2a/publish',
+        action_method: 'POST',
+        estimated_time: '2 minutes',
+      },
     });
 
     const response = await app.inject({
@@ -94,6 +100,12 @@ describe('Onboarding routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      agent_id: 'node-1',
+      current_step: 2,
+      total_steps: 4,
+      progress_percentage: 25,
+    });
     expect(mockGetOnboardingJourney).toHaveBeenCalledWith('node-1', prisma);
   });
 
@@ -106,11 +118,17 @@ describe('Onboarding routes', () => {
     mockGetOnboardingJourney.mockResolvedValue({
       agent_id: 'node-1',
       current_step: 2,
-      total_steps: 5,
-      progress_percentage: 20,
+      total_steps: 4,
+      progress_percentage: 25,
       completed_steps: [1],
-      steps: [{ step: 1, title: 'Register Your Node', completed: true }],
-      next_step: { step: 2, title: 'Start Heartbeat', action_url: '/a2a/heartbeat' },
+      steps: [{ step: 1, title: 'Register Your Agent', completed: true }],
+      next_step: {
+        step: 2,
+        title: 'Publish Your First Capsule',
+        action_url: '/a2a/publish',
+        action_method: 'POST',
+        estimated_time: '2 minutes',
+      },
     });
 
     const response = await app.inject({
@@ -120,6 +138,12 @@ describe('Onboarding routes', () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      status: 'ok',
+      completed_step: 1,
+      progress_percentage: 25,
+      next_step: 2,
+    });
     expect(mockCompleteOnboardingStep).toHaveBeenCalledWith('node-1', 1, prisma);
     expect(mockGetOnboardingJourney).toHaveBeenCalledWith('node-1', prisma);
   });
@@ -173,11 +197,17 @@ describe('Onboarding routes', () => {
     mockGetOnboardingJourney.mockResolvedValue({
       agent_id: 'node-2',
       current_step: 1,
-      total_steps: 5,
+      total_steps: 4,
       progress_percentage: 0,
       completed_steps: [],
       steps: [],
-      next_step: { step: 1, title: 'Register Your Node', action_url: '/a2a/hello' },
+      next_step: {
+        step: 1,
+        title: 'Register Your Agent',
+        action_url: '/a2a/hello',
+        action_method: 'POST',
+        estimated_time: '30 seconds',
+      },
     });
 
     const response = await app.inject({
@@ -192,13 +222,13 @@ describe('Onboarding routes', () => {
   it('returns step detail metadata', async () => {
     mockGetOnboardingStepDetail.mockReturnValue({
       step: 2,
-      title: 'Start Heartbeat',
-      description: 'Begin sending periodic heartbeat messages to maintain your node status.',
-      action_label: 'Configure Heartbeat',
-      action_url: '/a2a/heartbeat',
+      title: 'Publish Your First Capsule',
+      description: 'Publish your first capability capsule to start contributing value to the ecosystem.',
+      action_label: 'Publish Capsule',
+      action_url: '/a2a/publish',
       action_method: 'POST',
-      code_example: 'setInterval(() => sendHeartbeat(), HEARTBEAT_INTERVAL_MS);',
-      estimated_time: '5 minutes',
+      code_example: 'curl -X POST https://api.evomap.ai/a2a/publish ...',
+      estimated_time: '2 minutes',
     });
 
     const response = await app.inject({

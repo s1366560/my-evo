@@ -16,6 +16,71 @@ async function resolveAntiHallucinationNodeId(
 export async function antiHallucinationRoutes(
   app: FastifyInstance,
 ): Promise<void> {
+  const buildCheckCompatibilityPayload = (
+    result: Awaited<ReturnType<typeof antiHallucinationService.performCheck>>,
+  ) => {
+    const rawResult = result?.result && typeof result.result === 'object'
+      ? result.result as Record<string, unknown>
+      : {};
+    const passed = rawResult.has_hallucination === false || rawResult.checks_passed === true;
+    const summary = typeof rawResult.summary === 'string'
+      ? rawResult.summary
+      : 'Check completed';
+    const rawAlerts = Array.isArray(rawResult.alerts)
+      ? rawResult.alerts
+      : [];
+    const detailMessages = Array.isArray(rawResult.details)
+      ? rawResult.details.filter((detail): detail is string => typeof detail === 'string')
+      : [];
+    const alerts = rawAlerts.length > 0
+      ? rawAlerts.map((alert) => {
+        const rawAlert = alert as Record<string, unknown>;
+        return {
+          type: typeof rawAlert.type === 'string' ? rawAlert.type : 'heuristic_alert',
+          level: typeof rawAlert.level === 'string' ? rawAlert.level : (passed ? 'L0' : 'L2'),
+          message: typeof rawAlert.message === 'string' ? rawAlert.message : summary,
+          suggestion: typeof rawAlert.suggestion === 'string' ? rawAlert.suggestion : null,
+          line: typeof rawAlert.line === 'number' ? rawAlert.line : null,
+          confidence: typeof rawAlert.confidence === 'number'
+            ? rawAlert.confidence
+            : result.confidence,
+        };
+      })
+      : detailMessages.map((message) => ({
+        type: 'heuristic_alert',
+        level: passed ? 'L0' : 'L2',
+        message,
+        suggestion: null,
+        line: null,
+        confidence: result.confidence,
+      }));
+
+    return {
+      passed,
+      confidence: result.confidence,
+      validations: [
+        {
+          type: result.validation_type ?? 'heuristic',
+          passed,
+          message: summary,
+        },
+      ],
+      alerts,
+      suggestions: Array.isArray(rawResult.suggestions)
+        ? rawResult.suggestions.filter(
+          (suggestion): suggestion is string => typeof suggestion === 'string',
+        )
+        : passed
+          ? []
+          : detailMessages.map((message) => `Review flagged issue: ${message}`),
+    };
+  };
+
+  const getCodeContent = (body: {
+    code_content?: string;
+    code?: string;
+  }) => body.code_content ?? body.code;
+
   // -------------------------------------------------------------------------
   // POST /api/v2/anti-hallucination/check
   // -------------------------------------------------------------------------
@@ -26,26 +91,41 @@ export async function antiHallucinationRoutes(
     const auth = request.auth!;
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const body = request.body as {
-      code_content: string;
-      validation_type: string;
+      code_content?: string;
+      code?: string;
+      validation_type?: string;
+      language?: string;
+      trust_anchors?: Array<{
+        type: string;
+        source: string;
+        confidence: number;
+      }>;
       asset_id?: string;
     };
+    const codeContent = getCodeContent(body);
+    const validationType = body.validation_type ?? (body.language ? 'check' : undefined);
 
-    if (!body.code_content) {
+    if (!codeContent) {
       throw new ValidationError('code_content is required');
     }
-    if (!body.validation_type) {
+    if (!validationType) {
       throw new ValidationError('validation_type is required');
     }
 
     const result = await antiHallucinationService.performCheck(
       nodeId,
-      body.code_content,
-      body.validation_type,
+      codeContent,
+      validationType,
       body.asset_id,
+      body.language,
+      body.trust_anchors,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({
+      success: true,
+      ...buildCheckCompatibilityPayload(result),
+      data: result,
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -59,16 +139,18 @@ export async function antiHallucinationRoutes(
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const body = request.body as {
       code_content?: string;
+      code?: string;
       asset_id?: string;
     };
+    const codeContent = getCodeContent(body);
 
-    if (!body.code_content) {
+    if (!codeContent) {
       throw new ValidationError('code_content is required');
     }
 
     const result = await antiHallucinationService.validateCode(
       nodeId,
-      body.code_content,
+      codeContent,
       body.asset_id,
     );
 
@@ -86,16 +168,18 @@ export async function antiHallucinationRoutes(
     const nodeId = await resolveAntiHallucinationNodeId(app, auth);
     const body = request.body as {
       code_content?: string;
+      code?: string;
       asset_id?: string;
     };
+    const codeContent = getCodeContent(body);
 
-    if (!body.code_content) {
+    if (!codeContent) {
       throw new ValidationError('code_content is required');
     }
 
     const result = await antiHallucinationService.detectHallucination(
       nodeId,
-      body.code_content,
+      codeContent,
       body.asset_id,
     );
 
@@ -139,7 +223,6 @@ export async function antiHallucinationRoutes(
   // -------------------------------------------------------------------------
   app.get('/stats', {
     schema: { tags: ['AntiHallucination'] },
-    preHandler: [requireTrustLevel('trusted')],
   }, async (_request, reply) => {
     const result = await antiHallucinationService.getCheckStats();
     return reply.send({ success: true, data: result });

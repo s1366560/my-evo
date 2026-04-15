@@ -24,6 +24,59 @@ import {
 
 let prisma = new PrismaClient();
 
+type StakeResult = ValidatorStake & {
+  attestation_id: string;
+  trust_level: TrustLevel;
+};
+
+type ReleaseResult = ValidatorStake & {
+  amount_returned: number;
+  penalty: number;
+  trust_level: TrustLevel;
+};
+
+async function syncTrustAfterStakeSettlement(
+  nodeId: string,
+  validatorId: string,
+  fallbackLevel: TrustLevel = 'unverified',
+): Promise<TrustLevel> {
+  await prisma.trustAttestation.deleteMany({
+    where: {
+      node_id: nodeId,
+      validator_id: validatorId,
+    },
+  });
+
+  const remainingStakes = await prisma.validatorStake.findMany({
+    where: {
+      node_id: nodeId,
+      status: 'active',
+    },
+    select: { amount: true },
+  });
+  const remainingStakeTotal = remainingStakes.reduce(
+    (sum: number, stake: { amount: number }) => sum + stake.amount,
+    0,
+  );
+  const trustLevel: TrustLevel = remainingStakeTotal >= 500
+    ? 'trusted'
+    : remainingStakeTotal >= 100
+      ? 'verified'
+      : fallbackLevel;
+
+  const targetNode = await prisma.node.findFirst({
+    where: { node_id: nodeId },
+  });
+  if (targetNode) {
+    await prisma.node.update({
+      where: { node_id: nodeId },
+      data: { trust_level: trustLevel },
+    });
+  }
+
+  return trustLevel;
+}
+
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
 }
@@ -32,70 +85,113 @@ export async function stake(
   nodeId: string,
   validatorId: string,
   amount: number,
-): Promise<ValidatorStake> {
+): Promise<StakeResult> {
   if (amount < TRUST_STAKE_AMOUNT) {
     throw new ValidationError(
       `Minimum stake amount is ${TRUST_STAKE_AMOUNT} credits`,
     );
   }
 
-  const validator = await prisma.node.findFirst({
-    where: { node_id: validatorId },
-  });
-
-  if (!validator) {
-    throw new NotFoundError('Validator', validatorId);
-  }
-
-  if (validator.credit_balance < amount) {
-    throw new InsufficientCreditsError(amount, validator.credit_balance);
-  }
-
-  await prisma.node.update({
-    where: { node_id: validatorId },
-    data: { credit_balance: { decrement: amount } },
-  });
-
-  await prisma.creditTransaction.create({
-    data: {
-      node_id: validatorId,
-      amount: -amount,
-      type: 'stake_lock',
-      description: `Staked ${amount} credits for node ${nodeId}`,
-      balance_after: validator.credit_balance - amount,
-    },
-  });
-
   const lockedUntil = new Date(
     Date.now() + TRUST_LOCK_PERIOD_DAYS * 24 * 60 * 60 * 1000,
   );
 
-  const stakeRecord = await prisma.validatorStake.create({
-    data: {
-      stake_id: crypto.randomUUID(),
-      node_id: nodeId,
-      validator_id: validatorId,
-      amount,
-      locked_until: lockedUntil,
-      status: 'active',
-    },
+  const stakeRecord = await prisma.$transaction(async (tx) => {
+    const validator = await tx.node.findFirst({
+      where: { node_id: validatorId },
+    });
+
+    if (!validator) {
+      throw new NotFoundError('Validator', validatorId);
+    }
+
+    const target = await tx.node.findFirst({
+      where: { node_id: nodeId },
+    });
+
+    if (!target) {
+      throw new NotFoundError('Node', nodeId);
+    }
+
+    const debitResult = await tx.node.updateMany({
+      where: {
+        node_id: validatorId,
+        credit_balance: { gte: amount },
+      },
+      data: { credit_balance: { decrement: amount } },
+    });
+
+    if (debitResult.count === 0) {
+      throw new InsufficientCreditsError(amount, validator.credit_balance);
+    }
+
+    const updatedValidator = await tx.node.findFirst({
+      where: { node_id: validatorId },
+    });
+
+    await tx.creditTransaction.create({
+      data: {
+        node_id: validatorId,
+        amount: -amount,
+        type: 'stake_lock',
+        description: `Staked ${amount} credits for node ${nodeId}`,
+        balance_after: updatedValidator?.credit_balance ?? (validator.credit_balance - amount),
+      },
+    });
+
+    const createdStake = await tx.validatorStake.create({
+      data: {
+        stake_id: crypto.randomUUID(),
+        node_id: nodeId,
+        validator_id: validatorId,
+        amount,
+        locked_until: lockedUntil,
+        status: 'active',
+      },
+    });
+
+    await tx.node.update({
+      where: { node_id: nodeId },
+      data: { trust_level: 'verified' },
+    });
+
+    const attestation = await tx.trustAttestation.create({
+      data: {
+        attestation_id: crypto.randomUUID(),
+        validator_id: validatorId,
+        node_id: nodeId,
+        trust_level: 'verified',
+        stake_amount: amount,
+        expires_at: new Date(
+          Date.now() + ATTESTATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+        ),
+        signature: crypto
+          .createHash('sha256')
+          .update(`${validatorId}:${nodeId}:${createdStake.stake_id}`)
+          .digest('hex'),
+      },
+    });
+
+    return { createdStake, attestation };
   });
 
   return {
-    stake_id: stakeRecord.stake_id,
-    node_id: stakeRecord.node_id,
-    validator_id: stakeRecord.validator_id,
-    amount: stakeRecord.amount,
-    staked_at: stakeRecord.staked_at.toISOString(),
-    locked_until: stakeRecord.locked_until.toISOString(),
-    status: stakeRecord.status as ValidatorStake['status'],
+    stake_id: stakeRecord.createdStake.stake_id,
+    node_id: stakeRecord.createdStake.node_id,
+    validator_id: stakeRecord.createdStake.validator_id,
+    amount: stakeRecord.createdStake.amount,
+    staked_at: stakeRecord.createdStake.staked_at.toISOString(),
+    locked_until: stakeRecord.createdStake.locked_until.toISOString(),
+    status: stakeRecord.createdStake.status as ValidatorStake['status'],
+    attestation_id: stakeRecord.attestation.attestation_id,
+    trust_level: 'verified',
   };
 }
 
 export async function release(
   stakeId: string,
   actorId: string,
-): Promise<ValidatorStake> {
+): Promise<ReleaseResult> {
   const stakeRecord = await prisma.validatorStake.findUnique({
     where: { stake_id: stakeId },
   });
@@ -145,6 +241,11 @@ export async function release(
     data: { status: 'released' },
   });
 
+  const trustLevel = await syncTrustAfterStakeSettlement(
+    stakeRecord.node_id,
+    stakeRecord.validator_id,
+  );
+
   return {
     stake_id: updated.stake_id,
     node_id: updated.node_id,
@@ -153,6 +254,9 @@ export async function release(
     staked_at: updated.staked_at.toISOString(),
     locked_until: updated.locked_until.toISOString(),
     status: updated.status as ValidatorStake['status'],
+    amount_returned: returnAmount,
+    penalty,
+    trust_level: trustLevel,
   };
 }
 
@@ -175,51 +279,39 @@ export async function slash(
     stakeRecord.amount * TRUST_SLASH_PENALTY,
   );
 
-  const node = await prisma.node.findFirst({
-    where: { node_id: stakeRecord.node_id },
+  const validatorNode = await prisma.node.findFirst({
+    where: { node_id: stakeRecord.validator_id },
   });
-
-  if (node) {
-    const levelOrder: Record<string, number> = {
-      unverified: 0,
-      verified: 1,
-      trusted: 2,
-    };
-
-    const currentLevel = node.trust_level as string;
-    if (levelOrder[currentLevel] !== undefined && levelOrder[currentLevel]! > 0) {
-      const downgrade: Record<number, string> = {
-        1: 'unverified',
-        2: 'verified',
-      };
-      await prisma.node.update({
-        where: { node_id: stakeRecord.node_id },
-        data: {
-          trust_level: downgrade[levelOrder[currentLevel]!],
-        },
-      });
-    }
-  }
 
   const returnAmount = stakeRecord.amount - slashAmount;
 
-  if (returnAmount > 0) {
-    const targetNode = await prisma.node.findFirst({
-      where: { node_id: stakeRecord.node_id },
+  if (returnAmount > 0 && validatorNode) {
+    await prisma.node.update({
+      where: { node_id: stakeRecord.validator_id },
+      data: { credit_balance: { increment: returnAmount } },
     });
 
-    if (targetNode) {
-      await prisma.node.update({
-        where: { node_id: stakeRecord.node_id },
-        data: { credit_balance: { increment: returnAmount } },
-      });
-    }
+    await prisma.creditTransaction.create({
+      data: {
+        node_id: stakeRecord.validator_id,
+        amount: returnAmount,
+        type: 'stake_slash',
+        description: `Slashed stake ${stakeId}, penalty: ${slashAmount}`,
+        balance_after: validatorNode.credit_balance + returnAmount,
+      },
+    });
   }
 
   const updated = await prisma.validatorStake.update({
     where: { stake_id: stakeRecord.stake_id },
     data: { status: 'slashed' },
   });
+
+  await syncTrustAfterStakeSettlement(
+    stakeRecord.node_id,
+    stakeRecord.validator_id,
+    'unverified',
+  );
 
   return {
     stake_id: updated.stake_id,
@@ -257,6 +349,8 @@ export async function claimReward(
   }
 
   const reward = Math.ceil(stakeRecord.amount * TRUST_REWARD_RATE);
+  const principal = stakeRecord.amount;
+  const totalReturn = principal + reward;
 
   const node = await prisma.node.findFirst({
     where: { node_id: stakeRecord.validator_id },
@@ -265,30 +359,50 @@ export async function claimReward(
   if (node) {
     await prisma.node.update({
       where: { node_id: stakeRecord.validator_id },
-      data: { credit_balance: { increment: reward } },
+      data: { credit_balance: { increment: totalReturn } },
+    });
+
+    await prisma.creditTransaction.create({
+      data: {
+        node_id: stakeRecord.validator_id,
+        amount: principal,
+        type: 'stake_release',
+        description: `Released principal for ${stakeId}`,
+        balance_after: node.credit_balance + principal,
+      },
     });
 
     await prisma.creditTransaction.create({
       data: {
         node_id: stakeRecord.validator_id,
         amount: reward,
-        type: 'stake_release',
+        type: 'stake_reward',
         description: `Staking reward for ${stakeId}`,
-        balance_after: node.credit_balance + reward,
+        balance_after: node.credit_balance + totalReturn,
       },
     });
   }
 
+  const updatedStake = await prisma.validatorStake.update({
+    where: { stake_id: stakeRecord.stake_id },
+    data: { status: 'released' },
+  });
+
+  await syncTrustAfterStakeSettlement(
+    stakeRecord.node_id,
+    stakeRecord.validator_id,
+  );
+
   return {
     reward,
-      stake: {
-        stake_id: stakeRecord.stake_id,
-        node_id: stakeRecord.node_id,
-        validator_id: stakeRecord.validator_id,
-        amount: stakeRecord.amount,
-        staked_at: stakeRecord.staked_at.toISOString(),
-        locked_until: stakeRecord.locked_until.toISOString(),
-      status: stakeRecord.status as ValidatorStake['status'],
+    stake: {
+      stake_id: updatedStake.stake_id,
+      node_id: updatedStake.node_id,
+      validator_id: updatedStake.validator_id,
+      amount: updatedStake.amount,
+      staked_at: updatedStake.staked_at.toISOString(),
+      locked_until: updatedStake.locked_until.toISOString(),
+      status: updatedStake.status as ValidatorStake['status'],
     },
   };
 }
@@ -343,7 +457,9 @@ export async function verifyNode(
   const totalStaked = stakes.reduce((sum: number, s: { amount: number }) => sum + s.amount, 0);
 
   const newLevel: TrustLevel =
-    totalStaked >= 500
+    target.trust_level === 'trusted'
+      ? 'trusted'
+      : totalStaked >= 500
       ? 'trusted'
       : totalStaked >= 100
         ? 'verified'
@@ -385,10 +501,16 @@ export async function verifyNode(
 
 export async function getTrustLevel(
   nodeId: string,
-): Promise<{ node_id: string; trust_level: TrustLevel }> {
-  const node = await prisma.node.findFirst({
-    where: { node_id: nodeId },
-  });
+): Promise<{ node_id: string; trust_level: TrustLevel; attestations: TrustAttestation[] }> {
+  const [node, attestations] = await Promise.all([
+    prisma.node.findFirst({
+      where: { node_id: nodeId },
+    }),
+    prisma.trustAttestation.findMany({
+      where: { node_id: nodeId },
+      orderBy: { verified_at: 'desc' },
+    }),
+  ]);
 
   if (!node) {
     throw new NotFoundError('Node', nodeId);
@@ -397,6 +519,16 @@ export async function getTrustLevel(
   return {
     node_id: nodeId,
     trust_level: node.trust_level as TrustLevel,
+    attestations: attestations.map((attestation) => ({
+      attestation_id: attestation.attestation_id,
+      validator_id: attestation.validator_id,
+      node_id: attestation.node_id,
+      trust_level: attestation.trust_level as TrustLevel,
+      stake_amount: attestation.stake_amount,
+      verified_at: attestation.verified_at.toISOString(),
+      expires_at: attestation.expires_at.toISOString(),
+      signature: attestation.signature,
+    })),
   };
 }
 
@@ -408,13 +540,39 @@ export async function getStats(): Promise<TrustStats> {
       prisma.trustAttestation.count(),
     ]);
 
-  const activeStakeRecords = await prisma.validatorStake.findMany({
-    where: { status: 'active' },
-    select: { amount: true },
-  });
+  const [activeStakeRecords, slashedStakeRecords, rewardTransactions] = await Promise.all([
+    prisma.validatorStake.findMany({
+      where: { status: 'active' },
+      select: { amount: true },
+    }),
+    prisma.validatorStake.findMany({
+      where: { status: 'slashed' },
+      select: { amount: true },
+    }),
+    prisma.creditTransaction.findMany({
+      where: {
+        OR: [
+          { type: 'stake_reward' },
+          {
+            type: 'stake_release',
+            description: { startsWith: 'Staking reward for ' },
+          },
+        ],
+      },
+      select: { amount: true, type: true, description: true },
+    }),
+  ]);
 
   const totalStakedAmount = activeStakeRecords.reduce(
     (sum: number, s: { amount: number }) => sum + s.amount,
+    0,
+  );
+  const totalSlashed = slashedStakeRecords.reduce(
+    (sum: number, s: { amount: number }) => sum + Math.ceil(s.amount * TRUST_SLASH_PENALTY),
+    0,
+  );
+  const totalRewardsPaid = rewardTransactions.reduce(
+    (sum: number, t: { amount: number }) => sum + Math.max(t.amount, 0),
     0,
   );
 
@@ -427,13 +585,21 @@ export async function getStats(): Promise<TrustStats> {
     trustDistribution[node.trust_level] =
       (trustDistribution[node.trust_level] ?? 0) + 1;
   }
+  const verifiedNodes = nodes.filter((node) => node.trust_level === 'verified').length;
+  const trustedValidators = nodes.filter((node) => node.trust_level === 'trusted').length;
 
   return {
     total_stakes: totalStakes,
     total_staked_amount: totalStakedAmount,
+    total_staked: totalStakedAmount,
+    total_staked_credits: totalStakedAmount,
     active_stakes: activeStakes,
     total_attestations: totalAttestations,
     trust_distribution: trustDistribution,
+    verified_nodes: verifiedNodes,
+    trusted_validators: trustedValidators,
+    total_slashed: totalSlashed,
+    total_rewards_paid: totalRewardsPaid,
   };
 }
 

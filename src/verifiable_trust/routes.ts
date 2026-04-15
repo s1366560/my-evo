@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth, requireTrustLevel } from '../shared/auth';
+import { TRUST_REWARD_RATE } from '../shared/constants';
 import * as trustService from './service';
+import { ValidationError } from '../shared/errors';
 
 export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void> {
   app.post('/stake', {
@@ -9,17 +11,39 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as {
-      node_id: string;
-      amount: number;
+      node_id?: string;
+      target_node_id?: string;
+      amount?: number;
+      stake_amount?: number;
+      validator_id?: string;
     };
+    const nodeId = body.target_node_id ?? body.node_id;
+    const amount = body.stake_amount ?? body.amount;
+
+    if (body.validator_id && body.validator_id !== auth.node_id) {
+      throw new ValidationError('validator_id must match the authenticated validator');
+    }
+    if (!nodeId) {
+      throw new ValidationError('target_node_id is required');
+    }
+    if (typeof amount !== 'number' || Number.isNaN(amount)) {
+      throw new ValidationError('stake_amount is required');
+    }
 
     const result = await trustService.stake(
-      body.node_id,
+      nodeId,
       auth.node_id,
-      body.amount,
+      amount,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      stake_id: result.stake_id,
+      attestation_id: result.attestation_id,
+      trust_level: result.trust_level,
+      locked_until: result.locked_until,
+      data: result,
+    });
   });
 
   app.post('/release', {
@@ -33,7 +57,14 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
     const result = await trustService.release(body.stake_id, auth.node_id);
 
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      status: result.status,
+      amount_returned: result.amount_returned,
+      penalty: result.penalty,
+      trust_level: result.trust_level,
+      data: result,
+    });
   });
 
   app.post('/claim', {
@@ -56,17 +87,39 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
   }, async (request, reply) => {
     const auth = request.auth!;
     const body = request.body as {
-      target_id: string;
-      notes: string;
+      target_node_id?: string;
+      verification_notes?: string;
+      verification_result?: string;
+      evidence?: string;
+      target_id?: string;
+      notes?: string;
     };
+    const targetId = body.target_node_id ?? body.target_id;
+    const notes = [
+      body.verification_notes,
+      body.evidence,
+      body.notes,
+      body.verification_result,
+    ].filter((value): value is string => Boolean(value && value.trim())).join('\n');
+
+    if (!targetId) {
+      throw new ValidationError('target_node_id is required');
+    }
 
     const result = await trustService.verifyNode(
       auth.node_id,
-      body.target_id,
-      body.notes,
+      targetId,
+      notes,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      status: 'verified',
+      attestation_id: result.attestation_id,
+      reward_earned: Math.ceil(result.stake_amount * TRUST_REWARD_RATE),
+      trust_level: result.trust_level,
+      data: result,
+    });
   });
 
   app.get('/level/:nodeId', {
@@ -99,7 +152,6 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
   app.get('/pending', {
     schema: { tags: ['Trust'] },
-    preHandler: [requireTrustLevel('trusted')],
   }, async (_request, reply) => {
     const result = await trustService.listPendingStakes();
     return reply.send({ success: true, data: result });

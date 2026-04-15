@@ -1,3 +1,4 @@
+import cookie from '@fastify/cookie';
 import fastify, { type FastifyInstance } from 'fastify';
 import { accountRoutes } from './routes';
 
@@ -13,7 +14,8 @@ let mockAuth: {
   userId: 'user-1',
 };
 
-const mockGetOnboardingState = jest.fn();
+const mockRegisterUser = jest.fn();
+const mockGetOnboardingJourney = jest.fn();
 const mockCompleteOnboardingStep = jest.fn();
 const mockResetOnboarding = jest.fn();
 
@@ -34,7 +36,8 @@ jest.mock('../shared/auth', () => ({
 
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
-  getOnboardingState: (...args: unknown[]) => mockGetOnboardingState(...args),
+  registerUser: (...args: unknown[]) => mockRegisterUser(...args),
+  getOnboardingJourney: (...args: unknown[]) => mockGetOnboardingJourney(...args),
   completeOnboardingStep: (...args: unknown[]) => mockCompleteOnboardingStep(...args),
   resetOnboarding: (...args: unknown[]) => mockResetOnboarding(...args),
 }));
@@ -56,6 +59,39 @@ describe('Account routes', () => {
     jest.clearAllMocks();
   });
 
+  it('returns 201 when registering a user', async () => {
+    const prisma = {};
+    const app = buildApp(prisma);
+    mockRegisterUser.mockResolvedValue({
+      token: 'session-token',
+      user: { id: 'user-1', email: 'user@example.com' },
+    });
+
+    try {
+      await app.register(cookie);
+      await app.register(accountRoutes, { prefix: '/account' });
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/account/register',
+        payload: {
+          email: 'user@example.com',
+          password: 'secret123',
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(mockRegisterUser).toHaveBeenCalledWith(
+        'user@example.com',
+        'secret123',
+        prisma,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   it('uses auth.userId when creating api keys', async () => {
     const prisma = {
       apiKey: {
@@ -73,6 +109,7 @@ describe('Account routes', () => {
     const app = buildApp(prisma);
 
     try {
+      await app.register(cookie);
       await app.register(accountRoutes, { prefix: '/account' });
       await app.ready();
 
@@ -161,6 +198,8 @@ describe('Account routes', () => {
     const appB = buildApp(prismaB);
 
     try {
+      await appA.register(cookie);
+      await appB.register(cookie);
       await appA.register(accountRoutes, { prefix: '/account' });
       await appB.register(accountRoutes, { prefix: '/account' });
       await Promise.all([appA.ready(), appB.ready()]);
@@ -170,10 +209,15 @@ describe('Account routes', () => {
         appB.inject({ method: 'GET', url: '/account/api-keys' }),
       ]);
 
+      const payloadA = JSON.parse(responseA.payload);
+      const payloadB = JSON.parse(responseB.payload);
+
       expect(responseA.statusCode).toBe(200);
       expect(responseB.statusCode).toBe(200);
-      expect(JSON.parse(responseA.payload).data[0].id).toBe('key-a');
-      expect(JSON.parse(responseB.payload).data[0].id).toBe('key-b');
+      expect(payloadA.keys[0].id).toBe('key-a');
+      expect(payloadA.data.keys[0].id).toBe('key-a');
+      expect(payloadB.keys[0].id).toBe('key-b');
+      expect(payloadB.data.keys[0].id).toBe('key-b');
       expect(prismaA.apiKey.findMany).toHaveBeenCalledWith({
         where: { user_id: 'user-1' },
         orderBy: { created_at: 'desc' },
@@ -184,6 +228,43 @@ describe('Account routes', () => {
       });
     } finally {
       await Promise.all([appA.close(), appB.close()]);
+    }
+  });
+
+  it('returns top-level and wrapped compatibility fields when revoking an api key', async () => {
+    const prisma = {
+      apiKey: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'key-1',
+          user_id: 'user-1',
+        }),
+        delete: jest.fn().mockResolvedValue({}),
+      },
+    };
+    const app = buildApp(prisma);
+
+    try {
+      await app.register(cookie);
+      await app.register(accountRoutes, { prefix: '/account' });
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: '/account/api-keys/key-1',
+      });
+      const payload = JSON.parse(response.payload);
+
+      expect(response.statusCode).toBe(200);
+      expect(payload.status).toBe('ok');
+      expect(payload.message).toBe('API key revoked');
+      expect(payload.id).toBe('key-1');
+      expect(payload.data).toMatchObject({
+        status: 'ok',
+        message: 'API key revoked',
+        id: 'key-1',
+      });
+    } finally {
+      await app.close();
     }
   });
 
@@ -200,10 +281,20 @@ describe('Account routes', () => {
         findFirst: jest.fn().mockResolvedValue({ node_id: 'node-2' }),
       },
     };
-    mockGetOnboardingState.mockResolvedValue({
+    mockGetOnboardingJourney.mockResolvedValue({
       agent_id: 'node-2',
-      completed_steps: [],
       current_step: 1,
+      total_steps: 4,
+      progress_percentage: 0,
+      completed_steps: [],
+      steps: [
+        { step: 1, title: 'Register Your Agent', completed: false },
+      ],
+      next_step: {
+        step: 1,
+        title: 'Register Your Agent',
+        action_url: '/a2a/hello',
+      },
     });
     mockCompleteOnboardingStep.mockResolvedValue({
       agent_id: 'node-2',
@@ -218,6 +309,7 @@ describe('Account routes', () => {
     const app = buildApp(prisma);
 
     try {
+      await app.register(cookie);
       await app.register(accountRoutes, { prefix: '/account' });
       await app.ready();
 
@@ -241,7 +333,13 @@ describe('Account routes', () => {
       expect(getResponse.statusCode).toBe(200);
       expect(completeResponse.statusCode).toBe(200);
       expect(resetResponse.statusCode).toBe(200);
-      expect(mockGetOnboardingState).toHaveBeenCalledWith('node-2', prisma);
+      expect(JSON.parse(getResponse.payload).data).toMatchObject({
+        agent_id: 'node-2',
+        current_step: 1,
+        total_steps: 4,
+        progress_percentage: 0,
+      });
+      expect(mockGetOnboardingJourney).toHaveBeenCalledWith('node-2', prisma);
       expect(mockCompleteOnboardingStep).toHaveBeenCalledWith('node-2', 1, prisma);
       expect(mockResetOnboarding).toHaveBeenCalledWith('node-2', prisma);
     } finally {

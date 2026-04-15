@@ -53,7 +53,7 @@ describe('Account Service', () => {
       mockPrisma.apiKey.count.mockResolvedValue(0);
       mockPrisma.apiKey.create.mockResolvedValue({
         id: 'key-1',
-        prefix: 'ek_ab',
+        prefix: 'ek_a1b2c',
         name: 'Test Key',
         scopes: ['kg'],
         expires_at: null,
@@ -63,7 +63,7 @@ describe('Account Service', () => {
       const result = await createApiKey('user-1', 'Test Key', ['kg']);
 
       expect(result.id).toBe('key-1');
-      expect(result.prefix).toBe('ek_ab');
+      expect(result.prefix).toBe('ek_a1b2c');
       expect(result.name).toBe('Test Key');
       expect(result.scopes).toEqual(['kg']);
       expect(result.key).toMatch(/^ek_[0-9a-f]{48}$/);
@@ -74,7 +74,7 @@ describe('Account Service', () => {
       mockPrisma.apiKey.count.mockResolvedValue(0);
       mockPrisma.apiKey.create.mockResolvedValue({
         id: 'key-2',
-        prefix: 'ek_ab',
+        prefix: 'ek_a1b2c',
         name: 'Expiring Key',
         scopes: ['kg', 'read'],
         expires_at: new Date('2026-01-01'),
@@ -136,7 +136,7 @@ describe('Account Service', () => {
       mockPrisma.apiKey.count.mockResolvedValue(MAX_API_KEYS_PER_USER - 1);
       mockPrisma.apiKey.create.mockResolvedValue({
         id: 'key-max',
-        prefix: 'ek_ab',
+        prefix: 'ek_a1b2c',
         name: 'Last Key',
         scopes: ['kg'],
         expires_at: null,
@@ -157,7 +157,7 @@ describe('Account Service', () => {
       mockPrisma.apiKey.count.mockResolvedValue(0);
       mockPrisma.apiKey.create.mockResolvedValue({
         id: 'key-clean',
-        prefix: 'ek_ab',
+        prefix: 'ek_a1b2c',
         name: 'Clean Key',
         scopes: ['kg', 'read'],
         expires_at: null,
@@ -181,7 +181,7 @@ describe('Account Service', () => {
       mockPrisma.apiKey.findMany.mockResolvedValue([
         {
           id: 'key-1',
-          prefix: 'ek_ab',
+          prefix: 'ek_a1b2c',
           name: 'Key One',
           scopes: ['kg'],
           expires_at: null,
@@ -189,7 +189,7 @@ describe('Account Service', () => {
         },
         {
           id: 'key-2',
-          prefix: 'ek_cd',
+          prefix: 'ek_c3d4e',
           name: 'Key Two',
           scopes: ['read'],
           expires_at: new Date('2026-01-01'),
@@ -326,19 +326,20 @@ describe('Account Service', () => {
       const result = await getOnboardingJourney('agent-1');
 
       expect(result.agent_id).toBe('agent-1');
-      expect(result.total_steps).toBe(5);
-      expect(result.progress_percentage).toBe(40);
+      expect(result.total_steps).toBe(4);
+      expect(result.progress_percentage).toBe(50);
       expect(result.steps).toEqual([
-        { step: 1, title: 'Register Your Node', completed: true },
-        { step: 2, title: 'Start Heartbeat', completed: true },
-        { step: 3, title: 'Publish Your First Gene', completed: false },
-        { step: 4, title: 'Explore the Marketplace', completed: false },
-        { step: 5, title: 'Join a Guild', completed: false },
+        { step: 1, title: 'Register Your Agent', completed: true },
+        { step: 2, title: 'Publish Your First Capsule', completed: true },
+        { step: 3, title: 'Enable Worker Mode', completed: false },
+        { step: 4, title: 'Monitor & Earn', completed: false },
       ]);
       expect(result.next_step).toEqual({
         step: 3,
-        title: 'Publish Your First Gene',
-        action_url: '/a2a/publish',
+        title: 'Enable Worker Mode',
+        action_url: '/api/v2/workerpool/register',
+        action_method: 'POST',
+        estimated_time: '1 minute',
       });
     });
 
@@ -353,12 +354,14 @@ describe('Account Service', () => {
       const result = await getOnboardingJourney('agent-1');
 
       expect(result.current_step).toBe(3);
-      expect(result.progress_percentage).toBe(40);
+      expect(result.progress_percentage).toBe(50);
       expect(result.completed_steps).toEqual([1, 2]);
       expect(result.next_step).toEqual({
         step: 3,
-        title: 'Publish Your First Gene',
-        action_url: '/a2a/publish',
+        title: 'Enable Worker Mode',
+        action_url: '/api/v2/workerpool/register',
+        action_method: 'POST',
+        estimated_time: '1 minute',
       });
     });
   });
@@ -368,8 +371,8 @@ describe('Account Service', () => {
       const result = getOnboardingStepDetail(2);
 
       expect(result.step).toBe(2);
-      expect(result.title).toBe('Start Heartbeat');
-      expect(result.action_url).toBe('/a2a/heartbeat');
+      expect(result.title).toBe('Publish Your First Capsule');
+      expect(result.action_url).toBe('/a2a/publish');
     });
 
     it('should throw NotFoundError for an unknown step', () => {
@@ -428,26 +431,52 @@ describe('Account Service', () => {
       mockPrisma.onboardingState.findUnique.mockResolvedValue({
         agent_id: 'agent-1',
         started_at: new Date('2025-01-01'),
-        completed_steps: [1, 2, 3, 4],
-        current_step: 5,
+        completed_steps: [1, 2, 3],
+        current_step: 4,
       });
       mockPrisma.onboardingState.update.mockResolvedValue({
         agent_id: 'agent-1',
         started_at: new Date('2025-01-01'),
-        completed_steps: [1, 2, 3, 4, 5],
-        current_step: 5,
+        completed_steps: [1, 2, 3, 4],
+        current_step: 4,
       });
 
-      const result = await completeOnboardingStep('agent-1', 5);
+      const result = await completeOnboardingStep('agent-1', 4);
 
-      expect(result.completed_steps).toEqual([1, 2, 3, 4, 5]);
-      expect(result.current_step).toBe(5);
+      expect(result.completed_steps).toEqual([1, 2, 3, 4]);
+      expect(result.current_step).toBe(4);
     });
 
     it('should throw NotFoundError when no onboarding state exists', async () => {
       mockPrisma.onboardingState.findUnique.mockResolvedValue(null);
 
       await expect(completeOnboardingStep('agent-x', 1)).rejects.toThrow(NotFoundError);
+    });
+
+    it('should persist current_step as the first incomplete step when completion is out of order', async () => {
+      mockPrisma.onboardingState.findUnique.mockResolvedValue({
+        agent_id: 'agent-1',
+        started_at: new Date('2025-01-01'),
+        completed_steps: [1],
+        current_step: 2,
+      });
+      mockPrisma.onboardingState.update.mockResolvedValue({
+        agent_id: 'agent-1',
+        started_at: new Date('2025-01-01'),
+        completed_steps: [1, 3],
+        current_step: 2,
+      });
+
+      const result = await completeOnboardingStep('agent-1', 3);
+
+      expect(result.current_step).toBe(2);
+      expect(mockPrisma.onboardingState.update).toHaveBeenCalledWith({
+        where: { agent_id: 'agent-1' },
+        data: {
+          completed_steps: [1, 3],
+          current_step: 2,
+        },
+      });
     });
 
     it('should reject invalid onboarding steps', async () => {

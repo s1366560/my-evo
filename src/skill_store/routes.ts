@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { authenticate, requireAuth, requireTrustLevel } from '../shared/auth';
+import { authenticate, requireAuth } from '../shared/auth';
 import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as skillStoreService from './service';
 import { ForbiddenError, UnauthorizedError, ValidationError } from '../shared/errors';
@@ -106,7 +106,6 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/stats', {
     schema: { tags: ['SkillStore'] },
-    preHandler: [requireTrustLevel('trusted')],
   }, async (_request, reply) => {
     const result = await skillStoreService.getSkillStoreStats(app.prisma);
     return reply.send({ success: true, data: result });

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
 import { resolveAuthorizedNodeId } from '../shared/node-access';
+import { MAX_API_KEYS_PER_USER } from '../shared/constants';
 import * as accountService from './service';
 import { UnauthorizedError, ValidationError } from '../shared/errors';
 
@@ -79,9 +80,19 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       throw new UnauthorizedError('User session required');
     }
 
-    const result = await accountService.listApiKeys(auth.userId, prisma);
+    const keys = await accountService.listApiKeys(auth.userId, prisma);
 
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      keys,
+      total: keys.length,
+      max_allowed: MAX_API_KEYS_PER_USER,
+      data: {
+        keys,
+        total: keys.length,
+        max_allowed: MAX_API_KEYS_PER_USER,
+      },
+    });
   });
 
   app.delete('/api-keys/:id', {
@@ -96,7 +107,17 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
 
     await accountService.revokeApiKey(auth.userId, id, prisma);
 
-    return reply.send({ success: true });
+    return reply.send({
+      success: true,
+      status: 'ok',
+      message: 'API key revoked',
+      id,
+      data: {
+        status: 'ok',
+        message: 'API key revoked',
+        id,
+      },
+    });
   });
 
   app.get('/onboarding', {
@@ -111,7 +132,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       unauthorizedMessage: 'Cannot access onboarding for another agent',
     });
 
-    const result = await accountService.getOnboardingState(agentId, prisma);
+    const result = await accountService.getOnboardingJourney(agentId, prisma);
 
     return reply.send({ success: true, data: result });
   });
@@ -194,6 +215,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ success: true, data: result });
   });
+
   app.get('/agents', {
     schema: { tags: ['Account'] },
     preHandler: [requireAuth()],

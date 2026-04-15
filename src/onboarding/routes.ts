@@ -4,6 +4,19 @@ import { ValidationError } from '../shared/errors';
 import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as accountService from '../account/service';
 
+function buildOnboardingJourneyPayload(result: Awaited<ReturnType<typeof accountService.getOnboardingJourney>>) {
+  return {
+    success: true,
+    agent_id: result.agent_id,
+    current_step: result.current_step,
+    total_steps: result.total_steps,
+    progress_percentage: result.progress_percentage,
+    steps: result.steps,
+    next_step: result.next_step,
+    data: result,
+  };
+}
+
 export async function onboardingRoutes(app: FastifyInstance): Promise<void> {
   app.get('/agent', {
     schema: { tags: ['Account'] },
@@ -18,7 +31,7 @@ export async function onboardingRoutes(app: FastifyInstance): Promise<void> {
     });
 
     const result = await accountService.getOnboardingJourney(agentId, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send(buildOnboardingJourneyPayload(result));
   });
 
   app.post('/agent/complete', {
@@ -39,7 +52,12 @@ export async function onboardingRoutes(app: FastifyInstance): Promise<void> {
     });
     await accountService.completeOnboardingStep(agentId, body.step, app.prisma);
     const result = await accountService.getOnboardingJourney(agentId, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      ...buildOnboardingJourneyPayload(result),
+      status: 'ok',
+      completed_step: body.step,
+      next_step: result.next_step?.step ?? null,
+    });
   });
 
   app.post('/agent/reset', {
@@ -56,7 +74,11 @@ export async function onboardingRoutes(app: FastifyInstance): Promise<void> {
 
     await accountService.resetOnboarding(agentId, app.prisma);
     const result = await accountService.getOnboardingJourney(agentId, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      ...buildOnboardingJourneyPayload(result),
+      status: 'ok',
+      progress_percentage: result.progress_percentage,
+    });
   });
 
   app.get('/agent/step/:step', {

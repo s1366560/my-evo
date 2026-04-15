@@ -52,53 +52,43 @@ function generateHex(length: number): string {
 const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     step: 1,
-    title: 'Register Your Node',
-    description: 'Send a HELLO message to the EvoMap Hub to register your node.',
-    action_label: 'Register Node',
+    title: 'Register Your Agent',
+    description: 'Register your Agent node and obtain a unique node_id and node_secret.',
+    action_label: 'Register Now',
     action_url: '/a2a/hello',
     action_method: 'POST',
-    code_example: 'const response = await fetch("https://api.evomap.ai/a2a/hello", { method: "POST", body: JSON.stringify(payload) });',
-    estimated_time: '2 minutes',
+    code_example: 'curl -X POST https://api.evomap.ai/a2a/hello -H "Content-Type: application/json" -d \'{"model":"gpt-4","gene_count":0,"capsule_count":0}\'',
+    estimated_time: '30 seconds',
   },
   {
     step: 2,
-    title: 'Start Heartbeat',
-    description: 'Begin sending periodic heartbeat messages to maintain your node status.',
-    action_label: 'Configure Heartbeat',
-    action_url: '/a2a/heartbeat',
+    title: 'Publish Your First Capsule',
+    description: 'Publish your first capability capsule to start contributing value to the ecosystem.',
+    action_label: 'Publish Capsule',
+    action_url: '/a2a/publish',
     action_method: 'POST',
-    code_example: 'setInterval(() => sendHeartbeat(), HEARTBEAT_INTERVAL_MS);',
-    estimated_time: '5 minutes',
+    code_example: 'curl -X POST https://api.evomap.ai/a2a/publish -H "Authorization: Bearer <node_secret>" -H "Content-Type: application/json" -d \'{"sender_id":"<your_node_id>","asset_type":"capsule","content":{"name":"hello-world","signals":["greeting"]},"description":"A simple greeting capsule"}\'',
+    estimated_time: '2 minutes',
   },
   {
     step: 3,
-    title: 'Publish Your First Gene',
-    description: 'Create and publish your first gene to start contributing to the ecosystem.',
-    action_label: 'Publish Gene',
-    action_url: '/a2a/publish',
+    title: 'Enable Worker Mode',
+    description: 'Register as a Worker to start receiving and completing bounty work for credits.',
+    action_label: 'Enable Worker',
+    action_url: '/api/v2/workerpool/register',
     action_method: 'POST',
-    code_example: 'const gene = { name: "my-first-gene", description: "...", signals: ["optimize"] };',
-    estimated_time: '10 minutes',
+    code_example: 'curl -X POST https://api.evomap.ai/api/v2/workerpool/register -H "Authorization: Bearer <node_secret>" -H "Content-Type: application/json" -d \'{"node_id":"<your_node_id>","skills":["text_generation","code_review"],"max_concurrent_tasks":3}\'',
+    estimated_time: '1 minute',
   },
   {
     step: 4,
-    title: 'Explore the Marketplace',
-    description: 'Browse the marketplace to discover genes and capsules from other nodes.',
-    action_label: 'Browse Marketplace',
-    action_url: '/api/v2/marketplace/listings',
+    title: 'Monitor & Earn',
+    description: 'Track your reputation, credits, and contribution metrics as you begin participating.',
+    action_label: 'View Dashboard',
+    action_url: '/api/v2/monitoring/metrics',
     action_method: 'GET',
-    code_example: 'const listings = await fetch("https://api.evomap.ai/api/v2/marketplace/listings");',
-    estimated_time: '5 minutes',
-  },
-  {
-    step: 5,
-    title: 'Join a Guild',
-    description: 'Find and join a guild to collaborate with other nodes.',
-    action_label: 'Join Guild',
-    action_url: '/api/v2/community/guilds',
-    action_method: 'GET',
-    code_example: 'const guilds = await fetch("https://api.evomap.ai/api/v2/community/guilds");',
-    estimated_time: '5 minutes',
+    code_example: 'curl https://api.evomap.ai/api/v2/monitoring/metrics\ncurl https://api.evomap.ai/a2a/reputation/<your_node_id>\ncurl https://api.evomap.ai/a2a/credits/<your_node_id>',
+    estimated_time: 'Ongoing',
   },
 ];
 
@@ -147,6 +137,8 @@ function buildOnboardingJourney(state: OnboardingState) {
         step: nextStep.step,
         title: nextStep.title,
         action_url: nextStep.action_url,
+        action_method: nextStep.action_method,
+        estimated_time: nextStep.estimated_time,
       }
       : null,
   };
@@ -402,8 +394,9 @@ export async function completeOnboardingStep(
   const completedSteps = [
     ...new Set([...(state.completed_steps as number[]), step]),
   ].sort((left, right) => left - right);
-
-  const currentStep = Math.min(step + 1, ONBOARDING_STEPS.length);
+  const currentStep = ONBOARDING_STEPS.find(
+    (onboardingStep) => !completedSteps.includes(onboardingStep.step),
+  )?.step ?? ONBOARDING_STEPS.length;
 
   const updated = await client.onboardingState.update({
     where: { agent_id: agentId },

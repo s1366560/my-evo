@@ -10,6 +10,7 @@ let mockAuth = {
 
 const mockValidateCode = jest.fn();
 const mockDetectHallucination = jest.fn();
+const mockPerformCheck = jest.fn();
 const mockGetCheck = jest.fn();
 const mockGetConfidence = jest.fn();
 const mockListForbiddenPatterns = jest.fn();
@@ -44,6 +45,7 @@ jest.mock('../shared/auth', () => ({
 
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
+  performCheck: (...args: unknown[]) => mockPerformCheck(...args),
   validateCode: (...args: unknown[]) => mockValidateCode(...args),
   detectHallucination: (...args: unknown[]) => mockDetectHallucination(...args),
   getCheck: (...args: unknown[]) => mockGetCheck(...args),
@@ -97,6 +99,75 @@ describe('Anti-hallucination routes', () => {
 
     expect(response.statusCode).toBe(201);
     expect(mockValidateCode).toHaveBeenCalledWith('node-1', 'const x = 1;', 'asset-1');
+  });
+
+  it('supports the check endpoint with architecture-compatible payload fields', async () => {
+    mockPerformCheck.mockResolvedValue({
+      check_id: 'chk-check',
+      confidence: 0.91,
+      validation_type: 'check',
+      result: {
+        has_hallucination: true,
+        checks_passed: false,
+        summary: 'Detected 1 potential issue(s) in code',
+        details: ['Potential hardcoded secret or credential detected'],
+        alerts: [
+          {
+            type: 'hardcoded_secret',
+            level: 'L3',
+            message: 'Potential hardcoded secret or credential detected',
+            suggestion: 'Move credentials to environment variables or a secrets manager.',
+            line: 1,
+            confidence: 0.95,
+          },
+        ],
+        suggestions: ['Move credentials to environment variables or a secrets manager.'],
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/anti/check',
+      payload: {
+        code: 'const x = 1;',
+        language: 'typescript',
+        trust_anchors: [{ type: 'document', source: 'ts-docs', confidence: 0.9 }],
+        asset_id: 'asset-1',
+      },
+    });
+    const payload = JSON.parse(response.payload);
+
+    expect(response.statusCode).toBe(201);
+    expect(payload).toMatchObject({
+      passed: false,
+      confidence: 0.91,
+      validations: [
+        {
+          type: 'check',
+          passed: false,
+          message: 'Detected 1 potential issue(s) in code',
+        },
+      ],
+    });
+    expect(payload.alerts).toEqual([
+      expect.objectContaining({
+        type: 'hardcoded_secret',
+        level: 'L3',
+        message: 'Potential hardcoded secret or credential detected',
+        suggestion: 'Move credentials to environment variables or a secrets manager.',
+        line: 1,
+        confidence: 0.95,
+      }),
+    ]);
+    expect(payload.suggestions).toContain('Move credentials to environment variables or a secrets manager.');
+    expect(mockPerformCheck).toHaveBeenCalledWith(
+      'node-1',
+      'const x = 1;',
+      'check',
+      'asset-1',
+      'typescript',
+      [{ type: 'document', source: 'ts-docs', confidence: 0.9 }],
+    );
   });
 
   it('resolves owned nodes for session-authenticated validation', async () => {

@@ -21,10 +21,12 @@ const {
 } = service;
 
 const mockPrisma = {
+  $transaction: jest.fn(),
   node: {
     findFirst: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   validatorStake: {
     findUnique: jest.fn(),
@@ -35,9 +37,11 @@ const mockPrisma = {
   },
   creditTransaction: {
     create: jest.fn(),
+    findMany: jest.fn(),
   },
   trustAttestation: {
     create: jest.fn(),
+    deleteMany: jest.fn(),
     findMany: jest.fn(),
     count: jest.fn(),
   },
@@ -45,11 +49,17 @@ const mockPrisma = {
 
 describe('Verifiable Trust Service', () => {
   beforeAll(() => {
+    mockPrisma.$transaction.mockImplementation(async (callback: (tx: typeof mockPrisma) => unknown) => callback(mockPrisma));
     service.setPrisma(mockPrisma as unknown as PrismaClient);
   });
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.node.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.validatorStake.findMany.mockResolvedValue([]);
+    mockPrisma.trustAttestation.create.mockResolvedValue({ attestation_id: 'att-default' });
+    mockPrisma.trustAttestation.deleteMany.mockResolvedValue({ count: 1 });
+    mockPrisma.trustAttestation.findMany.mockResolvedValue([]);
   });
 
   describe('stake', () => {
@@ -57,6 +67,7 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.node.findFirst.mockResolvedValue({
         node_id: 'validator-1',
         credit_balance: 500,
+        trust_level: 'trusted',
       });
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
@@ -77,6 +88,7 @@ describe('Verifiable Trust Service', () => {
       expect(result.validator_id).toBe('validator-1');
       expect(result.amount).toBe(100);
       expect(result.status).toBe('active');
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
     });
 
     it('should throw ValidationError when amount is below minimum', async () => {
@@ -89,11 +101,46 @@ describe('Verifiable Trust Service', () => {
       await expect(stake('node-1', 'validator-1', 100)).rejects.toThrow(NotFoundError);
     });
 
-    it('should throw InsufficientCreditsError when validator has insufficient balance', async () => {
+    it('should allow non-trusted validators to stake when they have enough credits', async () => {
       mockPrisma.node.findFirst.mockResolvedValue({
         node_id: 'validator-1',
-        credit_balance: 50,
+        credit_balance: 500,
+        trust_level: 'verified',
       });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.validatorStake.create.mockResolvedValue({
+        stake_id: 'stake-1',
+        node_id: 'node-1',
+        validator_id: 'validator-1',
+        amount: 100,
+        staked_at: new Date(),
+        locked_until: new Date(),
+        status: 'active',
+      });
+      mockPrisma.trustAttestation.create.mockResolvedValue({
+        attestation_id: 'att-1',
+      });
+
+      const result = await stake('node-1', 'validator-1', 100);
+
+      expect(result.attestation_id).toBe('att-1');
+      expect(result.trust_level).toBe('verified');
+    });
+
+    it('should throw InsufficientCreditsError when validator has insufficient balance', async () => {
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({
+          node_id: 'validator-1',
+          credit_balance: 50,
+          trust_level: 'trusted',
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-1',
+          credit_balance: 500,
+          trust_level: 'unverified',
+        });
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(stake('node-1', 'validator-1', 100)).rejects.toThrow(InsufficientCreditsError);
     });
@@ -102,6 +149,7 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.node.findFirst.mockResolvedValue({
         node_id: 'validator-1',
         credit_balance: 500,
+        trust_level: 'trusted',
       });
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
@@ -117,17 +165,20 @@ describe('Verifiable Trust Service', () => {
 
       await stake('node-1', 'validator-1', 200);
 
-      expect(mockPrisma.node.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { credit_balance: { decrement: 200 } },
-        }),
-      );
+      expect(mockPrisma.node.updateMany).toHaveBeenCalledWith({
+        where: {
+          node_id: 'validator-1',
+          credit_balance: { gte: 200 },
+        },
+        data: { credit_balance: { decrement: 200 } },
+      });
     });
 
     it('should create a credit transaction', async () => {
       mockPrisma.node.findFirst.mockResolvedValue({
         node_id: 'validator-1',
         credit_balance: 500,
+        trust_level: 'trusted',
       });
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
@@ -152,6 +203,64 @@ describe('Verifiable Trust Service', () => {
           }),
         }),
       );
+    });
+
+    it('should set the target trust level to verified while issuing a verified attestation', async () => {
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({
+          node_id: 'validator-1',
+          credit_balance: 500,
+          trust_level: 'trusted',
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-1',
+          credit_balance: 500,
+          trust_level: 'trusted',
+        });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.validatorStake.create.mockResolvedValue({
+        stake_id: 'stake-1',
+        node_id: 'node-1',
+        validator_id: 'validator-1',
+        amount: 100,
+        staked_at: new Date(),
+        locked_until: new Date(),
+        status: 'active',
+      });
+      mockPrisma.trustAttestation.create.mockResolvedValue({});
+
+      await stake('node-1', 'validator-1', 100);
+
+      expect(mockPrisma.node.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: { trust_level: 'verified' },
+      });
+      expect(mockPrisma.trustAttestation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            trust_level: 'verified',
+          }),
+        }),
+      );
+    });
+
+    it('should reject stakes when the transactional debit cannot reserve enough credits', async () => {
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({
+          node_id: 'validator-1',
+          credit_balance: 100,
+          trust_level: 'trusted',
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-1',
+          credit_balance: 500,
+          trust_level: 'unverified',
+        });
+      mockPrisma.node.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(stake('node-1', 'validator-1', 100)).rejects.toThrow(InsufficientCreditsError);
+      expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
     });
   });
 
@@ -179,6 +288,9 @@ describe('Verifiable Trust Service', () => {
       const result = await release('stake-1', 'validator-1');
 
       expect(result.status).toBe('released');
+      expect(result.amount_returned).toBe(90);
+      expect(result.penalty).toBe(10);
+      expect(result.trust_level).toBe('unverified');
       expect(mockPrisma.validatorStake.findUnique).toHaveBeenCalledWith({
         where: { stake_id: 'stake-1' },
       });
@@ -232,6 +344,26 @@ describe('Verifiable Trust Service', () => {
       );
     });
 
+    it('should recalculate the target trust level after release based on remaining stakes', async () => {
+      mockPrisma.validatorStake.findUnique.mockResolvedValue(unlockedStake);
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'validator-1', credit_balance: 400 });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.validatorStake.update.mockResolvedValue({
+        ...unlockedStake,
+        status: 'released',
+      });
+      mockPrisma.validatorStake.findMany.mockResolvedValue([{ amount: 100 }]);
+
+      const result = await release('stake-1', 'validator-1');
+
+      expect(result.trust_level).toBe('verified');
+      expect(mockPrisma.node.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: { trust_level: 'verified' },
+      });
+    });
+
     it('should create a credit transaction on release', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(unlockedStake);
       mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'validator-1', credit_balance: 400 });
@@ -251,6 +383,12 @@ describe('Verifiable Trust Service', () => {
           }),
         }),
       );
+      expect(mockPrisma.trustAttestation.deleteMany).toHaveBeenCalledWith({
+        where: {
+          node_id: 'node-1',
+          validator_id: 'validator-1',
+        },
+      });
     });
 
     it('should handle target node not found gracefully', async () => {
@@ -288,9 +426,10 @@ describe('Verifiable Trust Service', () => {
     it('should slash an active stake', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(activeStake);
       mockPrisma.node.findFirst
-        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'verified' })
-        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 });
+        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 })
+        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'verified' });
       mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.validatorStake.update.mockResolvedValue({
         ...activeStake,
         status: 'slashed',
@@ -326,9 +465,10 @@ describe('Verifiable Trust Service', () => {
     it('should downgrade trust level from verified to unverified', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(activeStake);
       mockPrisma.node.findFirst
-        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'verified' })
-        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 });
+        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 })
+        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'verified' });
       mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.validatorStake.update.mockResolvedValue({
         ...activeStake,
         status: 'slashed',
@@ -343,12 +483,13 @@ describe('Verifiable Trust Service', () => {
       );
     });
 
-    it('should downgrade trust level from trusted to verified', async () => {
+    it('should downgrade trust level from trusted to unverified', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(activeStake);
       mockPrisma.node.findFirst
-        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'trusted' })
-        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 });
+        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 })
+        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'trusted' });
       mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.validatorStake.update.mockResolvedValue({
         ...activeStake,
         status: 'slashed',
@@ -358,7 +499,7 @@ describe('Verifiable Trust Service', () => {
 
       expect(mockPrisma.node.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { trust_level: 'verified' },
+          data: { trust_level: 'unverified' },
         }),
       );
     });
@@ -366,9 +507,10 @@ describe('Verifiable Trust Service', () => {
     it('should not downgrade when trust level is already unverified', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(activeStake);
       mockPrisma.node.findFirst
-        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'unverified' })
-        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 });
+        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 })
+        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'unverified' });
       mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.validatorStake.update.mockResolvedValue({
         ...activeStake,
         status: 'slashed',
@@ -376,20 +518,24 @@ describe('Verifiable Trust Service', () => {
 
       await slash('stake-1');
 
-      // Should only be called once for credit return, not for trust downgrade
+      // Should not write a trust downgrade when already unverified
       const updateCalls = mockPrisma.node.update.mock.calls;
       const trustUpdateCalls = updateCalls.filter(
         (call: any[]) => call[0]?.data?.trust_level !== undefined,
       );
-      expect(trustUpdateCalls).toHaveLength(0);
+      expect(trustUpdateCalls).toHaveLength(1);
+      expect(trustUpdateCalls[0][0]).toMatchObject({
+        data: { trust_level: 'unverified' },
+      });
     });
 
     it('should return remaining amount (minus slash) to validator', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(activeStake);
       mockPrisma.node.findFirst
-        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'verified' })
-        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 });
+        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 })
+        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'verified' });
       mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
       mockPrisma.validatorStake.update.mockResolvedValue({
         ...activeStake,
         status: 'slashed',
@@ -410,8 +556,8 @@ describe('Verifiable Trust Service', () => {
       const smallStake = { ...activeStake, amount: 1 };
       mockPrisma.validatorStake.findUnique.mockResolvedValue(smallStake);
       mockPrisma.node.findFirst
-        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'unverified' })
-        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 });
+        .mockResolvedValueOnce({ node_id: 'validator-1', credit_balance: 300 })
+        .mockResolvedValueOnce({ node_id: 'node-1', trust_level: 'unverified' });
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.validatorStake.update.mockResolvedValue({
         ...smallStake,
@@ -420,7 +566,7 @@ describe('Verifiable Trust Service', () => {
 
       await slash('stake-1');
 
-      // returnAmount = 1 - 1 = 0, so no credit update for target
+      // returnAmount = 1 - 1 = 0, so no credit update for validator
       const creditUpdateCall = mockPrisma.node.update.mock.calls.find(
         (call: any[]) => call[0]?.data?.credit_balance !== undefined,
       );
@@ -444,12 +590,17 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'validator-1', credit_balance: 400 });
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.validatorStake.update.mockResolvedValue({
+        ...unlockedStake,
+        status: 'released',
+      });
 
       const result = await claimReward('stake-1', 'validator-1');
 
       // reward = ceil(100 * 0.05) = 5
       expect(result.reward).toBe(5);
       expect(result.stake.stake_id).toBe('stake-1');
+      expect(result.stake.status).toBe('released');
       expect(mockPrisma.validatorStake.findUnique).toHaveBeenCalledWith({
         where: { stake_id: 'stake-1' },
       });
@@ -484,12 +635,16 @@ describe('Verifiable Trust Service', () => {
       mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'validator-1', credit_balance: 400 });
       mockPrisma.node.update.mockResolvedValue({});
       mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.validatorStake.update.mockResolvedValue({
+        ...unlockedStake,
+        status: 'released',
+      });
 
       await claimReward('stake-1', 'validator-1');
 
       expect(mockPrisma.node.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { credit_balance: { increment: 5 } },
+          data: { credit_balance: { increment: 105 } },
         }),
       );
     });
@@ -497,11 +652,36 @@ describe('Verifiable Trust Service', () => {
     it('should handle target node not found gracefully', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(unlockedStake);
       mockPrisma.node.findFirst.mockResolvedValue(null);
+      mockPrisma.validatorStake.update.mockResolvedValue({
+        ...unlockedStake,
+        status: 'released',
+      });
 
       const result = await claimReward('stake-1', 'validator-1');
 
       expect(result.reward).toBe(5);
       expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('should mark the stake released and revoke attestation after reward claim', async () => {
+      mockPrisma.validatorStake.findUnique.mockResolvedValue(unlockedStake);
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'validator-1', credit_balance: 400 });
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.creditTransaction.create.mockResolvedValue({});
+      mockPrisma.validatorStake.update.mockResolvedValue({
+        ...unlockedStake,
+        status: 'released',
+      });
+
+      const result = await claimReward('stake-1', 'validator-1');
+
+      expect(result.stake.status).toBe('released');
+      expect(mockPrisma.trustAttestation.deleteMany).toHaveBeenCalledWith({
+        where: {
+          node_id: 'node-1',
+          validator_id: 'validator-1',
+        },
+      });
     });
 
     it('should reject reward claims by another validator', async () => {
@@ -565,6 +745,32 @@ describe('Verifiable Trust Service', () => {
       const result = await verifyNode('validator-1', 'target-1', 'High stake');
 
       expect(result.trust_level).toBe('trusted');
+    });
+
+    it('should preserve trusted targets during explicit verification', async () => {
+      mockPrisma.node.findFirst
+        .mockResolvedValueOnce({ node_id: 'validator-1', trust_level: 'trusted' })
+        .mockResolvedValueOnce({ node_id: 'target-1', trust_level: 'trusted' });
+      mockPrisma.validatorStake.findMany.mockResolvedValue([{ amount: 100 }]);
+      mockPrisma.node.update.mockResolvedValue({});
+      mockPrisma.trustAttestation.create.mockResolvedValue({
+        attestation_id: 'att-keep-trusted',
+        validator_id: 'validator-1',
+        node_id: 'target-1',
+        trust_level: 'trusted',
+        stake_amount: 100,
+        verified_at: new Date(),
+        expires_at: new Date(),
+        signature: 'trusted-sig',
+      });
+
+      const result = await verifyNode('validator-1', 'target-1', 'Keep trusted');
+
+      expect(result.trust_level).toBe('trusted');
+      expect(mockPrisma.node.update).toHaveBeenCalledWith({
+        where: { node_id: 'target-1' },
+        data: { trust_level: 'trusted' },
+      });
     });
 
     it('should throw NotFoundError when validator not found', async () => {
@@ -632,6 +838,7 @@ describe('Verifiable Trust Service', () => {
 
       expect(result.node_id).toBe('node-1');
       expect(result.trust_level).toBe('verified');
+      expect(result.attestations).toEqual([]);
     });
 
     it('should throw NotFoundError for unknown node', async () => {
@@ -649,6 +856,7 @@ describe('Verifiable Trust Service', () => {
       const result = await getTrustLevel('node-new');
 
       expect(result.trust_level).toBe('unverified');
+      expect(result.attestations).toEqual([]);
     });
 
     it('should return trusted for fully verified nodes', async () => {
@@ -660,6 +868,41 @@ describe('Verifiable Trust Service', () => {
       const result = await getTrustLevel('node-trusted');
 
       expect(result.trust_level).toBe('trusted');
+      expect(result.attestations).toEqual([]);
+    });
+
+    it('should include attestations for the requested node', async () => {
+      mockPrisma.node.findFirst.mockResolvedValue({
+        node_id: 'node-1',
+        trust_level: 'verified',
+      });
+      mockPrisma.trustAttestation.findMany.mockResolvedValue([
+        {
+          attestation_id: 'att-1',
+          validator_id: 'validator-1',
+          node_id: 'node-1',
+          trust_level: 'verified',
+          stake_amount: 100,
+          verified_at: new Date('2026-04-01T00:00:00Z'),
+          expires_at: new Date('2026-05-01T00:00:00Z'),
+          signature: 'sig-1',
+        },
+      ]);
+
+      const result = await getTrustLevel('node-1');
+
+      expect(result.attestations).toEqual([
+        {
+          attestation_id: 'att-1',
+          validator_id: 'validator-1',
+          node_id: 'node-1',
+          trust_level: 'verified',
+          stake_amount: 100,
+          verified_at: '2026-04-01T00:00:00.000Z',
+          expires_at: '2026-05-01T00:00:00.000Z',
+          signature: 'sig-1',
+        },
+      ]);
     });
   });
 
@@ -669,10 +912,18 @@ describe('Verifiable Trust Service', () => {
         .mockResolvedValueOnce(10)  // total stakes
         .mockResolvedValueOnce(7); // active stakes
       mockPrisma.trustAttestation.count.mockResolvedValue(5);
-      mockPrisma.validatorStake.findMany.mockResolvedValue([
-        { amount: 100 },
-        { amount: 200 },
-        { amount: 150 },
+      mockPrisma.validatorStake.findMany
+        .mockResolvedValueOnce([
+          { amount: 100 },
+          { amount: 200 },
+          { amount: 150 },
+        ])
+        .mockResolvedValueOnce([
+          { amount: 100 },
+        ]);
+      mockPrisma.creditTransaction.findMany.mockResolvedValue([
+        { amount: 5, type: 'stake_release', description: 'Staking reward for stake-1' },
+        { amount: 10, type: 'stake_reward', description: 'Migrated reward transaction' },
       ]);
       mockPrisma.node.findMany.mockResolvedValue([
         { trust_level: 'unverified' },
@@ -687,6 +938,12 @@ describe('Verifiable Trust Service', () => {
       expect(result.active_stakes).toBe(7);
       expect(result.total_attestations).toBe(5);
       expect(result.total_staked_amount).toBe(450);
+      expect(result.total_staked).toBe(450);
+      expect(result.total_staked_credits).toBe(450);
+      expect(result.total_slashed).toBe(10);
+      expect(result.total_rewards_paid).toBe(15);
+      expect(result.verified_nodes).toBe(2);
+      expect(result.trusted_validators).toBe(1);
     });
 
     it('should compute trust distribution', async () => {
@@ -694,7 +951,10 @@ describe('Verifiable Trust Service', () => {
         .mockResolvedValueOnce(0)
         .mockResolvedValueOnce(0);
       mockPrisma.trustAttestation.count.mockResolvedValue(0);
-      mockPrisma.validatorStake.findMany.mockResolvedValue([]);
+      mockPrisma.validatorStake.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+      mockPrisma.creditTransaction.findMany.mockResolvedValue([]);
       mockPrisma.node.findMany.mockResolvedValue([
         { trust_level: 'unverified' },
         { trust_level: 'unverified' },
@@ -714,15 +974,24 @@ describe('Verifiable Trust Service', () => {
         .mockResolvedValueOnce(0)
         .mockResolvedValueOnce(0);
       mockPrisma.trustAttestation.count.mockResolvedValue(0);
-      mockPrisma.validatorStake.findMany.mockResolvedValue([]);
+      mockPrisma.validatorStake.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+      mockPrisma.creditTransaction.findMany.mockResolvedValue([]);
       mockPrisma.node.findMany.mockResolvedValue([]);
 
       const result = await getStats();
 
       expect(result.total_stakes).toBe(0);
       expect(result.total_staked_amount).toBe(0);
+      expect(result.total_staked).toBe(0);
+      expect(result.total_staked_credits).toBe(0);
       expect(result.active_stakes).toBe(0);
       expect(result.total_attestations).toBe(0);
+      expect(result.verified_nodes).toBe(0);
+      expect(result.trusted_validators).toBe(0);
+      expect(result.total_slashed).toBe(0);
+      expect(result.total_rewards_paid).toBe(0);
       expect(Object.keys(result.trust_distribution)).toHaveLength(0);
     });
   });

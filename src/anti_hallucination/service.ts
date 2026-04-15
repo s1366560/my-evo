@@ -47,6 +47,12 @@ export async function performCheck(
   codeContent: string,
   validationType: string,
   assetId?: string,
+  language?: string,
+  trustAnchors?: Array<{
+    type: string;
+    source: string;
+    confidence: number;
+  }>,
 ): Promise<HallucinationCheck> {
   if (!codeContent || codeContent.trim().length === 0) {
     throw new ValidationError('code_content is required and cannot be empty');
@@ -56,15 +62,37 @@ export async function performCheck(
   }
 
   // Run lightweight heuristic checks
-  const alerts: string[] = [];
+  const alertMessages: string[] = [];
+  const alertObjects: Array<{
+    type: string;
+    level: 'L1' | 'L2' | 'L3';
+    message: string;
+    suggestion: string;
+    line: number | null;
+    confidence: number;
+  }> = [];
   const lines = codeContent.split('\n');
+
+  const findFirstMatchingLine = (pattern: RegExp): number | null => {
+    const index = lines.findIndex((line) => pattern.test(line));
+    return index >= 0 ? index + 1 : null;
+  };
 
   // Check 1: TODO/FIXME left in code
   const todoMatches = lines.filter(
     (l) => /\bTODO\b|\bFIXME\b|\bHACK\b|\bXXX\b/.test(l),
   );
   if (todoMatches.length > 0) {
-    alerts.push(`Found ${todoMatches.length} TODO/FIXME/HACK comment(s) in code`);
+    const message = `Found ${todoMatches.length} TODO/FIXME/HACK comment(s) in code`;
+    alertMessages.push(message);
+    alertObjects.push({
+      type: 'todo_marker',
+      level: 'L1',
+      message,
+      suggestion: 'Resolve or remove TODO/FIXME/HACK markers before publishing the asset.',
+      line: findFirstMatchingLine(/\bTODO\b|\bFIXME\b|\bHACK\b|\bXXX\b/),
+      confidence: 0.9,
+    });
   }
 
   // Check 2: Hardcoded credentials / secrets patterns
@@ -77,7 +105,16 @@ export async function performCheck(
   for (const pattern of secretPatterns) {
     const matches = lines.filter((l) => pattern.test(l));
     if (matches.length > 0) {
-      alerts.push('Potential hardcoded secret or credential detected');
+      const message = 'Potential hardcoded secret or credential detected';
+      alertMessages.push(message);
+      alertObjects.push({
+        type: 'hardcoded_secret',
+        level: 'L3',
+        message,
+        suggestion: 'Move credentials to environment variables or a secrets manager.',
+        line: findFirstMatchingLine(pattern),
+        confidence: 0.95,
+      });
       break;
     }
   }
@@ -94,7 +131,16 @@ export async function performCheck(
   for (const pattern of placeholderPatterns) {
     const matches = lines.filter((l) => pattern.test(l) && !l.trim().startsWith('//'));
     if (matches.length > 5) {
-      alerts.push('Multiple placeholder or stub patterns detected');
+      const message = 'Multiple placeholder or stub patterns detected';
+      alertMessages.push(message);
+      alertObjects.push({
+        type: 'placeholder_stub',
+        level: 'L2',
+        message,
+        suggestion: 'Replace placeholder logic with a real implementation or block publication.',
+        line: findFirstMatchingLine(pattern),
+        confidence: 0.85,
+      });
       break;
     }
   }
@@ -109,25 +155,38 @@ export async function performCheck(
   }
   const repeatedMagic = Object.entries(magicCount).filter(([, c]) => c >= 3);
   if (repeatedMagic.length > 0) {
-    alerts.push('Repeated magic numbers detected (consider using named constants)');
+    const message = 'Repeated magic numbers detected (consider using named constants)';
+    alertMessages.push(message);
+    alertObjects.push({
+      type: 'magic_number',
+      level: 'L1',
+      message,
+      suggestion: 'Extract repeated numeric literals into named constants.',
+      line: findFirstMatchingLine(/\b\d+\b/),
+      confidence: 0.75,
+    });
   }
 
   // Build result
-  const hasAlerts = alerts.length > 0;
+  const hasAlerts = alertMessages.length > 0;
   const result = {
     has_hallucination: hasAlerts,
-    alert_count: alerts.length,
+    alert_count: alertMessages.length,
     checks_passed: !hasAlerts,
     summary: hasAlerts
-      ? `Detected ${alerts.length} potential issue(s) in code`
+      ? `Detected ${alertMessages.length} potential issue(s) in code`
       : 'No obvious hallucinations detected',
-    details: alerts,
+    details: alertMessages,
+    alerts: alertObjects,
+    suggestions: alertObjects.map((alert) => alert.suggestion),
+    language: language ?? null,
+    trust_anchors_used: trustAnchors ?? [],
   };
 
   // Confidence: higher when code is longer and fewer alerts
   const confidence = Math.max(
     0.1,
-    Math.min(0.99, 1 - alerts.length * 0.15 + (codeContent.length / 10000) * 0.05),
+    Math.min(0.99, 1 - alertMessages.length * 0.15 + (codeContent.length / 10000) * 0.05),
   );
 
   const check = await prisma.hallucinationCheck.create({
@@ -138,7 +197,7 @@ export async function performCheck(
       code_content: codeContent,
       result: result as unknown as Prisma.InputJsonValue,
       confidence,
-      alerts: alerts as unknown as Prisma.InputJsonValue,
+      alerts: alertMessages as unknown as Prisma.InputJsonValue,
       validation_type: validationType,
     },
   });
