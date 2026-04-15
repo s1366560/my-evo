@@ -291,6 +291,7 @@ export async function buildApp() {
 
   const { skillStoreRoutes } = await import('./skill_store/routes');
   await app.register(skillStoreRoutes, { prefix: '/api/v2/skills' });
+  await app.register(skillStoreRoutes, { prefix: '/skills' });
 
   const { constitutionRoutes } = await import('./constitution/routes');
   await app.register(constitutionRoutes, { prefix: '/a2a/constitution' });

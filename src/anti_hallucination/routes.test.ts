@@ -245,6 +245,20 @@ describe('Anti-hallucination routes', () => {
     );
   });
 
+  it('rejects unsupported validation_type values before persisting checks', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/anti/check',
+      payload: {
+        code: 'const x = 1;',
+        validation_type: 'lintingg',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockPerformCheck).not.toHaveBeenCalled();
+  });
+
   it('rejects session-authenticated validation', async () => {
     mockAuth = {
       node_id: 'user-1',

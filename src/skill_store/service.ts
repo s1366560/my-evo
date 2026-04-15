@@ -412,6 +412,13 @@ interface SkillVersionSnapshot {
   examples: string[];
   tags: string[];
   source_capsules: string[];
+  status: string;
+  l1_passed: boolean;
+  l2_passed: boolean;
+  l3_passed: boolean;
+  l4_passed: boolean;
+  reviewed_at: string | null;
+  reviewer: string | null;
 }
 
 function buildSkillVersionSnapshot(skill: Skill): SkillVersionSnapshot {
@@ -427,14 +434,50 @@ function buildSkillVersionSnapshot(skill: Skill): SkillVersionSnapshot {
     examples: skill.examples,
     tags: skill.tags,
     source_capsules: skill.source_capsules,
+    status: skill.status,
+    l1_passed: skill.l1_passed,
+    l2_passed: skill.l2_passed,
+    l3_passed: skill.l3_passed,
+    l4_passed: skill.l4_passed,
+    reviewed_at: skill.reviewed_at?.toISOString() ?? null,
+    reviewer: skill.reviewer ?? null,
   };
 }
 
 function normalizeSkillVersions(versions: unknown): SkillVersionSnapshot[] {
-  return Array.isArray(versions)
-    ? versions.filter((version): version is SkillVersionSnapshot =>
-      typeof version === 'object' && version !== null && 'version' in version)
-    : [];
+  if (!Array.isArray(versions)) {
+    return [];
+  }
+
+  return versions.flatMap((version) => {
+    if (typeof version !== 'object' || version === null || !('version' in version)) {
+      return [];
+    }
+
+    const snapshot = version as Record<string, unknown>;
+    return [{
+      version: typeof snapshot.version === 'string' ? snapshot.version : '1.0.0',
+      name: typeof snapshot.name === 'string' ? snapshot.name : '',
+      description: typeof snapshot.description === 'string' ? snapshot.description : '',
+      category: typeof snapshot.category === 'string' ? snapshot.category : 'general',
+      price_credits: typeof snapshot.price_credits === 'number' ? snapshot.price_credits : 5,
+      code_template: typeof snapshot.code_template === 'string' ? snapshot.code_template : null,
+      parameters: (snapshot.parameters as Prisma.JsonValue | null | undefined) ?? null,
+      steps: Array.isArray(snapshot.steps) ? snapshot.steps.filter((step): step is string => typeof step === 'string') : [],
+      examples: Array.isArray(snapshot.examples) ? snapshot.examples.filter((example): example is string => typeof example === 'string') : [],
+      tags: Array.isArray(snapshot.tags) ? snapshot.tags.filter((tag): tag is string => typeof tag === 'string') : [],
+      source_capsules: Array.isArray(snapshot.source_capsules)
+        ? snapshot.source_capsules.filter((capsule): capsule is string => typeof capsule === 'string')
+        : [],
+      status: typeof snapshot.status === 'string' ? snapshot.status : 'pending',
+      l1_passed: typeof snapshot.l1_passed === 'boolean' ? snapshot.l1_passed : false,
+      l2_passed: typeof snapshot.l2_passed === 'boolean' ? snapshot.l2_passed : false,
+      l3_passed: typeof snapshot.l3_passed === 'boolean' ? snapshot.l3_passed : false,
+      l4_passed: typeof snapshot.l4_passed === 'boolean' ? snapshot.l4_passed : false,
+      reviewed_at: typeof snapshot.reviewed_at === 'string' ? snapshot.reviewed_at : null,
+      reviewer: typeof snapshot.reviewer === 'string' ? snapshot.reviewer : null,
+    }];
+  });
 }
 
 function getNextPatchVersion(version: string): string {
@@ -599,9 +642,9 @@ export async function createPublishedSkill(
   data: CreateSkillData,
   prismaClient?: PrismaClient,
 ): Promise<Skill> {
-  const client = getSkillStoreClient(prismaClient as SkillStoreClient | undefined);
+  const client = getPrismaClient(prismaClient);
   const created = await createSkill(authorId, data, client);
-  return created as unknown as Skill;
+  return publishSkill(created.skill_id, authorId, client);
 }
 
 export async function publishSkillWithUpdates(
@@ -738,6 +781,9 @@ export async function rollbackSkillVersion(
     }
 
     const target = versions[targetIndex]!;
+    if (!isDiscoverableSkillStatus(target.status) || !hasPassedModeration(target)) {
+      throw new ValidationError('Only approved skill versions can be rolled back');
+    }
     const currentSnapshot = buildSkillVersionSnapshot(skill);
     const remainingVersions = versions.filter((_, index) => index !== targetIndex);
 
@@ -756,6 +802,13 @@ export async function rollbackSkillVersion(
         examples: target.examples,
         tags: target.tags,
         source_capsules: target.source_capsules,
+        status: target.status,
+        l1_passed: target.l1_passed,
+        l2_passed: target.l2_passed,
+        l3_passed: target.l3_passed,
+        l4_passed: target.l4_passed,
+        reviewed_at: target.reviewed_at ? new Date(target.reviewed_at) : null,
+        reviewer: target.reviewer,
         version: target.version,
         versions: [...remainingVersions, currentSnapshot] as unknown as Prisma.InputJsonValue,
       },
@@ -858,7 +911,7 @@ export async function downloadSkill(
       throw new NotFoundError('Node', skill.author_id);
     }
 
-    const creditsCharged = SKILL_DOWNLOAD_COST;
+    const creditsCharged = skill.price_credits ?? SKILL_DOWNLOAD_COST;
     if (buyer.credit_balance < creditsCharged) {
       throw new InsufficientCreditsError(creditsCharged, buyer.credit_balance);
     }

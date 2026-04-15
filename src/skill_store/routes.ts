@@ -345,11 +345,10 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({
       success: true,
       skill_id: published.skill_id,
-      status: 'pending',
-      message: 'Skill submitted for review. Will be available after passing moderation pipeline.',
+      status: published.status,
+      message: 'Skill passed moderation and is now available.',
       data: {
         ...published,
-        status: 'pending',
       },
     });
   });

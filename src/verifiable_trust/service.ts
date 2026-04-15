@@ -175,7 +175,7 @@ export async function stake(
 
     const createdStake = await tx.validatorStake.create({
       data: {
-        stake_id: crypto.randomUUID(),
+        stake_id: `stk_${crypto.randomUUID()}`,
         node_id: nodeId,
         validator_id: validatorId,
         amount,
@@ -193,7 +193,7 @@ export async function stake(
 
     const attestation = await tx.trustAttestation.create({
       data: {
-        attestation_id: crypto.randomUUID(),
+        attestation_id: `att_${crypto.randomUUID()}`,
         validator_id: validatorId,
         node_id: nodeId,
         trust_level: trustLevel,
@@ -363,7 +363,13 @@ export async function slash(
 export async function claimReward(
   stakeId: string,
   actorId: string,
-): Promise<{ reward: number; stake: ValidatorStake }> {
+): Promise<{
+  reward: number;
+  stake_amount: number;
+  total_received: number;
+  validator_reputation_bonus: number;
+  stake: ValidatorStake;
+}> {
   const stakeRecord = await prisma.validatorStake.findUnique({
     where: { stake_id: stakeId },
   });
@@ -387,6 +393,7 @@ export async function claimReward(
   const reward = Math.ceil(stakeRecord.amount * TRUST_REWARD_RATE);
   const principal = stakeRecord.amount;
   const totalReturn = principal + reward;
+  const validatorReputationBonus = 2;
 
   const node = await prisma.node.findFirst({
     where: { node_id: stakeRecord.validator_id },
@@ -395,7 +402,10 @@ export async function claimReward(
   if (node) {
     await prisma.node.update({
       where: { node_id: stakeRecord.validator_id },
-      data: { credit_balance: { increment: totalReturn } },
+      data: {
+        credit_balance: { increment: totalReturn },
+        reputation: { increment: validatorReputationBonus },
+      },
     });
 
     await prisma.creditTransaction.create({
@@ -424,13 +434,11 @@ export async function claimReward(
     data: { status: 'released' },
   });
 
-  await syncTrustAfterStakeSettlement(
-    stakeRecord.node_id,
-    stakeRecord.validator_id,
-  );
-
   return {
     reward,
+    stake_amount: principal,
+    total_received: totalReturn,
+    validator_reputation_bonus: validatorReputationBonus,
     stake: {
       stake_id: updatedStake.stake_id,
       node_id: updatedStake.node_id,
@@ -512,7 +520,7 @@ export async function verifyNode(
 
   const attestation = await prisma.trustAttestation.create({
     data: {
-      attestation_id: crypto.randomUUID(),
+      attestation_id: `att_${crypto.randomUUID()}`,
       validator_id: validatorId,
       node_id: targetId,
       trust_level: newLevel,

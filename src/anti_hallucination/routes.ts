@@ -4,6 +4,18 @@ import { resolveAuthorizedNodeId } from '../shared/node-access';
 import * as antiHallucinationService from './service';
 import { ForbiddenError, ValidationError } from '../shared/errors';
 
+const SUPPORTED_VALIDATION_TYPES = new Set([
+  'check',
+  'validate',
+  'detect',
+  'syntax',
+  'linter',
+  'security',
+  'unit_test',
+  'integration',
+  'benchmark',
+]);
+
 async function resolveAntiHallucinationNodeId(
   app: FastifyInstance,
   auth: NonNullable<import('fastify').FastifyRequest['auth']>,
@@ -219,6 +231,11 @@ export async function antiHallucinationRoutes(
     }
     if (!validationType) {
       throw new ValidationError('validation_type is required');
+    }
+    if (!SUPPORTED_VALIDATION_TYPES.has(validationType)) {
+      throw new ValidationError(
+        'validation_type must be one of check, validate, detect, syntax, linter, security, unit_test, integration, or benchmark',
+      );
     }
 
     const result = await antiHallucinationService.performCheck(

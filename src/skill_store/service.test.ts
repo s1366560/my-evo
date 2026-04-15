@@ -810,6 +810,13 @@ describe('SkillStore Service', () => {
               examples: ['example'],
               tags: ['testing'],
               source_capsules: ['cap_001'],
+              status: 'approved',
+              l1_passed: true,
+              l2_passed: true,
+              l3_passed: true,
+              l4_passed: true,
+              reviewed_at: '2026-01-01T00:00:00.000Z',
+              reviewer: 'system:auto',
             },
           ],
         }));
@@ -817,6 +824,7 @@ describe('SkillStore Service', () => {
           skill_id: 'skill_test_001',
           version: '1.0.0',
           name: 'Original Skill',
+          status: 'approved',
         }));
 
         const result = await service.rollbackSkillVersion('skill_test_001', 'node_001');
@@ -827,9 +835,73 @@ describe('SkillStore Service', () => {
             data: expect.objectContaining({
               version: '1.0.0',
               name: 'Original Skill',
+              status: 'approved',
+              l1_passed: true,
+              reviewer: 'system:auto',
             }),
           }),
         );
+      });
+
+      it('should reject rollback to a non-approved snapshot', async () => {
+        mockPrisma.skill.findUnique.mockResolvedValue(mockSkill({
+          skill_id: 'skill_test_001',
+          version: '1.0.1',
+          versions: [
+            {
+              version: '1.0.0',
+              name: 'Draft Skill',
+              description: 'Draft description',
+              category: 'testing',
+              price_credits: 5,
+              code_template: 'function draft() { return false; }',
+              parameters: null,
+              steps: ['Step 1'],
+              examples: ['example'],
+              tags: ['testing'],
+              source_capsules: ['cap_001'],
+              status: 'pending',
+              l1_passed: false,
+              l2_passed: false,
+              l3_passed: false,
+              l4_passed: false,
+              reviewed_at: null,
+              reviewer: null,
+            },
+          ],
+        }));
+
+        await expect(service.rollbackSkillVersion('skill_test_001', 'node_001')).rejects.toThrow(
+          'Only approved skill versions can be rolled back',
+        );
+        expect(mockPrisma.skill.update).not.toHaveBeenCalled();
+      });
+
+      it('should reject rollback to a legacy snapshot with unknown moderation metadata', async () => {
+        mockPrisma.skill.findUnique.mockResolvedValue(mockSkill({
+          skill_id: 'skill_test_001',
+          version: '1.0.1',
+          versions: [
+            {
+              version: '1.0.0',
+              name: 'Legacy Skill',
+              description: 'Legacy description',
+              category: 'testing',
+              price_credits: 5,
+              code_template: 'function legacy() { return true; }',
+              parameters: null,
+              steps: ['Step 1'],
+              examples: ['example'],
+              tags: ['testing'],
+              source_capsules: ['cap_001'],
+            },
+          ],
+        }));
+
+        await expect(service.rollbackSkillVersion('skill_test_001', 'node_001')).rejects.toThrow(
+          'Only approved skill versions can be rolled back',
+        );
+        expect(mockPrisma.skill.update).not.toHaveBeenCalled();
       });
     });
 
@@ -1020,7 +1092,7 @@ describe('SkillStore Service', () => {
   });
 
   describe('createPublishedSkill', () => {
-    it('should create a skill in pending review state', async () => {
+    it('should create and moderate a skill before returning it', async () => {
       const pendingSkill = mockSkill({
         skill_id: 'sk-1',
         author_id: 'node-1',
@@ -1031,7 +1103,19 @@ describe('SkillStore Service', () => {
         steps: ['Collect context', 'Run checks'],
         examples: ['reviewCode()'],
       });
+      const approvedSkill = mockSkill({
+        ...pendingSkill,
+        status: 'approved',
+        l1_passed: true,
+        l2_passed: true,
+        l3_passed: true,
+        l4_passed: true,
+        reviewed_at: new Date('2026-01-02T00:00:00Z'),
+        reviewer: 'system:auto',
+      });
       mockPrisma.skill.create.mockResolvedValue(pendingSkill);
+      mockPrisma.skill.findUnique.mockResolvedValue(pendingSkill);
+      mockPrisma.skill.update.mockResolvedValue(approvedSkill);
 
       const result = await service.createPublishedSkill('node-1', {
         name: 'New Skill',
@@ -1043,9 +1127,53 @@ describe('SkillStore Service', () => {
         examples: pendingSkill.examples,
       });
 
-      expect(result.status).toBe('pending');
+      expect(result.status).toBe('approved');
       expect(mockPrisma.skill.create).toHaveBeenCalledTimes(1);
-      expect(mockPrisma.skill.update).not.toHaveBeenCalled();
+      expect(mockPrisma.skill.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('should persist rejection metadata when moderation fails', async () => {
+      const pendingSkill = mockSkill({
+        skill_id: 'sk-2',
+        author_id: 'node-1',
+        status: 'pending',
+        name: 'Exploit helper',
+        description: 'A detailed exploit helper that should fail moderation because it teaches malware deployment in production systems.',
+        code_template: 'rm -rf / && exploitTarget()',
+        steps: ['1. exploit target', '2. install malware'],
+        examples: ['exploitTarget()'],
+      });
+      mockPrisma.skill.create.mockResolvedValue(pendingSkill);
+      mockPrisma.skill.findUnique.mockResolvedValue(pendingSkill);
+      mockPrisma.skill.update.mockResolvedValue({
+        ...pendingSkill,
+        status: 'rejected',
+        l1_passed: false,
+        l2_passed: false,
+        l3_passed: false,
+        l4_passed: false,
+        reviewer: 'system:auto',
+      });
+
+      await expect(service.createPublishedSkill('node-1', {
+        name: pendingSkill.name,
+        description: pendingSkill.description,
+        category: 'security',
+        code_template: pendingSkill.code_template ?? undefined,
+        steps: pendingSkill.steps,
+        examples: pendingSkill.examples,
+      })).rejects.toThrow('forbidden keyword');
+
+      expect(mockPrisma.skill.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.skill.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { skill_id: 'sk-2' },
+          data: expect.objectContaining({
+            status: 'rejected',
+            reviewer: 'system:auto',
+          }),
+        }),
+      );
     });
   });
 
@@ -1287,7 +1415,7 @@ describe('SkillStore Service', () => {
       expect(result.remaining_credits).toBe(15);
     });
 
-    it('should charge the fixed platform download cost even when skill metadata price differs', async () => {
+    it('should charge the configured skill price when skill metadata differs from the platform default', async () => {
       mockPrisma.skill.findUnique.mockResolvedValue({
         skill_id: 'sk-1',
         author_id: 'node-2',
@@ -1297,7 +1425,7 @@ describe('SkillStore Service', () => {
         price_credits: 99,
       });
       mockPrisma.node.findUnique
-        .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 20 })
+        .mockResolvedValueOnce({ node_id: 'node-1', credit_balance: 120 })
         .mockResolvedValueOnce({ node_id: 'node-2', credit_balance: 100 });
       mockPrisma.skill.update.mockResolvedValue({ skill_id: 'sk-1', download_count: 11 });
 
@@ -1305,10 +1433,10 @@ describe('SkillStore Service', () => {
 
       expect(mockPrisma.node.update).toHaveBeenNthCalledWith(1, {
         where: { node_id: 'node-1' },
-        data: { credit_balance: { decrement: 5 } },
+        data: { credit_balance: { decrement: 99 } },
       });
-      expect(result.credits_charged).toBe(5);
-      expect(result.remaining_credits).toBe(15);
+      expect(result.credits_charged).toBe(99);
+      expect(result.remaining_credits).toBe(21);
     });
 
     it('should reject author self-downloads to prevent free download inflation', async () => {

@@ -447,10 +447,32 @@ describe('Account Service', () => {
       expect(result.current_step).toBe(4);
     });
 
-    it('should throw NotFoundError when no onboarding state exists', async () => {
+    it('should create onboarding state on first completion attempt', async () => {
       mockPrisma.onboardingState.findUnique.mockResolvedValue(null);
+      mockPrisma.onboardingState.create.mockResolvedValue({
+        agent_id: 'agent-x',
+        started_at: new Date('2025-01-01'),
+        completed_steps: [],
+        current_step: 1,
+      });
+      mockPrisma.onboardingState.update.mockResolvedValue({
+        agent_id: 'agent-x',
+        started_at: new Date('2025-01-01'),
+        completed_steps: [1],
+        current_step: 2,
+      });
 
-      await expect(completeOnboardingStep('agent-x', 1)).rejects.toThrow(NotFoundError);
+      const result = await completeOnboardingStep('agent-x', 1);
+
+      expect(result.completed_steps).toEqual([1]);
+      expect(result.current_step).toBe(2);
+      expect(mockPrisma.onboardingState.create).toHaveBeenCalledWith({
+        data: {
+          agent_id: 'agent-x',
+          completed_steps: [],
+          current_step: 1,
+        },
+      });
     });
 
     it('should persist current_step as the first incomplete step when completion is out of order', async () => {

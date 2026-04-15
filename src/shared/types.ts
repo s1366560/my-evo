@@ -923,27 +923,32 @@ export interface MarketplaceTransaction {
 
 // ===== Anti-Hallucination =====
 export type ValidationType =
-  | 'source_verification'
-  | 'cross_reference'
-  | 'temporal_consistency'
-  | 'logical_coherence'
-  | 'confidence_calibration'
-  | 'fact_checking';
+  | 'check'
+  | 'validate'
+  | 'detect'
+  | 'syntax'
+  | 'linter'
+  | 'security'
+  | 'unit_test'
+  | 'integration'
+  | 'benchmark';
 
 export type AlertType =
-  | 'high_confidence_low_evidence'
-  | 'conflicting_sources'
-  | 'temporal_anomaly'
-  | 'unsupported_claim'
-  | 'pattern_deviation';
+  | 'invalid_api'
+  | 'invalid_params'
+  | 'style_issue'
+  | 'logic_error'
+  | 'security_risk'
+  | 'heuristic_alert';
 
-export type ErrorLevel = 'warning' | 'error' | 'critical' | 'fatal';
+export type ErrorLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4';
 
 export interface TrustAnchor {
-  source_id: string;
-  source_type: 'official_doc' | 'peer_reviewed' | 'verified_expert' | 'community';
-  trust_score: number;
-  last_verified: string;
+  type: 'document' | 'test_suite' | 'history' | 'community' | 'onchain' | 'official_doc';
+  source: string;
+  confidence: number;
+  verified_at?: string;
+  expires_at?: string;
 }
 
 // ===== Memory Graph =====
@@ -966,12 +971,28 @@ export interface Skill {
   description: string;
   category: string;
   author_id: string;
-  status: 'draft' | 'submitted' | 'reviewing' | 'approved' | 'rejected' | 'revoked';
-  content: string;
-  gdi_score: number;
-  review_stage: 'L1' | 'L2' | 'L3' | 'L4';
+  status: 'pending' | 'approved' | 'published' | 'rejected' | 'deleted';
+  price_credits: number;
+  download_count: number;
+  rating: number;
+  rating_count: number;
+  source_capsules: string[];
+  code_template?: string | null;
+  parameters?: Record<string, unknown> | null;
+  steps: string[];
+  examples: string[];
+  tags: string[];
+  version: string;
+  versions: Array<Record<string, unknown>>;
+  l1_passed: boolean;
+  l2_passed: boolean;
+  l3_passed: boolean;
+  l4_passed: boolean;
+  reviewed_at?: string | null;
+  reviewer?: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 // ===== Reading =====

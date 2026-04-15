@@ -663,6 +663,9 @@ describe('Verifiable Trust Service', () => {
 
       // reward = ceil(100 * 0.05) = 5
       expect(result.reward).toBe(5);
+      expect(result.stake_amount).toBe(100);
+      expect(result.total_received).toBe(105);
+      expect(result.validator_reputation_bonus).toBe(2);
       expect(result.stake.stake_id).toBe('stake-1');
       expect(result.stake.status).toBe('released');
       expect(mockPrisma.validatorStake.findUnique).toHaveBeenCalledWith({
@@ -708,7 +711,10 @@ describe('Verifiable Trust Service', () => {
 
       expect(mockPrisma.node.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { credit_balance: { increment: 105 } },
+          data: {
+            credit_balance: { increment: 105 },
+            reputation: { increment: 2 },
+          },
         }),
       );
     });
@@ -727,7 +733,7 @@ describe('Verifiable Trust Service', () => {
       expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
     });
 
-    it('should mark the stake released and revoke attestation after reward claim', async () => {
+    it('should mark the stake released without revoking the attestation after reward claim', async () => {
       mockPrisma.validatorStake.findUnique.mockResolvedValue(unlockedStake);
       mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'validator-1', credit_balance: 400 });
       mockPrisma.node.update.mockResolvedValue({});
@@ -740,12 +746,7 @@ describe('Verifiable Trust Service', () => {
       const result = await claimReward('stake-1', 'validator-1');
 
       expect(result.stake.status).toBe('released');
-      expect(mockPrisma.trustAttestation.deleteMany).toHaveBeenCalledWith({
-        where: {
-          node_id: 'node-1',
-          validator_id: 'validator-1',
-        },
-      });
+      expect(mockPrisma.trustAttestation.deleteMany).not.toHaveBeenCalled();
     });
 
     it('should reject reward claims by another validator', async () => {

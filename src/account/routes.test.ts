@@ -32,6 +32,18 @@ jest.mock('../shared/auth', () => ({
   ) => {
     request.auth = mockAuth;
   },
+  requireNodeSecretAuth: () => async (
+    request: {
+      auth?: {
+        node_id: string;
+        auth_type?: string;
+        trust_level?: string;
+        userId?: string;
+      };
+    },
+  ) => {
+    request.auth = mockAuth;
+  },
 }));
 
 jest.mock('./service', () => ({
@@ -268,12 +280,11 @@ describe('Account routes', () => {
     }
   });
 
-  it('resolves owned nodes for legacy onboarding routes', async () => {
+  it('mirrors onboarding compatibility payloads for legacy onboarding routes', async () => {
     mockAuth = {
-      node_id: 'user-1',
-      auth_type: 'session',
+      node_id: 'node-2',
+      auth_type: 'node_secret',
       trust_level: 'trusted',
-      userId: 'user-1',
     };
 
     const prisma = {
@@ -300,11 +311,6 @@ describe('Account routes', () => {
       agent_id: 'node-2',
       completed_steps: [1],
       current_step: 2,
-    });
-    mockResetOnboarding.mockResolvedValue({
-      agent_id: 'node-2',
-      completed_steps: [],
-      current_step: 1,
     });
     const app = buildApp(prisma);
 
@@ -333,15 +339,95 @@ describe('Account routes', () => {
       expect(getResponse.statusCode).toBe(200);
       expect(completeResponse.statusCode).toBe(200);
       expect(resetResponse.statusCode).toBe(200);
-      expect(JSON.parse(getResponse.payload).data).toMatchObject({
+      expect(JSON.parse(getResponse.payload)).toMatchObject({
         agent_id: 'node-2',
         current_step: 1,
         total_steps: 4,
         progress_percentage: 0,
       });
+      expect(JSON.parse(completeResponse.payload)).toMatchObject({
+        status: 'ok',
+        completed_step: 1,
+        next_step: 1,
+      });
+      expect(JSON.parse(resetResponse.payload)).toMatchObject({
+        status: 'ok',
+        progress_percentage: 0,
+      });
       expect(mockGetOnboardingJourney).toHaveBeenCalledWith('node-2', prisma);
       expect(mockCompleteOnboardingStep).toHaveBeenCalledWith('node-2', 1, prisma);
-      expect(mockResetOnboarding).toHaveBeenCalledWith('node-2', prisma);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects session-authenticated legacy onboarding routes', async () => {
+    mockAuth = {
+      node_id: 'user-1',
+      auth_type: 'session',
+      trust_level: 'trusted',
+      userId: 'user-1',
+    };
+    const app = buildApp({ node: { findFirst: jest.fn() } });
+
+    try {
+      await app.register(cookie);
+      await app.register(accountRoutes, { prefix: '/account' });
+      await app.ready();
+
+      const [getResponse, completeResponse, resetResponse] = await Promise.all([
+        app.inject({
+          method: 'GET',
+          url: '/account/onboarding',
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/account/onboarding/complete',
+          payload: { step: 1 },
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/account/onboarding/reset',
+          payload: {},
+        }),
+      ]);
+
+      expect(getResponse.statusCode).toBe(403);
+      expect(completeResponse.statusCode).toBe(403);
+      expect(resetResponse.statusCode).toBe(403);
+      expect(mockGetOnboardingJourney).not.toHaveBeenCalled();
+      expect(mockCompleteOnboardingStep).not.toHaveBeenCalled();
+      expect(mockResetOnboarding).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects non-integer steps for legacy onboarding completion', async () => {
+    mockAuth = {
+      node_id: 'node-2',
+      auth_type: 'node_secret',
+      trust_level: 'trusted',
+    };
+    const app = buildApp({
+      node: {
+        findFirst: jest.fn().mockResolvedValue({ node_id: 'node-2' }),
+      },
+    });
+
+    try {
+      await app.register(cookie);
+      await app.register(accountRoutes, { prefix: '/account' });
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/account/onboarding/complete',
+        payload: { step: 1.5 },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(mockCompleteOnboardingStep).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }

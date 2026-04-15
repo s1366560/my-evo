@@ -396,8 +396,8 @@ describe('Skill store routes', () => {
     }, prisma);
     expect(JSON.parse(publishCreateRes.payload)).toMatchObject({
       skill_id: 'skill-1',
-      status: 'pending',
-      message: 'Skill submitted for review. Will be available after passing moderation pipeline.',
+      status: 'approved',
+      message: 'Skill passed moderation and is now available.',
     });
     expect(mockUpdateSkillVersion).toHaveBeenCalledWith('skill-1', 'node-1', { name: 'Updated' }, prisma);
     expect(mockUpdateSkillVersion).toHaveBeenCalledWith(

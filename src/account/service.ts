@@ -383,13 +383,7 @@ export async function completeOnboardingStep(
   getOnboardingStepDetail(step);
 
   const client = getPrismaClient(prismaClient);
-  const state = await client.onboardingState.findUnique({
-    where: { agent_id: agentId },
-  });
-
-  if (!state) {
-    throw new NotFoundError('Onboarding state for agent', agentId);
-  }
+  const state = await getOnboardingState(agentId, client);
 
   const completedSteps = [
     ...new Set([...(state.completed_steps as number[]), step]),
