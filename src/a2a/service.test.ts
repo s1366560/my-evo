@@ -22,6 +22,9 @@ const {
   fetchAssets,
   getHelpResponse,
   registerInDirectory,
+  listAgentProfiles,
+  getAgentProfile,
+  updateAgentProfile,
   sendDm,
   getInbox,
   getSentDms,
@@ -57,6 +60,14 @@ const mockPrisma = {
     return operation;
   }),
   worker: {
+    upsert: jest.fn(),
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
+  },
+  agentProfile: {
+    findUnique: jest.fn(),
+    findMany: jest.fn(),
     upsert: jest.fn(),
   },
   directMessage: {
@@ -634,14 +645,22 @@ describe('A2A Service', () => {
   describe('registerInDirectory', () => {
     it('should register node in directory via upsert', async () => {
       mockPrisma.node.findUnique.mockResolvedValue({
-        node_id: 'node-1', model: 'GPT-4', reputation: 60, status: 'alive',
+        node_id: 'node-1',
+        model: 'GPT-4',
+        reputation: 60,
+        status: 'alive',
+        registered_at: new Date('2026-01-01T00:00:00.000Z'),
+        last_seen: new Date('2026-01-02T00:00:00.000Z'),
       });
-      mockPrisma.worker.upsert.mockResolvedValue({});
+      mockPrisma.worker.upsert.mockResolvedValue({ is_available: true });
+      mockPrisma.agentProfile.upsert.mockResolvedValue({});
 
       const result = await registerInDirectory('node-1', ['javascript', 'repair']);
       expect(result.node_id).toBe('node-1');
       expect(result.specialties).toEqual(['javascript', 'repair']);
+      expect(result.capabilities).toEqual(['javascript', 'repair']);
       expect(mockPrisma.worker.upsert).toHaveBeenCalled();
+      expect(mockPrisma.agentProfile.upsert).toHaveBeenCalled();
     });
 
     it('should throw NotFoundError for unknown node', async () => {
@@ -671,6 +690,233 @@ describe('A2A Service', () => {
     it('should throw NotFoundError when sender not found', async () => {
       mockPrisma.node.findUnique.mockResolvedValueOnce(null);
       await expect(sendDm('unknown', 'node-2', 'Hi')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('listAgentProfiles', () => {
+    it('should filter and sort agent profiles using architecture fields', async () => {
+      mockPrisma.node.findMany.mockResolvedValue([
+        {
+          node_id: 'node-1',
+          model: 'claude-sonnet-4',
+          reputation: 80,
+          status: 'alive',
+          registered_at: new Date('2026-01-01T00:00:00.000Z'),
+          last_seen: new Date('2026-01-03T00:00:00.000Z'),
+        },
+        {
+          node_id: 'node-2',
+          model: 'gpt-4.1',
+          reputation: 65,
+          status: 'alive',
+          registered_at: new Date('2026-01-01T00:00:00.000Z'),
+          last_seen: new Date('2026-01-02T00:00:00.000Z'),
+        },
+      ]);
+      mockPrisma.worker.findMany.mockResolvedValue([
+        { node_id: 'node-1', specialties: ['python', 'code_review'], is_available: true },
+        { node_id: 'node-2', specialties: ['translation'], is_available: false },
+      ]);
+      mockPrisma.agentProfile.findMany.mockResolvedValue([
+        {
+          node_id: 'node-1',
+          model: 'claude-sonnet-4',
+          capabilities: ['python', 'code_review'],
+          reputation: 80,
+          gdi_score: 72.5,
+          status: 'online',
+          bio: 'Async Python specialist',
+          metadata: { locale: 'en' },
+          registered_at: new Date('2026-01-01T00:00:00.000Z'),
+          last_seen: new Date('2026-01-03T00:00:00.000Z'),
+        },
+      ]);
+
+      const result = await listAgentProfiles({
+        capabilities: ['python'],
+        min_reputation: 70,
+        q: 'async',
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.agents[0]).toMatchObject({
+        node_id: 'node-1',
+        capabilities: ['python', 'code_review'],
+        status: 'online',
+        is_available: true,
+      });
+    });
+
+    it('should exclude nodes without a published agent profile and match q terms with OR semantics', async () => {
+      mockPrisma.node.findMany.mockResolvedValue([
+        {
+          node_id: 'node-1',
+          model: 'claude-sonnet-4',
+          reputation: 80,
+          status: 'alive',
+          registered_at: new Date('2026-01-01T00:00:00.000Z'),
+          last_seen: new Date('2026-01-03T00:00:00.000Z'),
+        },
+      ]);
+      mockPrisma.worker.findMany.mockResolvedValue([
+        { node_id: 'node-1', specialties: ['python'], is_available: true },
+      ]);
+      mockPrisma.agentProfile.findMany.mockResolvedValue([
+        {
+          node_id: 'node-1',
+          model: 'claude-sonnet-4',
+          capabilities: ['python'],
+          reputation: 80,
+          gdi_score: 72.5,
+          status: 'online',
+          bio: 'Async specialist',
+          metadata: {},
+          registered_at: new Date('2026-01-01T00:00:00.000Z'),
+          last_seen: new Date('2026-01-03T00:00:00.000Z'),
+        },
+      ]);
+
+      const result = await listAgentProfiles({ q: 'python rust' });
+
+      expect(result.total).toBe(1);
+      expect(mockPrisma.node.findMany).toHaveBeenCalledWith({
+        where: { node_id: { in: ['node-1'] } },
+        select: {
+          node_id: true,
+          model: true,
+          reputation: true,
+          status: true,
+          registered_at: true,
+          last_seen: true,
+        },
+      });
+    });
+  });
+
+  describe('getAgentProfile', () => {
+    it('should merge node, worker, and profile data', async () => {
+      const registeredAt = new Date('2026-01-01T00:00:00.000Z');
+      const lastSeen = new Date('2026-01-03T00:00:00.000Z');
+      mockPrisma.node.findUnique.mockResolvedValue({
+        node_id: 'node-1',
+        model: 'claude-sonnet-4',
+        reputation: 88,
+        status: 'alive',
+        registered_at: registeredAt,
+        last_seen: lastSeen,
+      });
+      mockPrisma.worker.findUnique.mockResolvedValue({
+        specialties: ['python', 'debugging'],
+        is_available: false,
+      });
+      mockPrisma.agentProfile.findUnique.mockResolvedValue({
+        node_id: 'node-1',
+        model: 'claude-sonnet-4',
+        capabilities: ['python', 'debugging'],
+        reputation: 88,
+        gdi_score: 79.2,
+        status: 'busy',
+        bio: 'I fix production issues',
+        metadata: { focus: 'backend' },
+        registered_at: registeredAt,
+        last_seen: lastSeen,
+      });
+
+      const result = await getAgentProfile('node-1');
+
+      expect(result).toMatchObject({
+        node_id: 'node-1',
+        capabilities: ['python', 'debugging'],
+        status: 'busy',
+        gdi_score: 79.2,
+        is_available: false,
+      });
+    });
+
+    it('should reject nodes without a published profile', async () => {
+      mockPrisma.node.findUnique.mockResolvedValue({
+        node_id: 'node-1',
+        model: 'claude-sonnet-4',
+        reputation: 88,
+        status: 'alive',
+        registered_at: new Date('2026-01-01T00:00:00.000Z'),
+        last_seen: new Date('2026-01-03T00:00:00.000Z'),
+      });
+      mockPrisma.worker.findUnique.mockResolvedValue(null);
+      mockPrisma.agentProfile.findUnique.mockResolvedValue(null);
+
+      await expect(getAgentProfile('node-1')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('updateAgentProfile', () => {
+    it('should upsert the profile and sync worker specialties when capabilities change', async () => {
+      const registeredAt = new Date('2026-01-01T00:00:00.000Z');
+      const lastSeen = new Date('2026-01-03T00:00:00.000Z');
+      mockPrisma.node.findUnique
+        .mockResolvedValueOnce({
+          node_id: 'node-1',
+          model: 'claude-sonnet-4',
+          reputation: 88,
+          status: 'alive',
+          registered_at: registeredAt,
+          last_seen: lastSeen,
+        })
+        .mockResolvedValueOnce({
+          node_id: 'node-1',
+          model: 'claude-sonnet-4',
+          reputation: 88,
+          status: 'alive',
+          registered_at: registeredAt,
+          last_seen: lastSeen,
+        });
+      mockPrisma.worker.findUnique
+        .mockResolvedValueOnce({
+          specialties: ['python'],
+          is_available: true,
+        })
+        .mockResolvedValueOnce({
+          specialties: ['python', 'debugging'],
+          is_available: true,
+        });
+      mockPrisma.worker.update.mockResolvedValue({});
+      mockPrisma.agentProfile.upsert.mockResolvedValue({});
+      mockPrisma.agentProfile.findUnique.mockResolvedValue({
+        node_id: 'node-1',
+        model: 'claude-sonnet-4',
+        capabilities: ['python', 'debugging'],
+        reputation: 88,
+        gdi_score: 0,
+        status: 'busy',
+        bio: 'Backend generalist',
+        metadata: { timezone: 'UTC+8' },
+        registered_at: registeredAt,
+        last_seen: lastSeen,
+      });
+
+      const result = await updateAgentProfile('node-1', {
+        capabilities: ['python', 'debugging'],
+        bio: 'Backend generalist',
+        metadata: { timezone: 'UTC+8' },
+        status: 'busy',
+      });
+
+      expect(mockPrisma.worker.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: { specialties: ['python', 'debugging'] },
+      });
+      expect(mockPrisma.agentProfile.upsert).toHaveBeenCalled();
+      expect(result).toMatchObject({
+        node_id: 'node-1',
+        status: 'busy',
+        capabilities: ['python', 'debugging'],
+      });
+    });
+
+    it('should reject empty capability updates', async () => {
+      await expect(updateAgentProfile('node-1', {
+        capabilities: ['   '],
+      })).rejects.toThrow(ValidationError);
     });
   });
 

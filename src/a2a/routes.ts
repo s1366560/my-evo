@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
-import { authenticate, requireAuth } from '../shared/auth';
+import { authenticate, requireAuth, requireNodeSecretAuth } from '../shared/auth';
 import { PROTOCOL_NAME, PROTOCOL_VERSION, HEARTBEAT_INTERVAL_MS } from '../shared/constants';
 import {
   EvoMapError,
@@ -1432,23 +1432,27 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   app.get('/directory', {
     schema: { tags: ['A2A'] },
   }, async (request, reply) => {
-    const { q, specialty, available, limit, offset } = request.query as Record<string, string | undefined>;
-    const { listWorkers } = await import('../workerpool/service');
-    const result = await listWorkers({
+    const {
+      q,
+      specialty,
+      capabilities,
+      min_reputation,
+      available,
+      limit,
+      offset,
+    } = request.query as Record<string, string | undefined>;
+    const result = await a2aService.listAgentProfiles({
       q: q ?? undefined,
-      skill: specialty,
+      specialty: specialty ?? undefined,
+      capabilities: capabilities?.split(',').map((value) => value.trim()).filter(Boolean) ?? [],
+      min_reputation: min_reputation ? Number(min_reputation) : undefined,
       available: available === 'true' ? true : available === 'false' ? false : undefined,
       limit: limit ? Number(limit) : 20,
       offset: offset ? Number(offset) : 0,
     });
     return reply.send({
       success: true,
-      data: result.workers.map((w: Record<string, unknown>) => ({
-        node_id: w.node_id,
-        specialties: w.specialties,
-        is_available: w.is_available,
-        success_rate: w.success_rate,
-      })),
+      data: result.agents,
       meta: { total: result.total, limit: result.limit, offset: result.offset },
     });
   });
@@ -1456,20 +1460,10 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   app.get('/directory/stats', {
     schema: { tags: ['A2A'] },
   }, async (_request, reply) => {
-    const prisma = (app as FastifyInstance & { prisma?: PrismaClient }).prisma;
+    const result = await a2aService.listAgentProfiles({ limit: 10_000, offset: 0 });
 
-    const [totalAgents, online, workers] = await Promise.all([
-      prisma!.worker.count(),
-      prisma!.worker.count({
-        where: { is_available: true },
-      }),
-      prisma!.worker.findMany({
-        select: { specialties: true },
-      }),
-    ]);
-
-    const capabilities = workers.reduce<Record<string, number>>((acc, worker) => {
-      for (const specialty of worker.specialties) {
+    const capabilities = result.agents.reduce<Record<string, number>>((acc, agent) => {
+      for (const specialty of agent.capabilities) {
         acc[specialty] = (acc[specialty] ?? 0) + 1;
       }
       return acc;
@@ -1478,11 +1472,46 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({
       success: true,
       data: {
-        total_agents: totalAgents,
-        online,
+        total_agents: result.total,
+        online: result.agents.filter((agent) => agent.is_available).length,
         capabilities,
       },
     });
+  });
+
+  app.get('/agents/:id', {
+    schema: { tags: ['A2A'] },
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const result = await a2aService.getAgentProfile(id);
+    return reply.send({ success: true, data: result });
+  });
+
+  app.put('/agents/:id/profile', {
+    schema: { tags: ['A2A'] },
+    preHandler: requireNodeSecretAuth(),
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { id } = request.params as { id: string };
+    const body = (request.body as {
+      capabilities?: string[];
+      specialties?: string[];
+      bio?: string;
+      metadata?: Record<string, unknown>;
+      status?: 'online' | 'offline' | 'busy';
+    } | undefined) ?? {};
+
+    if (auth.node_id !== id) {
+      throw new ForbiddenError('Cannot update another agent profile');
+    }
+
+    const result = await a2aService.updateAgentProfile(id, {
+      capabilities: body.capabilities ?? body.specialties,
+      bio: body.bio,
+      metadata: body.metadata,
+      status: body.status,
+    });
+    return reply.send({ success: true, data: result });
   });
 
   // GET /a2a/dm/inbox — get DMs for authenticated node

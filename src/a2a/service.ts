@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import {
@@ -953,8 +953,139 @@ export interface DirectoryEntry {
   node_id: string;
   model: string;
   specialties: string[];
+  capabilities: string[];
   reputation: number;
+  gdi_score: number;
   status: string;
+  bio?: string;
+  metadata?: Record<string, unknown>;
+  registered_at?: string;
+  last_seen?: string;
+  is_available?: boolean;
+}
+
+export interface PublicAgentProfile {
+  node_id: string;
+  model: string;
+  capabilities: string[];
+  specialties: string[];
+  reputation: number;
+  gdi_score: number;
+  status: 'online' | 'offline' | 'busy';
+  bio?: string;
+  metadata?: Record<string, unknown>;
+  registered_at: string;
+  last_seen: string;
+  is_available: boolean;
+}
+
+export interface ListAgentProfilesInput {
+  q?: string;
+  capabilities?: string[];
+  specialty?: string;
+  min_reputation?: number;
+  available?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListAgentProfilesResult {
+  agents: PublicAgentProfile[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface UpdateAgentProfileInput {
+  capabilities?: string[];
+  bio?: string;
+  metadata?: Record<string, unknown>;
+  status?: 'online' | 'offline' | 'busy';
+}
+
+function sanitizeCapabilities(capabilities: string[]): string[] {
+  return [...new Set(
+    capabilities
+      .map((capability) => capability.trim())
+      .filter((capability) => capability.length > 0),
+  )];
+}
+
+function normalizeDirectoryStatus(
+  status: string | undefined,
+  isAvailable?: boolean,
+  profileStatus?: string,
+): 'online' | 'offline' | 'busy' {
+  if (status === 'dead' || status === 'registered') {
+    return 'offline';
+  }
+  if (status === 'offline') {
+    return 'offline';
+  }
+  if (profileStatus === 'offline' || profileStatus === 'busy') {
+    return profileStatus;
+  }
+  if (isAvailable === false) {
+    return 'busy';
+  }
+  return 'online';
+}
+
+function asMetadataRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+function buildPublicAgentProfile(params: {
+  node: {
+    node_id: string;
+    model: string;
+    reputation: number;
+    status: string;
+    registered_at: Date;
+    last_seen: Date;
+  };
+  worker?: {
+    specialties: string[];
+    is_available?: boolean;
+  } | null;
+  profile?: {
+    model: string;
+    capabilities: string[];
+    reputation: number;
+    gdi_score: number;
+    status: string;
+    bio: string | null;
+    metadata: unknown;
+    registered_at: Date;
+    last_seen: Date;
+  } | null;
+}): PublicAgentProfile {
+  const capabilities = sanitizeCapabilities(
+    params.profile?.capabilities ?? params.worker?.specialties ?? [],
+  );
+  const status = normalizeDirectoryStatus(
+    params.node.status,
+    params.worker?.is_available,
+    params.profile?.status,
+  );
+
+  return {
+    node_id: params.node.node_id,
+    model: params.node.model,
+    capabilities,
+    specialties: capabilities,
+    reputation: params.node.reputation,
+    gdi_score: params.profile?.gdi_score ?? 0,
+    status,
+    bio: params.profile?.bio ?? undefined,
+    metadata: asMetadataRecord(params.profile?.metadata),
+    registered_at: params.node.registered_at.toISOString(),
+    last_seen: params.node.last_seen.toISOString(),
+    is_available: status === 'online',
+  };
 }
 
 export async function registerInDirectory(
@@ -964,23 +1095,274 @@ export async function registerInDirectory(
   const node = await prisma.node.findUnique({ where: { node_id: nodeId } });
   if (!node) throw new NotFoundError('Node', nodeId);
 
-  await prisma.worker.upsert({
+  const normalizedSpecialties = sanitizeCapabilities(specialties);
+
+  const worker = await prisma.worker.upsert({
     where: { node_id: nodeId },
-    update: { specialties },
+    update: { specialties: normalizedSpecialties },
     create: {
       node_id: nodeId,
-      specialties,
+      specialties: normalizedSpecialties,
       max_concurrent: 3,
+      is_available: true,
+      last_heartbeat: new Date(),
+    },
+  });
+
+  await prisma.agentProfile.upsert({
+    where: { node_id: nodeId },
+    update: {
+      capabilities: normalizedSpecialties,
+    },
+    create: {
+      node_id: nodeId,
+      model: node.model,
+      capabilities: normalizedSpecialties,
+      reputation: node.reputation,
+      gdi_score: 0,
+      status: normalizeDirectoryStatus(node.status, worker.is_available),
+      bio: null,
+      metadata: {},
+      registered_at: node.registered_at,
+      last_seen: node.last_seen,
     },
   });
 
   return {
     node_id: node.node_id,
     model: node.model,
-    specialties,
+    specialties: normalizedSpecialties,
+    capabilities: normalizedSpecialties,
     reputation: node.reputation,
-    status: node.status,
+    gdi_score: 0,
+    status: normalizeDirectoryStatus(node.status, worker.is_available),
+    registered_at: node.registered_at.toISOString(),
+    last_seen: node.last_seen.toISOString(),
+    is_available: worker.is_available,
   };
+}
+
+export async function listAgentProfiles(
+  input: ListAgentProfilesInput = {},
+): Promise<ListAgentProfilesResult> {
+  const limit = Math.min(input.limit ?? 20, 100);
+  const offset = input.offset ?? 0;
+  const requestedCapabilities = sanitizeCapabilities([
+    ...(input.capabilities ?? []),
+    ...(input.specialty ? [input.specialty] : []),
+  ]);
+
+  const profiles = await prisma.agentProfile.findMany();
+  const profileNodeIds = profiles.map((profile) => profile.node_id);
+
+  if (profileNodeIds.length === 0) {
+    return {
+      agents: [],
+      total: 0,
+      limit,
+      offset,
+    };
+  }
+
+  const [nodes, workers] = await Promise.all([
+    prisma.node.findMany({
+      where: { node_id: { in: profileNodeIds } },
+      select: {
+        node_id: true,
+        model: true,
+        reputation: true,
+        status: true,
+        registered_at: true,
+        last_seen: true,
+      },
+    }),
+    prisma.worker.findMany({
+      where: { node_id: { in: profileNodeIds } },
+      select: {
+        node_id: true,
+        specialties: true,
+        is_available: true,
+      },
+    }),
+  ]);
+
+  const workerMap = new Map(workers.map((worker) => [worker.node_id, worker]));
+  const profileMap = new Map(profiles.map((profile) => [profile.node_id, profile]));
+  const queryTerms = input.q?.trim().toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+
+  const merged = nodes
+    .map((node) => buildPublicAgentProfile({
+      node,
+      worker: workerMap.get(node.node_id),
+      profile: profileMap.get(node.node_id),
+    }))
+    .filter((agent) => {
+      if (requestedCapabilities.length > 0) {
+        const capabilitySet = new Set(agent.capabilities.map((capability) => capability.toLowerCase()));
+        if (!requestedCapabilities.every((capability) => capabilitySet.has(capability.toLowerCase()))) {
+          return false;
+        }
+      }
+
+      if (input.min_reputation !== undefined && agent.reputation < input.min_reputation) {
+        return false;
+      }
+
+      if (input.available !== undefined && agent.is_available !== input.available) {
+        return false;
+      }
+
+      if (queryTerms.length > 0) {
+        const haystack = [
+          agent.node_id,
+          agent.model,
+          agent.bio ?? '',
+          agent.capabilities.join(' '),
+        ].join(' ').toLowerCase();
+        if (!queryTerms.some((term) => haystack.includes(term))) {
+          return false;
+        }
+      }
+
+      return true;
+    })
+    .sort((left, right) => {
+      if (right.reputation !== left.reputation) {
+        return right.reputation - left.reputation;
+      }
+      if (right.gdi_score !== left.gdi_score) {
+        return right.gdi_score - left.gdi_score;
+      }
+      return right.last_seen.localeCompare(left.last_seen);
+    });
+
+  return {
+    agents: merged.slice(offset, offset + limit),
+    total: merged.length,
+    limit,
+    offset,
+  };
+}
+
+export async function getAgentProfile(nodeId: string): Promise<PublicAgentProfile> {
+  const [node, worker, profile] = await Promise.all([
+    prisma.node.findUnique({
+      where: { node_id: nodeId },
+      select: {
+        node_id: true,
+        model: true,
+        reputation: true,
+        status: true,
+        registered_at: true,
+        last_seen: true,
+      },
+    }),
+    prisma.worker.findUnique({
+      where: { node_id: nodeId },
+      select: {
+        specialties: true,
+        is_available: true,
+      },
+    }),
+    prisma.agentProfile.findUnique({ where: { node_id: nodeId } }),
+  ]);
+
+  if (!node) {
+    throw new NotFoundError('Agent', nodeId);
+  }
+  if (!profile) {
+    throw new NotFoundError('Agent profile', nodeId);
+  }
+
+  return buildPublicAgentProfile({ node, worker, profile });
+}
+
+export async function updateAgentProfile(
+  nodeId: string,
+  input: UpdateAgentProfileInput,
+): Promise<PublicAgentProfile> {
+  if (!input || Object.keys(input).length === 0) {
+    throw new ValidationError('At least one profile field is required');
+  }
+
+  if (input.bio !== undefined && typeof input.bio !== 'string') {
+    throw new ValidationError('bio must be a string');
+  }
+
+  if (input.metadata !== undefined && !asMetadataRecord(input.metadata)) {
+    throw new ValidationError('metadata must be an object');
+  }
+
+  if (input.status !== undefined && !['online', 'offline', 'busy'].includes(input.status)) {
+    throw new ValidationError('status must be one of online, offline, busy');
+  }
+
+  const normalizedCapabilities = input.capabilities === undefined
+    ? undefined
+    : sanitizeCapabilities(input.capabilities);
+  if (normalizedCapabilities !== undefined && normalizedCapabilities.length === 0) {
+    throw new ValidationError('capabilities must contain at least one non-empty string');
+  }
+
+  const node = await prisma.node.findUnique({
+    where: { node_id: nodeId },
+    select: {
+      node_id: true,
+      model: true,
+      reputation: true,
+      status: true,
+      registered_at: true,
+      last_seen: true,
+    },
+  });
+
+  if (!node) {
+    throw new NotFoundError('Agent', nodeId);
+  }
+
+  const existingWorker = await prisma.worker.findUnique({
+    where: { node_id: nodeId },
+    select: {
+      specialties: true,
+      is_available: true,
+    },
+  });
+
+  if (normalizedCapabilities !== undefined && existingWorker) {
+    await prisma.worker.update({
+      where: { node_id: nodeId },
+      data: { specialties: normalizedCapabilities },
+    });
+  }
+
+  const nextCapabilities = normalizedCapabilities ?? sanitizeCapabilities(existingWorker?.specialties ?? []);
+  const nextBio = input.bio === undefined ? undefined : input.bio.trim() || null;
+
+  const metadata = input.metadata as Prisma.InputJsonValue | undefined;
+
+  await prisma.agentProfile.upsert({
+    where: { node_id: nodeId },
+    update: {
+      capabilities: nextCapabilities,
+      bio: nextBio,
+      metadata,
+      status: input.status,
+    },
+    create: {
+      node_id: node.node_id,
+      model: node.model,
+      capabilities: nextCapabilities,
+      reputation: node.reputation,
+      gdi_score: 0,
+      status: input.status ?? normalizeDirectoryStatus(node.status, existingWorker?.is_available),
+      bio: nextBio ?? null,
+      metadata: (metadata ?? {}) as Prisma.InputJsonValue,
+      registered_at: node.registered_at,
+      last_seen: node.last_seen,
+    },
+  });
+
+  return getAgentProfile(nodeId);
 }
 
 // ─── Direct Message ───────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ import { UnauthorizedError, ValidationError } from '../shared/errors';
 let mockNodeId = 'node-test-001';
 let mockAuthType: string | undefined;
 let mockAuthScopes: string[] | undefined;
+let mockNodeSecretAuthAllowed = true;
 
 // Store the original request auth setter to call from within the route
 let capturedRequest: { auth?: { node_id: string } } | null = null;
@@ -33,9 +34,22 @@ const mockRequireAuth = () => async (
   capturedRequest = request;
 };
 
+const mockRequireNodeSecretAuth = () => async (
+  request: { auth?: { node_id: string; auth_type?: string } },
+) => {
+  if (!mockNodeSecretAuthAllowed) {
+    throw new UnauthorizedError('Node secret bearer token is required');
+  }
+  request.auth = { node_id: mockNodeId, auth_type: 'node_secret' };
+  capturedRequest = request;
+};
+
 // ─── Mock publishAsset ────────────────────────────────────────────────────────
 
 const mockPublishAsset = jest.fn();
+const mockListAgentProfiles = jest.fn();
+const mockGetAgentProfile = jest.fn();
+const mockUpdateAgentProfile = jest.fn();
 const mockFileDispute = jest.fn();
 const mockGetDispute = jest.fn();
 const mockListDisputes = jest.fn();
@@ -189,6 +203,9 @@ jest.mock('../recipe/service', () => ({
 
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
+  listAgentProfiles: (...args: unknown[]) => mockListAgentProfiles(...args),
+  getAgentProfile: (...args: unknown[]) => mockGetAgentProfile(...args),
+  updateAgentProfile: (...args: unknown[]) => mockUpdateAgentProfile(...args),
   listAssets: (...args: unknown[]) => mockListAssets(...args),
   sendDm: (...args: unknown[]) => mockSendDm(...args),
   getInbox: (...args: unknown[]) => mockGetInbox(...args),
@@ -204,6 +221,7 @@ jest.mock('./assets_service', () => ({
 
 jest.mock('../shared/auth', () => ({
   requireAuth: () => mockRequireAuth(),
+  requireNodeSecretAuth: () => mockRequireNodeSecretAuth(),
   authenticate: (request: unknown) => mockAuthenticate(request),
 }));
 
@@ -2018,6 +2036,7 @@ describe('A2A directory routes', () => {
     await app.register(a2aRoutes, { prefix: '/a2a' });
     await app.ready();
     jest.clearAllMocks();
+    mockNodeSecretAuthAllowed = true;
   });
 
   afterEach(async () => {
@@ -2025,14 +2044,49 @@ describe('A2A directory routes', () => {
   });
 
   it('returns directory statistics from worker data', async () => {
-    mockWorkerDirectoryCount
-      .mockResolvedValueOnce(3)
-      .mockResolvedValueOnce(2);
-    mockWorkerDirectoryFindMany.mockResolvedValue([
-      { specialties: ['python', 'code_review'] },
-      { specialties: ['python'] },
-      { specialties: [] },
-    ]);
+    mockListAgentProfiles.mockResolvedValue({
+      agents: [
+        {
+          node_id: 'node-1',
+          model: 'claude-sonnet-4',
+          capabilities: ['python', 'code_review'],
+          specialties: ['python', 'code_review'],
+          reputation: 82,
+          gdi_score: 72.5,
+          status: 'online',
+          registered_at: freshTimestamp(),
+          last_seen: freshTimestamp(),
+          is_available: true,
+        },
+        {
+          node_id: 'node-2',
+          model: 'gpt-4.1',
+          capabilities: ['python'],
+          specialties: ['python'],
+          reputation: 70,
+          gdi_score: 60,
+          status: 'busy',
+          registered_at: freshTimestamp(),
+          last_seen: freshTimestamp(),
+          is_available: true,
+        },
+        {
+          node_id: 'node-3',
+          model: 'o3',
+          capabilities: [],
+          specialties: [],
+          reputation: 50,
+          gdi_score: 40,
+          status: 'offline',
+          registered_at: freshTimestamp(),
+          last_seen: freshTimestamp(),
+          is_available: false,
+        },
+      ],
+      total: 3,
+      limit: 10000,
+      offset: 0,
+    });
 
     const res = await app.inject({
       method: 'GET',
@@ -2040,12 +2094,9 @@ describe('A2A directory routes', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(mockWorkerDirectoryCount).toHaveBeenNthCalledWith(1);
-    expect(mockWorkerDirectoryCount).toHaveBeenNthCalledWith(2, {
-      where: { is_available: true },
-    });
-    expect(mockWorkerDirectoryFindMany).toHaveBeenCalledWith({
-      select: { specialties: true },
+    expect(mockListAgentProfiles).toHaveBeenCalledWith({
+      limit: 10000,
+      offset: 0,
     });
     expect(JSON.parse(res.payload).data).toEqual({
       total_agents: 3,
@@ -2055,6 +2106,148 @@ describe('A2A directory routes', () => {
         code_review: 1,
       },
     });
+  });
+
+  it('supports architecture-aligned directory search filters', async () => {
+    mockListAgentProfiles.mockResolvedValue({
+      agents: [{
+        node_id: 'node-1',
+        model: 'claude-sonnet-4',
+        capabilities: ['python', 'code_review'],
+        specialties: ['python', 'code_review'],
+        reputation: 82,
+        gdi_score: 72.5,
+        status: 'online',
+        bio: 'Async specialist',
+        registered_at: freshTimestamp(),
+        last_seen: freshTimestamp(),
+        is_available: true,
+      }],
+      total: 1,
+      limit: 10,
+      offset: 5,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/directory?capabilities=python,code_review&min_reputation=60&q=async&available=true&limit=10&offset=5',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockListAgentProfiles).toHaveBeenCalledWith({
+      q: 'async',
+      specialty: undefined,
+      capabilities: ['python', 'code_review'],
+      min_reputation: 60,
+      available: true,
+      limit: 10,
+      offset: 5,
+    });
+    expect(JSON.parse(res.payload).meta).toEqual({
+      total: 1,
+      limit: 10,
+      offset: 5,
+    });
+  });
+});
+
+describe('A2A agent profile routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    mockNodeSecretAuthAllowed = true;
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('returns public agent details', async () => {
+    mockGetAgentProfile.mockResolvedValue({
+      node_id: 'node-target',
+      model: 'claude-sonnet-4',
+      capabilities: ['python'],
+      specialties: ['python'],
+      reputation: 88,
+      gdi_score: 77.2,
+      status: 'online',
+      bio: 'Generalist',
+      registered_at: freshTimestamp(),
+      last_seen: freshTimestamp(),
+      is_available: true,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/a2a/agents/node-target',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockGetAgentProfile).toHaveBeenCalledWith('node-target');
+  });
+
+  it('updates the authenticated node profile and accepts specialties alias', async () => {
+    mockUpdateAgentProfile.mockResolvedValue({
+      node_id: mockNodeId,
+      capabilities: ['python', 'debugging'],
+      specialties: ['python', 'debugging'],
+      status: 'busy',
+    });
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/a2a/agents/${mockNodeId}/profile`,
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        specialties: ['python', 'debugging'],
+        bio: 'Backend generalist',
+        metadata: { timezone: 'UTC+8' },
+        status: 'busy',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockUpdateAgentProfile).toHaveBeenCalledWith(mockNodeId, {
+      capabilities: ['python', 'debugging'],
+      bio: 'Backend generalist',
+      metadata: { timezone: 'UTC+8' },
+      status: 'busy',
+    });
+  });
+
+  it('rejects profile updates for another node', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/a2a/agents/node-other/profile',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        capabilities: ['python'],
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(mockUpdateAgentProfile).not.toHaveBeenCalled();
+  });
+
+  it('rejects profile updates without node-secret auth', async () => {
+    mockNodeSecretAuthAllowed = false;
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/a2a/agents/${mockNodeId}/profile`,
+      headers: { authorization: 'Bearer ek_test' },
+      payload: {
+        capabilities: ['python'],
+      },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(mockUpdateAgentProfile).not.toHaveBeenCalled();
   });
 });
 
