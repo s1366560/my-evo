@@ -1199,6 +1199,7 @@ export async function getPolicyConfig(): Promise<unknown> {
 // ─── Policy: Model Tiers ───────────────────────────────────────────────────────
 
 type ModelTierLookup = ResolvedDocumentedModelTier & {
+  model: string;
   node_count: number;
 };
 
@@ -1244,6 +1245,7 @@ export async function getModelTiers(model?: string): Promise<{ tiers: ModelTierS
     tiers,
     ...(model ? {
       lookup: {
+        model,
         ...resolveDocumentedModelTier(model),
         node_count: modelCounts.get(model) ?? modelCounts.get(model.trim().toLowerCase()) ?? 0,
       },
