@@ -13,6 +13,8 @@ import {
   getAllUpgradePaths,
   evaluateTaskForAgent,
   claimTask,
+  getDocumentedModelTiers,
+  resolveDocumentedModelTier,
 } from './service';
 import { ValidationError } from '../shared/errors';
 
@@ -24,9 +26,10 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
     const tiers = [0, 1, 2, 3, 4, 5].map(t => {
       const info = getTierInfo(t as Parameters<typeof getTierInfo>[0]);
       const limits = getTierRateLimits(t as Parameters<typeof getTierRateLimits>[0]);
-      return { ...info, rate_limits: limits };
+      const documented = getDocumentedModelTiers().find((entry) => entry.tier === t);
+      return { ...info, label: documented?.label, examples: documented?.examples ?? [], rate_limits: limits };
     });
-    return reply.send({ success: true, data: tiers });
+    return reply.send({ success: true, tiers, total: tiers.length, data: tiers });
   });
 
   // GET /model-tier/tiers/:tier — get specific tier
@@ -40,7 +43,20 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
     }
     const info = getTierInfo(t as Parameters<typeof getTierInfo>[0]);
     const limits = getTierRateLimits(t as Parameters<typeof getTierRateLimits>[0]);
-    return reply.send({ success: true, data: { ...info, rate_limits: limits } });
+    const documented = resolveDocumentedModelTier(getTierInfo(t as Parameters<typeof getTierInfo>[0]).typical_models[0] ?? null);
+    return reply.send({
+      success: true,
+      tier: t,
+      name: info.name,
+      label: documented.label,
+      description: info.description,
+      min_reputation: info.min_reputation,
+      typical_models: info.typical_models,
+      examples: documented.examples,
+      capabilities: info.capabilities,
+      rate_limits: limits,
+      data: { ...info, label: documented.label, examples: documented.examples, rate_limits: limits },
+    });
   });
 
   // GET /model-tier/agents/:agentId — get agent's current tier
@@ -51,7 +67,21 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
     const tier = getAgentTier(agentId);
     const info = getTierInfo(tier);
     const limits = getTierRateLimits(tier);
-    return reply.send({ success: true, data: { agent_id: agentId, ...info, rate_limits: limits } });
+    const documented = resolveDocumentedModelTier(info.typical_models[0] ?? null);
+    return reply.send({
+      success: true,
+      agent_id: agentId,
+      tier,
+      name: info.name,
+      label: documented.label,
+      description: info.description,
+      min_reputation: info.min_reputation,
+      typical_models: info.typical_models,
+      examples: documented.examples,
+      capabilities: info.capabilities,
+      rate_limits: limits,
+      data: { agent_id: agentId, ...info, label: documented.label, examples: documented.examples, rate_limits: limits },
+    });
   });
 
   // PUT /model-tier/agents/:agentId/tier — set agent tier
@@ -64,9 +94,29 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
       throw new ValidationError('Tier must be between 0 and 5');
     }
     const info = setAgentTier(agentId, body.tier as Parameters<typeof setAgentTier>[1]);
+    const documented = resolveDocumentedModelTier(info.typical_models[0] ?? null);
     return reply.send({
       success: true,
-      data: { agent_id: agentId, tier: body.tier, name: info.name, description: info.description, min_reputation: info.min_reputation, typical_models: info.typical_models, capabilities: info.capabilities },
+      agent_id: agentId,
+      tier: body.tier,
+      name: info.name,
+      label: documented.label,
+      description: info.description,
+      min_reputation: info.min_reputation,
+      typical_models: info.typical_models,
+      examples: documented.examples,
+      capabilities: info.capabilities,
+      data: {
+        agent_id: agentId,
+        tier: body.tier,
+        name: info.name,
+        label: documented.label,
+        description: info.description,
+        min_reputation: info.min_reputation,
+        typical_models: info.typical_models,
+        examples: documented.examples,
+        capabilities: info.capabilities,
+      },
     });
   });
 
@@ -79,9 +129,10 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
       complexity?: number;
       required_capabilities?: string[];
       min_model_tier?: number;
+      declared_model?: string;
     };
     const result = evaluateTaskForAgent(agentId, body);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, evaluation: result, data: result });
   });
 
   // POST /model-tier/agents/:agentId/claim — check if agent can claim task
@@ -92,12 +143,21 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body as {
       min_model_tier?: number;
       allowed_models?: string[];
+      model?: string;
     };
     const result = claimTask(agentId, body);
     if (!result.allowed) {
-      return reply.status(403).send({ success: false, ...result });
+      return reply.status(403).send({
+        success: false,
+        claim: result,
+        ...result,
+        message: result.required_tier !== undefined
+          ? `This action requires Tier ${result.required_tier}. Your current tier is Tier ${result.current_tier}.`
+          : result.reason,
+        data: result,
+      });
     }
-    return reply.send({ success: true, ...result });
+    return reply.send({ success: true, claim: result, data: result });
   });
 
   // POST /model-tier/agents/:agentId/capability — check capability
@@ -105,11 +165,11 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['ModelTier'] },
   }, async (request, reply) => {
     const { agentId } = request.params as { agentId: string };
-    const body = request.body as { capability: string };
+    const body = request.body as { capability: string; declared_model?: string };
     if (!body.capability) {
       throw new ValidationError('capability is required');
     }
-    const result = checkCapability(agentId, body.capability);
+    const result = checkCapability(agentId, body.capability, body.declared_model);
     return reply.send({ success: true, data: result });
   });
 
@@ -166,9 +226,9 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
     const { agentId } = request.params as { agentId: string };
     const assessment = getTierAssessment(agentId);
     if (!assessment) {
-      return reply.send({ success: true, data: null });
+      return reply.send({ success: true, assessment: null, data: null });
     }
-    return reply.send({ success: true, data: assessment });
+    return reply.send({ success: true, assessment, data: assessment });
   });
 
   // GET /model-tier/upgrade-paths — get all upgrade paths
@@ -176,7 +236,7 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['ModelTier'] },
   }, async (_request, reply) => {
     const paths = getAllUpgradePaths();
-    return reply.send({ success: true, data: paths });
+    return reply.send({ success: true, paths, total: paths.length, data: paths });
   });
 
   // GET /model-tier/select-model — select models for required tier
@@ -192,6 +252,6 @@ export async function modelTierRoutes(app: FastifyInstance): Promise<void> {
       throw new ValidationError('required_tier must be between 0 and 5');
     }
     const models = selectModel(t as Parameters<typeof selectModel>[0]);
-    return reply.send({ success: true, data: { required_tier: t, models } });
+    return reply.send({ success: true, required_tier: t, models, data: { required_tier: t, models } });
   });
 }

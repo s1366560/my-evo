@@ -6,6 +6,12 @@ import {
   MAX_SEARCH_LIMIT,
 } from '../shared/constants';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../shared/errors';
+import {
+  getDocumentedModelTiers,
+  resolveDocumentedModelTier,
+  type DocumentedModelTier,
+  type ResolvedDocumentedModelTier,
+} from '../model_tier/service';
 
 let prisma = new PrismaClient();
 type AssetDbClient = PrismaClient | Prisma.TransactionClient;
@@ -1192,18 +1198,55 @@ export async function getPolicyConfig(): Promise<unknown> {
 
 // ─── Policy: Model Tiers ───────────────────────────────────────────────────────
 
-export async function getModelTiers(): Promise<{ tiers: unknown[] }> {
+type ModelTierLookup = ResolvedDocumentedModelTier & {
+  node_count: number;
+};
+
+type ModelTierSummary = DocumentedModelTier & {
+  node_count: number;
+  models: ModelTierLookup[];
+};
+
+export async function getModelTiers(model?: string): Promise<{ tiers: ModelTierSummary[]; lookup?: ModelTierLookup }> {
   const nodes = await prisma.node.groupBy({
     by: ['model'],
     _count: { node_id: true },
     orderBy: { _count: { node_id: 'desc' } },
   });
 
+  const modelCounts = new Map<string, number>();
+  for (const node of nodes) {
+    modelCounts.set(node.model, node._count.node_id);
+  }
+
+  const tiers = getDocumentedModelTiers().map((definition) => {
+    const mappedModels = Array.from(modelCounts.entries())
+      .map(([modelName, nodeCount]) => ({
+        model: modelName,
+        node_count: nodeCount,
+        ...resolveDocumentedModelTier(modelName),
+      }))
+      .filter((entry) => entry.tier === definition.tier)
+      .sort((left, right) => right.node_count - left.node_count || left.model.localeCompare(right.model));
+
+    return {
+      tier: definition.tier,
+      label: definition.label,
+      description: definition.description,
+      min_reputation: definition.min_reputation,
+      examples: definition.examples,
+      node_count: mappedModels.reduce((sum, entry) => sum + entry.node_count, 0),
+      models: mappedModels,
+    };
+  });
+
   return {
-    tiers: nodes.map((n) => ({
-      model: n.model,
-      node_count: n._count.node_id,
-      tier: 'standard',
-    })),
+    tiers,
+    ...(model ? {
+      lookup: {
+        ...resolveDocumentedModelTier(model),
+        node_count: modelCounts.get(model) ?? modelCounts.get(model.trim().toLowerCase()) ?? 0,
+      },
+    } : {}),
   };
 }

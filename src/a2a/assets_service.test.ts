@@ -40,6 +40,7 @@ const mockPrisma = {
   },
   node: {
     findUnique: jest.fn(),
+    groupBy: jest.fn(),
   },
   hallucinationCheck: {
     findMany: jest.fn(),
@@ -286,6 +287,74 @@ describe('A2A assets service', () => {
         asset_type: 'Gene',
       }),
     });
+  });
+
+  it('should return the documented model tier catalog with grouped model counts', async () => {
+    (mockPrisma.node.groupBy as jest.Mock).mockResolvedValue([
+      { model: 'gpt-5', _count: { node_id: 2 } },
+      { model: 'claude-haiku', _count: { node_id: 3 } },
+      { model: 'mystery-model', _count: { node_id: 1 } },
+    ]);
+
+    const result = await assetsService.getModelTiers();
+
+    expect(result.tiers).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        tier: 1,
+        label: 'basic',
+        node_count: 3,
+        models: [
+          expect.objectContaining({
+            model: 'claude-haiku',
+            tier: 1,
+            label: 'basic',
+            node_count: 3,
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        tier: 4,
+        label: 'frontier',
+        node_count: 2,
+        models: [
+          expect.objectContaining({
+            model: 'gpt-5',
+            tier: 4,
+            label: 'frontier',
+            node_count: 2,
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        tier: 0,
+        label: 'unclassified',
+        node_count: 1,
+        models: [
+          expect.objectContaining({
+            model: 'mystery-model',
+            tier: 0,
+            label: 'unclassified',
+            node_count: 1,
+          }),
+        ],
+      }),
+    ]));
+  });
+
+  it('should support single-model tier lookup for policy clients', async () => {
+    (mockPrisma.node.groupBy as jest.Mock).mockResolvedValue([
+      { model: 'gpt-5', _count: { node_id: 2 } },
+    ]);
+
+    const result = await assetsService.getModelTiers('gpt-5');
+
+    expect(result.lookup).toEqual(expect.objectContaining({
+      model: 'gpt-5',
+      tier: 4,
+      label: 'frontier',
+      matched_by: 'exact',
+      node_count: 2,
+    }));
   });
 
   it('should reject blank semantic search queries', async () => {

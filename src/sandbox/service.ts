@@ -4,6 +4,7 @@ import {
   ValidationError,
   ForbiddenError,
 } from '../shared/errors';
+import { getSandboxEntitlement } from '../subscription/service';
 
 let prisma = new PrismaClient();
 
@@ -18,6 +19,14 @@ export interface ListSandboxesInput {
   isolationLevel?: string;
   limit?: number;
   offset?: number;
+}
+
+function normalizeSandboxMemberRole(role?: string | null): 'participant' | 'observer' {
+  return role === 'observer' ? 'observer' : 'participant';
+}
+
+function isSandboxMutableState(state?: string | null): boolean {
+  return state === undefined || state === null || state === 'active';
 }
 
 function getSandboxMetadata(metadata: unknown): Record<string, unknown> {
@@ -45,6 +54,10 @@ function assertSandboxMutable(
 ): void {
   if (isSandboxTerminal(sandbox.state)) {
     throw new ValidationError(`Cannot ${action} after sandbox completion`);
+  }
+
+  if (!isSandboxMutableState(sandbox.state)) {
+    throw new ValidationError(`Cannot ${action} while sandbox state is ${sandbox.state ?? 'unknown'}`);
   }
 }
 
@@ -91,7 +104,7 @@ async function requireSandboxRecord(sandboxId: string) {
 async function requireSandboxAccess(
   sandboxId: string,
   nodeId: string,
-  access: 'member' | 'owner',
+  access: 'member' | 'participant' | 'owner',
 ) {
   const sandbox = await requireSandboxRecord(sandboxId);
 
@@ -113,6 +126,10 @@ async function requireSandboxAccess(
       return sandbox;
     }
 
+    if (access === 'participant' && member.role !== 'observer') {
+      return sandbox;
+    }
+
     if (member.role === 'owner') {
       return sandbox;
     }
@@ -121,8 +138,35 @@ async function requireSandboxAccess(
   throw new ForbiddenError(
     access === 'owner'
       ? 'Only the sandbox owner can perform this action'
-      : 'Sandbox access denied',
+      : access === 'participant'
+        ? 'Sandbox participant access required'
+        : 'Sandbox access denied',
   );
+}
+
+async function assertSandboxCreationAllowed(
+  nodeId: string,
+  isolationLevel?: string,
+): Promise<void> {
+  const entitlement = await getSandboxEntitlement(nodeId);
+  if (!entitlement.enabled) {
+    throw new ForbiddenError('Evolution Sandbox requires an active Premium or Ultra subscription');
+  }
+
+  if (isolationLevel === 'hard' && !entitlement.hard_isolated_mode) {
+    throw new ForbiddenError('Hard-isolated sandboxes require a plan with hard isolation enabled');
+  }
+
+  const activeSandboxes = await prisma.evolutionSandbox.count({
+    where: {
+      created_by: nodeId,
+      state: { in: ['active', 'frozen'] },
+    },
+  });
+
+  if (activeSandboxes >= entitlement.concurrent_sandboxes) {
+    throw new ValidationError(`Sandbox limit reached for ${entitlement.plan} plan`);
+  }
 }
 
 export async function listSandboxes(
@@ -189,6 +233,7 @@ export async function createSandbox(
   tags?: string[],
   metadata?: Record<string, unknown>,
 ) {
+  await assertSandboxCreationAllowed(createdBy, isolationLevel);
   const sandboxId = crypto.randomUUID();
   const now = new Date();
 
@@ -225,7 +270,10 @@ export async function createSandbox(
     data: { member_count: 1 },
   });
 
-  return sandbox;
+  return {
+    ...sandbox,
+    member_count: 1,
+  };
 }
 
 export async function updateSandbox(
@@ -352,7 +400,7 @@ export async function joinSandbox(sandboxId: string, nodeId: string) {
       data: {
         sandbox_id: sandboxId,
         node_id: nodeId,
-        role: 'participant',
+        role: normalizeSandboxMemberRole(invite.role),
         joined_at: now,
         updated_at: now,
       },
@@ -458,7 +506,7 @@ export async function inviteMember(
         sandbox_id: sandboxId,
         inviter,
         invitee,
-        role: role ?? 'participant',
+        role: normalizeSandboxMemberRole(role),
         status: 'pending',
         created_at: now,
       },
@@ -488,7 +536,7 @@ export async function addAsset(
     tags?: string[];
   },
 ) {
-  const sandbox = await requireSandboxAccess(sandboxId, createdBy, 'member');
+  const sandbox = await requireSandboxAccess(sandboxId, createdBy, 'participant');
   assertSandboxMutable(sandbox, 'add assets to this sandbox');
 
   const now = new Date();
@@ -534,7 +582,7 @@ export async function attachExistingAssetToSandbox(
   createdBy: string,
   assetId: string,
 ) {
-  const sandbox = await requireSandboxAccess(sandboxId, createdBy, 'member');
+  const sandbox = await requireSandboxAccess(sandboxId, createdBy, 'participant');
   assertSandboxMutable(sandbox, 'add assets to this sandbox');
   const now = new Date();
 
@@ -604,7 +652,7 @@ export async function modifySandboxAsset(
   assetId: string,
   modifications: Record<string, unknown>,
 ) {
-  const sandbox = await requireSandboxAccess(sandboxId, modifiedBy, 'member');
+  const sandbox = await requireSandboxAccess(sandboxId, modifiedBy, 'participant');
   assertSandboxMutable(sandbox, 'modify assets in this sandbox');
   const now = new Date();
 
@@ -645,7 +693,7 @@ export async function runExperiment(
     parameters?: Record<string, unknown>;
   },
 ) {
-  const sandbox = await requireSandboxAccess(sandboxId, requestedBy, 'member');
+  const sandbox = await requireSandboxAccess(sandboxId, requestedBy, 'participant');
   assertSandboxMutable(sandbox, 'run experiments in this sandbox');
 
   const now = new Date();
@@ -749,7 +797,7 @@ export async function completeSandbox(
     await tx.evolutionSandbox.update({
       where: { sandbox_id: sandboxId },
       data: {
-        state: 'completed',
+        state: 'archived',
         total_promoted: { increment: newlyPromotedCount },
         metadata: {
           ...metadata,
@@ -762,25 +810,39 @@ export async function completeSandbox(
   });
 
   return {
-    status: 'completed',
+    status: 'archived',
     promoted_to_mainnet: promotedAssetIds,
-    sandbox_archived: false,
+    sandbox_archived: true,
   };
 }
 
 export async function compareSandbox(sandboxId: string, nodeId: string) {
   const sandbox = await getSandbox(sandboxId, nodeId);
   const experiments = getSandboxExperiments(sandbox.metadata);
+  const totalAssets = sandbox.assets.length;
+  const promotedAssets = sandbox.assets
+    .filter((asset) => asset.promoted)
+    .map((asset) => asset.asset_id);
+  const avgGdi = totalAssets > 0
+    ? sandbox.assets.reduce((sum, asset) => sum + (asset.gdi_score ?? 0), 0) / totalAssets
+    : 0;
 
   return {
     sandbox_id: sandbox.sandbox_id,
     status: sandbox.state,
     isolation_mode: sandbox.isolation_level,
-    total_assets: sandbox.assets.length,
+    total_assets: totalAssets,
     total_members: sandbox.members.length,
-    promoted_assets: sandbox.assets
-      .filter((asset) => asset.promoted)
-      .map((asset) => asset.asset_id),
+    avg_gdi: avgGdi,
+    promotion_success_rate: totalAssets > 0 ? promotedAssets.length / totalAssets : 0,
+    member_activity: sandbox.members.map((member) => ({
+      node_id: member.node_id,
+      role: member.role,
+      assets_created: member.assets_created,
+      assets_promoted: member.assets_promoted,
+      last_activity_at: member.last_activity_at,
+    })),
+    promoted_assets: promotedAssets,
     assets: sandbox.assets.map((asset) => ({
       asset_id: asset.asset_id,
       asset_type: asset.asset_type,
@@ -827,7 +889,7 @@ export async function requestPromotion(
   requestedBy: string,
   assetId: string,
 ) {
-  const sandbox = await requireSandboxAccess(sandboxId, requestedBy, 'member');
+  const sandbox = await requireSandboxAccess(sandboxId, requestedBy, 'participant');
   assertSandboxMutable(sandbox, 'request promotions in this sandbox');
   const requestId = crypto.randomUUID();
   const now = new Date();

@@ -12,6 +12,8 @@ import {
   getAllUpgradePaths,
   evaluateTaskForAgent,
   claimTask,
+  getDocumentedModelTiers,
+  resolveDocumentedModelTier,
 } from './service';
 import type { ModelTier } from './schemas';
 import { TIER_INFO, UPGRADE_PATHS } from './schemas';
@@ -85,6 +87,16 @@ describe('Model Tier Service', () => {
       const result = evaluateModelTier('new-agent', {});
       expect(result.tier).toBe(0);
       expect(result.eligible).toBe(true);
+    });
+
+    it('should use the declared model tier when it exceeds the stored tier', () => {
+      setAgentTier('eval-agent-4', 1);
+      const result = evaluateModelTier('eval-agent-4', {
+        required_capabilities: ['publish_gene'],
+        declared_model: 'gpt-5',
+      });
+      expect(result.eligible).toBe(true);
+      expect(result.tier).toBe(4);
     });
   });
 
@@ -217,6 +229,39 @@ describe('Model Tier Service', () => {
     });
   });
 
+  describe('documented model tier catalog', () => {
+    it('should expose the documented 0-5 tier labels', () => {
+      const tiers = getDocumentedModelTiers();
+      expect(tiers).toHaveLength(6);
+      expect(tiers.map((tier) => tier.label)).toEqual([
+        'unclassified',
+        'basic',
+        'standard',
+        'advanced',
+        'frontier',
+        'experimental',
+      ]);
+    });
+
+    it('should resolve exact, heuristic, and unreported model names', () => {
+      expect(resolveDocumentedModelTier('gpt-5')).toEqual(expect.objectContaining({
+        tier: 4,
+        label: 'frontier',
+        matched_by: 'exact',
+      }));
+      expect(resolveDocumentedModelTier('claude-opus-4.1-high-thinking')).toEqual(expect.objectContaining({
+        tier: 5,
+        label: 'experimental',
+        matched_by: 'heuristic',
+      }));
+      expect(resolveDocumentedModelTier(undefined)).toEqual(expect.objectContaining({
+        tier: 0,
+        label: 'unclassified',
+        matched_by: 'unreported',
+      }));
+    });
+  });
+
   // ===== evaluateTaskForAgent =====
   describe('evaluateTaskForAgent', () => {
     it('should return eligible when agent meets requirements', () => {
@@ -235,6 +280,16 @@ describe('Model Tier Service', () => {
       expect(result.eligible).toBe(false);
       expect(result.required_tier).toBe(3);
     });
+
+    it('raises the required tier to match capability and complexity demands', () => {
+      setAgentTier('task-agent-3', 3);
+      const result = evaluateTaskForAgent('task-agent-3', {
+        complexity: 4,
+        required_capabilities: ['publish_gene'],
+      });
+      expect(result.eligible).toBe(false);
+      expect(result.required_tier).toBe(4);
+    });
   });
 
   // ===== claimTask =====
@@ -243,22 +298,88 @@ describe('Model Tier Service', () => {
       setAgentTier('claim-agent-1', 3);
       const result = claimTask('claim-agent-1', { min_model_tier: 2 });
       expect(result.allowed).toBe(true);
+      expect(result.current_tier).toBe(3);
+      expect(result.required_tier).toBeUndefined();
     });
 
     it('should deny claim when tier insufficient', () => {
       setAgentTier('claim-agent-2', 1);
       const result = claimTask('claim-agent-2', { min_model_tier: 3 });
       expect(result.allowed).toBe(false);
+      expect(result.error).toBe('TIER_INSUFFICIENT');
       expect(result.reason).toContain('insufficient_model_tier');
+      expect(result.current_tier).toBe(1);
+      expect(result.required_tier).toBe(3);
+      expect(result.upgrade_hint).toContain('Tier 3');
+      expect(result.upgrade_progress).toEqual(expect.objectContaining({
+        multi_tool_tasks: { current: 0, required: 5 },
+        reputation: { current: 0, required: 200 },
+      }));
     });
 
-    it('should always allow claim if allowed_models list provided', () => {
+    it('allows allowed_models to bypass the tier requirement only when the model matches', () => {
       setAgentTier('claim-agent-3', 0);
       const result = claimTask('claim-agent-3', {
         min_model_tier: 5,
         allowed_models: ['custom-model'],
+        model: 'custom-model',
       });
       expect(result.allowed).toBe(true);
+      expect(result.current_tier).toBe(0);
+    });
+
+    it('reports tier-2 upgrade progress for multi-tool requirements', () => {
+      setAgentTier('claim-agent-6', 2);
+      const result = claimTask('claim-agent-6', { min_model_tier: 3 });
+      expect(result.upgrade_progress).toEqual({
+        multi_tool_tasks: { current: 0, required: 5 },
+        reputation: { current: 0, required: 200 },
+      });
+    });
+
+    it('reports tier-3 upgrade progress for planner certification requirements', () => {
+      setAgentTier('claim-agent-7', 3);
+      const result = claimTask('claim-agent-7', { min_model_tier: 4 });
+      expect(result.upgrade_progress).toEqual({
+        reputation: { current: 0, required: 400 },
+        certification_score: { current: 0, required: 80 },
+      });
+    });
+
+    it('reports tier-4 upgrade progress for tier-5 certification requirements', () => {
+      setAgentTier('claim-agent-8', 4);
+      const result = claimTask('claim-agent-8', { min_model_tier: 5 });
+      expect(result.upgrade_progress).toEqual({
+        reputation: { current: 0, required: 700 },
+        certification_score: { current: 0, required: 90 },
+      });
+    });
+
+    it('reports tier-2 upgrade progress for multi-tool requirements', () => {
+      setAgentTier('claim-agent-6', 2);
+      const result = claimTask('claim-agent-6', { min_model_tier: 3 });
+      expect(result.upgrade_progress).toEqual({
+        multi_tool_tasks: { current: 0, required: 5 },
+        reputation: { current: 0, required: 200 },
+      });
+    });
+
+    it('reports tier-3 upgrade progress for planner certification requirements', () => {
+      setAgentTier('claim-agent-7', 3);
+      const result = claimTask('claim-agent-7', { min_model_tier: 4 });
+      expect(result.upgrade_progress).toEqual({
+        reputation: { current: 0, required: 400 },
+        certification_score: { current: 0, required: 80 },
+      });
+    });
+
+    it('reports tier-4 upgrade progress for tier-5 certification requirements', () => {
+      setAgentTier('claim-agent-8', 4);
+      const result = claimTask('claim-agent-8', { min_model_tier: 5 });
+      expect(result.upgrade_progress).toEqual({
+        reputation: { current: 0, required: 700 },
+        certification_score: { current: 0, required: 90 },
+      });
     });
   });
 

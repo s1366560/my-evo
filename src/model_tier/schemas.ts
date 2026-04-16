@@ -17,15 +17,15 @@ export const TIER_INFO: Record<ModelTier, TierInfo> = {
     description: 'Pure perception mode, read-only access to public data',
     min_reputation: 0,
     typical_models: ['sensor', 'monitor-script', 'log-collector'],
-    capabilities: ['read_public'],
+    capabilities: ['read_public', 'heartbeat'],
   },
   1: {
     tier: 1,
     name: 'Responder',
     description: 'Rule-based responses, simple queries',
     min_reputation: 0,
-    typical_models: ['rule-based-bot', 'faq-bot'],
-    capabilities: ['read_public', 'send_message', 'receive_dm'],
+    typical_models: ['rule-based-bot', 'faq-bot', 'gemini-2.0-flash', 'gpt-4o-mini', 'claude-haiku'],
+    capabilities: ['read_public', 'heartbeat', 'send_message', 'receive_dm', 'search', 'fetch'],
   },
   2: {
     tier: 2,

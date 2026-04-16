@@ -2,6 +2,12 @@ import { PrismaClient } from '@prisma/client';
 import * as service from './service';
 import { NotFoundError, ValidationError, ForbiddenError } from '../shared/errors';
 
+const mockGetSandboxEntitlement = jest.fn();
+
+jest.mock('../subscription/service', () => ({
+  getSandboxEntitlement: (...args: unknown[]) => mockGetSandboxEntitlement(...args),
+}));
+
 const {
   listSandboxes,
   getSandbox,
@@ -82,6 +88,13 @@ describe('Sandbox Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.evolutionSandbox.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.evolutionSandbox.count.mockResolvedValue(0);
+    mockGetSandboxEntitlement.mockResolvedValue({
+      plan: 'premium',
+      enabled: true,
+      concurrent_sandboxes: 3,
+      hard_isolated_mode: true,
+    });
     mockPrisma.$transaction.mockImplementation(async (operation: unknown) => {
       if (typeof operation === 'function') {
         return operation(mockPrisma);
@@ -192,7 +205,35 @@ describe('Sandbox Service', () => {
       const result = await createSandbox('node-1', 'My Sandbox', 'A test sandbox', 'soft', 'staging');
 
       expect(result.sandbox_id).toBeDefined();
+      expect(mockGetSandboxEntitlement).toHaveBeenCalledWith('node-1');
       expect(mockPrisma.sandboxMember.create).toHaveBeenCalled();
+    });
+
+    it('should reject sandbox creation for free-plan nodes', async () => {
+      mockGetSandboxEntitlement.mockResolvedValue({
+        plan: 'free',
+        enabled: false,
+        concurrent_sandboxes: 0,
+        hard_isolated_mode: false,
+      });
+
+      await expect(
+        createSandbox('node-1', 'My Sandbox', 'A test sandbox', 'soft', 'staging'),
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it('should reject creation when the plan sandbox limit is already reached', async () => {
+      mockGetSandboxEntitlement.mockResolvedValue({
+        plan: 'premium',
+        enabled: true,
+        concurrent_sandboxes: 1,
+        hard_isolated_mode: true,
+      });
+      mockPrisma.evolutionSandbox.count.mockResolvedValue(1);
+
+      await expect(
+        createSandbox('node-1', 'My Sandbox', 'A test sandbox', 'soft', 'staging'),
+      ).rejects.toThrow(ValidationError);
     });
   });
 
@@ -292,8 +333,14 @@ describe('Sandbox Service', () => {
     it('should add member to active sandbox', async () => {
       mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1', state: 'active' });
       mockPrisma.sandboxMember.findUnique.mockResolvedValue(null);
-      mockPrisma.sandboxInvite.findFirst.mockResolvedValue({ invite_id: 'inv-1', sandbox_id: 'sb-1', invitee: 'node-2', status: 'pending' });
-      mockPrisma.sandboxMember.create.mockResolvedValue({ sandbox_id: 'sb-1', node_id: 'node-2', role: 'participant' });
+      mockPrisma.sandboxInvite.findFirst.mockResolvedValue({
+        invite_id: 'inv-1',
+        sandbox_id: 'sb-1',
+        invitee: 'node-2',
+        status: 'pending',
+        role: 'observer',
+      });
+      mockPrisma.sandboxMember.create.mockResolvedValue({ sandbox_id: 'sb-1', node_id: 'node-2', role: 'observer' });
       mockPrisma.evolutionSandbox.update.mockResolvedValue({});
       mockPrisma.sandboxInvite.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.$transaction.mockImplementation(async (operation: unknown) => {
@@ -306,7 +353,12 @@ describe('Sandbox Service', () => {
 
       const result = await joinSandbox('sb-1', 'node-2');
 
-      expect(result.role).toBe('participant');
+      expect(result.role).toBe('observer');
+      expect(mockPrisma.sandboxMember.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'observer' }),
+        }),
+      );
     });
 
     it('should not increment member_count when the member already exists', async () => {
@@ -411,12 +463,32 @@ describe('Sandbox Service', () => {
         invite_id: 'inv-1',
         sandbox_id: 'sb-1',
         invitee: 'node-3',
+        role: 'participant',
         status: 'pending',
       });
 
       const result = await inviteMember('sb-1', 'node-1', 'node-3');
 
       expect(result.status).toBe('pending');
+    });
+
+    it('normalizes unsupported invite roles to participant', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({ sandbox_id: 'sb-1', created_by: 'node-1' });
+      mockPrisma.sandboxInvite.create.mockResolvedValue({
+        invite_id: 'inv-2',
+        sandbox_id: 'sb-1',
+        invitee: 'node-4',
+        role: 'participant',
+        status: 'pending',
+      });
+
+      await inviteMember('sb-1', 'node-1', 'node-4', 'owner');
+
+      expect(mockPrisma.sandboxInvite.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ role: 'participant' }),
+        }),
+      );
     });
   });
 
@@ -450,6 +522,26 @@ describe('Sandbox Service', () => {
         name: 'Test Gene',
         content: '// gene content',
       })).rejects.toThrow(ValidationError);
+    });
+
+    it('should reject observer writes inside the sandbox', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({
+        sandbox_id: 'sb-1',
+        created_by: 'node-owner',
+        state: 'active',
+      });
+      mockPrisma.sandboxMember.findUnique.mockResolvedValue({
+        sandbox_id: 'sb-1',
+        node_id: 'node-1',
+        role: 'observer',
+      });
+
+      await expect(addAsset('sb-1', 'node-1', {
+        asset_id: 'asset-1',
+        asset_type: 'gene',
+        name: 'Test Gene',
+        content: '// gene content',
+      })).rejects.toThrow(ForbiddenError);
     });
   });
 
@@ -615,6 +707,22 @@ describe('Sandbox Service', () => {
 
       await expect(runExperiment('sb-1', 'node-1', { experiment_type: 'mutation' })).rejects.toThrow(ForbiddenError);
     });
+
+    it('should reject experiments from observer members', async () => {
+      mockPrisma.evolutionSandbox.findUnique.mockResolvedValue({
+        sandbox_id: 'sb-1',
+        created_by: 'node-2',
+        state: 'active',
+        metadata: { experiments: [] },
+      });
+      mockPrisma.sandboxMember.findUnique.mockResolvedValue({
+        sandbox_id: 'sb-1',
+        node_id: 'node-1',
+        role: 'observer',
+      });
+
+      await expect(runExperiment('sb-1', 'node-1', { experiment_type: 'mutation' })).rejects.toThrow(ForbiddenError);
+    });
   });
 
   describe('completeSandbox', () => {
@@ -649,14 +757,14 @@ describe('Sandbox Service', () => {
       });
 
       expect(result).toEqual({
-        status: 'completed',
+        status: 'archived',
         promoted_to_mainnet: ['asset-1'],
-        sandbox_archived: false,
+        sandbox_archived: true,
       });
       expect(mockPrisma.evolutionSandbox.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { sandbox_id: 'sb-1' },
         data: expect.objectContaining({
-          state: 'completed',
+          state: 'archived',
           metadata: expect.objectContaining({
             experiments: [{ id: 'exp-1' }],
             completion_summary: 'Improved accuracy',
@@ -684,7 +792,7 @@ describe('Sandbox Service', () => {
         state: 'active',
         isolation_level: 'soft',
         metadata: { experiments: [{ id: 'exp-1' }] },
-        members: [{ node_id: 'node-1' }],
+        members: [{ node_id: 'node-1', role: 'participant', assets_created: 2, assets_promoted: 1, last_activity_at: new Date('2025-01-01T00:00:00Z') }],
         assets: [{ asset_id: 'asset-1', asset_type: 'gene', promoted: true, gdi_score: 70 }],
       });
 
@@ -692,6 +800,9 @@ describe('Sandbox Service', () => {
 
       expect(result.promoted_assets).toEqual(['asset-1']);
       expect(result.experiments).toEqual([{ id: 'exp-1' }]);
+      expect(result.avg_gdi).toBe(70);
+      expect(result.promotion_success_rate).toBe(1);
+      expect(result.member_activity).toHaveLength(1);
     });
   });
 

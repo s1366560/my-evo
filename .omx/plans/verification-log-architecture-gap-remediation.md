@@ -854,3 +854,29 @@
   - `npm test -- --runInBand --coverage=false src/swarm/routes.test.ts src/swarm/service.test.ts` passed: 2/2 suites, 21/21 tests.
   - `npm run typecheck` and `npm run lint` both passed after the additive Chapter 7 route-contract alignment.
   - This slice intentionally left decomposition/aggregation strategy internals untouched.
+
+
+## Wave 2 — Chapters 13 + 38 sandbox/model-tier parity slice
+- Timestamp: 2026-04-16T10:47:00+08:00
+- Result: PASS
+- Commands:
+  - `npm test -- --runInBand --coverage=false src/sandbox/service.test.ts src/sandbox/routes.test.ts src/model_tier/service.test.ts src/model_tier/routes.test.ts`
+  - `npx tsc --noEmit --pretty false --project tsconfig.json` (via `lsp_diagnostics` on modified files)
+  - `npm run typecheck`
+  - `npm run lint`
+  - `npm test -- --runInBand`
+- Touched files:
+  - `src/model_tier/service.test.ts`
+  - `.omx/plans/gap-register-architecture-gap-remediation.md`
+  - `.omx/plans/contract-change-ledger-architecture-gap-remediation.md`
+  - `.omx/plans/verification-log-architecture-gap-remediation.md`
+- Cross-module checks:
+  - Sandbox route entitlement gating ↔ subscription status normalization for Premium/Ultra access
+  - Sandbox invite-role propagation ↔ member/detail response normalization for `participant`/`observer` parity
+  - Declared-model tier evaluation ↔ structured claim failure guidance and allow-list bypass semantics
+- Notes:
+  - This verifier lane audited already-landed sandbox entitlement/member-role and model-tier route/gate changes, then synced the gap/ledger/log artifacts without expanding the implementation scope.
+  - Authenticated sandbox surfaces now reject free/no-subscription callers with a 403 while keeping `/sandbox/stats` public, and spec-facing sandbox detail/member payloads no longer leak the internal `owner` membership marker.
+  - Model-tier routes now expose top-level `tiers`, `tier`, `agent`, `evaluation`, `claim`, `assessment`, `upgrade_paths`, and `models` fields while preserving `data`, and insufficient claims now return structured `TIER_INSUFFICIENT` guidance instead of a bare reason string.
+  - `npm test -- --runInBand --coverage=false src/sandbox/service.test.ts src/sandbox/routes.test.ts src/model_tier/service.test.ts src/model_tier/routes.test.ts` passed: 4/4 suites, 117/117 tests.
+  - `npm run typecheck`, `npm run lint`, and `npm test -- --runInBand` all passed after the evidence-only verifier pass: 98/98 suites, 2765/2765 tests, global branch coverage 80.06%.

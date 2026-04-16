@@ -33,6 +33,7 @@ const {
   createOrUpdateSubscription,
   listInvoices,
   checkGracePeriod,
+  getSandboxEntitlement,
 } = service;
 
 const mockPrisma = {
@@ -1183,6 +1184,44 @@ describe('Subscription Service', () => {
     it('should throw NotFoundError for unknown node', async () => {
       mockPrisma.subscription.findUnique.mockResolvedValue(null);
       await expect(listInvoices('unknown')).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('getSandboxEntitlement', () => {
+    it('should deny sandbox access without an active premium subscription', async () => {
+      mockPrisma.subscription.findUnique.mockResolvedValue(null);
+
+      await expect(getSandboxEntitlement('node-1')).resolves.toEqual({
+        plan: 'free',
+        enabled: false,
+        concurrent_sandboxes: 0,
+        hard_isolated_mode: false,
+      });
+    });
+
+    it('should expose premium sandbox limits for active subscriptions', async () => {
+      mockPrisma.subscription.findUnique.mockResolvedValue(mockSubscription('premium'));
+
+      await expect(getSandboxEntitlement('node-1')).resolves.toEqual({
+        plan: 'premium',
+        enabled: true,
+        concurrent_sandboxes: 3,
+        hard_isolated_mode: true,
+      });
+    });
+
+    it('should downgrade paused subscriptions to free sandbox access', async () => {
+      mockPrisma.subscription.findUnique.mockResolvedValue({
+        ...mockSubscription('premium'),
+        status: 'paused',
+      });
+
+      await expect(getSandboxEntitlement('node-1')).resolves.toEqual({
+        plan: 'free',
+        enabled: false,
+        concurrent_sandboxes: 0,
+        hard_isolated_mode: false,
+      });
     });
   });
 });

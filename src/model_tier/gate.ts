@@ -24,25 +24,47 @@ function generateId(): string {
 // ===== Model-to-Tier mapping =====
 const MODEL_TIER_MAP: Record<string, ModelTier> = {
   'sensor': 0, 'monitor-script': 0, 'log-collector': 0,
+  'unknown': 0, 'unreported': 0,
   'rule-based-bot': 1, 'faq-bot': 1,
+  'gemini-2.0-flash': 1, 'gpt-4o-mini': 1, 'claude-haiku': 1,
   'gpt-3.5-single-tool': 2, 'claude-single-tool': 2,
+  'gemini-2.0-flash-thinking': 2, 'gpt-4o': 2, 'claude-sonnet': 2,
   'gpt-4-multi-tool-chain': 3, 'claude-multi-tool': 3,
+  'gemini-2.5-pro': 3, 'gpt-4.5': 3, 'claude-sonnet-4': 3,
   'gpt-4-tool-reflexion': 4, 'claude-planner': 4,
+  'claude-opus-4': 4, 'gpt-5': 4, 'gemini-ultra': 4,
   'future-arch': 5, 'fusion-system': 5,
+  'o3': 5, 'o4-mini': 5, 'claude-opus-4-high-thinking': 5,
 };
+
+function normalizeModelName(model?: string | null): string | null {
+  if (typeof model !== 'string') {
+    return null;
+  }
+
+  const normalized = model.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function getDeclaredModelTier(model?: string | null): ModelTier {
+  const normalized = normalizeModelName(model);
+  if (!normalized) {
+    return 0;
+  }
+
+  return MODEL_TIER_MAP[normalized] ?? 0;
+}
+
+export function getEffectiveAgentTier(agentId: string, model?: string | null): ModelTier {
+  return Math.max(getAgentTier(agentId), getDeclaredModelTier(model)) as ModelTier;
+}
 
 // ===== Gate: Evaluate Model Tier =====
 export function evaluateModelTier(
   agentId: string,
-  task?: { complexity?: number; required_capabilities?: string[] },
+  task?: { complexity?: number; required_capabilities?: string[]; declared_model?: string | null },
 ): { tier: ModelTier; eligible: boolean; reason?: string } {
-  let tier = agentTiers.get(agentId);
-
-  if (tier === undefined) {
-    // Default: new agents start at Tier 0
-    tier = 0;
-    agentTiers.set(agentId, tier);
-  }
+  const tier = getEffectiveAgentTier(agentId, task?.declared_model);
 
   // Check if task requires higher tier
   if (task?.required_capabilities && task.required_capabilities.length > 0) {
@@ -85,12 +107,9 @@ export function selectModel(requiredTier: ModelTier): string[] {
 export function checkCapability(
   agentId: string,
   capability: string,
+  declaredModel?: string | null,
 ): { allowed: boolean; current_tier: ModelTier; required_tier?: ModelTier } {
-  let tier = agentTiers.get(agentId);
-  if (tier === undefined) {
-    tier = 0;
-    agentTiers.set(agentId, tier);
-  }
+  const tier = getEffectiveAgentTier(agentId, declaredModel);
 
   // Find which tier first has this capability
   for (let t = 0; t <= 5; t++) {

@@ -17,6 +17,7 @@ const mockAttachExistingAssetToSandbox = jest.fn();
 const mockModifySandboxAsset = jest.fn();
 const mockCompleteSandbox = jest.fn();
 const mockCompareSandbox = jest.fn();
+const mockGetSubscriptionStatus = jest.fn();
 
 jest.mock('../shared/auth', () => ({
   requireAuth: () => async (
@@ -58,6 +59,10 @@ jest.mock('./service', () => ({
   compareSandbox: (...args: unknown[]) => mockCompareSandbox(...args),
 }));
 
+jest.mock('../subscription/service', () => ({
+  getSubscriptionStatus: (...args: unknown[]) => mockGetSubscriptionStatus(...args),
+}));
+
 function buildApp(): FastifyInstance {
   const app = fastify({ logger: false });
   app.decorate('prisma', {
@@ -73,16 +78,28 @@ describe('Sandbox routes', () => {
   let app: FastifyInstance;
 
   beforeEach(async () => {
+    jest.clearAllMocks();
     mockAuth = {
       node_id: 'node-1',
       auth_type: 'node_secret',
       trust_level: 'trusted',
       userId: undefined,
     };
+    mockGetSubscriptionStatus.mockResolvedValue({
+      subscription_id: 'sub-1',
+      node_id: 'node-1',
+      plan: 'premium',
+      billing_cycle: 'monthly',
+      status: 'active',
+      started_at: '2026-01-01T00:00:00.000Z',
+      current_period_start: '2026-04-01T00:00:00.000Z',
+      current_period_end: '2026-05-01T00:00:00.000Z',
+      auto_renew: true,
+      total_paid: 2000,
+    });
     app = buildApp();
     await app.register(sandboxRoutes, { prefix: '/sandbox' });
     await app.ready();
-    jest.clearAllMocks();
   });
 
   afterEach(async () => {
@@ -258,6 +275,33 @@ describe('Sandbox routes', () => {
     });
   });
 
+  it('blocks sandbox access for free-plan nodes while keeping public stats open', async () => {
+    mockGetSubscriptionStatus.mockResolvedValue(null);
+
+    const [listResponse, createResponse, statsResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/sandbox/list',
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/sandbox/create',
+        payload: { name: 'Experiment A' },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/sandbox/stats',
+      }),
+    ]);
+
+    expect(listResponse.statusCode).toBe(403);
+    expect(createResponse.statusCode).toBe(403);
+    expect(statsResponse.statusCode).toBe(200);
+    expect(mockListSandboxes).not.toHaveBeenCalled();
+    expect(mockCreateSandbox).not.toHaveBeenCalled();
+    expect(mockGetSandboxStats).toHaveBeenCalledTimes(1);
+  });
+
   it('supports experiment, asset, modify, complete, and compare compatibility routes', async () => {
     mockRunExperiment.mockResolvedValue({ experiment_id: 'exp-1', status: 'running', estimated_time_minutes: 5 });
     mockAttachExistingAssetToSandbox.mockResolvedValue({ status: 'ok', sandbox_asset_count: 3 });
@@ -355,7 +399,7 @@ describe('Sandbox routes', () => {
       description: 'Sandbox details',
       state: 'active',
       isolation_level: 'soft',
-      members: [],
+      members: [{ node_id: 'node-1', role: 'owner' }],
       assets: [{ asset_id: 'gene-1' }, { asset_id: 'gene-2' }],
       metadata: {
         experiments: [{ id: 'exp-1', status: 'completed', result: 'improved +12% accuracy' }],
@@ -379,6 +423,7 @@ describe('Sandbox routes', () => {
         isolation_mode: 'soft-tagged',
         assets: ['gene-1', 'gene-2'],
         experiments: [{ id: 'exp-1', status: 'completed', result: 'improved +12% accuracy' }],
+        members: [{ node_id: 'node-1', role: 'participant' }],
       }),
       data: expect.objectContaining({
         sandbox_id: 'sbx-1',
@@ -388,6 +433,7 @@ describe('Sandbox routes', () => {
         isolation_mode: 'soft-tagged',
         assets: ['gene-1', 'gene-2'],
         experiments: [{ id: 'exp-1', status: 'completed', result: 'improved +12% accuracy' }],
+        members: [{ node_id: 'node-1', role: 'participant' }],
       }),
     });
   });

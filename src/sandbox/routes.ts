@@ -1,8 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../shared/auth';
-import { EvoMapError } from '../shared/errors';
+import { EvoMapError, ForbiddenError } from '../shared/errors';
 import { resolveAuthorizedNodeId } from '../shared/node-access';
+import { getSubscriptionStatus } from '../subscription/service';
 import * as service from './service';
+
+const SANDBOX_ALLOWED_PLANS = new Set(['premium', 'ultra']);
+const SANDBOX_ALLOWED_STATUSES = new Set(['active', 'grace_period']);
 
 function toSpecIsolationMode(isolationLevel?: string): string {
   if (isolationLevel === 'soft') {
@@ -30,6 +34,17 @@ function getSandboxExperiments(metadata: unknown): Array<Record<string, unknown>
     : [];
 }
 
+function toSpecMemberRole(role?: string): string {
+  return role === 'observer' ? 'observer' : 'participant';
+}
+
+function toSpecMember(member: Record<string, any>) {
+  return {
+    ...member,
+    role: toSpecMemberRole(member.role),
+  };
+}
+
 function toSpecSandboxDetail(sandbox: Record<string, any>) {
   return {
     sandbox_id: sandbox.sandbox_id,
@@ -43,10 +58,19 @@ function toSpecSandboxDetail(sandbox: Record<string, any>) {
         .filter((assetId): assetId is string => typeof assetId === 'string' && assetId.length > 0)
       : [],
     experiments: getSandboxExperiments(sandbox.metadata),
-    members: sandbox.members,
+    members: Array.isArray(sandbox.members)
+      ? sandbox.members.map((member) => toSpecMember(member as Record<string, any>))
+      : [],
     created_by: sandbox.created_by,
     created_at: sandbox.created_at,
     updated_at: sandbox.updated_at,
+  };
+}
+
+function toSpecComparison(result: Record<string, any>) {
+  return {
+    ...result,
+    isolation_mode: toSpecIsolationMode(result.isolation_mode),
   };
 }
 
@@ -59,6 +83,29 @@ async function resolveSandboxNodeId(
   });
 }
 
+async function requireSandboxEntitlement(nodeId: string): Promise<void> {
+  const subscription = await getSubscriptionStatus(nodeId);
+
+  if (
+    !subscription
+    || !SANDBOX_ALLOWED_PLANS.has(subscription.plan)
+    || !SANDBOX_ALLOWED_STATUSES.has(subscription.status)
+  ) {
+    throw new ForbiddenError(
+      'Evolution Sandbox requires an active Premium or Ultra subscription',
+    );
+  }
+}
+
+async function resolveEntitledSandboxNodeId(
+  app: FastifyInstance,
+  auth: NonNullable<import('fastify').FastifyRequest['auth']>,
+) {
+  const nodeId = await resolveSandboxNodeId(app, auth);
+  await requireSandboxEntitlement(nodeId);
+  return nodeId;
+}
+
 export async function sandboxRoutes(app: FastifyInstance) {
   // List sandboxes
   app.get('/sandboxes', {
@@ -66,7 +113,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const query = request.query as {
       state?: string;
       isolation_level?: string;
@@ -95,7 +142,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const query = request.query as {
       status?: string;
       state?: string;
@@ -152,10 +199,10 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const sandbox = await service.getSandbox(params.sandboxId, nodeId);
     const detail = toSpecSandboxDetail(sandbox as Record<string, any>);
-    return { success: true, sandbox: detail, data: detail };
+    return { success: true, ...detail, sandbox: detail, data: detail };
   });
 
   // Create sandbox
@@ -164,7 +211,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as {
       name: string;
       description: string;
@@ -195,7 +242,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as {
       name?: string;
       description?: string;
@@ -232,6 +279,9 @@ export async function sandboxRoutes(app: FastifyInstance) {
       success: true,
       sandbox_id: sandbox.sandbox_id,
       name: sandbox.name,
+      status: sandbox.state,
+      isolation_mode: toSpecIsolationMode(sandbox.isolation_level),
+      expires_at: expiresAt,
       isolation_level: sandbox.isolation_level,
       state: sandbox.state,
       member_count: sandbox.member_count,
@@ -252,7 +302,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as {
       name?: string;
       description?: string;
@@ -274,7 +324,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     await service.deleteSandbox(params.sandboxId, nodeId);
     return { success: true, deleted: true, data: null };
   });
@@ -286,9 +336,10 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const member = await service.joinSandbox(params.sandboxId, nodeId);
-    return { success: true, member, data: member };
+    const specMember = toSpecMember(member as Record<string, any>);
+    return { success: true, member: specMember, data: specMember };
   });
 
   // Leave sandbox
@@ -298,7 +349,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     await service.leaveSandbox(params.sandboxId, nodeId);
     return { success: true, left: true, data: null };
   });
@@ -310,9 +361,10 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const members = await service.listMembers(params.sandboxId, nodeId);
-    return { success: true, members, total: members.length, data: members };
+    const specMembers = members.map((member) => toSpecMember(member as Record<string, any>));
+    return { success: true, members: specMembers, total: specMembers.length, data: specMembers };
   });
 
   // Invite member
@@ -322,7 +374,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as {
       invitee: string;
       role?: string;
@@ -339,8 +391,13 @@ export async function sandboxRoutes(app: FastifyInstance) {
       body.role,
     );
 
+    const specInvite = {
+      ...invite,
+      role: toSpecMemberRole(invite.role),
+    };
+
     void reply.status(201);
-    return { success: true, invite, data: invite };
+    return { success: true, invite: specInvite, data: specInvite };
   });
 
   // List sandbox assets
@@ -350,7 +407,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const assets = await service.listAssets(params.sandboxId, nodeId);
     return { success: true, assets, total: assets.length, data: assets };
   });
@@ -362,7 +419,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as {
       asset_id: string;
       asset_type: string;
@@ -397,7 +454,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as { asset_id?: string };
 
     if (!body.asset_id) {
@@ -410,7 +467,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       body.asset_id,
     );
 
-    return { success: true, result, data: result };
+    return { success: true, ...result, result, data: result };
   });
 
   app.post('/:sandboxId/experiment', {
@@ -419,7 +476,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as {
       experiment_type?: string;
       target_gene?: string;
@@ -438,7 +495,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       parameters: body.parameters,
     });
 
-    return { success: true, experiment: result, data: result };
+    return { success: true, ...result, experiment: result, data: result };
   });
 
   app.post('/:sandboxId/modify', {
@@ -447,7 +504,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as {
       asset_id?: string;
       modifications?: Record<string, unknown>;
@@ -466,7 +523,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       body.asset_id,
       body.modifications,
     );
-    return { success: true, result, data: result };
+    return { success: true, ...result, result, data: result };
   });
 
   app.post('/:sandboxId/complete', {
@@ -475,7 +532,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = (request.body as {
       promote_assets?: string[];
       summary?: string;
@@ -485,7 +542,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       promote_assets: body.promote_assets,
       summary: body.summary,
     });
-    return { success: true, result, data: result };
+    return { success: true, ...result, result, data: result };
   });
 
   app.get('/:sandboxId/compare', {
@@ -494,9 +551,10 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const result = await service.compareSandbox(params.sandboxId, nodeId);
-    return { success: true, comparison: result, data: result };
+    const comparison = toSpecComparison(result as Record<string, any>);
+    return { success: true, ...comparison, comparison, data: comparison };
   });
 
   // Request promotion
@@ -506,7 +564,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as { asset_id: string };
 
     if (!body.asset_id) {
@@ -520,7 +578,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, promotion_request: request2, data: request2 };
+    return { success: true, ...request2, promotion_request: request2, data: request2 };
   });
 
   // List promotion requests
@@ -530,7 +588,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const promotions = await service.listPromotions(params.sandboxId, nodeId);
     return { success: true, promotions, total: promotions.length, data: promotions };
   });
@@ -542,13 +600,13 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string; requestId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const result = await service.approvePromotion(
       params.sandboxId,
       params.requestId,
       nodeId,
     );
-    return { success: true, promotion: result, data: result };
+    return { success: true, ...result, promotion: result, data: result };
   });
 
   // Reject promotion
@@ -558,7 +616,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { sandboxId: string; requestId: string };
     const auth = request.auth!;
-    const nodeId = await resolveSandboxNodeId(app, auth);
+    const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as { note?: string };
     const result = await service.rejectPromotion(
       params.sandboxId,
@@ -566,6 +624,6 @@ export async function sandboxRoutes(app: FastifyInstance) {
       nodeId,
       body.note ?? '',
     );
-    return { success: true, promotion: result, data: result };
+    return { success: true, ...result, promotion: result, data: result };
   });
 }

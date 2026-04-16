@@ -3273,8 +3273,24 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   // 29. GET /policy/model-tiers
   app.get('/policy/model-tiers', {
     schema: { tags: ['Platform'] },
-  }, async (_request, reply) => {
-    const result = await assetsService.getModelTiers();
-    return reply.send({ success: true, data: result.tiers });
+  }, async (request, reply) => {
+    const { model } = request.query as { model?: string };
+    const result = await assetsService.getModelTiers(model);
+
+    if (result.lookup) {
+      return reply.send({
+        success: true,
+        model: result.lookup.model,
+        tier: result.lookup.tier,
+        label: result.lookup.label,
+        description: result.lookup.description,
+        matched_by: result.lookup.matched_by,
+        examples: result.lookup.examples,
+        node_count: result.lookup.node_count,
+        data: result.lookup,
+      });
+    }
+
+    return reply.send({ success: true, tiers: result.tiers, total: result.tiers.length, data: result.tiers });
   });
 }
