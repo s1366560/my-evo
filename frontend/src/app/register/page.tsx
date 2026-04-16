@@ -1,10 +1,11 @@
 "use client";
 
 import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { RegisterForm } from "@/components/auth/RegisterForm";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { appendRedirectQuery } from "@/lib/auth/redirects";
 
 function RegisterFormSkeleton() {
   return (
@@ -32,21 +33,32 @@ function RegisterFormSkeleton() {
   );
 }
 
-export default function RegisterPage() {
+function RegisterPageContent() {
+  const searchParams = useSearchParams();
+  const signInHref = appendRedirectQuery("/login", searchParams.get("redirect"));
+
   return (
-    <AuthLayout>
-      <Suspense fallback={<RegisterFormSkeleton />}>
-        <RegisterForm />
-      </Suspense>
+    <>
+      <RegisterForm />
       <p className="mt-4 text-center text-sm text-[var(--color-muted-foreground)]">
         Already have an account?{" "}
         <Link
-          href="/login"
+          href={signInHref}
           className="font-medium text-[var(--color-gene-green)] hover:underline"
         >
           Sign in
         </Link>
       </p>
+    </>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <AuthLayout>
+      <Suspense fallback={<RegisterFormSkeleton />}>
+        <RegisterPageContent />
+      </Suspense>
     </AuthLayout>
   );
 }

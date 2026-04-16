@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, ChevronDown, ChevronUp, Users, Settings, AlertCircle } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { RefreshCw, ChevronDown, ChevronUp, Users, Settings, AlertCircle, CheckCircle2, ArrowRight } from "lucide-react";
 import { apiClient, type AgentNodeInfo } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { cn } from "@/lib/utils";
@@ -62,16 +63,16 @@ function StatCard({
   );
 }
 
-function HowToBindSection() {
+function HowToBindSection({ claimedNodeId }: { claimedNodeId?: string | null }) {
   return (
     <div className="space-y-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-6">
       <p className="text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-soft)]">
-        How to Bind an Agent
+        {claimedNodeId ? "Claim another agent" : "How to Bind an Agent"}
       </p>
       <p className="text-sm leading-relaxed text-[var(--color-foreground-soft)]">
-        Load the EvoMap skill.md in your AI coding agent (e.g. OpenClaw, Manus, HappyCapy, etc.). The agent will
-        auto-register and receive a claim code, then send you a link. Click the link to bind the agent to your
-        account.
+        {claimedNodeId
+          ? "This node is already linked. When you want to bind another agent, ask it for a fresh claim code and finish from the claim link."
+          : "Load the EvoMap skill.md in your AI coding agent (e.g. OpenClaw, Manus, HappyCapy, etc.). The agent will auto-register and receive a claim code, then send you a link. Click the link to bind the agent to your account."}
       </p>
       <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[color-mix(in_oklab,var(--color-surface-muted)_60%,var(--color-background-elevated))]">
         <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-2">
@@ -99,7 +100,6 @@ function AutonomousBehaviorSection() {
   const handleSave = async () => {
     setIsSaving(true);
     setSaved(false);
-    // TODO: POST settings to backend when API exists
     await new Promise((r) => setTimeout(r, 800));
     setIsSaving(false);
     setSaved(true);
@@ -108,7 +108,7 @@ function AutonomousBehaviorSection() {
 
   return (
     <div className="space-y-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-6">
-      {/* Header */}
+      <div id="autonomous-behavior" />
       <div className="flex items-center gap-2">
         <Settings className="h-4 w-4 text-[var(--color-foreground)]" />
         <span className="text-sm font-semibold text-[var(--color-foreground)]">
@@ -119,7 +119,6 @@ function AutonomousBehaviorSection() {
         Control whether your agents can proactively ask questions and post bounties on your behalf.
       </p>
 
-      {/* Expandable question */}
       <button
         type="button"
         onClick={() => setShowBountyInfo((v) => !v)}
@@ -140,7 +139,6 @@ function AutonomousBehaviorSection() {
         </p>
       )}
 
-      {/* Toggle 1 */}
       <div className="flex items-center justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3">
         <span className="text-sm text-[var(--color-foreground)]">
           Allow agents to proactively ask/post bounties
@@ -166,7 +164,6 @@ function AutonomousBehaviorSection() {
         </button>
       </div>
 
-      {/* Toggle 2 */}
       <div className="space-y-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3">
         <div className="flex items-center justify-between">
           <span className="text-sm text-[var(--color-foreground)]">
@@ -198,7 +195,6 @@ function AutonomousBehaviorSection() {
         </p>
       </div>
 
-      {/* Save button */}
       <div className="flex justify-end">
         <button
           type="button"
@@ -238,7 +234,6 @@ function WorkerPoolSection() {
         Enable your agent to accept work from other services on the platform.
       </p>
 
-      {/* Node list */}
       <div className="space-y-2">
         {["node_alpha_01", "node_beta_02"].map((nodeId) => (
           <div
@@ -296,6 +291,7 @@ function NodesOverview({ nodes, isLoading }: { nodes?: AgentNodeInfo[]; isLoadin
       {nodes.map((node) => (
         <div
           key={node.node_id}
+          id={`node-${node.node_id}`}
           className="flex items-center justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3"
         >
           <div className="flex items-center gap-3">
@@ -340,9 +336,64 @@ function NodesOverview({ nodes, isLoading }: { nodes?: AgentNodeInfo[]; isLoadin
   );
 }
 
-export default function AgentNodesPage() {
+function ClaimSuccessBanner({
+  claimedNodeId,
+  nodes,
+  nodesLoading,
+}: {
+  claimedNodeId?: string | null;
+  nodes?: AgentNodeInfo[];
+  nodesLoading: boolean;
+}) {
+  if (!claimedNodeId) return null;
+
+  const claimedNode = nodes?.find((node) => node.node_id === claimedNodeId);
+  if (!nodesLoading && !claimedNode) return null;
+
+  return (
+    <div className="rounded-2xl border border-[var(--color-gene-green)]/30 bg-[color-mix(in_oklab,var(--color-gene-green)_8%,transparent)] p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-gene-green)]" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-[var(--color-foreground)]">Agent claimed successfully</p>
+            <p className="text-sm leading-relaxed text-[var(--color-foreground-soft)]">
+              {claimedNode
+                ? `${claimedNode.node_id} is now connected to your account. Review the node below and choose what to do next.`
+                : nodesLoading
+                  ? "Your claimed node is loading into the dashboard. Stay here and choose the next step once it appears."
+                  : "Your newly claimed node is connected to this account. Review it below and continue from here."}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <a
+            href={claimedNode ? `#node-${claimedNode.node_id}` : "#your-nodes"}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--color-gene-green)]/30 bg-[color-mix(in_oklab,var(--color-gene-green)_10%,transparent)] px-4 py-2 text-sm font-medium text-[var(--color-foreground)]"
+          >
+            Review claimed node
+            <ArrowRight className="h-4 w-4" />
+          </a>
+          <a
+            href="#autonomous-behavior"
+            className="inline-flex items-center justify-center rounded-xl border border-[var(--color-border)] px-4 py-2 text-sm text-[var(--color-foreground-soft)]"
+          >
+            Choose next step
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentNodesContent() {
+  const searchParams = useSearchParams();
   const { stats, nodes, nodesLoading } = useAgentStats();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const claimedNodeId = searchParams.get("claimed");
+  const matchedClaimedNode = claimedNodeId
+    ? nodes?.find((node) => node.node_id === claimedNodeId) ?? null
+    : null;
 
   if (!isAuthenticated) {
     return (
@@ -358,7 +409,6 @@ export default function AgentNodesPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex items-start justify-between">
         <div>
           <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-[var(--color-foreground-soft)]">
@@ -380,7 +430,8 @@ export default function AgentNodesPage() {
         </button>
       </div>
 
-      {/* Stats Grid */}
+      <ClaimSuccessBanner claimedNodeId={claimedNodeId} nodes={nodes} nodesLoading={nodesLoading} />
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card-background)] p-5">
           <StatCard
@@ -412,22 +463,41 @@ export default function AgentNodesPage() {
         </div>
       </div>
 
-      {/* Nodes Overview */}
-      <div className="space-y-3">
+      <div id="your-nodes" className="space-y-3">
         <p className="text-[0.65rem] font-semibold uppercase tracking-[0.1em] text-[var(--color-foreground-soft)]">
           Your Nodes
         </p>
         <NodesOverview nodes={nodes} isLoading={nodesLoading} />
       </div>
 
-      {/* How to Bind */}
-      <HowToBindSection />
-
-      {/* Autonomous Behavior */}
+      <HowToBindSection claimedNodeId={matchedClaimedNode?.node_id} />
       <AutonomousBehaviorSection />
-
-      {/* Worker Pool */}
       <WorkerPoolSection />
     </div>
+  );
+}
+
+function AgentsPageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <div className="h-3 w-28 rounded bg-[var(--color-muted-foreground)]/10" />
+        <div className="h-8 w-48 rounded bg-[var(--color-muted-foreground)]/20" />
+        <div className="h-4 w-72 rounded bg-[var(--color-muted-foreground)]/10" />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-28 rounded-2xl bg-[var(--color-muted-foreground)]/10" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function AgentNodesPage() {
+  return (
+    <Suspense fallback={<AgentsPageSkeleton />}>
+      <AgentNodesContent />
+    </Suspense>
   );
 }

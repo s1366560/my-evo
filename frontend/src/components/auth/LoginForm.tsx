@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { apiClient } from "@/lib/api/client";
-import { Loader2, Mail, Lock, AlertCircle } from "lucide-react";
+import { Loader2, Mail, Lock, AlertCircle, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DEFAULT_AUTH_REDIRECT, sanitizePostAuthRedirect } from "@/lib/auth/redirects";
 
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const login = useAuthStore((s) => s.login);
+  const redirect = sanitizePostAuthRedirect(searchParams.get("redirect"), DEFAULT_AUTH_REDIRECT);
+  const isClaimContinuation = redirect.startsWith("/claim/");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,8 +34,7 @@ export function LoginForm() {
     try {
       const data = await apiClient.login({ email, password });
       login(data.token, data.user.id);
-
-      router.push("/dashboard");
+      router.push(redirect);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed. Please try again.");
     } finally {
@@ -44,9 +47,27 @@ export function LoginForm() {
       <div className="mb-6 text-center">
         <h1 className="text-2xl font-bold text-[var(--color-foreground)]">Welcome back</h1>
         <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-          Sign in to your EvoMap account
+          {isClaimContinuation
+            ? "Sign in to continue claiming this agent"
+            : "Sign in to your EvoMap account"}
         </p>
       </div>
+
+      {isClaimContinuation && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-4 flex items-start gap-2 rounded-lg border border-[var(--color-gene-green)]/30 bg-[color-mix(in_oklab,var(--color-gene-green)_8%,transparent)] px-4 py-3 text-sm text-[var(--color-foreground)]"
+        >
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-gene-green)]" />
+          <div className="space-y-1 text-left">
+            <p className="font-medium text-[var(--color-foreground)]">You’ll return to the same claim link after sign in.</p>
+            <p className="text-xs text-[var(--color-foreground-soft)]">
+              No extra setup — sign in once, then finish the bind from the original claim page.
+            </p>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div role="alert" aria-live="assertive" className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--color-destructive)]/30 bg-[var(--color-destructive)]/5 px-4 py-3 text-sm text-[var(--color-destructive)]">

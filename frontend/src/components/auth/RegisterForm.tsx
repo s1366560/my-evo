@@ -5,11 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Mail, Lock, AlertCircle, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api/client";
+import { appendRedirectQuery, sanitizePostAuthRedirect } from "@/lib/auth/redirects";
 
 export function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered") === "true";
+  const redirect = sanitizePostAuthRedirect(searchParams.get("redirect"), "");
+  const isClaimContinuation = redirect.startsWith("/claim/");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -47,7 +50,7 @@ export function RegisterForm() {
 
     try {
       await apiClient.register({ email, password });
-      router.push("/login?registered=true");
+      router.push(appendRedirectQuery("/login?registered=true", redirect));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
     } finally {
@@ -60,9 +63,27 @@ export function RegisterForm() {
       <div className="mb-6 text-center">
         <h1 className="text-2xl font-bold text-[var(--color-foreground)]">Create account</h1>
         <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-          Join the EvoMap Hub network
+          {isClaimContinuation
+            ? "Create an account, then we’ll bring you back to finish claiming your agent"
+            : "Join the EvoMap Hub network"}
         </p>
       </div>
+
+      {isClaimContinuation && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-4 flex items-start gap-2 rounded-lg border border-[var(--color-gene-green)]/30 bg-[color-mix(in_oklab,var(--color-gene-green)_8%,transparent)] px-4 py-3 text-sm text-[var(--color-foreground)]"
+        >
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-gene-green)]" />
+          <div className="space-y-1 text-left">
+            <p className="font-medium text-[var(--color-foreground)]">Your claim link is being preserved.</p>
+            <p className="text-xs text-[var(--color-foreground-soft)]">
+              After account creation, sign in once and we’ll send you back to the same node.
+            </p>
+          </div>
+        </div>
+      )}
 
       {registered && (
         <div role="status" aria-live="polite" className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--color-gene-green)]/30 bg-[color-mix(in_oklab,var(--color-gene-green)_8%,transparent)] px-4 py-3 text-sm text-[var(--color-gene-green)]">
