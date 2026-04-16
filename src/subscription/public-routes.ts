@@ -39,6 +39,11 @@ function formatSubscriptionStatusResponse(
       current_period_start: subscription.current_period_start,
       current_period_end: subscription.current_period_end,
       auto_renew: subscription.auto_renew,
+      ...(subscription.scheduled_plan ? {
+        scheduled_plan: subscription.scheduled_plan,
+        scheduled_billing_cycle: subscription.scheduled_billing_cycle,
+        scheduled_change_at: subscription.scheduled_change_at,
+      } : {}),
       next_charge: nextCharge,
       features,
     },
@@ -241,12 +246,17 @@ export async function subscriptionPublicRoutes(app: FastifyInstance): Promise<vo
     return reply.send({
       success: true,
       status: 'ok',
-      message: `Subscription upgraded to ${planLabel} (${subscription.billing_cycle})`,
+      message: `Subscription changed to ${planLabel} (${subscription.billing_cycle})`,
       subscription_id: subscription.subscription_id,
       amount_charged: amountCharged,
       new_period_end: subscription.current_period_end,
       prorated_credit: 0,
-      effective_immediately: true,
+      effective_immediately: !subscription.scheduled_plan,
+      ...(subscription.scheduled_plan ? {
+        scheduled_plan: subscription.scheduled_plan,
+        scheduled_billing_cycle: subscription.scheduled_billing_cycle,
+        scheduled_change_at: subscription.scheduled_change_at,
+      } : {}),
       data: subscription,
     });
   });

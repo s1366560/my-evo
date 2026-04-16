@@ -164,7 +164,11 @@ export async function disputeRoutes(app: FastifyInstance) {
     });
 
     void reply.status(201);
-    return { success: true, data: dispute };
+    return {
+      success: true,
+      dispute,
+      data: dispute,
+    };
   };
 
   // Alias: POST /a2a/dispute/open  (same as POST /api/v2/disputes)
@@ -196,7 +200,12 @@ export async function disputeRoutes(app: FastifyInstance) {
       offset,
     );
 
-    return { success: true, data: { items: result.items, total: result.total } };
+    return {
+      success: true,
+      disputes: result.items,
+      total: result.total,
+      data: { items: result.items, total: result.total },
+    };
   });
 
   app.get('/:disputeId', {
@@ -204,7 +213,7 @@ export async function disputeRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { disputeId: string };
     const dispute = await service.getDispute(params.disputeId, request.auth!);
-    return { success: true, data: dispute };
+    return { success: true, dispute, data: dispute };
   });
 
   app.post('/', {
@@ -227,7 +236,7 @@ export async function disputeRoutes(app: FastifyInstance) {
       arbitrators,
       request.auth!.node_id,
     );
-    return { success: true, data: dispute };
+    return { success: true, dispute, data: dispute };
   });
 
   app.post('/:disputeId/assign/auto', {
@@ -239,7 +248,12 @@ export async function disputeRoutes(app: FastifyInstance) {
       params.disputeId,
       request.auth!.node_id,
     );
-    return { success: true, data: { dispute_id: params.disputeId, arbitrators } };
+    return {
+      success: true,
+      dispute_id: params.disputeId,
+      arbitrators,
+      data: { dispute_id: params.disputeId, arbitrators },
+    };
   });
 
   app.post('/:disputeId/ruling', {
@@ -268,7 +282,7 @@ export async function disputeRoutes(app: FastifyInstance) {
       status,
       request.auth!.node_id,
     );
-    return { success: true, data: dispute };
+    return { success: true, dispute, ruling: dispute.ruling ?? null, data: dispute };
   });
 
   app.post('/:disputeId/ruling/auto', {
@@ -280,7 +294,7 @@ export async function disputeRoutes(app: FastifyInstance) {
       params.disputeId,
       request.auth!.node_id,
     );
-    return { success: true, data: ruling };
+    return { success: true, ruling, data: ruling };
   });
 
   app.post('/:disputeId/appeal', {
@@ -300,7 +314,7 @@ export async function disputeRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, data: appeal };
+    return { success: true, appeal, data: appeal };
   });
 
   app.post('/appeals/:appealId/review', {
@@ -309,7 +323,7 @@ export async function disputeRoutes(app: FastifyInstance) {
     ensureDisputeManagementAuth(request.auth);
     const params = request.params as { appealId: string };
     const result = await service.reviewAppeal(params.appealId, request.auth!.node_id);
-    return { success: true, data: result };
+    return { success: true, appeal: result, data: result };
   });
 
   app.post('/appeals/:appealId/process', {
@@ -318,7 +332,12 @@ export async function disputeRoutes(app: FastifyInstance) {
     ensureDisputeManagementAuth(request.auth);
     const params = request.params as { appealId: string };
     await service.processAppealDecision(params.appealId, request.auth!.node_id);
-    return { success: true, data: { appeal_id: params.appealId, processed: true } };
+    return {
+      success: true,
+      appeal_id: params.appealId,
+      processed: true,
+      data: { appeal_id: params.appealId, processed: true },
+    };
   });
 
   app.post('/:disputeId/escalate', {
@@ -327,7 +346,7 @@ export async function disputeRoutes(app: FastifyInstance) {
     ensureDisputeManagementAuth(request.auth);
     const params = request.params as { disputeId: string };
     const result = await service.escalateDisputeToCouncil(params.disputeId, request.auth!.node_id);
-    return { success: true, data: result };
+    return { success: true, escalation: result, data: result };
   });
 
   app.get('/:disputeId/appeals', {
@@ -335,6 +354,6 @@ export async function disputeRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { disputeId: string };
     const appeals = await service.listAppeals(params.disputeId, request.auth!);
-    return { success: true, data: appeals };
+    return { success: true, appeals, total: appeals.length, data: appeals };
   });
 }

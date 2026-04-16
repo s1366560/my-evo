@@ -148,6 +148,27 @@ describe('serializer', () => {
       expect(b1.checksum).not.toBe(b2.checksum);
     });
   });
+
+  describe('binary encode / decode', () => {
+    it('should round-trip a payload through the binary gepx format', async () => {
+      const bundle = finalizeBundle(makeBundle());
+      const payload = serializer.deserialize(serializer.serialize(bundle));
+      const encoded = serializer.encodeGepxBundle(payload, true);
+
+      expect(encoded.subarray(0, 4).toString('ascii')).toBe('GEPX');
+      expect(encoded.readUInt8(4)).toBe(0x01);
+      expect(encoded.readUInt8(5)).toBe(0x01);
+
+      const decoded = await serializer.decodeGepxBuffer(encoded);
+      expect(decoded.bundle_type).toBe(payload.bundle_type);
+      expect(decoded.metadata.bundle_name).toBe(payload.metadata.bundle_name);
+    });
+
+    it('should reject invalid magic bytes during decode', () => {
+      const bad = Buffer.from('NOPEbadbundle');
+      expect(() => serializer.decodeGepxBufferSync(bad)).toThrow(/magic/i);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -967,6 +988,19 @@ describe('service', () => {
       expect(result.manifest.checksum).toBe(result.checksum);
       expect(result.validation.valid).toBe(true);
       expect(result.compatibility.compatible).toBe(true);
+    });
+  });
+
+  describe('binary helpers', () => {
+    it('should validate binary gepx buffers through service', () => {
+      const bundle = finalizeBundle(makeBundle());
+      const payload = serializer.deserialize(serializer.serialize(bundle));
+      const buffer = service.encodeBundleToBinary(payload, false);
+      const result = service.validateGepxBinary(buffer);
+
+      expect(result.valid).toBe(true);
+      expect(result.bundle_type).toBe(payload.bundle_type);
+      expect(result.compressed).toBe(false);
     });
   });
 });

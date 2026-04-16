@@ -1,6 +1,13 @@
 import fastify, { type FastifyInstance } from 'fastify';
 import { councilRoutes } from './routes';
 
+const mockCreateProposal = jest.fn();
+const mockSecondProposal = jest.fn();
+const mockVote = jest.fn();
+const mockExecuteDecision = jest.fn();
+const mockListProposals = jest.fn();
+const mockGetProposal = jest.fn();
+const mockGetVotes = jest.fn();
 const mockGenerateDialogResponse = jest.fn();
 const mockResolveEscalatedDispute = jest.fn();
 let mockAuth = {
@@ -11,6 +18,13 @@ let mockAuth = {
 
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
+  createProposal: (...args: unknown[]) => mockCreateProposal(...args),
+  secondProposal: (...args: unknown[]) => mockSecondProposal(...args),
+  vote: (...args: unknown[]) => mockVote(...args),
+  executeDecision: (...args: unknown[]) => mockExecuteDecision(...args),
+  listProposals: (...args: unknown[]) => mockListProposals(...args),
+  getProposal: (...args: unknown[]) => mockGetProposal(...args),
+  getVotes: (...args: unknown[]) => mockGetVotes(...args),
   generateDialogResponse: (...args: unknown[]) => mockGenerateDialogResponse(...args),
 }));
 
@@ -52,6 +66,13 @@ describe('Council routes', () => {
       auth_type: 'node_secret',
       trust_level: 'trusted',
     };
+    mockCreateProposal.mockResolvedValue({ proposal_id: 'prop-1', status: 'draft' });
+    mockSecondProposal.mockResolvedValue({ proposal_id: 'prop-1', status: 'seconded' });
+    mockVote.mockResolvedValue({ proposal_id: 'prop-1', voter_id: 'node-7', decision: 'approve', weight: 1.2 });
+    mockExecuteDecision.mockResolvedValue({ proposal_id: 'prop-1', status: 'executed' });
+    mockListProposals.mockResolvedValue({ proposals: [{ proposal_id: 'prop-1', status: 'draft' }], total: 1, limit: 20, offset: 0 });
+    mockGetProposal.mockResolvedValue({ proposal_id: 'prop-1', status: 'draft' });
+    mockGetVotes.mockResolvedValue([{ voter_id: 'node-7', decision: 'approve' }]);
   });
 
   it('passes dialog input to the service', async () => {
@@ -92,6 +113,18 @@ describe('Council routes', () => {
       });
       expect(JSON.parse(response.payload)).toEqual({
         success: true,
+        dialogue: {
+          proposal_id: 'prop-1',
+          speaker: 'node-7',
+          message: 'Please clarify quorum risk.',
+          response: {
+            summary: 'Voting is active, but quorum is not met yet.',
+            positions: [],
+            consensus_estimate: 0.5,
+            recommended_action: 'Increase participation.',
+          },
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
         data: {
           proposal_id: 'prop-1',
           speaker: 'node-7',
@@ -206,6 +239,195 @@ describe('Council routes', () => {
           'compensation_paid: +80 credits to node-plaintiff',
           'reputation_restored: +5 to node-plaintiff',
         ],
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('exposes top-level aliases for proposal, vote, execute, config, and history surfaces', async () => {
+    const app = buildApp({
+      proposal: {
+        findFirst: jest.fn().mockResolvedValue({
+          created_at: '2026-04-01T00:00:00.000Z',
+          voting_deadline: '2026-04-02T00:00:00.000Z',
+          status: 'voting',
+        }),
+        findMany: jest.fn().mockResolvedValue([
+          { proposal_id: 'prop-1', status: 'approved', updated_at: '2026-04-01T00:00:00.000Z', votes: [] },
+        ]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+    });
+
+    try {
+      await app.register(councilRoutes, { prefix: '/a2a/council' });
+      await app.ready();
+
+      const responses = await Promise.all([
+        app.inject({
+          method: 'POST',
+          url: '/a2a/council/propose',
+          payload: { title: 'T', description: 'D', category: 'parameter_change' },
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/a2a/council/proposal/prop-1/second',
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/a2a/council/proposal/prop-1/vote',
+          payload: { decision: 'approve' },
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/a2a/council/vote',
+          payload: { proposal_id: 'prop-1', vote: 'approve' },
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/a2a/council/proposal/prop-1/execute',
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/a2a/council/execute',
+          payload: { proposal_id: 'prop-1' },
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/a2a/council/proposals',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/a2a/council/proposal/prop-1',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/a2a/council/proposal/prop-1/votes',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/a2a/council/config',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/a2a/council/history',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/a2a/council/term/current',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/a2a/council/term/history',
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/a2a/council/prop-1',
+        }),
+      ]);
+
+      expect(responses.map((r) => r.statusCode)).toEqual([201, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200]);
+      expect(JSON.parse(responses[0]!.payload)).toEqual({
+        success: true,
+        proposal: { proposal_id: 'prop-1', status: 'draft' },
+        data: { proposal_id: 'prop-1', status: 'draft' },
+      });
+      expect(JSON.parse(responses[1]!.payload)).toEqual({
+        success: true,
+        proposal: { proposal_id: 'prop-1', status: 'seconded' },
+        data: { proposal_id: 'prop-1', status: 'seconded' },
+      });
+      expect(JSON.parse(responses[2]!.payload)).toEqual({
+        success: true,
+        vote: { proposal_id: 'prop-1', voter_id: 'node-7', decision: 'approve', weight: 1.2 },
+        data: { proposal_id: 'prop-1', voter_id: 'node-7', decision: 'approve', weight: 1.2 },
+      });
+      expect(JSON.parse(responses[3]!.payload)).toEqual({
+        success: true,
+        vote: { proposal_id: 'prop-1', voter_id: 'node-7', decision: 'approve', weight: 1.2 },
+        data: { proposal_id: 'prop-1', voter_id: 'node-7', decision: 'approve', weight: 1.2 },
+      });
+      expect(JSON.parse(responses[4]!.payload)).toEqual({
+        success: true,
+        result: { proposal_id: 'prop-1', status: 'executed' },
+        data: { proposal_id: 'prop-1', status: 'executed' },
+      });
+      expect(JSON.parse(responses[5]!.payload)).toEqual({
+        success: true,
+        result: { proposal_id: 'prop-1', status: 'executed' },
+        data: { proposal_id: 'prop-1', status: 'executed' },
+      });
+      expect(JSON.parse(responses[6]!.payload)).toEqual({
+        success: true,
+        proposals: [{ proposal_id: 'prop-1', status: 'draft' }],
+        total: 1,
+        data: [{ proposal_id: 'prop-1', status: 'draft' }],
+        meta: { total: 1, limit: 20, offset: 0 },
+      });
+      expect(JSON.parse(responses[7]!.payload)).toEqual({
+        success: true,
+        proposal: { proposal_id: 'prop-1', status: 'draft' },
+        data: { proposal_id: 'prop-1', status: 'draft' },
+      });
+      expect(JSON.parse(responses[8]!.payload)).toEqual({
+        success: true,
+        votes: [{ voter_id: 'node-7', decision: 'approve' }],
+        total: 1,
+        data: [{ voter_id: 'node-7', decision: 'approve' }],
+      });
+      expect(JSON.parse(responses[9]!.payload)).toEqual({
+        success: true,
+        config: {
+          voting_period_hours: 72,
+          min_quorum_pct: 0.3,
+          min_approval_pct: 60,
+          max_council_members: 9,
+          min_gdi_to_vote: 80,
+        },
+        data: {
+          voting_period_hours: 72,
+          min_quorum_pct: 0.3,
+          min_approval_pct: 60,
+          max_council_members: 9,
+          min_gdi_to_vote: 80,
+        },
+      });
+      expect(JSON.parse(responses[10]!.payload)).toEqual({
+        success: true,
+        proposals: [{ proposal_id: 'prop-1', status: 'approved', updated_at: '2026-04-01T00:00:00.000Z', votes: [] }],
+        total: 1,
+        data: [{ proposal_id: 'prop-1', status: 'approved', updated_at: '2026-04-01T00:00:00.000Z', votes: [] }],
+        meta: { total: 1, limit: 20, offset: 0 },
+      });
+      expect(JSON.parse(responses[11]!.payload)).toEqual({
+        success: true,
+        term: {
+          term_id: expect.any(String),
+          started_at: '2026-04-01T00:00:00.000Z',
+          ends_at: '2026-04-02T00:00:00.000Z',
+          active_proposals: 1,
+          current_status: 'voting',
+        },
+        data: {
+          term_id: expect.any(String),
+          started_at: '2026-04-01T00:00:00.000Z',
+          ends_at: '2026-04-02T00:00:00.000Z',
+          active_proposals: 1,
+          current_status: 'voting',
+        },
+      });
+      expect(JSON.parse(responses[12]!.payload)).toEqual({
+        success: true,
+        terms: [{ term_id: 'term-2026-q2', approved: 1, rejected: 0, total: 1, period_start: '', period_end: '' }],
+        total: 1,
+        data: [{ term_id: 'term-2026-q2', approved: 1, rejected: 0, total: 1, period_start: '', period_end: '' }],
+        meta: { total: 1 },
+      });
+      expect(JSON.parse(responses[13]!.payload)).toEqual({
+        success: true,
+        proposal: { proposal_id: 'prop-1', status: 'draft' },
+        data: { proposal_id: 'prop-1', status: 'draft' },
       });
     } finally {
       await app.close();

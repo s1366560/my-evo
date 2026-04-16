@@ -29,7 +29,13 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
       body.depth ?? 2,
     );
 
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      entities: result.nodes,
+      relationships: result.relationships,
+      total: result.nodes.length,
+      data: result,
+    });
   });
 
   app.post('/node', {
@@ -60,6 +66,10 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.status(201).send({
       success: true,
+      entity: {
+        ...result,
+        status: 'ok',
+      },
       data: {
         ...result,
         status: 'ok',
@@ -101,6 +111,11 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.status(201).send({
       success: true,
+      relationship: {
+        status: 'ok',
+        relationship_id: result.id,
+        ...result,
+      },
       data: {
         status: 'ok',
         relationship_id: result.id,
@@ -115,7 +130,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { type, id } = request.params as { type: string; id: string };
     const result = await kgService.getNode(type, id);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, entity: result, data: result });
   });
 
   app.get('/node/:type/:id/neighbors', {
@@ -131,7 +146,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const result = await kgService.getNeighborhood(type, id, depth, query.relationship_type);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, neighborhood: result, data: result });
   });
 
   app.get('/node/:nodeId/neighbors', {
@@ -146,14 +161,14 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
       (direction as 'incoming' | 'outgoing' | 'both') ?? 'both',
     );
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, neighbors: result, total: result.length, data: result });
   });
 
   app.get('/stats', {
     schema: { tags: ['KnowledgeGraph'] },
   }, async (_request, reply) => {
     const result = await kgService.getGraphStats();
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 
   app.get('/types/:type', {
@@ -173,7 +188,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const result = await kgService.listNodesByType(type, limit, offset);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, type, nodes: result.nodes, total: result.total, data: result });
   });
 
   app.get('/path', {
@@ -187,7 +202,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
 
     const result = await kgService.getShortestPath(from, to);
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, path: result.path, length: result.length, found: result.found, data: result });
   });
 
   // ─── KG Hub extensions ─────────────────────────────────────────────────────────
@@ -230,11 +245,17 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    const ingestedAt = new Date().toISOString();
     return reply.status(201).send({
       success: true,
+      node_id: auth.node_id,
+      ingested_at: ingestedAt,
+      entities_count: entities.length,
+      relationships_count: relationships.length,
+      results,
       data: {
         node_id: auth.node_id,
-        ingested_at: new Date().toISOString(),
+        ingested_at: ingestedAt,
         entities_count: entities.length,
         relationships_count: relationships.length,
         results,
@@ -248,6 +269,7 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireAuth()],
   }, async (request) => {
     const auth = request.auth!;
+    const lastSyncAt = new Date().toISOString();
 
     const [totalNodes, derivedRelationships, explicitRelationships, myNodes] = await Promise.all([
       prisma.asset.count(),
@@ -258,13 +280,20 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       success: true,
+      node_id: auth.node_id,
+      total_nodes: totalNodes,
+      total_edges: derivedRelationships + explicitRelationships,
+      my_nodes: myNodes,
+      connected_peers: 0,
+      last_sync_at: lastSyncAt,
+      status: 'active',
       data: {
         node_id: auth.node_id,
         total_nodes: totalNodes,
         total_edges: derivedRelationships + explicitRelationships,
         my_nodes: myNodes,
         connected_peers: 0,
-        last_sync_at: new Date().toISOString(),
+        last_sync_at: lastSyncAt,
         status: 'active',
       },
     };
@@ -369,6 +398,12 @@ export async function kgRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       success: true,
+      node_id: auth.node_id,
+      nodes: kgNodes,
+      relationships,
+      total_nodes: total,
+      returned_nodes: nodes.length,
+      returned_relationships: relationships.length,
       data: {
         node_id: auth.node_id,
         nodes: kgNodes,

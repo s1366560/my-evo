@@ -28,7 +28,13 @@ export async function swarmRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, data: swarm };
+    return {
+      success: true,
+      swarm_id: swarm.swarm_id,
+      state: swarm.status,
+      created_at: swarm.created_at,
+      data: swarm,
+    };
   });
 
   app.post('/:swarmId/decompose', {
@@ -45,7 +51,7 @@ export async function swarmRoutes(app: FastifyInstance) {
     }
 
     const result = await service.decomposeTask(params.swarmId, body.subtasks);
-    return { success: true, data: result };
+    return { success: true, swarm: result, subtasks: result.subtasks, data: result };
   });
 
   app.post('/:swarmId/assign', {
@@ -63,7 +69,7 @@ export async function swarmRoutes(app: FastifyInstance) {
     }
 
     const result = await service.assignSubtask(body.subtaskId, body.workerId);
-    return { success: true, data: result };
+    return { success: true, subtask: result, data: result };
   });
 
   app.post('/:swarmId/subtask/:subtaskId/submit', {
@@ -78,7 +84,7 @@ export async function swarmRoutes(app: FastifyInstance) {
     }
 
     const result = await service.submitSubtaskResult(params.subtaskId, body.result);
-    return { success: true, data: result };
+    return { success: true, subtask: result, data: result };
   });
 
   app.post('/:swarmId/aggregate', {
@@ -87,7 +93,7 @@ export async function swarmRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { swarmId: string };
     const result = await service.aggregateResults(params.swarmId);
-    return { success: true, data: result };
+    return { success: true, swarm: result, result: result.result ?? null, data: result };
   });
 
   app.get('/:swarmId', {
@@ -96,7 +102,7 @@ export async function swarmRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { swarmId: string };
     const result = await service.getSwarm(params.swarmId);
-    return { success: true, data: result };
+    return { success: true, swarm: result, data: result };
   });
 
   app.get('/', {
@@ -117,6 +123,8 @@ export async function swarmRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      swarms: result.swarms,
+      total: result.total,
       data: result.swarms,
       meta: {
         total: result.total,

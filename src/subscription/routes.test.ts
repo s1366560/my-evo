@@ -308,6 +308,38 @@ describe('Subscription routes', () => {
     expect(mockGetSubscriptionStatus).toHaveBeenCalledWith('node-1');
   });
 
+  it('surfaces scheduled downgrades on the canonical change route', async () => {
+    mockCreateOrUpdateSubscription.mockResolvedValue({
+      subscription_id: 'sub-1',
+      node_id: 'node-1',
+      plan: 'ultra',
+      billing_cycle: 'monthly',
+      scheduled_plan: 'premium',
+      scheduled_billing_cycle: 'monthly',
+      scheduled_change_at: '2026-03-31T23:59:59Z',
+      status: 'active',
+      current_period_start: '2026-03-01T00:00:00Z',
+      current_period_end: '2026-03-31T23:59:59Z',
+      auto_renew: true,
+      total_paid: 10000,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/subscription/change',
+      payload: { plan: 'premium', billing_cycle: 'monthly' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toMatchObject({
+      status: 'ok',
+      amount_charged: 10000,
+      effective_immediately: false,
+      scheduled_plan: 'premium',
+      scheduled_change_at: '2026-03-31T23:59:59Z',
+    });
+  });
+
   it('returns a paused-aware cancel response when auto-renew is disabled on a paused subscription', async () => {
     mockCancelSubscription.mockResolvedValue(undefined);
     mockGetSubscriptionStatus.mockResolvedValue({

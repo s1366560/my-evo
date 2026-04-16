@@ -3,10 +3,14 @@ import { monitoringRoutes } from './routes';
 import * as monitoringService from './service';
 
 const mockCheckHealth = jest.fn();
+const mockGetDashboardMetrics = jest.fn();
+const mockGetAlertStats = jest.fn();
 
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
   checkHealth: (...args: unknown[]) => mockCheckHealth(...args),
+  getDashboardMetrics: (...args: unknown[]) => mockGetDashboardMetrics(...args),
+  getAlertStats: (...args: unknown[]) => mockGetAlertStats(...args),
 }));
 
 function buildApp(prisma: unknown): FastifyInstance {
@@ -50,6 +54,152 @@ describe('Monitoring routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockCheckHealth).toHaveBeenCalledWith(prisma);
+  });
+
+  it('exposes dashboard metrics with top-level aliases and compatibility data', async () => {
+    mockGetDashboardMetrics.mockResolvedValue({
+      total_nodes: 10,
+      online_nodes: 7,
+      offline_nodes: 3,
+      quarantined_nodes: 1,
+      active_swarms: 2,
+      total_assets: 40,
+      average_gdi: 55.5,
+      total_credits: 5000,
+      alerts_triggered_24h: 4,
+      uptime_seconds: 123,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/monitoring/dashboard/metrics',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGetDashboardMetrics).toHaveBeenCalledWith(expect.any(Object), prisma);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      total_nodes: 10,
+      online_nodes: 7,
+      offline_nodes: 3,
+      quarantined_nodes: 1,
+      active_swarms: 2,
+      total_assets: 40,
+      average_gdi: 55.5,
+      total_credits: 5000,
+      alerts_triggered_24h: 4,
+      uptime_seconds: 123,
+      data: {
+        total_nodes: 10,
+        online_nodes: 7,
+        offline_nodes: 3,
+        quarantined_nodes: 1,
+        active_swarms: 2,
+        total_assets: 40,
+        average_gdi: 55.5,
+        total_credits: 5000,
+        alerts_triggered_24h: 4,
+        uptime_seconds: 123,
+      },
+    });
+  });
+
+  it('exposes alert list and alert stats compatibility aliases', async () => {
+    mockGetAlertStats.mockResolvedValue({
+      total: 2,
+      info: 1,
+      warning: 0,
+      critical: 1,
+      acknowledged: 0,
+      resolved: 0,
+      active: 2,
+    });
+
+    const state = monitoringService.createMonitoringState();
+    state.alerts.push(
+      {
+        id: 'alert-1',
+        name: 'Quarantine',
+        severity: 'critical',
+        message: 'node quarantined',
+        triggered_at: '2026-04-15T10:00:00.000Z',
+        metric_name: 'quarantine',
+        metric_value: 1,
+      },
+      {
+        id: 'alert-2',
+        name: 'Low credits',
+        severity: 'info',
+        message: 'credits low',
+        triggered_at: '2026-04-15T11:00:00.000Z',
+        metric_name: 'credit_balance',
+        metric_value: 42,
+      },
+    );
+
+    const appWithState = buildApp(prisma);
+
+    try {
+      await appWithState.register(monitoringRoutes, {
+        prefix: '/monitoring',
+        monitoringState: state,
+      });
+      await appWithState.ready();
+
+      const [alertsResponse, statsResponse] = await Promise.all([
+        appWithState.inject({
+          method: 'GET',
+          url: '/monitoring/alerts?severity=critical&limit=10',
+        }),
+        appWithState.inject({
+          method: 'GET',
+          url: '/monitoring/alerts/stats',
+        }),
+      ]);
+
+      expect(alertsResponse.statusCode).toBe(200);
+      expect(JSON.parse(alertsResponse.payload)).toEqual({
+        success: true,
+        alerts: [
+          expect.objectContaining({
+            id: 'alert-1',
+            severity: 'critical',
+          }),
+        ],
+        total: 1,
+        data: [
+          expect.objectContaining({
+            id: 'alert-1',
+            severity: 'critical',
+          }),
+        ],
+      });
+      expect(statsResponse.statusCode).toBe(200);
+      expect(mockGetAlertStats).toHaveBeenCalledWith(state);
+      expect(JSON.parse(statsResponse.payload)).toEqual({
+        success: true,
+        stats: {
+          total: 2,
+          info: 1,
+          warning: 0,
+          critical: 1,
+          acknowledged: 0,
+          resolved: 0,
+          active: 2,
+        },
+        data: {
+          total: 2,
+          info: 1,
+          warning: 0,
+          critical: 1,
+          acknowledged: 0,
+          resolved: 0,
+          active: 2,
+        },
+      });
+    } finally {
+      await appWithState.close();
+    }
   });
 
   it('keeps metrics isolated per app instance', async () => {

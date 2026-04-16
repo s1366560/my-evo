@@ -4,6 +4,14 @@ import { EvoMapError } from '../shared/errors';
 import * as service from './service';
 
 export async function constitutionRoutes(app: FastifyInstance) {
+  const toRuleListResponse = (rules: ReturnType<typeof service.listRules>['rules'], total: number) => ({
+    success: true,
+    rules,
+    total,
+    data: rules,
+    meta: { total },
+  });
+
   const getAmendmentById = async (request: {
     params: { amendmentId: string };
   }) => {
@@ -11,7 +19,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
     if (!amendment) {
       throw new EvoMapError(`Amendment not found: ${request.params.amendmentId}`, 'NOT_FOUND', 404);
     }
-    return { success: true, data: amendment };
+    return { success: true, amendment, data: amendment };
   };
 
   const voteOnAmendment = async (request: {
@@ -37,12 +45,27 @@ export async function constitutionRoutes(app: FastifyInstance) {
       body.weight ?? 1,
       body.reason,
     );
-    return { success: true, data: amendment };
+    const latestVote = amendment.votes[amendment.votes.length - 1];
+    return {
+      success: true,
+      amendment,
+      your_vote: latestVote?.decision,
+      your_weight: latestVote?.weight,
+      approval_rate: amendment.approval_rate,
+      status: amendment.status,
+      total_votes: amendment.votes.length,
+      data: amendment,
+    };
   };
 
   const ratifyAmendment = async (request: { params: { amendmentId: string } }) => {
     const result = await service.ratifyAmendment(request.params.amendmentId);
-    return { success: true, data: result };
+    return {
+      success: true,
+      amendment: result.amendment,
+      constitution_version: result.new_version,
+      data: result,
+    };
   };
 
   // ===== Rule Engine =====
@@ -67,7 +90,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
       offset: query.offset ? parseInt(query.offset, 10) : 0,
     });
 
-    return { success: true, data: result.rules, meta: { total: result.total } };
+    return toRuleListResponse(result.rules, result.total);
   });
 
   app.get('/rule/:ruleId', {
@@ -79,7 +102,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
     if (!rule) {
       throw new EvoMapError(`Rule not found: ${params.ruleId}`, 'NOT_FOUND', 404);
     }
-    return { success: true, data: rule };
+    return { success: true, rule, data: rule };
   });
 
   app.post('/rules', {
@@ -115,7 +138,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
     });
 
     void reply.status(201);
-    return { success: true, data: rule };
+    return { success: true, rule, data: rule };
   });
 
   app.post('/rule/:ruleId/disable', {
@@ -124,7 +147,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { ruleId: string };
     const rule = service.disableRule(params.ruleId);
-    return { success: true, data: rule };
+    return { success: true, rule, data: rule };
   });
 
   app.post('/rule/:ruleId/enable', {
@@ -133,7 +156,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { ruleId: string };
     const rule = service.enableRule(params.ruleId);
-    return { success: true, data: rule };
+    return { success: true, rule, data: rule };
   });
 
   app.post('/evaluate', {
@@ -169,7 +192,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { agentId: string };
     const profile = await service.getAgentEthicsProfile(params.agentId);
-    return { success: true, data: profile };
+    return { success: true, profile, data: profile };
   });
 
   app.post('/ethics/detect', {
@@ -225,7 +248,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { agentId: string };
     const violations = service.getViolations(params.agentId);
-    return { success: true, data: violations };
+    return { success: true, violations, total: violations.length, data: violations };
   });
 
   // ===== Amendments =====
@@ -235,7 +258,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
     preHandler: [requireAuth()],
   }, async () => {
     const version = await service.getConstitutionVersion();
-    return { success: true, data: version };
+    return { success: true, constitution_version: version, data: version };
   });
 
   app.post('/amendment', {
@@ -261,7 +284,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
 
     const amendment = await service.proposeAmendment(body.content, auth.node_id);
     void reply.status(201);
-    return { success: true, data: amendment };
+    return { success: true, amendment, data: amendment };
   });
 
   app.get('/amendments', {
@@ -278,7 +301,7 @@ export async function constitutionRoutes(app: FastifyInstance) {
       proposer_id: query.proposer_id,
     });
 
-    return { success: true, data: amendments };
+    return { success: true, amendments, total: amendments.length, data: amendments };
   });
 
   app.get('/amendment/:amendmentId', {

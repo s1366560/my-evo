@@ -36,6 +36,8 @@ export async function workerPoolRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      workers: result.workers,
+      total: result.total,
       data: result.workers,
       meta: {
         total: result.total,
@@ -50,7 +52,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
   }) {
     const params = request.params as { nodeId: string };
     const worker = await service.getWorker(params.nodeId);
-    return { success: true, data: worker };
+    return { success: true, worker, data: worker };
   }
 
   async function sendWorkerCatalog(request: {
@@ -63,12 +65,13 @@ export async function workerPoolRoutes(app: FastifyInstance) {
       offset?: string;
     };
 
-    return service.listWorkersPublic({
+    const result = await service.listWorkersPublic({
       skill: query.skill,
       status: query.status,
       limit: parseOptionalNonNegativeInteger(query.limit, 'limit') ?? 20,
       offset: parseOptionalNonNegativeInteger(query.offset, 'offset') ?? 0,
     });
+    return { success: true, workers: result.workers, total: result.total, data: result };
   }
 
   // Register worker
@@ -93,7 +96,17 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, data: worker };
+    return {
+      success: true,
+      worker_id: worker.node_id,
+      type: 'passive',
+      tier: 'bronze',
+      is_available: worker.is_available,
+      registered_at: worker.last_heartbeat instanceof Date
+        ? worker.last_heartbeat.toISOString()
+        : worker.last_heartbeat,
+      data: worker,
+    };
   });
 
   // Heartbeat
@@ -103,7 +116,17 @@ export async function workerPoolRoutes(app: FastifyInstance) {
   }, async (request) => {
     const auth = request.auth!;
     const worker = await service.updateHeartbeat(auth.node_id);
-    return { success: true, data: worker };
+    return {
+      success: true,
+      worker: {
+        node_id: worker.node_id,
+        is_available: worker.is_available,
+        last_heartbeat: worker.last_heartbeat instanceof Date
+          ? worker.last_heartbeat.toISOString()
+          : worker.last_heartbeat,
+      },
+      data: worker,
+    };
   });
 
   // Deregister
@@ -113,7 +136,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
   }, async (request) => {
     const auth = request.auth!;
     const result = await service.deregisterWorker(auth.node_id);
-    return { success: true, data: result };
+    return { ...result, data: result };
   });
 
   // List workers (existing)
@@ -136,7 +159,8 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     schema: { tags: ['Swarm'] },
   }, async (request) => {
     const params = request.params as { nodeId: string };
-    return service.getWorkerPublic(params.nodeId);
+    const worker = await service.getWorkerPublic(params.nodeId);
+    return { success: true, worker, data: worker };
   });
 
   app.post('/workers/:nodeId/availability', {
@@ -180,8 +204,10 @@ export async function workerPoolRoutes(app: FastifyInstance) {
 
     await service.setWorkerAvailability(params.nodeId, available);
     return {
+      success: true,
       status: 'ok',
       availability: availability === 'available' ? 'active' : availability,
+      worker_id: params.nodeId,
     };
   });
 
@@ -206,6 +232,8 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     );
     return {
       success: true,
+      specialists: result.items,
+      total: result.total,
       data: result.items,
       meta: { total: result.total },
     };
@@ -219,7 +247,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     const params = request.params as { nodeId: string };
     try {
       const specialist = await service.getSpecialist(params.nodeId);
-      return { success: true, data: specialist };
+      return { success: true, specialist, data: specialist };
     } catch (err) {
       if (err instanceof Error && err.message.includes('not found')) {
         return reply.status(404).send({ success: false, error: 'NOT_FOUND', message: 'Specialist not found' });
@@ -232,7 +260,7 @@ export async function workerPoolRoutes(app: FastifyInstance) {
     schema: { tags: ['Swarm'] },
   }, async () => {
     const pools = await service.listSpecialistPools();
-    return { success: true, data: { pools } };
+    return { success: true, pools, total: pools.length, data: { pools } };
   });
 
   app.post('/match', {
@@ -254,14 +282,14 @@ export async function workerPoolRoutes(app: FastifyInstance) {
       body.min_reputation ?? 0,
       body.limit ?? 10,
     );
-    return { success: true, data: { matches } };
+    return { success: true, matches, total: matches.length, data: { matches } };
   });
 
   app.get('/stats', {
     schema: { tags: ['Swarm'] },
   }, async () => {
     const stats = await service.getWorkerPoolStats();
-    return { success: true, data: stats };
+    return { success: true, ...stats, data: stats };
   });
 
   // Rate specialist
@@ -287,6 +315,12 @@ export async function workerPoolRoutes(app: FastifyInstance) {
       body.review,
     );
     void reply.status(201);
-    return { success: true, data: { rated: true } };
+    return {
+      success: true,
+      rated: true,
+      worker_id: params.nodeId,
+      task_id: body.task_id,
+      data: { rated: true },
+    };
   });
 }

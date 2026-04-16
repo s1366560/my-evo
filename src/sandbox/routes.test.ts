@@ -150,6 +150,55 @@ describe('Sandbox routes', () => {
     );
     expect(mockListSandboxes).toHaveBeenCalledWith('active', undefined, 20, 0, 'node-1');
     expect(mockGetSandboxStats).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(createResponse.payload)).toEqual({
+      success: true,
+      sandbox_id: 'sbx-1',
+      name: undefined,
+      isolation_level: 'soft',
+      state: 'active',
+      member_count: undefined,
+      created_at: undefined,
+      data: {
+        sandbox_id: 'sbx-1',
+        status: 'active',
+        isolation_mode: 'soft-tagged',
+        expires_at: expect.any(String),
+      },
+    });
+    expect(JSON.parse(listResponse.payload)).toEqual({
+      success: true,
+      sandboxes: [{
+        sandbox_id: 'sbx-1',
+        name: 'Experiment A',
+        status: 'active',
+        isolation_mode: 'soft-tagged',
+      }],
+      total: 1,
+      data: {
+        sandboxes: [{
+          sandbox_id: 'sbx-1',
+          name: 'Experiment A',
+          status: 'active',
+          isolation_mode: 'soft-tagged',
+        }],
+        total: 1,
+      },
+    });
+    expect(JSON.parse(statsResponse.payload)).toEqual({
+      success: true,
+      total_sandboxes: 1,
+      active: 1,
+      completed: 0,
+      total_experiments: 2,
+      promotion_rate: 0.5,
+      data: {
+        total_sandboxes: 1,
+        active: 1,
+        completed: 0,
+        total_experiments: 2,
+        promotion_rate: 0.5,
+      },
+    });
   });
 
   it('resolves owned nodes for session-authenticated sandbox listings', async () => {
@@ -194,6 +243,11 @@ describe('Sandbox routes', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({
       success: true,
+      total_sandboxes: 2,
+      active: 1,
+      completed: 1,
+      total_experiments: 4,
+      promotion_rate: 0.5,
       data: {
         total_sandboxes: 2,
         active: 1,
@@ -267,6 +321,31 @@ describe('Sandbox routes', () => {
       summary: 'Looks good',
     });
     expect(mockCompareSandbox).toHaveBeenCalledWith('sbx-1', 'node-1');
+    expect(JSON.parse(experimentResponse.payload)).toEqual({
+      success: true,
+      experiment: { experiment_id: 'exp-1', status: 'running', estimated_time_minutes: 5 },
+      data: { experiment_id: 'exp-1', status: 'running', estimated_time_minutes: 5 },
+    });
+    expect(JSON.parse(assetResponse.payload)).toEqual({
+      success: true,
+      result: { status: 'ok', sandbox_asset_count: 3 },
+      data: { status: 'ok', sandbox_asset_count: 3 },
+    });
+    expect(JSON.parse(modifyResponse.payload)).toEqual({
+      success: true,
+      result: { status: 'ok', modified: 'gene-1' },
+      data: { status: 'ok', modified: 'gene-1' },
+    });
+    expect(JSON.parse(completeResponse.payload)).toEqual({
+      success: true,
+      result: { status: 'completed', promoted_to_mainnet: ['gene-1'], sandbox_archived: true },
+      data: { status: 'completed', promoted_to_mainnet: ['gene-1'], sandbox_archived: true },
+    });
+    expect(JSON.parse(compareResponse.payload)).toEqual({
+      success: true,
+      comparison: { sandbox_id: 'sbx-1', total_assets: 3 },
+      data: { sandbox_id: 'sbx-1', total_assets: 3 },
+    });
   });
 
   it('protects sandbox detail reads and scopes them to the authenticated node', async () => {
@@ -292,6 +371,15 @@ describe('Sandbox routes', () => {
     expect(mockGetSandbox).toHaveBeenCalledWith('sbx-1', 'node-1');
     expect(JSON.parse(response.payload)).toEqual({
       success: true,
+      sandbox: expect.objectContaining({
+        sandbox_id: 'sbx-1',
+        name: 'Experiment A',
+        description: 'Sandbox details',
+        status: 'active',
+        isolation_mode: 'soft-tagged',
+        assets: ['gene-1', 'gene-2'],
+        experiments: [{ id: 'exp-1', status: 'completed', result: 'improved +12% accuracy' }],
+      }),
       data: expect.objectContaining({
         sandbox_id: 'sbx-1',
         name: 'Experiment A',

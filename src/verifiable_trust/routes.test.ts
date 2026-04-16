@@ -11,6 +11,7 @@ let mockQuarantineLevel: string | null = null;
 
 const mockStake = jest.fn();
 const mockRelease = jest.fn();
+const mockClaimReward = jest.fn();
 const mockVerifyNode = jest.fn();
 const mockFailVerification = jest.fn();
 const mockGetTrustLevel = jest.fn();
@@ -63,6 +64,7 @@ jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
   stake: (...args: unknown[]) => mockStake(...args),
   release: (...args: unknown[]) => mockRelease(...args),
+  claimReward: (...args: unknown[]) => mockClaimReward(...args),
   verifyNode: (...args: unknown[]) => mockVerifyNode(...args),
   failVerification: (...args: unknown[]) => mockFailVerification(...args),
   getTrustLevel: (...args: unknown[]) => mockGetTrustLevel(...args),
@@ -237,6 +239,12 @@ describe('Verifiable trust routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockListPendingStakes).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      pending_stakes: [{ stake_id: 'stake-1' }],
+      total: 1,
+      data: [{ stake_id: 'stake-1' }],
+    });
   });
 
   it('returns trust level compatibility fields at the top level', async () => {
@@ -341,6 +349,114 @@ describe('Verifiable trust routes', () => {
       amount_returned: 90,
       penalty: 10,
       trust_level: 'unverified',
+    });
+  });
+
+  it('returns claim compatibility fields and stake summary', async () => {
+    mockClaimReward.mockResolvedValue({
+      reward: 5,
+      stake_amount: 100,
+      total_received: 105,
+      validator_reputation_bonus: 2,
+      stake: {
+        stake_id: 'stake-1',
+        node_id: 'node-1',
+        validator_id: 'trusted-node',
+        amount: 100,
+        staked_at: '2026-04-01T00:00:00Z',
+        locked_until: '2026-04-08T00:00:00Z',
+        status: 'released',
+      },
+    });
+
+    const claimResponse = await app.inject({
+      method: 'POST',
+      url: '/trust/claim',
+      payload: { stake_id: 'stake-1' },
+    });
+
+    expect(claimResponse.statusCode).toBe(200);
+    expect(JSON.parse(claimResponse.payload)).toEqual({
+      success: true,
+      reward: 5,
+      stake_amount: 100,
+      total_received: 105,
+      validator_reputation_bonus: 2,
+      stake: {
+        stake_id: 'stake-1',
+        node_id: 'node-1',
+        validator_id: 'trusted-node',
+        amount: 100,
+        staked_at: '2026-04-01T00:00:00Z',
+        locked_until: '2026-04-08T00:00:00Z',
+        status: 'released',
+      },
+      data: {
+        reward: 5,
+        stake_amount: 100,
+        total_received: 105,
+        validator_reputation_bonus: 2,
+        stake: {
+          stake_id: 'stake-1',
+          node_id: 'node-1',
+          validator_id: 'trusted-node',
+          amount: 100,
+          staked_at: '2026-04-01T00:00:00Z',
+          locked_until: '2026-04-08T00:00:00Z',
+          status: 'released',
+        },
+      },
+    });
+  });
+
+  it('returns top-level attestation list aliases', async () => {
+    mockListAttestations.mockResolvedValue([
+      {
+        attestation_id: 'att-1',
+        validator_id: 'trusted-node',
+        node_id: 'node-1',
+        trust_level: 'verified',
+        stake_amount: 100,
+        verified_at: '2026-04-15T00:00:00Z',
+        expires_at: '2026-05-15T00:00:00Z',
+        signature: 'sig-1',
+      },
+    ]);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/trust/attestations?node_id=node-1',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockListAttestations).toHaveBeenCalledWith('node-1');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      attestations: [
+        {
+          attestation_id: 'att-1',
+          validator_id: 'trusted-node',
+          node_id: 'node-1',
+          trust_level: 'verified',
+          stake_amount: 100,
+          verified_at: '2026-04-15T00:00:00Z',
+          expires_at: '2026-05-15T00:00:00Z',
+          signature: 'sig-1',
+        },
+      ],
+      total: 1,
+      data: [
+        {
+          attestation_id: 'att-1',
+          validator_id: 'trusted-node',
+          node_id: 'node-1',
+          trust_level: 'verified',
+          stake_amount: 100,
+          verified_at: '2026-04-15T00:00:00Z',
+          expires_at: '2026-05-15T00:00:00Z',
+          signature: 'sig-1',
+        },
+      ],
     });
   });
 

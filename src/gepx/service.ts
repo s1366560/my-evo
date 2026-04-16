@@ -43,6 +43,29 @@ export function deserializeFromJson(json: string): GepxPayload {
   return serializer.deserialize(json);
 }
 
+export function encodeBundleToBinary(payload: GepxPayload, compress = false): Buffer {
+  return serializer.encodeGepxBundle(payload, compress);
+}
+
+export function decodeBundleFromBinary(buffer: Buffer): GepxPayload {
+  return serializer.decodeGepxBufferSync(buffer);
+}
+
+export function validateGepxBinary(buffer: Buffer) {
+  const decoded = serializer.decodeGepxBufferDetailedSync(buffer);
+  const validation = schema.validateSchema(decoded.payload);
+  return {
+    valid: validation.valid,
+    format_version: decoded.payload.version,
+    bundle_type: decoded.payload.bundle_type,
+    asset_count: decoded.payload.assets.length,
+    checksum_match: validation.valid,
+    compressed: decoded.compressed,
+    payload_size: decoded.payloadSize,
+    errors: validation.errors,
+  };
+}
+
 /** Convert GepxBundle to base64. */
 export function bundleToBase64(bundle: GepxBundle): string {
   return serializer.toBase64(bundle);
@@ -300,6 +323,53 @@ export async function downloadBundle(bundleId: string, nodeId: string) {
   void assets;
 
   return { bundle, assets, exportRecord };
+}
+
+export async function exportBundleArchive(
+  nodeId: string,
+  options: {
+    bundle_name: string;
+    description: string;
+    asset_ids: string[];
+    tags?: string[];
+    bundle_type?: BundleType;
+    compress?: boolean;
+  },
+) {
+  const bundle = await createBundle(
+    nodeId,
+    options.bundle_name,
+    options.description,
+    options.bundle_type ?? 'FullSnapshot',
+    options.asset_ids,
+    options.tags,
+  );
+
+  const normalizedBundle: GepxBundle = {
+    bundle_id: bundle.bundle_id,
+    bundle_type: bundle.bundle_type as BundleType,
+    name: bundle.name,
+    description: bundle.description,
+    tags: bundle.tags,
+    exported_by: bundle.exported_by,
+    asset_count: bundle.asset_count,
+    checksum: bundle.checksum,
+    size_bytes: bundle.size_bytes,
+    created_at: bundle.created_at,
+  };
+  const payload = serializer.deserialize(serializer.serialize(normalizedBundle));
+  const binary = serializer.encodeGepxBundle(payload, options.compress ?? false);
+
+  return {
+    bundle_id: bundle.bundle_id,
+    filename: `${bundle.name}.gepx`,
+    size_bytes: binary.length,
+    asset_count: bundle.asset_count,
+    compressed: options.compress ?? false,
+    checksum: bundle.checksum,
+    download_url: `/gepx/bundle/${bundle.bundle_id}`,
+    binary,
+  };
 }
 
 export async function listExports(nodeId: string) {

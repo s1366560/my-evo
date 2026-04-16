@@ -34,12 +34,15 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   app.get('/security/roles', {
     schema: { tags: ['Security'] },
   }, async (_request, reply) => {
+    const roles = ROLE_PERMISSIONS.map(r => ({
+      ...r,
+      rate_limit: DEFAULT_RATE_LIMITS[r.role],
+    }));
     return reply.send({
       success: true,
-      data: ROLE_PERMISSIONS.map(r => ({
-        ...r,
-        rate_limit: DEFAULT_RATE_LIMITS[r.role],
-      })),
+      roles,
+      total: roles.length,
+      data: roles,
     });
   });
 
@@ -58,7 +61,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
       details: { role: body.role, permission: body.permission, result: result.allowed },
       severity: result.allowed ? 'info' : 'warning',
     });
-    return reply.send({ success: true, ...result });
+    return reply.send({ success: true, result, ...result });
   });
 
   // POST /security/rbac/assign — assign role to node
@@ -78,7 +81,11 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
       details: { action: 'role_assigned', role: body.role },
       severity: 'info',
     });
-    return reply.send({ success: true, data: { node_id: body.node_id, role: body.role } });
+    return reply.send({
+      success: true,
+      assignment: { node_id: body.node_id, role: body.role },
+      data: { node_id: body.node_id, role: body.role },
+    });
   });
 
   // GET /security/rbac/node/:nodeId — get node's assigned role
@@ -87,7 +94,12 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
     const role = getNodeRole(nodeId);
-    return reply.send({ success: true, data: { node_id: nodeId, role: role ?? null } });
+    return reply.send({
+      success: true,
+      node_id: nodeId,
+      role: role ?? null,
+      data: { node_id: nodeId, role: role ?? null },
+    });
   });
 
   // POST /security/rbac/node/:nodeId/check — check node has permission
@@ -100,7 +112,13 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
       throw new ValidationError('permission is required');
     }
     const allowed = checkNodePermission(nodeId, body.permission);
-    return reply.send({ success: true, allowed, node_id: nodeId, permission: body.permission });
+    return reply.send({
+      success: true,
+      allowed,
+      node_id: nodeId,
+      permission: body.permission,
+      result: { allowed, node_id: nodeId, permission: body.permission },
+    });
   });
 
   // ===== Rate Limiting =====
@@ -126,9 +144,14 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
         allowed: false,
         remaining: result.remaining,
         reset_in_ms: result.resetInMs,
+        result: {
+          allowed: false,
+          remaining: result.remaining,
+          reset_in_ms: result.resetInMs,
+        },
       });
     }
-    return reply.send({ success: true, ...result });
+    return reply.send({ success: true, result, ...result });
   });
 
   // POST /security/rate-limit/check-by-role — check rate limit by role
@@ -146,9 +169,14 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
         allowed: false,
         remaining: result.remaining,
         reset_in_ms: result.resetInMs,
+        result: {
+          allowed: false,
+          remaining: result.remaining,
+          reset_in_ms: result.resetInMs,
+        },
       });
     }
-    return reply.send({ success: true, ...result });
+    return reply.send({ success: true, result, ...result });
   });
 
   // DELETE /security/rate-limit/:identifier — clear rate limit counter
@@ -159,7 +187,12 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
     ensureSecurityAdminAuth(request.auth!);
     const { identifier } = request.params as { identifier: string };
     clearRateLimit(identifier);
-    return reply.send({ success: true, message: 'Rate limit cleared' });
+    return reply.send({
+      success: true,
+      identifier,
+      message: 'Rate limit cleared',
+      data: { identifier, message: 'Rate limit cleared' },
+    });
   });
 
   // ===== Security Events =====
@@ -180,7 +213,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
       throw new ValidationError('type and identifier are required');
     }
     const event = logSecurityEvent(body);
-    return reply.status(201).send({ success: true, data: event });
+    return reply.status(201).send({ success: true, event, data: event });
   });
 
   // GET /security/events — list security events
@@ -199,7 +232,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
       severity,
       limit: limit ? parseInt(limit, 10) : 100,
     });
-    return reply.send({ success: true, data: events });
+    return reply.send({ success: true, events, total: events.length, data: events });
   });
 
   // PATCH /security/events/:eventId/resolve — resolve an event
@@ -213,7 +246,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
     if (!resolved) {
       throw new ValidationError('Security event not found');
     }
-    return reply.send({ success: true, data: resolved });
+    return reply.send({ success: true, event: resolved, data: resolved });
   });
 
   // ===== Anomaly Detection =====
@@ -234,7 +267,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
       throw new ValidationError('node_id is required');
     }
     const report = detectAnomaly(body.node_id, body.signals);
-    return reply.send({ success: true, data: report });
+    return reply.send({ success: true, report, data: report });
   });
 
   // POST /security/anomaly/from-history — detect anomaly from event history
@@ -250,7 +283,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
     const recentEvents = getSecurityEvents({ identifier: body.node_id, limit: 1000 })
       .filter(e => Date.now() - new Date(e.timestamp).getTime() < windowMs);
     const report = detectAnomalyFromHistory(body.node_id, recentEvents);
-    return reply.send({ success: true, data: report });
+    return reply.send({ success: true, report, data: report });
   });
 
   // GET /security/anomaly/:nodeId/history — get anomaly history
@@ -259,6 +292,6 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
     const history = getAnomalyHistory(nodeId);
-    return reply.send({ success: true, data: history });
+    return reply.send({ success: true, history, total: history.length, data: history });
   });
 }

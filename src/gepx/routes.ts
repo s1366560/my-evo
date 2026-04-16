@@ -4,6 +4,110 @@ import { EvoMapError } from '../shared/errors';
 import * as service from './service';
 
 export async function gepxRoutes(app: FastifyInstance) {
+  if (!app.hasContentTypeParser('application/octet-stream')) {
+    app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer' }, (_request, body, done) => {
+      done(null, body);
+    });
+  }
+
+  app.post('/export', {
+    schema: { tags: ['Gepx'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      bundle_name: string;
+      description: string;
+      asset_ids: string[];
+      tags?: string[];
+      compress?: boolean;
+      bundle_type?: string;
+    };
+
+    if (!body.bundle_name || !body.description || !Array.isArray(body.asset_ids)) {
+      throw new EvoMapError('bundle_name, description, and asset_ids are required', 'VALIDATION_ERROR', 400);
+    }
+
+    const result = await service.exportBundleArchive(auth.node_id, {
+      bundle_name: body.bundle_name,
+      description: body.description,
+      asset_ids: body.asset_ids,
+      tags: body.tags,
+      compress: body.compress,
+      bundle_type: body.bundle_type as any,
+    });
+
+    return { success: true, data: result };
+  });
+
+  app.post('/export/single', {
+    schema: { tags: ['Gepx'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      asset_id: string;
+      bundle_type?: string;
+      description?: string;
+      compress?: boolean;
+    };
+
+    if (!body.asset_id) {
+      throw new EvoMapError('asset_id is required', 'VALIDATION_ERROR', 400);
+    }
+
+    const result = await service.exportBundleArchive(auth.node_id, {
+      bundle_name: body.asset_id,
+      description: body.description ?? `Single asset export for ${body.asset_id}`,
+      asset_ids: [body.asset_id],
+      compress: body.compress,
+      bundle_type: (body.bundle_type as any) ?? 'Gene',
+    });
+
+    return { success: true, data: result };
+  });
+
+  app.post('/validate', {
+    schema: { tags: ['Gepx'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    if (Buffer.isBuffer(request.body)) {
+      return { success: true, data: service.validateGepxBinary(request.body) };
+    }
+
+    const body = request.body as { base64?: string; payload?: unknown; bundle_data?: unknown };
+
+    if (typeof body?.base64 === 'string') {
+      const buffer = Buffer.from(body.base64, 'base64');
+      return { success: true, data: service.validateGepxBinary(buffer) };
+    }
+
+    const payload = body?.payload ?? body?.bundle_data;
+    if (!payload) {
+      throw new EvoMapError('application/octet-stream body, base64, or payload/bundle_data is required', 'VALIDATION_ERROR', 400);
+    }
+
+    return { success: true, data: service.validateGepxPayload(payload) };
+  });
+
+  app.get('/bundle/:bundleId', {
+    schema: { tags: ['Gepx'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const params = request.params as { bundleId: string };
+    const auth = request.auth!;
+    const { bundle, assets, exportRecord } = await service.downloadBundle(params.bundleId, auth.node_id);
+    return {
+      success: true,
+      data: {
+        gepx_version: '1.0',
+        bundle,
+        assets,
+        export: exportRecord,
+      },
+    };
+  });
+
   // List bundles
   app.get('/bundles', {
     schema: { tags: ['Gepx'] },

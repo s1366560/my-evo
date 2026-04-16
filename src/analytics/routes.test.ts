@@ -1,5 +1,7 @@
 import fastify, { type FastifyInstance } from 'fastify';
 import { analyticsRoutes } from './routes';
+import * as gdiTrends from './gdi-trends';
+import * as forecasting from './forecasting';
 
 let mockAuth: {
   node_id: string;
@@ -41,6 +43,17 @@ jest.mock('./service', () => ({
   listSignalForecasts: (...args: unknown[]) => mockListSignalForecasts(...args),
   getGdiForecast: (...args: unknown[]) => mockGetGdiForecast(...args),
   getRiskAlerts: (...args: unknown[]) => mockGetRiskAlerts(...args),
+}));
+
+jest.mock('./gdi-trends', () => ({
+  calculateGDITrend: jest.fn(),
+  compareWithBenchmarks: jest.fn(),
+  identifyImprovementAreas: jest.fn(),
+  getGDIHistory: jest.fn(),
+}));
+
+jest.mock('./forecasting', () => ({
+  predictGDIScore: jest.fn(),
 }));
 
 function buildApp(prisma: unknown): FastifyInstance {
@@ -86,10 +99,45 @@ describe('Analytics routes', () => {
         trend: 'rising',
       },
     ]);
-    mockGetGdiForecast.mockResolvedValue({ asset_id: 'asset-1' });
+    (gdiTrends.calculateGDITrend as jest.Mock).mockResolvedValue({
+      assetId: 'asset-1',
+      period: '30d',
+      trend: 'rising',
+      slope: 1.2,
+      volatility: 0.8,
+      trendPoints: [{ date: '2026-04-01', overall: 52, intrinsic: 0.6, usage_mean: 0.5, usage_lower: 0.4, social_mean: 0.4, social_lower: 0.3, freshness: 0.9 }],
+    });
+    (gdiTrends.getGDIHistory as jest.Mock).mockResolvedValue([
+      { date: '2026-04-01', overall: 52, intrinsic: 0.6, usage_mean: 0.5, usage_lower: 0.4, social_mean: 0.4, social_lower: 0.3, freshness: 0.9, changeFromPrevious: null },
+    ]);
+    (gdiTrends.compareWithBenchmarks as jest.Mock).mockResolvedValue({
+      assetId: 'asset-1',
+      assetGdi: 52,
+      benchmarkGdi: 50,
+      percentile: 60,
+      intrinsicDelta: 0.1,
+      usageDelta: 0.05,
+      socialDelta: 0.02,
+      freshnessDelta: 0.12,
+      verdict: 'above',
+    });
+    (gdiTrends.identifyImprovementAreas as jest.Mock).mockResolvedValue([
+      { dimension: 'social', currentScore: 0.4, benchmarkScore: 0.55, gap: 0.15, priority: 'high', suggestion: 'Encourage positive votes.' },
+    ]);
+    (forecasting.predictGDIScore as jest.Mock).mockResolvedValue({
+      assetId: 'asset-1',
+      currentScore: 52,
+      predictedScore: 57,
+      trend: 'rising',
+      confidence: 0.82,
+    });
     mockGetRiskAlerts.mockResolvedValue([]);
 
     const responses = await Promise.all([
+      app.inject({ method: 'GET', url: '/analytics/gdi/trend/asset-1?period=30d' }),
+      app.inject({ method: 'GET', url: '/analytics/gdi/history/asset-1?limit=1' }),
+      app.inject({ method: 'GET', url: '/analytics/gdi/benchmarks/asset-1' }),
+      app.inject({ method: 'GET', url: '/analytics/gdi/improvement-areas/asset-1' }),
       app.inject({ method: 'GET', url: '/analytics/drift/node-1' }),
       app.inject({ method: 'GET', url: '/analytics/branching' }),
       app.inject({
@@ -105,16 +153,12 @@ describe('Analytics routes', () => {
     ]);
 
     expect(responses.map((response) => response.statusCode)).toEqual([
-      200,
-      200,
-      200,
-      200,
-      200,
-      200,
-      200,
-      200,
-      200,
+      200,200,200,200,200,200,200,200,200,200,200,200,200,
     ]);
+    expect(gdiTrends.calculateGDITrend).toHaveBeenCalledWith('asset-1', '30d');
+    expect(gdiTrends.getGDIHistory).toHaveBeenCalledWith('asset-1', 1);
+    expect(gdiTrends.compareWithBenchmarks).toHaveBeenCalledWith('asset-1');
+    expect(gdiTrends.identifyImprovementAreas).toHaveBeenCalledWith('asset-1');
     expect(mockGetDriftReport).toHaveBeenCalledWith('node-1', prisma);
     expect(mockGetBranchingMetrics).toHaveBeenCalledWith(prisma);
     expect(mockGetTimeline).toHaveBeenCalledWith(
@@ -126,9 +170,39 @@ describe('Analytics routes', () => {
     );
     expect(mockGetSignalForecast).toHaveBeenCalledWith('signal-a', prisma);
     expect(mockListSignalForecasts).toHaveBeenCalledWith(1, prisma);
-    expect(mockGetGdiForecast).toHaveBeenCalledWith('asset-1', prisma);
     expect(mockGetRiskAlerts).toHaveBeenCalledWith('node-1', prisma);
+    expect(forecasting.predictGDIScore).toHaveBeenCalledWith('asset-1');
+    expect(JSON.parse(responses[0]!.payload)).toMatchObject({
+      asset_id: 'asset-1',
+      period: '30d',
+      trend: 'rising',
+      points: [expect.objectContaining({ overall: 52 })],
+    });
+    expect(JSON.parse(responses[1]!.payload)).toMatchObject({
+      asset_id: 'asset-1',
+      history: [expect.objectContaining({ overall: 52 })],
+      total: 1,
+    });
+    expect(JSON.parse(responses[2]!.payload)).toMatchObject({
+      asset_id: 'asset-1',
+      benchmark: expect.objectContaining({ benchmarkGdi: 50, verdict: 'above' }),
+    });
+    expect(JSON.parse(responses[3]!.payload)).toMatchObject({
+      asset_id: 'asset-1',
+      areas: [expect.objectContaining({ dimension: 'social', priority: 'high' })],
+      total: 1,
+    });
     expect(JSON.parse(responses[4]!.payload)).toMatchObject({
+      success: true,
+      data: { node_id: 'node-1' },
+    });
+    expect(JSON.parse(responses[9]!.payload)).toMatchObject({
+      asset_id: 'asset-1',
+      current_gdi: 52,
+      predicted_gdi: 57,
+      confidence: 0.82,
+    });
+    expect(JSON.parse(responses[8]!.payload)).toMatchObject({
       forecasts: [
         {
           signal: 'signal-a',
@@ -140,10 +214,10 @@ describe('Analytics routes', () => {
         },
       ],
     });
-    expect(JSON.parse(responses[7]!.payload)).toMatchObject({
+    expect(JSON.parse(responses[11]!.payload)).toMatchObject({
       alerts: [],
     });
-    expect(JSON.parse(responses[8]!.payload)).toMatchObject({
+    expect(JSON.parse(responses[12]!.payload)).toMatchObject({
       drift_threshold: expect.any(Number),
       drift_window_days: expect.any(Number),
       forecast_horizon_days: expect.any(Number),

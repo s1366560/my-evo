@@ -17,17 +17,27 @@ const mockPrisma = {
   servicePurchase: {
     findFirst: jest.fn(),
     count: jest.fn(),
+    update: jest.fn(),
+    create: jest.fn(),
   },
   serviceTransaction: {
+    create: jest.fn(),
     count: jest.fn(),
     aggregate: jest.fn(),
     findMany: jest.fn(),
+    findFirst: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn(),
   },
   bounty: {
     count: jest.fn(),
   },
   node: {
     findFirst: jest.fn(),
+    update: jest.fn(),
+  },
+  creditTransaction: {
+    create: jest.fn(),
   },
   question: {
     findFirst: jest.fn(),
@@ -36,6 +46,10 @@ const mockPrisma = {
     update: jest.fn(),
     upsert: jest.fn(),
   },
+  dispute: {
+    create: jest.fn(),
+  },
+  $transaction: jest.fn(),
 } as any;
 
 describe('Service marketplace helpers', () => {
@@ -50,13 +64,26 @@ describe('Service marketplace helpers', () => {
     mockPrisma.serviceListing.findFirst.mockResolvedValue(null);
     mockPrisma.servicePurchase.findFirst.mockResolvedValue(null);
     mockPrisma.servicePurchase.count.mockResolvedValue(0);
+    mockPrisma.servicePurchase.update.mockResolvedValue({});
+    mockPrisma.servicePurchase.create.mockResolvedValue({});
     mockPrisma.serviceTransaction.count.mockResolvedValue(0);
     mockPrisma.serviceTransaction.aggregate.mockResolvedValue({ _sum: { price_paid: 0 } });
     mockPrisma.serviceTransaction.findMany.mockResolvedValue([]);
+    mockPrisma.serviceTransaction.findFirst.mockResolvedValue(null);
+    mockPrisma.serviceTransaction.create.mockResolvedValue({});
+    mockPrisma.serviceTransaction.update.mockResolvedValue({});
+    mockPrisma.serviceTransaction.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.bounty.count.mockResolvedValue(0);
     mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1' });
+    mockPrisma.node.update.mockResolvedValue({ node_id: 'node-1', credit_balance: 95 });
+    mockPrisma.creditTransaction.create.mockResolvedValue({});
     mockPrisma.question.findFirst.mockResolvedValue(null);
     mockPrisma.question.findMany.mockResolvedValue([]);
+    mockPrisma.dispute.create.mockResolvedValue({});
+    mockPrisma.$transaction = jest.fn(async (arg: any) => {
+      if (Array.isArray(arg)) return Promise.all(arg);
+      return arg(mockPrisma);
+    });
   });
 
   describe('searchServiceListings', () => {
@@ -280,7 +307,7 @@ describe('Service marketplace helpers', () => {
 
       await expect(
         service.updateServiceListing('node-1', 'listing_1', { status: 'deleted' }),
-      ).rejects.toThrow(ValidationError);
+      ).rejects.toThrow('status must be one of active, paused, archived, cancelled, sold, expired');
     });
   });
 
@@ -323,6 +350,12 @@ describe('Service marketplace helpers', () => {
           license_type: 'non-exclusive',
         }),
       });
+      expect(mockPrisma.creditTransaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          type: 'service_listing_fee',
+          amount: -5,
+        }),
+      });
     });
 
     it('should reject unknown sellers', async () => {
@@ -338,6 +371,269 @@ describe('Service marketplace helpers', () => {
           license_type: 'open_source',
         }),
       ).rejects.toThrow(NotFoundError);
+    });
+
+    it('should reject sellers without listing-fee credits', async () => {
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1', credit_balance: 3 });
+
+      await expect(
+        service.createServiceListing('node-1', {
+          title: 'Review service',
+          description: 'I review code',
+          category: 'engineering',
+          tags: [],
+          price_type: 'fixed',
+          price_credits: 50,
+          license_type: 'non-exclusive',
+        }),
+      ).rejects.toThrow('Insufficient credits');
+    });
+  });
+
+  describe('purchaseService', () => {
+    it('should lock buyer funds in escrow and mark exclusive listings as sold', async () => {
+      const purchasedAt = new Date('2026-01-02T00:00:00Z');
+      mockPrisma.serviceListing.findFirst.mockResolvedValue({
+        listing_id: 'listing_1',
+        seller_id: 'node-2',
+        price_credits: 200,
+        price_type: 'fixed',
+        license_type: 'exclusive',
+        status: 'active',
+      });
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-1', credit_balance: 500 });
+      mockPrisma.servicePurchase.create.mockResolvedValue({
+        purchase_id: 'pur-1',
+        listing_id: 'listing_1',
+        buyer_id: 'node-1',
+        seller_id: 'node-2',
+        price_paid: 200,
+        status: 'pending',
+        purchased_at: purchasedAt,
+      });
+      mockPrisma.serviceListing.update.mockResolvedValue({});
+      mockPrisma.serviceTransaction.create.mockResolvedValue({});
+
+      const result = await service.purchaseService('node-1', 'listing_1');
+
+      expect(result.transaction_id).toMatch(/^stx-/);
+      expect(result.escrow).toEqual({
+        escrow_id: 'escrow_pur-1',
+        amount: 200,
+        status: 'locked',
+        locked_at: purchasedAt.toISOString(),
+      });
+      expect(mockPrisma.node.update).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.node.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: { credit_balance: { decrement: 200 } },
+      });
+      expect(mockPrisma.serviceTransaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          purchase_id: expect.stringMatching(/^pur-/),
+          status: 'pending',
+          escrow_id: expect.stringMatching(/^escrow_pur-/),
+          completed_at: null,
+        }),
+      });
+      expect(mockPrisma.serviceListing.update).toHaveBeenCalledWith({
+        where: { listing_id: 'listing_1' },
+        data: { status: 'sold' },
+      });
+    });
+  });
+
+  describe('confirmPurchase', () => {
+    it('should release escrow and pay the seller when confirming a purchase', async () => {
+      const purchasedAt = new Date('2026-01-02T00:00:00Z');
+      const confirmedAt = new Date('2026-01-03T00:00:00Z');
+      mockPrisma.servicePurchase.findFirst.mockResolvedValue({
+        purchase_id: 'pur-1',
+        listing_id: 'listing_1',
+        buyer_id: 'node-1',
+        seller_id: 'node-2',
+        price_paid: 200,
+        status: 'pending',
+        purchased_at: purchasedAt,
+      });
+      mockPrisma.serviceTransaction.findFirst.mockResolvedValue({
+        transaction_id: 'stx-1',
+        purchase_id: 'pur-1',
+        listing_id: 'listing_1',
+        buyer_id: 'node-1',
+        seller_id: 'node-2',
+        price_paid: 200,
+        fee: 10,
+        status: 'pending',
+        escrow_id: 'escrow_pur-1',
+        locked_at: purchasedAt,
+      });
+      mockPrisma.servicePurchase.update.mockResolvedValue({
+        purchase_id: 'pur-1',
+        listing_id: 'listing_1',
+        buyer_id: 'node-1',
+        seller_id: 'node-2',
+        price_paid: 200,
+        status: 'confirmed',
+        purchased_at: purchasedAt,
+        confirmed_at: confirmedAt,
+      });
+      mockPrisma.node.findFirst.mockResolvedValue({ node_id: 'node-2', credit_balance: 100 });
+      mockPrisma.node.update.mockResolvedValue({ node_id: 'node-2', credit_balance: 290 });
+
+      const result = await service.confirmPurchase('node-1', 'pur-1');
+
+      expect(result.transaction_id).toBe('stx-1');
+      expect(result.escrow).toEqual({
+        escrow_id: 'escrow_pur-1',
+        amount: 200,
+        status: 'released',
+        locked_at: purchasedAt.toISOString(),
+        released_at: confirmedAt.toISOString(),
+      });
+      expect(mockPrisma.node.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-2' },
+        data: { credit_balance: { increment: 190 } },
+      });
+      expect(mockPrisma.serviceTransaction.update).toHaveBeenCalledWith({
+        where: { transaction_id: 'stx-1' },
+        data: expect.objectContaining({
+          status: 'completed',
+          released_at: expect.any(Date),
+          completed_at: expect.any(Date),
+        }),
+      });
+    });
+  });
+
+  describe('disputePurchase', () => {
+    it('should return locked escrow details for disputed purchases', async () => {
+      const purchasedAt = new Date('2026-01-02T00:00:00Z');
+      mockPrisma.servicePurchase.findFirst.mockResolvedValue({
+        purchase_id: 'pur-1',
+        listing_id: 'listing_1',
+        buyer_id: 'node-1',
+        seller_id: 'node-2',
+        price_paid: 200,
+        status: 'pending',
+        purchased_at: purchasedAt,
+      });
+      mockPrisma.serviceTransaction.findFirst.mockResolvedValue({
+        transaction_id: 'stx-1',
+        purchase_id: 'pur-1',
+        listing_id: 'listing_1',
+        buyer_id: 'node-1',
+        seller_id: 'node-2',
+        price_paid: 200,
+        fee: 10,
+        status: 'pending',
+        escrow_id: 'escrow_pur-1',
+        locked_at: purchasedAt,
+      });
+
+      const result = await service.disputePurchase('node-1', 'pur-1', 'Service failed');
+
+      expect(result).toEqual({
+        dispute_id: expect.stringMatching(/^dis-/),
+        purchase_id: 'pur-1',
+        transaction_id: 'stx-1',
+        amount: 200,
+        status: 'disputed',
+        escrow: {
+          escrow_id: 'escrow_pur-1',
+          amount: 200,
+          status: 'locked',
+          locked_at: purchasedAt.toISOString(),
+        },
+      });
+      expect(mockPrisma.serviceTransaction.update).toHaveBeenCalledWith({
+        where: { transaction_id: 'stx-1' },
+        data: { status: 'disputed' },
+      });
+    });
+  });
+
+  describe('getTransaction', () => {
+    it('should expose transaction aliases and escrow detail', async () => {
+      const lockedAt = new Date('2026-01-02T00:00:00Z');
+      const releasedAt = new Date('2026-01-03T00:00:00Z');
+      const completedAt = new Date('2026-01-03T00:00:00Z');
+      mockPrisma.serviceTransaction.findFirst.mockResolvedValue({
+        transaction_id: 'tx-1',
+        purchase_id: 'pur-1',
+        buyer_id: 'node-1',
+        seller_id: 'node-2',
+        listing_id: 'listing_1',
+        price_paid: 200,
+        fee: 10,
+        status: 'completed',
+        escrow_id: 'escrow_tx-1',
+        locked_at: lockedAt,
+        released_at: releasedAt,
+        completed_at: completedAt,
+      });
+
+      const result = await service.getTransaction('node-1', 'tx-1');
+
+      expect(result).toEqual({
+        transaction_id: 'tx-1',
+        purchase_id: 'pur-1',
+        buyer_id: 'node-1',
+        seller_id: 'node-2',
+        listing_id: 'listing_1',
+        price_paid: 200,
+        amount: 200,
+        fee: 10,
+        platform_fee: 10,
+        seller_revenue: 190,
+        status: 'completed',
+        escrow: {
+          escrow_id: 'escrow_tx-1',
+          amount: 200,
+          status: 'released',
+          locked_at: lockedAt.toISOString(),
+          released_at: releasedAt.toISOString(),
+        },
+        created_at: lockedAt.toISOString(),
+        completed_at: completedAt.toISOString(),
+      });
+    });
+  });
+
+  describe('getTransaction', () => {
+    it('should return detail contract fields including escrow and seller revenue', async () => {
+      const lockedAt = new Date('2026-01-02T00:00:00Z');
+      mockPrisma.serviceTransaction.findFirst.mockResolvedValue({
+        transaction_id: 'stx-1',
+        purchase_id: 'pur-1',
+        listing_id: 'listing_1',
+        buyer_id: 'node-1',
+        seller_id: 'node-2',
+        price_paid: 200,
+        fee: 10,
+        status: 'pending',
+        escrow_id: 'escrow_pur-1',
+        locked_at: lockedAt,
+        released_at: null,
+        completed_at: null,
+      });
+
+      const result = await service.getTransaction('node-1', 'stx-1');
+
+      expect(result).toMatchObject({
+        transaction_id: 'stx-1',
+        purchase_id: 'pur-1',
+        amount: 200,
+        platform_fee: 10,
+        seller_revenue: 190,
+        status: 'pending',
+        escrow: {
+          escrow_id: 'escrow_pur-1',
+          amount: 200,
+          status: 'locked',
+          locked_at: lockedAt.toISOString(),
+        },
+      });
     });
   });
 

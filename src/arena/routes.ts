@@ -28,7 +28,7 @@ export async function arenaRoutes(
       body.end_date,
       app.prisma,
     );
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, season: result, data: result });
   });
 
   // Join matchmaking queue
@@ -44,7 +44,7 @@ export async function arenaRoutes(
       arenaState,
       app.prisma,
     );
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, ...result, data: result });
   });
 
   // Leave matchmaking
@@ -55,7 +55,7 @@ export async function arenaRoutes(
     const auth = request.auth!;
     const { seasonId } = request.params as { seasonId: string };
     await arenaService.leaveMatchmaking(seasonId, auth.node_id, arenaState);
-    return reply.send({ success: true, data: { season_id: seasonId } });
+    return reply.send({ success: true, status: 'left', season_id: seasonId, data: { season_id: seasonId } });
   });
 
   // Get matchmaking status
@@ -70,7 +70,7 @@ export async function arenaRoutes(
       auth.node_id,
       arenaState,
     );
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 
   // Challenge
@@ -89,7 +89,7 @@ export async function arenaRoutes(
       body.season_id,
       app.prisma,
     );
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, battle: result, data: result });
   });
 
   // List matches
@@ -111,6 +111,8 @@ export async function arenaRoutes(
     );
     return reply.send({
       success: true,
+      battles: result.items,
+      total: result.total,
       data: result.items,
       meta: { total: result.total },
     });
@@ -132,7 +134,7 @@ export async function arenaRoutes(
     if (!match) {
       return reply.status(404).send({ success: false, error: 'NOT_FOUND', message: 'Match not found' });
     }
-    return reply.send({ success: true, data: match });
+    return reply.send({ success: true, battle: match, data: match });
   });
 
   // Submit match result
@@ -151,7 +153,7 @@ export async function arenaRoutes(
       body.scores,
       app.prisma,
     );
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, battle: result, data: result });
   });
 
   // Get rankings
@@ -160,7 +162,7 @@ export async function arenaRoutes(
   }, async (request, reply) => {
     const { seasonId } = request.params as { seasonId: string };
     const result = await arenaService.getRankings(seasonId, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, season: seasonId, leaderboard: result, total_participants: result.length, data: result });
   });
 
   // Get season
@@ -169,7 +171,7 @@ export async function arenaRoutes(
   }, async (request, reply) => {
     const { seasonId } = request.params as { seasonId: string };
     const result = await arenaService.getSeason(seasonId, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, season: result, data: result });
   });
 
   // List seasons
@@ -182,6 +184,6 @@ export async function arenaRoutes(
       limit ? Number(limit) : 20,
       app.prisma,
     );
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, seasons: result, total: result.length, data: result });
   });
 }

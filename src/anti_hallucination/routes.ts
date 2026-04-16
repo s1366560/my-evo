@@ -283,7 +283,7 @@ export async function antiHallucinationRoutes(
       body.language,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, validation: result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -313,7 +313,7 @@ export async function antiHallucinationRoutes(
       body.asset_id,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, detection: result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -336,7 +336,7 @@ export async function antiHallucinationRoutes(
       assetId: getSingleQueryValue(asset_id, 'asset_id'),
     });
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -346,7 +346,7 @@ export async function antiHallucinationRoutes(
     schema: { tags: ['AntiHallucination'] },
   }, async (_request, reply) => {
     const result = antiHallucinationService.listForbiddenPatterns();
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, patterns: result, total: result.length, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -356,7 +356,7 @@ export async function antiHallucinationRoutes(
     schema: { tags: ['AntiHallucination'] },
   }, async (_request, reply) => {
     const result = await antiHallucinationService.getCheckStats();
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -380,7 +380,7 @@ export async function antiHallucinationRoutes(
       });
     }
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, check: result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -403,7 +403,7 @@ export async function antiHallucinationRoutes(
       parsedOffset,
     );
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, checks: result.items, total: result.total, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -423,7 +423,7 @@ export async function antiHallucinationRoutes(
       parsedOffset,
     );
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, anchors: result.items, total: result.total, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -466,7 +466,7 @@ export async function antiHallucinationRoutes(
       expiresAt,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, anchor: result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -497,7 +497,7 @@ export async function antiHallucinationRoutes(
       parsedOffset,
     );
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, nodes: result.items, total: result.total, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -518,7 +518,7 @@ export async function antiHallucinationRoutes(
       });
     }
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, node: result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -553,7 +553,7 @@ export async function antiHallucinationRoutes(
       body.metadata,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, node: result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -580,7 +580,7 @@ export async function antiHallucinationRoutes(
       parsedOffset,
     );
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, edges: result.items, total: result.total, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -615,7 +615,7 @@ export async function antiHallucinationRoutes(
       body.weight,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, edge: result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -657,6 +657,6 @@ export async function antiHallucinationRoutes(
       });
     }
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, chain: result, data: result });
   });
 }

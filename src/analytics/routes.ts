@@ -8,6 +8,8 @@ import {
 } from '../shared/constants';
 import { ForbiddenError, ValidationError } from '../shared/errors';
 import * as analyticsService from './service';
+import * as gdiTrends from './gdi-trends';
+import * as forecasting from './forecasting';
 import type { TimelineEventType } from '../shared/types';
 
 function ensureNodeSecretAuth(
@@ -64,6 +66,76 @@ function parseNonNegativeInteger(
 }
 
 export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/gdi/trend/:assetId', {
+    schema: { tags: ['Analytics'] },
+  }, async (request, reply) => {
+    const { assetId } = request.params as { assetId: string };
+    const { period } = request.query as Record<string, string | undefined>;
+    const parsedPeriod = (period ?? '30d') as '7d' | '14d' | '30d' | '90d';
+
+    const result = await gdiTrends.calculateGDITrend(assetId, parsedPeriod);
+
+    return reply.send({
+      success: true,
+      asset_id: assetId,
+      period: result.period,
+      trend: result.trend,
+      slope: result.slope,
+      volatility: result.volatility,
+      points: result.trendPoints,
+      data: result,
+    });
+  });
+
+  app.get('/gdi/history/:assetId', {
+    schema: { tags: ['Analytics'] },
+  }, async (request, reply) => {
+    const { assetId } = request.params as { assetId: string };
+    const { limit } = request.query as Record<string, unknown>;
+    const parsedLimit = parseNonNegativeInteger(limit, 'limit', 90, 365);
+
+    const result = await gdiTrends.getGDIHistory(assetId, parsedLimit);
+
+    return reply.send({
+      success: true,
+      asset_id: assetId,
+      history: result,
+      total: result.length,
+      data: result,
+    });
+  });
+
+  app.get('/gdi/benchmarks/:assetId', {
+    schema: { tags: ['Analytics'] },
+  }, async (request, reply) => {
+    const { assetId } = request.params as { assetId: string };
+
+    const result = await gdiTrends.compareWithBenchmarks(assetId);
+
+    return reply.send({
+      success: true,
+      asset_id: assetId,
+      benchmark: result,
+      data: result,
+    });
+  });
+
+  app.get('/gdi/improvement-areas/:assetId', {
+    schema: { tags: ['Analytics'] },
+  }, async (request, reply) => {
+    const { assetId } = request.params as { assetId: string };
+
+    const result = await gdiTrends.identifyImprovementAreas(assetId);
+
+    return reply.send({
+      success: true,
+      asset_id: assetId,
+      areas: result,
+      total: result.length,
+      data: result,
+    });
+  });
+
   app.get('/drift/:nodeId', {
     schema: { tags: ['Analytics'] },
     preHandler: [requireNodeSecretAuth()],
@@ -142,9 +214,17 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { assetId } = request.params as { assetId: string };
 
-    const result = await analyticsService.getGdiForecast(assetId, app.prisma);
+    const result = await forecasting.predictGDIScore(assetId);
 
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      asset_id: assetId,
+      current_gdi: result.currentScore,
+      predicted_gdi: result.predictedScore,
+      trend: result.trend,
+      confidence: result.confidence,
+      data: result,
+    });
   });
 
   app.get('/alerts', {

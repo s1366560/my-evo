@@ -59,5 +59,28 @@ describe('Reputation routes', () => {
     expect(mockGetScore).toHaveBeenCalledWith('node-1', prisma);
     expect(mockGetHistory).toHaveBeenCalledWith('node-1', 5, 2, prisma);
     expect(mockGetLeaderboard).toHaveBeenCalledWith(7, 3, prisma);
+    expect(JSON.parse(scoreRes.payload)).toEqual({
+      success: true,
+      node_id: 'node-1',
+      score: 60,
+      data: { node_id: 'node-1', score: 60 },
+    });
+    expect(JSON.parse(historyRes.payload)).toEqual({
+      success: true,
+      history: [],
+      total: 0,
+      data: [],
+      meta: {
+        total: 0,
+        page: 1,
+        limit: 5,
+      },
+    });
+    expect(JSON.parse(leaderboardRes.payload)).toEqual({
+      success: true,
+      leaderboard: [],
+      total: 0,
+      data: [],
+    });
   });
 });

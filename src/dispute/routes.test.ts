@@ -94,6 +94,11 @@ describe('Dispute routes', () => {
       related_transaction_id: 'txn-1',
       filing_fee: undefined,
     }));
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      dispute: { dispute_id: 'dsp-created' },
+      data: { dispute_id: 'dsp-created' },
+    });
   });
 
   it('rejects API keys from filing disputes', async () => {
@@ -141,6 +146,11 @@ describe('Dispute routes', () => {
       'dsp-1',
       { node_id: 'node-1', trust_level: 'trusted', auth_type: 'session' },
     );
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      dispute: { dispute_id: 'dsp-1' },
+      data: { dispute_id: 'dsp-1' },
+    });
   });
 
   it('passes auth scope to appeal list lookups', async () => {
@@ -154,6 +164,12 @@ describe('Dispute routes', () => {
       'dsp-1',
       { node_id: 'node-1', trust_level: 'trusted', auth_type: 'session' },
     );
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      appeals: [{ appeal_id: 'apl-1' }],
+      total: 1,
+      data: [{ appeal_id: 'apl-1' }],
+    });
   });
 
   it('rejects malformed pagination values', async () => {
@@ -197,6 +213,12 @@ describe('Dispute routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockSelectAndAssignArbitrators).toHaveBeenCalledWith('dsp-1', 'node-1');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      dispute_id: 'dsp-1',
+      arbitrators: ['arb-1', 'arb-2', 'arb-3'],
+      data: { dispute_id: 'dsp-1', arbitrators: ['arb-1', 'arb-2', 'arb-3'] },
+    });
   });
 
   it('defaults manual rulings to resolved status when none is provided', async () => {
@@ -210,6 +232,12 @@ describe('Dispute routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockIssueRuling).toHaveBeenCalledWith('dsp-1', { verdict: 'plaintiff_wins' }, 'resolved', 'node-1');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      dispute: { dispute_id: 'dsp-1', status: 'resolved' },
+      ruling: null,
+      data: { dispute_id: 'dsp-1', status: 'resolved' },
+    });
   });
 
   it('rejects non-object ruling payloads', async () => {
@@ -268,6 +296,17 @@ describe('Dispute routes', () => {
     expect(processResponse.statusCode).toBe(200);
     expect(mockReviewAppeal).toHaveBeenCalledWith('apl-1', 'node-1');
     expect(mockProcessAppealDecision).toHaveBeenCalledWith('apl-1', 'node-1');
+    expect(JSON.parse(reviewResponse.payload)).toEqual({
+      success: true,
+      appeal: { appeal_id: 'apl-1', accepted: true, escalated: true },
+      data: { appeal_id: 'apl-1', accepted: true, escalated: true },
+    });
+    expect(JSON.parse(processResponse.payload)).toEqual({
+      success: true,
+      appeal_id: 'apl-1',
+      processed: true,
+      data: { appeal_id: 'apl-1', processed: true },
+    });
   });
 
   it('rejects API keys from filing appeals', async () => {
@@ -299,5 +338,38 @@ describe('Dispute routes', () => {
     expect(autoRulingResponse.statusCode).toBe(200);
     expect(mockEscalateDisputeToCouncil).toHaveBeenCalledWith('dsp-1', 'node-1');
     expect(mockAutoGenerateRuling).toHaveBeenCalledWith('dsp-1', 'node-1');
+    expect(JSON.parse(escalateResponse.payload)).toEqual({
+      success: true,
+      escalation: { council_session_id: 'cns-1' },
+      data: { council_session_id: 'cns-1' },
+    });
+    expect(JSON.parse(autoRulingResponse.payload)).toEqual({
+      success: true,
+      ruling: { ruling_id: 'rul-1', dispute_id: 'dsp-1' },
+      data: { ruling_id: 'rul-1', dispute_id: 'dsp-1' },
+    });
+  });
+
+  it('exposes top-level dispute list aliases', async () => {
+    mockListDisputes.mockResolvedValue({
+      items: [{ dispute_id: 'dsp-1', status: 'filed' }],
+      total: 1,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v2/disputes',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      disputes: [{ dispute_id: 'dsp-1', status: 'filed' }],
+      total: 1,
+      data: {
+        items: [{ dispute_id: 'dsp-1', status: 'filed' }],
+        total: 1,
+      },
+    });
   });
 });

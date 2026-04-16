@@ -22,6 +22,21 @@ export async function monitoringRoutes(
     return reply.status(statusCode).send({ success: true, data: result });
   });
 
+  app.get('/dashboard/metrics', {
+    schema: { tags: ['Monitoring'] },
+  }, async (_request, reply) => {
+    const result = await monitoringService.getDashboardMetrics(
+      monitoringState,
+      app.prisma,
+    );
+
+    return reply.send({
+      ...result,
+      success: true,
+      data: result,
+    });
+  });
+
   app.get('/metrics', {
     schema: { tags: ['Monitoring'] },
   }, async (request, reply) => {
@@ -48,6 +63,23 @@ export async function monitoringRoutes(
       limit ? Number(limit) : 50,
     );
 
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      alerts: result,
+      total: result.length,
+      data: result,
+    });
+  });
+
+  app.get('/alerts/stats', {
+    schema: { tags: ['Monitoring'] },
+  }, async (_request, reply) => {
+    const result = await monitoringService.getAlertStats(monitoringState);
+
+    return reply.send({
+      success: true,
+      stats: result,
+      data: result,
+    });
   });
 }

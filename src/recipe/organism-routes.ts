@@ -7,7 +7,7 @@ export async function organismRoutes(app: FastifyInstance): Promise<void> {
   }, async (request) => {
     const { organismId } = request.params as { organismId: string };
     const organism = await service.getOrganism(organismId);
-    return { success: true, data: organism };
+    return { success: true, organism, data: organism };
   });
 
   app.get('/:organismId/progress', {
@@ -23,6 +23,14 @@ export async function organismRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       success: true,
+      organism_id: organism.organism_id,
+      recipe_id: organism.recipe_id,
+      status: organism.status,
+      genes_expressed: genesExpressed,
+      genes_total_count: genesTotalCount,
+      current_position: organism.current_position,
+      progress_percent: progress,
+      updated_at: organism.updated_at,
       data: {
         organism_id: organism.organism_id,
         recipe_id: organism.recipe_id,

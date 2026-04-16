@@ -9,6 +9,9 @@ export interface SubscriptionInfo {
   node_id: string;
   plan: string;
   billing_cycle: string;
+  scheduled_plan?: string;
+  scheduled_billing_cycle?: string;
+  scheduled_change_at?: string;
   status: SubscriptionStatus;
   started_at: string;
   current_period_start: string;
@@ -123,6 +126,116 @@ function getPlanCharge(planId: string, billingCycle: string): number {
     : plan.price_monthly_credits;
 }
 
+function getPlanRank(planId: string): number {
+  if (planId === 'ultra') return 2;
+  if (planId === 'premium') return 1;
+  return 0;
+}
+
+function getNextPeriodEnd(start: Date, billingCycle: string): Date {
+  const periodEnd = new Date(start);
+  if (billingCycle === 'annual') {
+    periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+  } else {
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
+  }
+  return periodEnd;
+}
+
+async function applyScheduledDowngradeIfDue(
+  subscription: {
+    node_id: string;
+    plan: string;
+    billing_cycle: string;
+    current_period_end: Date;
+    scheduled_plan?: string | null;
+    scheduled_billing_cycle?: string | null;
+    scheduled_change_at?: Date | null;
+  },
+): Promise<void> {
+  if (!subscription.scheduled_plan || !subscription.scheduled_change_at) {
+    return;
+  }
+
+  const now = new Date();
+  if (now < new Date(subscription.scheduled_change_at)) {
+    return;
+  }
+
+  const nextCycle = subscription.scheduled_billing_cycle ?? subscription.billing_cycle;
+  const nextPeriodStart = new Date(subscription.current_period_end);
+  const nextPeriodEnd = getNextPeriodEnd(nextPeriodStart, nextCycle);
+
+  await prisma.subscription.update({
+    where: { node_id: subscription.node_id },
+    data: {
+      plan: subscription.scheduled_plan,
+      billing_cycle: nextCycle,
+      current_period_start: nextPeriodStart,
+      current_period_end: nextPeriodEnd,
+      scheduled_plan: null,
+      scheduled_billing_cycle: null,
+      scheduled_change_at: null,
+    } as Prisma.SubscriptionUpdateInput,
+  });
+}
+
+async function normalizeSubscriptionLifecycle(
+  subscription: {
+    node_id: string;
+    plan: string;
+    billing_cycle: string;
+    current_period_end: Date;
+    scheduled_plan?: string | null;
+    scheduled_billing_cycle?: string | null;
+    scheduled_change_at?: Date | null;
+    status: string;
+    auto_renew: boolean;
+  },
+) {
+  await applyScheduledDowngradeIfDue(subscription);
+
+  let refreshed = await prisma.subscription.findUnique({
+    where: { node_id: subscription.node_id },
+  });
+
+  if (!refreshed) {
+    return null;
+  }
+
+  const now = new Date();
+
+  if (refreshed.status === 'grace_period') {
+    const graceEnd = new Date(refreshed.current_period_end);
+    graceEnd.setDate(graceEnd.getDate() + GRACE_PERIOD_DAYS);
+    if (now > graceEnd) {
+      await prisma.subscription.update({
+        where: { node_id: subscription.node_id },
+        data: { status: 'expired' },
+      });
+      refreshed = await prisma.subscription.findUnique({
+        where: { node_id: subscription.node_id },
+      });
+    }
+    return refreshed;
+  }
+
+  if (refreshed.status === 'active' && !refreshed.auto_renew) {
+    const periodEnd = new Date(refreshed.current_period_end);
+    if (now >= periodEnd) {
+      await prisma.subscription.update({
+        where: { node_id: subscription.node_id },
+        data: { status: 'grace_period' },
+      });
+      refreshed = await prisma.subscription.findUnique({
+        where: { node_id: subscription.node_id },
+      });
+    }
+  }
+
+  return refreshed;
+}
+
 export async function activateSubscription(
   nodeId: string,
   planId: string,
@@ -138,12 +251,7 @@ export async function activateSubscription(
   }
 
   const now = new Date();
-  const periodEnd = new Date(now);
-  if (billingCycle === 'annual') {
-    periodEnd.setFullYear(periodEnd.getFullYear() + 1);
-  } else {
-    periodEnd.setMonth(periodEnd.getMonth() + 1);
-  }
+  const periodEnd = getNextPeriodEnd(now, billingCycle);
 
   const amount = getPlanCharge(planId, billingCycle);
   const subscription = await prisma.$transaction(async (tx) => {
@@ -172,7 +280,29 @@ export async function activateSubscription(
     ) {
       return tx.subscription.update({
         where: { node_id: nodeId },
-        data: { auto_renew: autoRenew },
+        data: {
+          auto_renew: autoRenew,
+          scheduled_plan: null,
+          scheduled_billing_cycle: null,
+          scheduled_change_at: null,
+        } as Prisma.SubscriptionUpdateInput,
+      });
+    }
+
+    if (
+      existing
+      && existing.status === 'active'
+      && new Date(existing.current_period_end) > now
+      && getPlanRank(planId) < getPlanRank(existing.plan)
+    ) {
+      return tx.subscription.update({
+        where: { node_id: nodeId },
+        data: {
+          auto_renew: autoRenew,
+          scheduled_plan: planId,
+          scheduled_billing_cycle: billingCycle,
+          scheduled_change_at: existing.current_period_end,
+        } as Prisma.SubscriptionUpdateInput,
       });
     }
 
@@ -198,8 +328,11 @@ export async function activateSubscription(
             current_period_start: now,
             current_period_end: periodEnd,
             auto_renew: autoRenew,
+            scheduled_plan: null,
+            scheduled_billing_cycle: null,
+            scheduled_change_at: null,
             ...(amount > 0 ? { total_paid: { increment: amount } } : {}),
-          },
+          } as Prisma.SubscriptionUpdateManyMutationInput,
         });
 
         if (transition.count === 0) {
@@ -236,8 +369,11 @@ export async function activateSubscription(
           current_period_start: now,
           current_period_end: periodEnd,
           auto_renew: autoRenew,
+          scheduled_plan: null,
+          scheduled_billing_cycle: null,
+          scheduled_change_at: null,
           total_paid: amount,
-        },
+        } as Prisma.SubscriptionCreateInput,
       });
 
     if (shouldCharge) {
@@ -291,6 +427,9 @@ export async function cancelSubscription(nodeId: string): Promise<void> {
     data: {
       status: subscription.status,
       auto_renew: false,
+      scheduled_plan: null,
+      scheduled_billing_cycle: null,
+      scheduled_change_at: null,
     },
   });
 }
@@ -439,7 +578,11 @@ export async function getSubscriptionStatus(nodeId: string): Promise<Subscriptio
 
   if (!subscription) return null;
 
-  return mapToInfo(subscription);
+  const refreshed = await normalizeSubscriptionLifecycle(subscription);
+
+  if (!refreshed) return null;
+
+  return mapToInfo(refreshed);
 }
 
 export async function checkGracePeriod(nodeId: string): Promise<boolean> {
@@ -451,32 +594,10 @@ export async function checkGracePeriod(nodeId: string): Promise<boolean> {
 
   if (!subscription) return false;
 
-  if (subscription.status === 'grace_period') {
-    const graceEnd = new Date(subscription.current_period_end);
-    graceEnd.setDate(graceEnd.getDate() + GRACE_PERIOD_DAYS);
-    if (new Date() > graceEnd) {
-      await prisma.subscription.update({
-        where: { node_id: nodeId },
-        data: { status: 'expired' },
-      });
-      return false;
-    }
-    return true;
-  }
+  const refreshed = await normalizeSubscriptionLifecycle(subscription);
 
-  if (subscription.status === 'active' && !subscription.auto_renew) {
-    const periodEnd = new Date(subscription.current_period_end);
-    const now = new Date();
-    if (now >= periodEnd) {
-      await prisma.subscription.update({
-        where: { node_id: nodeId },
-        data: { status: 'grace_period' },
-      });
-      return true;
-    }
-  }
-
-  return false;
+  if (!refreshed) return false;
+  return refreshed.status === 'grace_period';
 }
 
 function mapToInfo(
@@ -485,6 +606,9 @@ function mapToInfo(
     node_id: string;
     plan: string;
     billing_cycle: string;
+    scheduled_plan?: string | null;
+    scheduled_billing_cycle?: string | null;
+    scheduled_change_at?: Date | null;
     status: string;
     started_at: Date;
     current_period_start: Date;
@@ -498,6 +622,9 @@ function mapToInfo(
     node_id: s.node_id,
     plan: s.plan,
     billing_cycle: s.billing_cycle,
+    ...(s.scheduled_plan ? { scheduled_plan: s.scheduled_plan } : {}),
+    ...(s.scheduled_billing_cycle ? { scheduled_billing_cycle: s.scheduled_billing_cycle } : {}),
+    ...(s.scheduled_change_at ? { scheduled_change_at: s.scheduled_change_at.toISOString() } : {}),
     status: s.status as SubscriptionStatus,
     started_at: s.started_at.toISOString(),
     current_period_start: s.current_period_start.toISOString(),

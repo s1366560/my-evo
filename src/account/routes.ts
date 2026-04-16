@@ -31,6 +31,20 @@ function ensureNodeSecretOnboardingAuth(
 
 export async function accountRoutes(app: FastifyInstance): Promise<void> {
   const prisma = app.prisma;
+  const sendOnboardingJourney = async (
+    auth: NonNullable<import('fastify').FastifyRequest['auth']>,
+    requestedAgentId: string | undefined,
+  ) => {
+    ensureNodeSecretOnboardingAuth(auth);
+    const agentId = await resolveAuthorizedNodeId(app, auth, {
+      requestedNodeId: requestedAgentId,
+      missingNodeMessage: 'No accessible agent found for current credentials',
+      unauthorizedMessage: 'Cannot access onboarding for another agent',
+    });
+
+    const result = await accountService.getOnboardingJourney(agentId, prisma);
+    return buildOnboardingJourneyPayload(result);
+  };
 
   app.post('/register', {
     schema: { tags: ['Account'] },
@@ -47,7 +61,12 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30, // 30 days
     });
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({
+      success: true,
+      token: result.token,
+      user: result.user,
+      data: result,
+    });
   });
 
   app.post('/login', {
@@ -65,7 +84,12 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30, // 30 days
     });
-    return reply.status(200).send({ success: true, data: result });
+    return reply.status(200).send({
+      success: true,
+      token: result.token,
+      user: result.user,
+      data: result,
+    });
   });
 
   app.post('/api-keys', {
@@ -92,7 +116,11 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       prisma,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({
+      success: true,
+      ...result,
+      data: result,
+    });
   });
 
   app.get('/api-keys', {
@@ -149,17 +177,17 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     preHandler: [requireNodeSecretAuth()],
   }, async (request, reply) => {
     const auth = request.auth!;
-    ensureNodeSecretOnboardingAuth(auth);
     const { agent_id } = request.query as Record<string, string | undefined>;
-    const agentId = await resolveAuthorizedNodeId(app, auth, {
-      requestedNodeId: agent_id,
-      missingNodeMessage: 'No accessible agent found for current credentials',
-      unauthorizedMessage: 'Cannot access onboarding for another agent',
-    });
+    return reply.send(await sendOnboardingJourney(auth, agent_id));
+  });
 
-    const result = await accountService.getOnboardingJourney(agentId, prisma);
-
-    return reply.send(buildOnboardingJourneyPayload(result));
+  app.get('/onboarding/agent', {
+    schema: { tags: ['Account'] },
+    preHandler: [requireNodeSecretAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { agent_id } = request.query as Record<string, string | undefined>;
+    return reply.send(await sendOnboardingJourney(auth, agent_id));
   });
 
   app.post('/onboarding/complete', {
@@ -189,6 +217,39 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       body.step,
       prisma,
     );
+    const result = await accountService.getOnboardingJourney(agentId, prisma);
+
+    return reply.send({
+      ...buildOnboardingJourneyPayload(result),
+      status: 'ok',
+      completed_step: body.step,
+      next_step: result.next_step?.step ?? null,
+    });
+  });
+
+  app.post('/onboarding/agent/complete', {
+    schema: { tags: ['Account'] },
+    preHandler: [requireNodeSecretAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    ensureNodeSecretOnboardingAuth(auth);
+    const body = request.body as {
+      agent_id?: string;
+      step: number;
+    };
+
+    if (!body.step || !Number.isInteger(body.step) || body.step < 1) {
+      throw new ValidationError('Valid step number is required');
+    }
+
+    accountService.getOnboardingStepDetail(body.step);
+    const agentId = await resolveAuthorizedNodeId(app, auth, {
+      requestedNodeId: body.agent_id,
+      missingNodeMessage: 'No accessible agent found for current credentials',
+      unauthorizedMessage: 'Cannot modify onboarding for another agent',
+    });
+
+    await accountService.completeOnboardingStep(agentId, body.step, prisma);
     const result = await accountService.getOnboardingJourney(agentId, prisma);
 
     return reply.send({
@@ -254,6 +315,50 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  app.post('/onboarding/agent/reset', {
+    schema: { tags: ['Account'] },
+    preHandler: [requireNodeSecretAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    ensureNodeSecretOnboardingAuth(auth);
+    const body = request.body as {
+      agent_id?: string;
+    };
+    const agentId = await resolveAuthorizedNodeId(app, auth, {
+      requestedNodeId: body.agent_id,
+      missingNodeMessage: 'No accessible agent found for current credentials',
+      unauthorizedMessage: 'Cannot modify onboarding for another agent',
+    });
+
+    await accountService.resetOnboarding(agentId, prisma);
+    const result = await accountService.getOnboardingJourney(agentId, prisma);
+
+    return reply.send({
+      ...buildOnboardingJourneyPayload(result),
+      status: 'ok',
+      progress_percentage: result.progress_percentage,
+    });
+  });
+
+  app.get('/onboarding/agent/step/:step', {
+    schema: { tags: ['Account'] },
+    preHandler: [requireNodeSecretAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    ensureNodeSecretOnboardingAuth(auth);
+    const { step } = request.params as { step: string };
+    const parsedStep = Number.parseInt(step, 10);
+    if (!Number.isInteger(parsedStep) || parsedStep < 1) {
+      throw new ValidationError('Valid step number is required');
+    }
+    const detail = accountService.getOnboardingStepDetail(parsedStep);
+    return reply.send({
+      success: true,
+      step: detail,
+      data: detail,
+    });
+  });
+
   app.get('/agents', {
     schema: { tags: ['Account'] },
     preHandler: [requireAuth()],
@@ -264,6 +369,6 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const nodes = await accountService.getUserNodes(auth.userId, prisma);
-    return reply.send({ success: true, data: nodes });
+    return reply.send({ success: true, agents: nodes, total: nodes.length, data: nodes });
   });
 }

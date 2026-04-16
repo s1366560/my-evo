@@ -61,6 +61,8 @@ const mockFileDispute = jest.fn();
 const mockGetDispute = jest.fn();
 const mockListDisputes = jest.fn();
 const mockSendDm = jest.fn();
+const mockRegisterNode = jest.fn();
+const mockHeartbeat = jest.fn();
 const mockGetInbox = jest.fn();
 const mockGetSentDms = jest.fn();
 const mockMarkInboxRead = jest.fn();
@@ -218,6 +220,8 @@ jest.mock('../recipe/service', () => ({
 
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
+  registerNode: (...args: unknown[]) => mockRegisterNode(...args),
+  heartbeat: (...args: unknown[]) => mockHeartbeat(...args),
   listAgentProfiles: (...args: unknown[]) => mockListAgentProfiles(...args),
   getAgentProfile: (...args: unknown[]) => mockGetAgentProfile(...args),
   updateAgentProfile: (...args: unknown[]) => mockUpdateAgentProfile(...args),
@@ -2057,6 +2061,37 @@ describe('A2A direct message routes', () => {
 
     expect(res.statusCode).toBe(200);
     expect(mockSendDm).toHaveBeenCalledWith(mockNodeId, 'node-target', 'Hello there');
+    expect(JSON.parse(res.payload)).toMatchObject({
+      dm_id: 'dm-1',
+      message_id: 'dm-1',
+      recipient_id: 'node-target',
+      status: 'sent',
+      message: 'Message delivered to node-target',
+      timestamp: expect.any(String),
+    });
+  });
+
+  it('accepts the documented to alias when sending a direct message', async () => {
+    mockSendDm.mockResolvedValue({
+      dm_id: 'dm-2',
+      from_id: mockNodeId,
+      to_id: 'node-target',
+      created_at: freshTimestamp(),
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/a2a/dm',
+      headers: { authorization: 'Bearer test' },
+      payload: {
+        sender_id: mockNodeId,
+        to: 'node-target',
+        content: 'Hello there',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockSendDm).toHaveBeenCalledWith(mockNodeId, 'node-target', 'Hello there');
   });
 
   it('rejects a mismatched sender_id for direct messages', async () => {
@@ -2077,7 +2112,7 @@ describe('A2A direct message routes', () => {
 
   it('supports unread alias on inbox responses and returns unread meta', async () => {
     mockGetInbox.mockResolvedValue({
-      messages: [{ dm_id: 'dm-1', from_id: 'node-2', content: 'Ping', read: false }],
+      messages: [{ dm_id: 'dm-1', from_id: 'node-2', content: 'Ping', read: false, created_at: freshTimestamp() }],
       total: 3,
       unread: 2,
     });
@@ -2094,15 +2129,26 @@ describe('A2A direct message routes', () => {
       limit: 4,
       offset: 1,
     });
-    expect(JSON.parse(res.payload).meta).toEqual({
+    expect(JSON.parse(res.payload)).toMatchObject({
+      messages: [{
+        dm_id: 'dm-1',
+        message_id: 'dm-1',
+        sender_id: 'node-2',
+        from_node_id: 'node-2',
+        timestamp: expect.any(String),
+      }],
+      unread_count: 2,
       total: 3,
-      unread: 2,
+      meta: {
+        total: 3,
+        unread: 2,
+      },
     });
   });
 
   it('lists sent direct messages', async () => {
     mockGetSentDms.mockResolvedValue({
-      messages: [{ dm_id: 'dm-2', to_id: 'node-target', content: 'Sent message', read: true }],
+      messages: [{ dm_id: 'dm-2', to_id: 'node-target', content: 'Sent message', read: true, created_at: freshTimestamp() }],
       total: 1,
     });
 
@@ -2116,6 +2162,16 @@ describe('A2A direct message routes', () => {
     expect(mockGetSentDms).toHaveBeenCalledWith(mockNodeId, {
       limit: 5,
       offset: 2,
+    });
+    expect(JSON.parse(res.payload)).toMatchObject({
+      messages: [{
+        dm_id: 'dm-2',
+        message_id: 'dm-2',
+        recipient_id: 'node-target',
+        to_node_id: 'node-target',
+        timestamp: expect.any(String),
+      }],
+      total: 1,
     });
   });
 
@@ -2249,10 +2305,14 @@ describe('A2A directory routes', () => {
       limit: 10,
       offset: 5,
     });
-    expect(JSON.parse(res.payload).meta).toEqual({
+    expect(JSON.parse(res.payload)).toMatchObject({
+      agents: [{ node_id: 'node-1' }],
       total: 1,
-      limit: 10,
-      offset: 5,
+      meta: {
+        total: 1,
+        limit: 10,
+        offset: 5,
+      },
     });
   });
 });
@@ -2295,6 +2355,11 @@ describe('A2A agent profile routes', () => {
 
     expect(res.statusCode).toBe(200);
     expect(mockGetAgentProfile).toHaveBeenCalledWith('node-target');
+    expect(JSON.parse(res.payload)).toMatchObject({
+      node_id: 'node-target',
+      agent: { node_id: 'node-target' },
+      data: { node_id: 'node-target' },
+    });
   });
 
   it('updates the authenticated node profile and accepts specialties alias', async () => {
@@ -3218,5 +3283,141 @@ describe('A2A protocol documentation routes', () => {
         path: expect.any(String),
       }),
     ]));
+  });
+});
+
+describe('A2A hello and heartbeat contract routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    mockNodeId = 'node-test-001';
+    mockAuthType = undefined;
+    mockNodeSecretAuthAllowed = true;
+    app = buildApp();
+    await app.register(a2aRoutes, { prefix: '/a2a' });
+    await app.ready();
+    jest.clearAllMocks();
+    capturedRequest = null;
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('exposes top-level Chapter 3 hello fields alongside wrapped data', async () => {
+    mockRegisterNode.mockResolvedValue({
+      node_id: 'node-123',
+      node_secret: 'a'.repeat(64),
+      claim_code: 'REEF-4X7K',
+      referral_code: 'node-123',
+      status: 'registered',
+      trust_level: 'unverified',
+      credit_balance: 200,
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/a2a/hello',
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'hello',
+        message_id: 'msg_hello_001',
+        sender_id: 'node_temp',
+        timestamp: freshTimestamp(),
+        payload: {
+          model: 'claude-sonnet-4',
+          gene_count: 0,
+          capsule_count: 0,
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    const body = JSON.parse(response.payload);
+    expect(body).toMatchObject({
+      success: true,
+      status: 'acknowledged',
+      your_node_id: 'node-123',
+      node_secret: 'a'.repeat(64),
+      claim_code: 'REEF-4X7K',
+      claim_url: expect.stringContaining('/claim/REEF-4X7K'),
+      credit_balance: 200,
+      survival_status: 'alive',
+      referral_code: 'node-123',
+      recommended_tasks: [],
+      heartbeat_interval_ms: 900000,
+      heartbeat_endpoint: '/a2a/heartbeat',
+      starter_gene_pack: [],
+      hello_rate_limit: 60,
+      identity_doc: '',
+      constitution: '',
+      data: expect.objectContaining({
+        your_node_id: 'node-123',
+        claim_code: 'REEF-4X7K',
+      }),
+    });
+  });
+
+  it('exposes top-level Chapter 3 heartbeat fields alongside wrapped data', async () => {
+    mockHeartbeat.mockResolvedValue({
+      your_node_id: 'node-test-001',
+      next_heartbeat_in_ms: 300000,
+      heartbeat_interval_ms: 300000,
+      network_stats: {
+        total_nodes: 5,
+        alive_nodes: 4,
+        total_genes: 10,
+        total_capsules: 6,
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/a2a/heartbeat',
+      headers: { authorization: 'Bearer node-secret' },
+      payload: {
+        protocol: 'gep-a2a',
+        protocol_version: '1.0.0',
+        message_type: 'heartbeat',
+        message_id: 'msg_heartbeat_001',
+        sender_id: 'node-test-001',
+        timestamp: freshTimestamp(),
+        payload: {
+          sender_id: 'node-test-001',
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.payload);
+    expect(body).toEqual(expect.objectContaining({
+      success: true,
+      status: 'ok',
+      your_node_id: 'node-test-001',
+      next_heartbeat_in_ms: 300000,
+      heartbeat_interval_ms: 300000,
+      available_tasks: [],
+      overdue_tasks: [],
+      peers: [],
+      commitment_updates: { supported: true },
+      server_time: expect.any(String),
+      network_stats: {
+        total_nodes: 5,
+        alive_nodes: 4,
+        total_genes: 10,
+        total_capsules: 6,
+      },
+      data: expect.objectContaining({
+        your_node_id: 'node-test-001',
+        network_stats: {
+          total_nodes: 5,
+          alive_nodes: 4,
+          total_genes: 10,
+          total_capsules: 6,
+        },
+      }),
+    }));
+    expect(mockHeartbeat).toHaveBeenCalledWith('node-test-001', expect.any(Object));
   });
 });

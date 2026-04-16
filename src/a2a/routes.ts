@@ -20,6 +20,7 @@ import { publishAsset } from '../assets/service';
 import type { HelloPayload, HeartbeatPayload } from '../shared/types';
 
 const HUB_NODE_ID = 'evomap-hub-001';
+const HELLO_RATE_LIMIT_PER_HOUR = 60;
 const PUBLISH_MESSAGE_MAX_AGE_MS = 15 * 60 * 1000;
 const PUBLISH_MESSAGE_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 const DISPUTE_LIST_LIMIT_MAX = 100;
@@ -341,18 +342,30 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       node_secret: result.node_secret,
       credit_balance: result.credit_balance,
       trust_level: result.trust_level,
+      survival_status: 'alive' as const,
       hub_node_id: HUB_NODE_ID,
       claim_code: result.claim_code,
       claim_url: `${getConfig().baseUrl}/claim/${result.claim_code}`,
       referral_code: result.referral_code,
+      recommended_tasks: [],
+      network_manifest: {
+        hub_node_id: HUB_NODE_ID,
+        protocol: PROTOCOL_NAME,
+        protocol_version: PROTOCOL_VERSION,
+      },
       heartbeat_interval_ms: HEARTBEAT_INTERVAL_MS,
       heartbeat_endpoint: '/a2a/heartbeat',
+      starter_gene_pack: [],
+      hello_rate_limit: HELLO_RATE_LIMIT_PER_HOUR,
+      identity_doc: '',
+      constitution: '',
       protocol: PROTOCOL_NAME,
       protocol_version: PROTOCOL_VERSION,
     };
 
     void reply.status(201).send({
       success: true,
+      ...response,
       data: response,
     });
   });
@@ -368,6 +381,18 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      status: 'ok' as const,
+      your_node_id: result.your_node_id,
+      next_heartbeat_in_ms: result.next_heartbeat_in_ms,
+      heartbeat_interval_ms: result.heartbeat_interval_ms,
+      available_tasks: [],
+      overdue_tasks: [],
+      peers: [],
+      commitment_updates: { supported: true },
+      server_time: new Date().toISOString(),
+      network_stats: result.network_stats,
+      protocol: PROTOCOL_NAME,
+      protocol_version: PROTOCOL_VERSION,
       data: {
         status: 'ok' as const,
         your_node_id: result.your_node_id,
@@ -599,9 +624,10 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       sender_id?: string;
       recipient_id?: string;
       to_id?: string;
+      to?: string;
       content?: string;
     };
-    const recipientId = body.recipient_id ?? body.to_id;
+    const recipientId = body.recipient_id ?? body.to_id ?? body.to;
 
     if (body.sender_id && body.sender_id !== auth.node_id) {
       throw new ForbiddenError('sender_id must match the authenticated node');
@@ -615,7 +641,18 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
-      data: result,
+      dm_id: result.dm_id,
+      message_id: result.dm_id,
+      recipient_id: result.to_id,
+      timestamp: result.created_at,
+      status: 'sent',
+      message: `Message delivered to ${result.to_id}`,
+      data: {
+        ...result,
+        message_id: result.dm_id,
+        recipient_id: result.to_id,
+        timestamp: result.created_at,
+      },
     });
   });
 
@@ -1489,6 +1526,8 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
     });
     return reply.send({
       success: true,
+      agents: result.agents,
+      total: result.total,
       data: result.agents,
       meta: { total: result.total, limit: result.limit, offset: result.offset },
     });
@@ -1521,7 +1560,7 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const result = await a2aService.getAgentProfile(id);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, agent: result, data: result });
   });
 
   app.put('/agents/:id/profile', {
@@ -1577,9 +1616,20 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       offset: offset ? Number(offset) : undefined,
     });
 
+    const messages = result.messages.map((message) => ({
+      ...message,
+      message_id: message.dm_id,
+      sender_id: message.from_id,
+      from_node_id: message.from_id,
+      timestamp: message.created_at,
+    }));
+
     void reply.send({
       success: true,
-      data: result.messages,
+      messages,
+      unread_count: result.unread,
+      total: result.total,
+      data: messages,
       meta: {
         total: result.total,
         unread: result.unread,
@@ -1841,8 +1891,21 @@ export async function a2aRoutes(app: FastifyInstance): Promise<void> {
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
     });
+    const messages = result.messages.map((message) => ({
+      ...message,
+      message_id: message.dm_id,
+      recipient_id: message.to_id,
+      to_node_id: message.to_id,
+      timestamp: message.created_at,
+    }));
 
-    void reply.send({ success: true, data: result.messages, meta: { total: result.total } });
+    void reply.send({
+      success: true,
+      messages,
+      total: result.total,
+      data: messages,
+      meta: { total: result.total },
+    });
   });
 
   // POST /a2a/dm/inbox/read — mark messages as read

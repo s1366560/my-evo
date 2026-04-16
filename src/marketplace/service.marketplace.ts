@@ -35,6 +35,7 @@ const SERVICE_LICENSE_TYPES = [
   'exclusive',
   'non-exclusive',
 ] as const;
+const SERVICE_LISTING_FEE_CREDITS = 5;
 
 export function setPrisma(client: PrismaClient): void {
   prisma = client;
@@ -81,11 +82,20 @@ export interface ServiceListingDetail extends ServiceListing {
 
 export interface ServicePurchase {
   purchase_id: string;
+  transaction_id?: string;
   listing_id: string;
   buyer_id: string;
   seller_id: string;
   price_paid: number;
+  amount?: number;
   status: string;
+  escrow?: {
+    escrow_id: string;
+    amount: number;
+    status: 'locked' | 'released' | 'refunded';
+    locked_at: string;
+    released_at?: string;
+  };
   purchased_at: string;
   confirmed_at?: string;
   disputed_at?: string;
@@ -98,8 +108,20 @@ export interface ServiceTransaction {
   seller_id: string;
   listing_id: string;
   price_paid: number;
+  amount?: number;
   fee: number;
-  completed_at: string;
+  platform_fee?: number;
+  seller_revenue?: number;
+  status?: 'pending' | 'completed' | 'failed' | 'refunded' | 'disputed';
+  escrow?: {
+    escrow_id: string;
+    amount: number;
+    status: 'locked' | 'released' | 'refunded';
+    locked_at: string;
+    released_at?: string;
+  };
+  created_at?: string;
+  completed_at?: string;
 }
 
 export interface ServiceReview {
@@ -162,6 +184,32 @@ function toServiceListing(listing: {
     license_type: listing.license_type,
     status: listing.status,
     created_at: listing.created_at.toISOString(),
+  };
+}
+
+function buildEscrowStatus(
+  transaction: {
+    escrow_id?: string | null;
+    price_paid: number;
+    status?: string | null;
+    locked_at?: Date | null;
+    released_at?: Date | null;
+  },
+): ServiceTransaction['escrow'] | undefined {
+  if (!transaction.escrow_id || !transaction.locked_at) {
+    return undefined;
+  }
+
+  return {
+    escrow_id: transaction.escrow_id,
+    amount: transaction.price_paid,
+    status: transaction.status === 'refunded'
+      ? 'refunded'
+      : transaction.released_at
+        ? 'released'
+        : 'locked',
+    locked_at: transaction.locked_at.toISOString(),
+    ...(transaction.released_at ? { released_at: transaction.released_at.toISOString() } : {}),
   };
 }
 
@@ -287,21 +335,43 @@ export async function createServiceListing(
   if (!seller) {
     throw new NotFoundError('Seller node', sellerId);
   }
+  if (seller.credit_balance < SERVICE_LISTING_FEE_CREDITS) {
+    throw new InsufficientCreditsError(SERVICE_LISTING_FEE_CREDITS, seller.credit_balance);
+  }
 
   const listingId = `listing_${crypto.randomUUID()}`;
-  const listing = await client.serviceListing.create({
-    data: {
-      listing_id: listingId,
-      seller_id: sellerId,
-      title: input.title.trim(),
-      description: input.description.trim(),
-      category: input.category,
-      tags: input.tags ?? [],
-      price_type: normalizedPriceType,
-      price_credits: input.price_credits ?? 0,
-      license_type: normalizedLicenseType,
-      status: 'active',
-    },
+  const listing = await client.$transaction(async (tx) => {
+    const updatedSeller = await tx.node.update({
+      where: { node_id: sellerId },
+      data: {
+        credit_balance: { decrement: SERVICE_LISTING_FEE_CREDITS },
+      },
+    });
+
+    await tx.creditTransaction.create({
+      data: {
+        node_id: sellerId,
+        amount: -SERVICE_LISTING_FEE_CREDITS,
+        type: 'service_listing_fee',
+        description: `Service listing fee: ${input.title.trim()}`,
+        balance_after: updatedSeller.credit_balance,
+      },
+    });
+
+    return tx.serviceListing.create({
+      data: {
+        listing_id: listingId,
+        seller_id: sellerId,
+        title: input.title.trim(),
+        description: input.description.trim(),
+        category: input.category,
+        tags: input.tags ?? [],
+        price_type: normalizedPriceType,
+        price_credits: input.price_credits ?? 0,
+        license_type: normalizedLicenseType,
+        status: 'active',
+      },
+    });
   });
 
   return toServiceListing(listing);
@@ -329,83 +399,92 @@ export async function purchaseService(
 
   const priceCredits = listing.price_credits;
   const priceType = listing.price_type;
+  const purchaseId = `pur-${crypto.randomUUID()}`;
+  const transactionId = priceType !== 'free' && priceCredits > 0 ? `stx-${crypto.randomUUID()}` : undefined;
+  const fee = priceType !== 'free' && priceCredits > 0 ? Math.ceil(priceCredits * 0.05) : 0;
 
-  // Deduct credits for non-free services
-  if (priceType !== 'free' && priceCredits > 0) {
-    const buyer = await client.node.findFirst({ where: { node_id: buyerId } });
-    if (!buyer) {
-      throw new NotFoundError('Buyer node', buyerId);
-    }
-    if (buyer.credit_balance < priceCredits) {
-      throw new InsufficientCreditsError(priceCredits, buyer.credit_balance);
-    }
+  const purchase = await client.$transaction(async (tx) => {
+    if (priceType !== 'free' && priceCredits > 0) {
+      const buyer = await tx.node.findFirst({ where: { node_id: buyerId } });
+      if (!buyer) {
+        throw new NotFoundError('Buyer node', buyerId);
+      }
+      if (buyer.credit_balance < priceCredits) {
+        throw new InsufficientCreditsError(priceCredits, buyer.credit_balance);
+      }
 
-    const fee = Math.ceil(priceCredits * 0.05);
-    const sellerReceives = priceCredits - fee;
-
-    await client.$transaction([
-      client.node.update({
+      const updatedBuyer = await tx.node.update({
         where: { node_id: buyerId },
         data: { credit_balance: { decrement: priceCredits } },
-      }),
-      client.node.update({
-        where: { node_id: listing.seller_id },
-        data: { credit_balance: { increment: sellerReceives } },
-      }),
-      client.creditTransaction.create({
+      });
+
+      await tx.creditTransaction.create({
         data: {
           node_id: buyerId,
           amount: -priceCredits,
           type: 'service_purchase',
           description: `Purchased service ${listingId}`,
-          balance_after: buyer.credit_balance - priceCredits,
+          balance_after: updatedBuyer.credit_balance,
         },
-      }),
-    ]);
+      });
+    }
 
-    // Record transaction
-    const txId = `stx-${crypto.randomUUID()}`;
-    await client.serviceTransaction.create({
+    const createdPurchase = await tx.servicePurchase.create({
       data: {
-        transaction_id: txId,
-        purchase_id: '', // will update after purchase record
+        purchase_id: purchaseId,
         listing_id: listingId,
         buyer_id: buyerId,
         seller_id: listing.seller_id,
         price_paid: priceCredits,
-        fee,
+        status: 'pending',
       },
     });
-  }
 
-  // Create purchase record
-  const purchaseId = `pur-${crypto.randomUUID()}`;
-  const purchase = await client.servicePurchase.create({
-    data: {
-      purchase_id: purchaseId,
-      listing_id: listingId,
-      buyer_id: buyerId,
-      seller_id: listing.seller_id,
-      price_paid: priceCredits,
-      status: 'pending',
-    },
+    if (transactionId) {
+      await tx.serviceTransaction.create({
+        data: {
+          transaction_id: transactionId,
+          purchase_id: purchaseId,
+          listing_id: listingId,
+          buyer_id: buyerId,
+          seller_id: listing.seller_id,
+          price_paid: priceCredits,
+          fee,
+          status: 'pending',
+          escrow_id: `escrow_${purchaseId}`,
+          locked_at: createdPurchase.purchased_at,
+          completed_at: null,
+        },
+      });
+    }
+
+    if (listing.license_type === 'exclusive') {
+      await tx.serviceListing.update({
+        where: { listing_id: listingId },
+        data: { status: 'sold' },
+      });
+    }
+
+    return createdPurchase;
   });
-
-  // Update transaction with purchase_id
-  if (priceType !== 'free') {
-    await client.serviceTransaction.updateMany({
-      where: { purchase_id: '', buyer_id: buyerId, listing_id: listingId },
-      data: { purchase_id: purchaseId },
-    });
-  }
 
   return {
     purchase_id: purchase.purchase_id,
+    ...(transactionId ? { transaction_id: transactionId } : {}),
     listing_id: purchase.listing_id,
     buyer_id: purchase.buyer_id,
     seller_id: purchase.seller_id,
     price_paid: purchase.price_paid,
+    amount: purchase.price_paid,
     status: purchase.status,
+    ...(transactionId ? {
+      escrow: {
+        escrow_id: `escrow_${purchase.purchase_id}`,
+        amount: purchase.price_paid,
+        status: 'locked' as const,
+        locked_at: purchase.purchased_at.toISOString(),
+      },
+    } : {}),
     purchased_at: purchase.purchased_at.toISOString(),
   };
 }
@@ -691,20 +770,77 @@ export async function confirmPurchase(
     throw new ValidationError('Only pending purchases can be confirmed');
   }
 
-  const updated = await client.servicePurchase.update({
-    where: { purchase_id: purchaseId },
-    data: { status: 'confirmed', confirmed_at: new Date() },
+  const result = await client.$transaction(async (tx) => {
+    const confirmedAt = new Date();
+    const transaction = await tx.serviceTransaction.findFirst({
+      where: { purchase_id: purchaseId },
+    });
+
+    if (purchase.price_paid > 0) {
+      if (!transaction) {
+        throw new NotFoundError('ServiceTransaction', purchaseId);
+      }
+
+      const seller = await tx.node.findFirst({ where: { node_id: purchase.seller_id } });
+      if (!seller) {
+        throw new NotFoundError('Seller node', purchase.seller_id);
+      }
+
+      const sellerRevenue = purchase.price_paid - transaction.fee;
+      const updatedSeller = await tx.node.update({
+        where: { node_id: purchase.seller_id },
+        data: { credit_balance: { increment: sellerRevenue } },
+      });
+
+      await tx.creditTransaction.create({
+        data: {
+          node_id: purchase.seller_id,
+          amount: sellerRevenue,
+          type: 'service_sale_payout',
+          description: `Escrow released for service purchase ${purchaseId}`,
+          balance_after: updatedSeller.credit_balance,
+        },
+      });
+
+      await tx.serviceTransaction.update({
+        where: { transaction_id: transaction.transaction_id },
+        data: {
+          status: 'completed',
+          released_at: confirmedAt,
+          completed_at: confirmedAt,
+        },
+      });
+    }
+
+    const updatedPurchase = await tx.servicePurchase.update({
+      where: { purchase_id: purchaseId },
+      data: { status: 'confirmed', confirmed_at: confirmedAt },
+    });
+
+    return {
+      purchase: updatedPurchase,
+      transaction_id: transaction?.transaction_id,
+    };
   });
 
   return {
-    purchase_id: updated.purchase_id,
-    listing_id: updated.listing_id,
-    buyer_id: updated.buyer_id,
-    seller_id: updated.seller_id,
-    price_paid: updated.price_paid,
-    status: updated.status,
-    purchased_at: updated.purchased_at.toISOString(),
-    confirmed_at: updated.confirmed_at ? updated.confirmed_at.toISOString() : undefined,
+    purchase_id: result.purchase.purchase_id,
+    ...(result.transaction_id ? { transaction_id: result.transaction_id } : {}),
+    listing_id: result.purchase.listing_id,
+    buyer_id: result.purchase.buyer_id,
+    seller_id: result.purchase.seller_id,
+    price_paid: result.purchase.price_paid,
+    amount: result.purchase.price_paid,
+    status: result.purchase.status,
+    escrow: {
+      escrow_id: `escrow_${result.purchase.purchase_id}`,
+      amount: result.purchase.price_paid,
+      status: 'released',
+      locked_at: result.purchase.purchased_at.toISOString(),
+      released_at: result.purchase.confirmed_at?.toISOString(),
+    },
+    purchased_at: result.purchase.purchased_at.toISOString(),
+    confirmed_at: result.purchase.confirmed_at ? result.purchase.confirmed_at.toISOString() : undefined,
   };
 }
 
@@ -713,7 +849,20 @@ export async function disputePurchase(
   purchaseId: string,
   reason: string,
   prismaClient?: PrismaClient,
-): Promise<{ dispute_id: string; purchase_id: string; status: string }> {
+): Promise<{
+  dispute_id: string;
+  purchase_id: string;
+  transaction_id?: string;
+  amount: number;
+  status: string;
+  escrow: {
+    escrow_id: string;
+    amount: number;
+    status: 'locked' | 'released' | 'refunded';
+    locked_at: string;
+    released_at?: string;
+  };
+}> {
   const client = getPrismaClient(prismaClient);
   const purchase = await client.servicePurchase.findFirst({
     where: { purchase_id: purchaseId },
@@ -729,11 +878,15 @@ export async function disputePurchase(
     throw new ValidationError(`Cannot dispute a ${purchase.status} purchase`);
   }
 
+  const transaction = purchase.price_paid > 0
+    ? await client.serviceTransaction.findFirst({ where: { purchase_id: purchaseId } })
+    : null;
+
   const disputeId = `dis-${crypto.randomUUID()}`;
   const deadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  await client.$transaction([
-    client.dispute.create({
+  await client.$transaction(async (tx) => {
+    await tx.dispute.create({
       data: {
         dispute_id: disputeId,
         type: 'service_purchase',
@@ -741,19 +894,39 @@ export async function disputePurchase(
         defendant_id: purchase.seller_id,
         title: `Service dispute: ${purchaseId}`,
         description: reason,
-        related_transaction_id: purchaseId,
+        related_transaction_id: transaction?.transaction_id ?? purchaseId,
         filing_fee: 50,
         deadline,
         status: 'filed',
       },
-    }),
-    client.servicePurchase.update({
+    });
+
+    await tx.servicePurchase.update({
       where: { purchase_id: purchaseId },
       data: { status: 'disputed', disputed_at: new Date() },
-    }),
-  ]);
+    });
 
-  return { dispute_id: disputeId, purchase_id: purchaseId, status: 'disputed' };
+    if (transaction) {
+      await tx.serviceTransaction.update({
+        where: { transaction_id: transaction.transaction_id },
+        data: { status: 'disputed' },
+      });
+    }
+  });
+
+  return {
+    dispute_id: disputeId,
+    purchase_id: purchaseId,
+    ...(transaction ? { transaction_id: transaction.transaction_id } : {}),
+    amount: purchase.price_paid,
+    status: 'disputed',
+    escrow: {
+      escrow_id: `escrow_${purchase.purchase_id}`,
+      amount: purchase.price_paid,
+      status: 'locked' as const,
+      locked_at: purchase.purchased_at.toISOString(),
+    },
+  };
 }
 
 export async function getTransactionHistory(
@@ -777,8 +950,16 @@ export async function getTransactionHistory(
     seller_id: t.seller_id,
     listing_id: t.listing_id,
     price_paid: t.price_paid,
+    amount: t.price_paid,
     fee: t.fee,
-    completed_at: t.completed_at.toISOString(),
+    platform_fee: t.fee,
+    seller_revenue: t.price_paid - t.fee,
+    status: (t.status as ServiceTransaction['status']) ?? 'pending',
+    ...(buildEscrowStatus(t) ? {
+      escrow: buildEscrowStatus(t),
+      created_at: t.locked_at.toISOString(),
+    } : {}),
+    ...(t.completed_at ? { completed_at: t.completed_at.toISOString() } : {}),
   }));
 }
 
@@ -806,8 +987,16 @@ export async function getTransaction(
     seller_id: t.seller_id,
     listing_id: t.listing_id,
     price_paid: t.price_paid,
+    amount: t.price_paid,
     fee: t.fee,
-    completed_at: t.completed_at.toISOString(),
+    platform_fee: t.fee,
+    seller_revenue: t.price_paid - t.fee,
+    status: (t.status as ServiceTransaction['status']) ?? 'pending',
+    ...(buildEscrowStatus(t) ? {
+      escrow: buildEscrowStatus(t),
+      created_at: t.locked_at.toISOString(),
+    } : {}),
+    ...(t.completed_at ? { completed_at: t.completed_at.toISOString() } : {}),
   };
 }
 

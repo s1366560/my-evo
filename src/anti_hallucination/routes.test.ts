@@ -126,6 +126,11 @@ describe('Anti-hallucination routes', () => {
 
     expect(response.statusCode).toBe(201);
     expect(mockValidateCode).toHaveBeenCalledWith('node-1', 'const x = 1;', 'asset-1', 'typescript');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      validation: { check_id: 'chk-validate' },
+      data: { check_id: 'chk-validate' },
+    });
   });
 
   it('supports the check endpoint with architecture-compatible payload fields', async () => {
@@ -339,6 +344,11 @@ describe('Anti-hallucination routes', () => {
 
     expect(response.statusCode).toBe(201);
     expect(mockDetectHallucination).toHaveBeenCalledWith('node-1', 'const secret = "abc123456";', undefined);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      detection: { check_id: 'chk-detect' },
+      data: { check_id: 'chk-detect' },
+    });
   });
 
   it('returns confidence details for the caller', async () => {
@@ -353,6 +363,12 @@ describe('Anti-hallucination routes', () => {
     expect(mockGetConfidence).toHaveBeenCalledWith('node-1', {
       checkId: undefined,
       assetId: 'asset-1',
+    });
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      check_id: 'chk-1',
+      confidence: 0.92,
+      data: { check_id: 'chk-1', confidence: 0.92 },
     });
   });
 
@@ -375,6 +391,17 @@ describe('Anti-hallucination routes', () => {
     expect(statsResponse.statusCode).toBe(200);
     expect(mockListForbiddenPatterns).toHaveBeenCalledTimes(1);
     expect(mockGetCheckStats).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(patternsResponse.payload)).toEqual({
+      success: true,
+      patterns: [{ id: 'hardcoded-secrets' }],
+      total: 1,
+      data: [{ id: 'hardcoded-secrets' }],
+    });
+    expect(JSON.parse(statsResponse.payload)).toEqual({
+      success: true,
+      total_checks: 4,
+      data: { total_checks: 4 },
+    });
   });
 
   it('requires auth when reading a specific check and scopes it to the caller', async () => {
@@ -387,6 +414,11 @@ describe('Anti-hallucination routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetCheck).toHaveBeenCalledWith('chk-1', 'node-1');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      check: { check_id: 'chk-1', node_id: 'node-1' },
+      data: { check_id: 'chk-1', node_id: 'node-1' },
+    });
   });
 
   it('rejects malformed pagination for check listings', async () => {

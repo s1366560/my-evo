@@ -15,6 +15,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.status(201).send({
       success: true,
+      ...result,
       data: result,
     });
   });
@@ -30,6 +31,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      ...result,
       data: result,
     });
   });
@@ -53,6 +55,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      ...result,
       data: result,
     });
   });
@@ -74,6 +77,8 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      assets: results,
+      total: results.length,
       data: results,
     });
   });
@@ -87,6 +92,7 @@ export async function assetRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      ...gdiScore,
       data: gdiScore,
     });
   });

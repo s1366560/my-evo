@@ -229,7 +229,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['SkillStore'] },
   }, async (request, reply) => {
     const result = await skillStoreService.getCategories(app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, categories: result, total: result.length, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -242,14 +242,14 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const parsedLimit = Math.min(parseNonNegativeInteger(limit, 'limit', 10), 20);
 
     const result = await skillStoreService.getFeaturedSkills(parsedLimit, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, skills: result, total: result.length, data: result });
   });
 
   app.get('/stats', {
     schema: { tags: ['SkillStore'] },
   }, async (_request, reply) => {
     const result = await skillStoreService.getSkillStoreStats(app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 
   app.get('/my', {
@@ -271,7 +271,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       app.prisma,
     );
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, skills: result.items, total: result.total, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -302,7 +302,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, skill: result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -322,7 +322,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
 
     const result = await skillStoreService.createSkill(nodeId, input, app.prisma);
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, skill: result, data: result });
   });
 
   app.post('/publish', {
@@ -379,7 +379,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const result = await skillStoreService.updateSkillVersion(skillId, nodeId, body, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, skill: result, data: result });
   });
 
   app.post('/:skillId/update', {
@@ -406,7 +406,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const result = await skillStoreService.updateSkillVersion(skillId, nodeId, body, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, skill: result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -423,7 +423,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const { skillId } = request.params as { skillId: string };
 
     await skillStoreService.deleteSkill(skillId, nodeId, app.prisma);
-    return reply.send({ success: true, data: { deleted: true } });
+    return reply.send({ success: true, deleted: true, data: { deleted: true } });
   });
 
   app.delete('/:skillId/delete', {
@@ -437,7 +437,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const { skillId } = request.params as { skillId: string };
 
     await skillStoreService.deleteSkill(skillId, nodeId, app.prisma);
-    return reply.send({ success: true, data: { deleted: true } });
+    return reply.send({ success: true, deleted: true, data: { deleted: true } });
   });
 
   // -------------------------------------------------------------------------
@@ -454,7 +454,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const { skillId } = request.params as { skillId: string };
 
     const result = await skillStoreService.publishSkill(skillId, nodeId, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, skill: result, data: result });
   });
 
   app.post('/:skillId/rollback', {
@@ -474,7 +474,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       body.version,
       app.prisma,
     );
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, skill: result, data: result });
   });
 
   app.post('/:skillId/restore', {
@@ -488,7 +488,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const { skillId } = request.params as { skillId: string };
 
     const result = await skillStoreService.restoreSkill(skillId, nodeId, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, skill: result, data: result });
   });
 
   app.delete('/:skillId/permanent-delete', {
@@ -502,7 +502,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
     const { skillId } = request.params as { skillId: string };
 
     const result = await skillStoreService.permanentlyDeleteSkill(skillId, nodeId, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, result, data: result });
   });
 
   // -------------------------------------------------------------------------
@@ -521,6 +521,8 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({
       success: true,
+      ratings,
+      total: ratings.length,
       data: { items: ratings, total: ratings.length },
     });
   });
@@ -553,7 +555,7 @@ export async function skillStoreRoutes(app: FastifyInstance): Promise<void> {
       app.prisma,
     );
 
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, rating: result, data: result });
   });
 
   // -------------------------------------------------------------------------

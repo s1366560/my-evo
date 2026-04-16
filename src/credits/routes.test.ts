@@ -77,6 +77,34 @@ describe('Credits routes', () => {
     expect(historyRes.statusCode).toBe(200);
     expect(mockGetBalance).toHaveBeenCalledWith('node-1', prisma);
     expect(mockGetHistory).toHaveBeenCalledWith('node-1', 'publish', 5, 2, prisma);
+    expect(JSON.parse(balanceRes.payload)).toEqual({
+      success: true,
+      node_id: 'node-1',
+      available: 100,
+      locked: 0,
+      total: 100,
+      lifetime_earned: 10,
+      lifetime_spent: 5,
+      data: {
+        node_id: 'node-1',
+        available: 100,
+        locked: 0,
+        total: 100,
+        lifetime_earned: 10,
+        lifetime_spent: 5,
+      },
+    });
+    expect(JSON.parse(historyRes.payload)).toEqual({
+      success: true,
+      history: [],
+      total: 0,
+      data: [],
+      meta: {
+        total: 0,
+        page: 1,
+        limit: 5,
+      },
+    });
   });
 
   it('passes app prisma to transfers', async () => {
@@ -96,5 +124,47 @@ describe('Credits routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockTransfer).toHaveBeenCalledWith('node-1', 'node-2', 25, prisma);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      from_transaction: { transaction_id: 'tx-1' },
+      to_transaction: { transaction_id: 'tx-2' },
+      data: {
+        from_transaction: { transaction_id: 'tx-1' },
+        to_transaction: { transaction_id: 'tx-2' },
+      },
+    });
+  });
+
+  it('exposes top-level credit pricing and economics fields', async () => {
+    const [priceResponse, economicsResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/credit/price',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/credit/economics',
+      }),
+    ]);
+
+    expect(priceResponse.statusCode).toBe(200);
+    expect(economicsResponse.statusCode).toBe(200);
+    expect(JSON.parse(priceResponse.payload)).toMatchObject({
+      success: true,
+      price_per_credit: 0.01,
+      currency: 'USD',
+      min_purchase: 100,
+      max_purchase: 100000,
+    });
+    expect(JSON.parse(economicsResponse.payload)).toMatchObject({
+      success: true,
+      total_supply: 10000000,
+      circulating: 5000000,
+      price_per_credit_usd: 0.01,
+      publish_gene_cost: 5,
+      publish_capsule_cost: 10,
+      publish_recipe_cost: 20,
+      fetch_cost: 1,
+    });
   });
 });

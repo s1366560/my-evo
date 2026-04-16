@@ -175,6 +175,51 @@ describe('Arena routes', () => {
       expect(mockGetRankings).toHaveBeenCalledWith('season-1', prisma);
       expect(mockGetSeason).toHaveBeenCalledWith('season-1', prisma);
       expect(mockListSeasons).toHaveBeenCalledWith('active', 3, prisma);
+      expect(JSON.parse(responses[0]!.payload)).toEqual({
+        success: true,
+        season: { season_id: 'season-1' },
+        data: { season_id: 'season-1' },
+      });
+      expect(JSON.parse(responses[1]!.payload)).toEqual({
+        success: true,
+        battle: { match_id: 'match-1' },
+        data: { match_id: 'match-1' },
+      });
+      expect(JSON.parse(responses[2]!.payload)).toEqual({
+        success: true,
+        battles: [{ match_id: 'match-1' }],
+        total: 1,
+        data: [{ match_id: 'match-1' }],
+        meta: { total: 1 },
+      });
+      expect(JSON.parse(responses[3]!.payload)).toEqual({
+        success: true,
+        battle: { match_id: 'match-1' },
+        data: { match_id: 'match-1' },
+      });
+      expect(JSON.parse(responses[4]!.payload)).toEqual({
+        success: true,
+        battle: { match_id: 'match-1' },
+        data: { match_id: 'match-1' },
+      });
+      expect(JSON.parse(responses[5]!.payload)).toEqual({
+        success: true,
+        season: 'season-1',
+        leaderboard: [],
+        total_participants: 0,
+        data: [],
+      });
+      expect(JSON.parse(responses[6]!.payload)).toEqual({
+        success: true,
+        season: { season_id: 'season-1' },
+        data: { season_id: 'season-1' },
+      });
+      expect(JSON.parse(responses[7]!.payload)).toEqual({
+        success: true,
+        seasons: [],
+        total: 0,
+        data: [],
+      });
     } finally {
       await app.close();
     }
@@ -221,6 +266,23 @@ describe('Arena routes', () => {
       expect(joinB.statusCode).toBe(201);
       expect(statusA.statusCode).toBe(200);
       expect(leaveB.statusCode).toBe(200);
+      expect(JSON.parse(joinA.payload)).toEqual({
+        success: true,
+        status: 'queued',
+        data: { status: 'queued' },
+      });
+      expect(JSON.parse(statusA.payload)).toEqual({
+        success: true,
+        in_queue: true,
+        position: 1,
+        data: { in_queue: true, position: 1 },
+      });
+      expect(JSON.parse(leaveB.payload)).toEqual({
+        success: true,
+        status: 'left',
+        season_id: 'season-1',
+        data: { season_id: 'season-1' },
+      });
       expect(mockJoinMatchmaking).toHaveBeenNthCalledWith(
         1,
         'season-1',

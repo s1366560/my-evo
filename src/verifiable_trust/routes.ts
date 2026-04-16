@@ -92,7 +92,15 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
     const result = await trustService.claimReward(body.stake_id, auth.node_id);
 
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      reward: result.reward,
+      stake_amount: result.stake_amount,
+      total_received: result.total_received,
+      validator_reputation_bonus: result.validator_reputation_bonus,
+      stake: result.stake,
+      data: result,
+    });
   });
 
   app.post('/verify', {
@@ -195,13 +203,23 @@ export async function verifiableTrustRoutes(app: FastifyInstance): Promise<void>
 
     const result = await trustService.listAttestations(node_id);
 
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      attestations: result,
+      total: result.length,
+      data: result,
+    });
   });
 
   app.get('/pending', {
     schema: { tags: ['Trust'] },
   }, async (_request, reply) => {
     const result = await trustService.listPendingStakes();
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      pending_stakes: result,
+      total: result.length,
+      data: result,
+    });
   });
 }

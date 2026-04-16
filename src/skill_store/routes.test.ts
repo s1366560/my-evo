@@ -195,6 +195,28 @@ describe('Skill store routes', () => {
     expect(mockGetSkillStoreStats).toHaveBeenCalledWith(prisma);
     expect(mockGetSkill).toHaveBeenCalledWith('skill-1', prisma, undefined);
     expect(mockAuthenticate).not.toHaveBeenCalled();
+    expect(JSON.parse(categoriesRes.payload)).toEqual({
+      success: true,
+      categories: [{ category: 'engineering', count: 1 }],
+      total: 1,
+      data: [{ category: 'engineering', count: 1 }],
+    });
+    expect(JSON.parse(featuredRes.payload)).toEqual({
+      success: true,
+      skills: [{ skill_id: 'skill-1' }],
+      total: 1,
+      data: [{ skill_id: 'skill-1' }],
+    });
+    expect(JSON.parse(statsRes.payload)).toEqual({
+      success: true,
+      total_skills: 1,
+      data: { total_skills: 1 },
+    });
+    expect(JSON.parse(detailRes.payload)).toEqual({
+      success: true,
+      skill: { skill_id: 'skill-1', name: 'Review helper' },
+      data: { skill_id: 'skill-1', name: 'Review helper' },
+    });
   });
 
   it('rejects invalid public listing pagination and unsupported sort values', async () => {
@@ -412,6 +434,57 @@ describe('Skill store routes', () => {
     expect(mockRestoreSkill).toHaveBeenCalledWith('skill-1', 'node-1', prisma);
     expect(mockPermanentlyDeleteSkill).toHaveBeenCalledWith('skill-1', 'node-1', prisma);
     expect(mockGetMySkills).toHaveBeenCalledWith('node-1', 20, 0, prisma);
+    expect(JSON.parse(createRes.payload)).toEqual({
+      success: true,
+      skill: { skill_id: 'skill-1' },
+      data: { skill_id: 'skill-1' },
+    });
+    expect(JSON.parse(updateRes.payload)).toEqual({
+      success: true,
+      skill: { skill_id: 'skill-1', version: '1.0.1' },
+      data: { skill_id: 'skill-1', version: '1.0.1' },
+    });
+    expect(JSON.parse(versionUpdateRes.payload)).toEqual({
+      success: true,
+      skill: { skill_id: 'skill-1', version: '1.0.1' },
+      data: { skill_id: 'skill-1', version: '1.0.1' },
+    });
+    expect(JSON.parse(deleteRes.payload)).toEqual({
+      success: true,
+      deleted: true,
+      data: { deleted: true },
+    });
+    expect(JSON.parse(deleteAliasRes.payload)).toEqual({
+      success: true,
+      deleted: true,
+      data: { deleted: true },
+    });
+    expect(JSON.parse(publishRes.payload)).toEqual({
+      success: true,
+      skill: { skill_id: 'skill-1', status: 'published' },
+      data: { skill_id: 'skill-1', status: 'published' },
+    });
+    expect(JSON.parse(rollbackRes.payload)).toEqual({
+      success: true,
+      skill: { skill_id: 'skill-1', version: '1.0.0' },
+      data: { skill_id: 'skill-1', version: '1.0.0' },
+    });
+    expect(JSON.parse(restoreRes.payload)).toEqual({
+      success: true,
+      skill: { skill_id: 'skill-1', status: 'published' },
+      data: { skill_id: 'skill-1', status: 'published' },
+    });
+    expect(JSON.parse(permanentDeleteRes.payload)).toEqual({
+      success: true,
+      result: { deleted: true },
+      data: { deleted: true },
+    });
+    expect(JSON.parse(myRes.payload)).toEqual({
+      success: true,
+      skills: [{ skill_id: 'skill-1' }],
+      total: 1,
+      data: { items: [{ skill_id: 'skill-1' }], total: 1 },
+    });
   });
 
   it('rejects malformed pagination for my skills', async () => {
@@ -517,6 +590,11 @@ describe('Skill store routes', () => {
     expect(mockDownloadSkill).toHaveBeenCalledTimes(2);
     expect(mockDownloadSkill).toHaveBeenNthCalledWith(1, 'skill-1', 'node-1', prisma);
     expect(mockDownloadSkill).toHaveBeenNthCalledWith(2, 'skill-1', 'node-1', prisma);
+    expect(JSON.parse(rateRes.payload)).toEqual({
+      success: true,
+      rating: { skill_id: 'skill-1', rating: 5 },
+      data: { skill_id: 'skill-1', rating: 5 },
+    });
     expect(JSON.parse(downloadRes.payload)).toMatchObject({
       skill_id: 'skill-1',
       name: 'Review helper',
@@ -539,6 +617,32 @@ describe('Skill store routes', () => {
         parameters: { framework: 'fastify' },
         steps: ['Collect context'],
         examples: ['review(service.ts)'],
+      },
+    });
+  });
+
+  it('exposes rating list aliases', async () => {
+    (prisma as any).skillRating = {
+      findMany: jest.fn().mockResolvedValue([{ rating: 5, reviewer_id: 'node-2' }]),
+    };
+    await app.close();
+    app = buildApp(prisma);
+    await app.register(skillStoreRoutes, { prefix: '/skills' });
+    await app.ready();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/skills/skill-1/rate',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      ratings: [{ rating: 5, reviewer_id: 'node-2' }],
+      total: 1,
+      data: {
+        items: [{ rating: 5, reviewer_id: 'node-2' }],
+        total: 1,
       },
     });
   });

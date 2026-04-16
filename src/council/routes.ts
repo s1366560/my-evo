@@ -1,5 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAuth, requireTrustLevel } from '../shared/auth';
+import {
+  VOTING_PERIOD_H,
+  QUORUM_PERCENTAGE,
+} from '../shared/constants';
 import { EvoMapError, ForbiddenError, ValidationError } from '../shared/errors';
 import * as service from './service';
 import * as disputeService from '../dispute/service';
@@ -111,7 +115,7 @@ export async function councilRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, data: proposal };
+    return { success: true, proposal, data: proposal };
   });
 
   app.post('/proposal/:proposalId/second', {
@@ -122,7 +126,7 @@ export async function councilRoutes(app: FastifyInstance) {
     const params = request.params as { proposalId: string };
 
     const proposal = await service.secondProposal(params.proposalId, auth.node_id);
-    return { success: true, data: proposal };
+    return { success: true, proposal, data: proposal };
   });
 
   app.post('/proposal/:proposalId/vote', {
@@ -147,7 +151,31 @@ export async function councilRoutes(app: FastifyInstance) {
       body.reason,
     );
 
-    return { success: true, data: vote };
+    return { success: true, vote, data: vote };
+  });
+
+  app.post('/vote', {
+    schema: { tags: ['Council'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const auth = request.auth!;
+    const body = request.body as {
+      proposal_id: string;
+      vote: 'approve' | 'reject' | 'abstain';
+      decision?: 'approve' | 'reject' | 'abstain';
+      reason?: string;
+    };
+    const decision = body.decision ?? body.vote;
+
+    if (!body.proposal_id) {
+      throw new ValidationError('proposal_id is required');
+    }
+    if (!decision || !['approve', 'reject', 'abstain'].includes(decision)) {
+      throw new ValidationError('vote must be approve, reject, or abstain');
+    }
+
+    const vote = await service.vote(body.proposal_id, auth.node_id, decision, body.reason);
+    return { success: true, vote, data: vote };
   });
 
   app.post('/proposal/:proposalId/execute', {
@@ -156,7 +184,19 @@ export async function councilRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { proposalId: string };
     const result = await service.executeDecision(params.proposalId);
-    return { success: true, data: result };
+    return { success: true, result, data: result };
+  });
+
+  app.post('/execute', {
+    schema: { tags: ['Council'] },
+    preHandler: [requireAuth()],
+  }, async (request) => {
+    const body = request.body as { proposal_id: string };
+    if (!body.proposal_id) {
+      throw new ValidationError('proposal_id is required');
+    }
+    const result = await service.executeDecision(body.proposal_id);
+    return { success: true, result, data: result };
   });
 
   app.get('/proposals', {
@@ -179,6 +219,8 @@ export async function councilRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      proposals: result.proposals,
+      total: result.total,
       data: result.proposals,
       meta: {
         total: result.total,
@@ -194,7 +236,7 @@ export async function councilRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { proposalId: string };
     const proposal = await service.getProposal(params.proposalId);
-    return { success: true, data: proposal };
+    return { success: true, proposal, data: proposal };
   });
 
   app.get('/proposal/:proposalId/votes', {
@@ -203,7 +245,7 @@ export async function councilRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { proposalId: string };
     const votes = await service.getVotes(params.proposalId);
-    return { success: true, data: votes };
+    return { success: true, votes, total: votes.length, data: votes };
   });
 
   // POST /a2a/council/dialog — multi-turn dialogue on a proposal
@@ -229,8 +271,28 @@ export async function councilRoutes(app: FastifyInstance) {
       context: body.context,
     });
 
-    return { success: true, data: deliberation };
+    return { success: true, dialogue: deliberation, data: deliberation };
   });
+
+  app.get('/config', {
+    schema: { tags: ['Council'] },
+  }, async () => ({
+    success: true,
+    config: {
+      voting_period_hours: VOTING_PERIOD_H,
+      min_quorum_pct: QUORUM_PERCENTAGE,
+      min_approval_pct: 60,
+      max_council_members: 9,
+      min_gdi_to_vote: 80,
+    },
+    data: {
+      voting_period_hours: VOTING_PERIOD_H,
+      min_quorum_pct: QUORUM_PERCENTAGE,
+      min_approval_pct: 60,
+      max_council_members: 9,
+      min_gdi_to_vote: 80,
+    },
+  }));
 
   app.post('/resolve-dispute', {
     schema: { tags: ['Council'] },
@@ -374,7 +436,13 @@ export async function councilRoutes(app: FastifyInstance) {
       prisma.proposal.count({ where }),
     ]);
 
-    return { success: true, data: proposals, meta: { total, limit, offset } };
+    return {
+      success: true,
+      proposals,
+      total,
+      data: proposals,
+      meta: { total, limit, offset },
+    };
   });
 
   // GET /a2a/council/term/current — current council term info
@@ -390,6 +458,13 @@ export async function councilRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      term: {
+        term_id: `term-${new Date().getFullYear()}-q${Math.ceil((new Date().getMonth() + 1) / 3)}`,
+        started_at: latestVoting?.created_at ?? new Date().toISOString(),
+        ends_at: latestVoting?.voting_deadline ?? null,
+        active_proposals: latestVoting ? 1 : 0,
+        current_status: latestVoting?.status ?? 'no_active_term',
+      },
       data: {
         term_id: `term-${new Date().getFullYear()}-q${Math.ceil((new Date().getMonth() + 1) / 3)}`,
         started_at: latestVoting?.created_at ?? new Date().toISOString(),
@@ -432,7 +507,13 @@ export async function councilRoutes(app: FastifyInstance) {
       .sort((a, b) => b.term_id.localeCompare(a.term_id))
       .slice(offset, offset + limit);
 
-    return { success: true, data: terms, meta: { total: Object.keys(termMap).length } };
+    return {
+      success: true,
+      terms,
+      total: Object.keys(termMap).length,
+      data: terms,
+      meta: { total: Object.keys(termMap).length },
+    };
   });
 
   // GET /a2a/council/:id — proposal detail by ID (alias)
@@ -441,7 +522,7 @@ export async function councilRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { proposalId: string };
     const proposal = await service.getProposal(params.proposalId);
-    return { success: true, data: proposal };
+    return { success: true, proposal, data: proposal };
   });
 
   // POST /a2a/events/poll — event polling for nodes

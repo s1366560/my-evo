@@ -98,10 +98,23 @@ describe('KG routes', () => {
       },
       'node-1',
     );
-    expect(JSON.parse(response.payload).data).toEqual(expect.objectContaining({
-      status: 'ok',
-      id: 'concept_sentiment_analysis',
-    }));
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      entity: {
+        id: 'concept_sentiment_analysis',
+        type: 'concept',
+        properties: {},
+        created_at: '2025-01-01T00:00:00.000Z',
+        status: 'ok',
+      },
+      data: {
+        id: 'concept_sentiment_analysis',
+        type: 'concept',
+        properties: {},
+        created_at: '2025-01-01T00:00:00.000Z',
+        status: 'ok',
+      },
+    });
   });
 
   it('rejects KG node creation when the caller is not using node_secret authentication', async () => {
@@ -152,10 +165,29 @@ describe('KG routes', () => {
       'implements',
       undefined,
     );
-    expect(JSON.parse(response.payload).data).toEqual(expect.objectContaining({
-      status: 'ok',
-      relationship_id: 'rel-1',
-    }));
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      relationship: {
+        status: 'ok',
+        relationship_id: 'rel-1',
+        id: 'rel-1',
+        from_id: 'gene_xxx',
+        to_id: 'concept_sentiment_analysis',
+        type: 'implements',
+        properties: {},
+        created_at: '2025-01-01T00:00:00.000Z',
+      },
+      data: {
+        status: 'ok',
+        relationship_id: 'rel-1',
+        id: 'rel-1',
+        from_id: 'gene_xxx',
+        to_id: 'concept_sentiment_analysis',
+        type: 'implements',
+        properties: {},
+        created_at: '2025-01-01T00:00:00.000Z',
+      },
+    });
   });
 
   it('exposes the architecture node detail route', async () => {
@@ -174,6 +206,23 @@ describe('KG routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetNode).toHaveBeenCalledWith('gene', 'gene-1');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      entity: {
+        type: 'gene',
+        id: 'gene-1',
+        name: 'Gene One',
+        properties: { gdi_score: 88 },
+        relationships: { outgoing: [], incoming: [] },
+      },
+      data: {
+        type: 'gene',
+        id: 'gene-1',
+        name: 'Gene One',
+        properties: { gdi_score: 88 },
+        relationships: { outgoing: [], incoming: [] },
+      },
+    });
   });
 
   it('exposes the architecture neighborhood route with depth and relationship filters', async () => {
@@ -189,6 +238,17 @@ describe('KG routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetNeighborhood).toHaveBeenCalledWith('gene', 'gene-1', 2, 'derived_from');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      neighborhood: {
+        center: { type: 'gene', id: 'gene-1' },
+        neighbors: [],
+      },
+      data: {
+        center: { type: 'gene', id: 'gene-1' },
+        neighbors: [],
+      },
+    });
   });
 
   it('exposes aggregate graph stats without authentication requirements', async () => {
@@ -206,6 +266,19 @@ describe('KG routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetGraphStats).toHaveBeenCalledWith();
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      total_nodes: 10,
+      total_relationships: 5,
+      node_types: { gene: 4 },
+      relationship_types: { derived_from: 5 },
+      data: {
+        total_nodes: 10,
+        total_relationships: 5,
+        node_types: { gene: 4 },
+        relationship_types: { derived_from: 5 },
+      },
+    });
   });
 
   it('lists published nodes by type with validated pagination', async () => {
@@ -222,6 +295,17 @@ describe('KG routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockListNodesByType).toHaveBeenCalledWith('gene', 10, 5);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      type: 'gene',
+      nodes: [],
+      total: 0,
+      data: {
+        type: 'gene',
+        nodes: [],
+        total: 0,
+      },
+    });
   });
 
   it('rejects invalid neighborhood depth values before calling the service', async () => {
@@ -252,6 +336,16 @@ describe('KG routes', () => {
       total_nodes: 6,
       total_edges: 6,
       my_nodes: 3,
+      status: 'active',
+    }));
+    expect(JSON.parse(response.payload)).toEqual(expect.objectContaining({
+      success: true,
+      node_id: 'node-1',
+      total_nodes: 6,
+      total_edges: 6,
+      my_nodes: 3,
+      connected_peers: 0,
+      last_sync_at: expect.any(String),
       status: 'active',
     }));
   });
@@ -312,5 +406,14 @@ describe('KG routes', () => {
       properties: { mentions: 2 },
       relationship_id: 'rel-1',
     });
+    expect(JSON.parse(response.payload)).toEqual(expect.objectContaining({
+      success: true,
+      node_id: 'node-1',
+      nodes: expect.any(Array),
+      relationships: expect.any(Array),
+      total_nodes: 2,
+      returned_nodes: 2,
+      returned_relationships: 1,
+    }));
   });
 });

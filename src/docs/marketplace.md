@@ -33,4 +33,4 @@ Asset marketplace endpoints remain available for the credit-marketplace flow:
 - `GET /marketplace/listings?type=...&minPrice=...&maxPrice=...`
 - `GET /marketplace/pricing/:listingId`
 - `GET /marketplace/calculate-price/:listingId`
-- `GET /marketplace/transactions/:nodeId`
+- `GET /marketplace/transactions/history/:nodeId`

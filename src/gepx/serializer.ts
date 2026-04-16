@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { gunzipSync, gzipSync } from 'zlib';
 import {
   Asset,
   GepxBundle,
@@ -9,13 +10,24 @@ import {
   MemoryGraphNode,
 } from './types';
 import { calculateChecksum } from './checksum';
-import { FORMAT_VERSION } from './types';
+import {
+  CURRENT_VERSION,
+  FORMAT_VERSION,
+  MAGIC_BYTES,
+  MAX_PAYLOAD_SIZE,
+} from './types';
 
 const MAGIC = 'GEPX';
-const VERSION_BYTE = 0x01;
+const VERSION_BYTE = CURRENT_VERSION;
 
 export interface SerializeOptions {
   hubVersion?: string;
+}
+
+export interface DecodeResult {
+  payload: GepxPayload;
+  compressed: boolean;
+  payloadSize: number;
 }
 
 /**
@@ -62,6 +74,65 @@ export function fromBase64(base64: string): GepxPayload {
     throw new Error('Invalid base64 input: decoded to empty string');
   }
   return deserialize(decoded);
+}
+
+export function encodeGepxBundle(payload: GepxPayload, compress = false): Buffer {
+  const jsonBytes = Buffer.from(JSON.stringify(payload), 'utf-8');
+  const payloadBytes = compress ? gzipSync(jsonBytes) : jsonBytes;
+
+  if (payloadBytes.length > MAX_PAYLOAD_SIZE) {
+    throw new Error(`Payload too large: ${payloadBytes.length} > ${MAX_PAYLOAD_SIZE}`);
+  }
+
+  const header = Buffer.alloc(10);
+  header.write(MAGIC_BYTES, 0, 'ascii');
+  header.writeUInt8(VERSION_BYTE, 4);
+  header.writeUInt8(compress ? 0x01 : 0x00, 5);
+  header.writeUInt32BE(payloadBytes.length, 6);
+
+  return Buffer.concat([header, payloadBytes]);
+}
+
+export function decodeGepxBufferSync(buffer: Buffer): GepxPayload {
+  return decodeGepxBufferDetailedSync(buffer).payload;
+}
+
+export async function decodeGepxBuffer(buffer: Buffer): Promise<GepxPayload> {
+  return decodeGepxBufferSync(buffer);
+}
+
+export function decodeGepxBufferDetailedSync(buffer: Buffer): DecodeResult {
+  if (buffer.length < 10) {
+    throw new Error('Invalid GEPX buffer: header too short');
+  }
+
+  const magic = buffer.subarray(0, 4).toString('ascii');
+  if (magic !== MAGIC) {
+    throw new Error(`Invalid GEPX magic: ${magic}`);
+  }
+
+  const version = buffer.readUInt8(4);
+  if (version !== VERSION_BYTE) {
+    throw new Error(`Unsupported GEPX version: ${version}`);
+  }
+
+  const flags = buffer.readUInt8(5);
+  const payloadLength = buffer.readUInt32BE(6);
+  if (payloadLength > MAX_PAYLOAD_SIZE) {
+    throw new Error(`Payload too large: ${payloadLength} > ${MAX_PAYLOAD_SIZE}`);
+  }
+  if (buffer.length !== 10 + payloadLength) {
+    throw new Error('Invalid GEPX buffer: payload length mismatch');
+  }
+
+  const rawPayload = buffer.subarray(10);
+  const compressed = (flags & 0x01) === 0x01;
+  const payloadJson = compressed ? gunzipSync(rawPayload).toString('utf-8') : rawPayload.toString('utf-8');
+  return {
+    payload: deserialize(payloadJson),
+    compressed,
+    payloadSize: payloadLength,
+  };
 }
 
 // ---------------------------------------------------------------------------

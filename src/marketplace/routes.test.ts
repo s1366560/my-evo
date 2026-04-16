@@ -109,7 +109,19 @@ describe('Marketplace routes', () => {
 
   it('passes app prisma to listing creation and purchase routes', async () => {
     mockCreateServiceListing.mockResolvedValue({ listing_id: 'listing_1' });
-    mockPurchaseService.mockResolvedValue({ purchase_id: 'pur-1' });
+    mockPurchaseService.mockResolvedValue({
+      purchase_id: 'pur-1',
+      transaction_id: 'tx-1',
+      listing_id: 'listing_1',
+      amount: 25,
+      escrow: {
+        escrow_id: 'escrow_1',
+        amount: 25,
+        status: 'locked',
+        locked_at: '2026-01-01T00:00:00Z',
+      },
+      status: 'pending',
+    });
 
     const [createRes, purchaseRes] = await Promise.all([
       app.inject({
@@ -136,6 +148,21 @@ describe('Marketplace routes', () => {
 
     expect(createRes.statusCode).toBe(201);
     expect(purchaseRes.statusCode).toBe(201);
+    expect(JSON.parse(createRes.payload)).toMatchObject({
+      listing_fee_charged: 5,
+      message: 'Service listed successfully.',
+    });
+    expect(JSON.parse(purchaseRes.payload)).toMatchObject({
+      transaction_id: 'tx-1',
+      amount: 25,
+      escrow: {
+        escrow_id: 'escrow_1',
+        amount: 25,
+        status: 'locked',
+      },
+      status: 'pending',
+      message: 'Payment locked in escrow. Seller has been notified.',
+    });
     expect(mockCreateServiceListing).toHaveBeenCalledWith('node-1', {
       title: 'Review service',
       description: 'I review code',
@@ -216,7 +243,7 @@ describe('Marketplace routes', () => {
       }),
       app.inject({
         method: 'GET',
-        url: '/marketplace/transactions/node-1?limit=2&offset=1',
+        url: '/marketplace/transactions/history/node-1?limit=2&offset=1',
       }),
     ]);
 
@@ -318,8 +345,29 @@ describe('Marketplace routes', () => {
 
   it('passes app prisma to purchase lifecycle routes', async () => {
     mockGetMyPurchases.mockResolvedValue({ items: [], total: 0 });
-    mockConfirmPurchase.mockResolvedValue({ purchase_id: 'pur-1', status: 'confirmed' });
-    mockDisputePurchase.mockResolvedValue({ dispute_id: 'dis-1', purchase_id: 'pur-1', status: 'disputed' });
+    mockConfirmPurchase.mockResolvedValue({
+      purchase_id: 'pur-1',
+      transaction_id: 'tx-1',
+      amount: 200,
+      status: 'confirmed',
+      escrow: {
+        escrow_id: 'escrow_pur-1',
+        amount: 200,
+        status: 'released',
+      },
+    });
+    mockDisputePurchase.mockResolvedValue({
+      dispute_id: 'dis-1',
+      purchase_id: 'pur-1',
+      transaction_id: 'tx-1',
+      amount: 200,
+      status: 'disputed',
+      escrow: {
+        escrow_id: 'escrow_pur-1',
+        amount: 200,
+        status: 'locked',
+      },
+    });
 
     const [listRes, confirmRes, disputeRes] = await Promise.all([
       app.inject({
@@ -342,6 +390,28 @@ describe('Marketplace routes', () => {
     expect(listRes.statusCode).toBe(200);
     expect(confirmRes.statusCode).toBe(200);
     expect(disputeRes.statusCode).toBe(201);
+    expect(JSON.parse(confirmRes.payload)).toMatchObject({
+      transaction_id: 'tx-1',
+      purchase_id: 'pur-1',
+      amount: 200,
+      status: 'confirmed',
+      escrow: {
+        escrow_id: 'escrow_pur-1',
+        status: 'released',
+      },
+      message: 'Escrow released to seller. Purchase confirmed.',
+    });
+    expect(JSON.parse(disputeRes.payload)).toMatchObject({
+      transaction_id: 'tx-1',
+      purchase_id: 'pur-1',
+      amount: 200,
+      status: 'disputed',
+      escrow: {
+        escrow_id: 'escrow_pur-1',
+        status: 'locked',
+      },
+      message: 'Dispute opened. Funds remain locked until resolution.',
+    });
     expect(mockGetMyPurchases).toHaveBeenCalledWith('node-1', 5, 2, prisma);
     expect(mockConfirmPurchase).toHaveBeenCalledWith('node-1', 'pur-1', prisma);
     expect(mockDisputePurchase).toHaveBeenCalledWith('node-1', 'pur-1', 'Service failed', prisma);
@@ -349,7 +419,19 @@ describe('Marketplace routes', () => {
 
   it('passes app prisma to transaction, stats, and balance routes', async () => {
     mockGetTransactionHistory.mockResolvedValue([]);
-    mockGetTransaction.mockResolvedValue({ transaction_id: 'tx-1' });
+    mockGetTransaction.mockResolvedValue({
+      transaction_id: 'tx-1',
+      amount: 200,
+      platform_fee: 10,
+      seller_revenue: 190,
+      status: 'completed',
+      escrow: {
+        escrow_id: 'escrow_tx-1',
+        amount: 200,
+        status: 'released',
+        locked_at: '2026-01-02T00:00:00Z',
+      },
+    });
     mockGetMarketStats.mockResolvedValue({
       total_listings: 1,
       total_volume_credits: 250,
@@ -366,7 +448,7 @@ describe('Marketplace routes', () => {
       }),
       app.inject({
         method: 'GET',
-        url: '/marketplace/transactions/detail/tx-1',
+        url: '/marketplace/transactions/tx-1',
       }),
       app.inject({
         method: 'GET',
@@ -382,6 +464,20 @@ describe('Marketplace routes', () => {
     expect(detailRes.statusCode).toBe(200);
     expect(statsRes.statusCode).toBe(200);
     expect(balanceRes.statusCode).toBe(200);
+    expect(JSON.parse(detailRes.payload)).toMatchObject({
+      success: true,
+      data: {
+        transaction_id: 'tx-1',
+        amount: 200,
+        platform_fee: 10,
+        seller_revenue: 190,
+        status: 'completed',
+        escrow: {
+          escrow_id: 'escrow_tx-1',
+          status: 'released',
+        },
+      },
+    });
     expect(JSON.parse(statsRes.payload)).toEqual({
       success: true,
       data: {
@@ -390,6 +486,22 @@ describe('Marketplace routes', () => {
         average_price: 125,
         price_tiers: { budget: 0, standard: 1, premium: 0, elite: 0 },
         bounties: { total: 2, open: 1, completed: 1, cancelled: 0 },
+      },
+    });
+    expect(JSON.parse(detailRes.payload)).toEqual({
+      success: true,
+      data: {
+        transaction_id: 'tx-1',
+        amount: 200,
+        platform_fee: 10,
+        seller_revenue: 190,
+        status: 'completed',
+        escrow: {
+          escrow_id: 'escrow_tx-1',
+          amount: 200,
+          status: 'released',
+          locked_at: '2026-01-02T00:00:00Z',
+        },
       },
     });
     expect(mockGetTransactionHistory).toHaveBeenCalledWith('node-1', 4, 1, prisma);

@@ -11,6 +11,7 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      ...score,
       data: score,
     });
   });
@@ -36,6 +37,8 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      history: result.items,
+      total: result.total,
       data: result.items,
       meta: {
         total: result.total,
@@ -56,6 +59,8 @@ export async function reputationRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      leaderboard,
+      total: leaderboard.length,
       data: leaderboard,
     });
   });

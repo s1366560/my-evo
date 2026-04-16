@@ -15,9 +15,12 @@ let mockAuth: {
 };
 
 const mockRegisterUser = jest.fn();
+const mockLoginUser = jest.fn();
 const mockGetOnboardingJourney = jest.fn();
 const mockCompleteOnboardingStep = jest.fn();
 const mockResetOnboarding = jest.fn();
+const mockGetOnboardingStepDetail = jest.fn();
+const mockGetUserNodes = jest.fn();
 
 jest.mock('../shared/auth', () => ({
   requireAuth: () => async (
@@ -49,9 +52,12 @@ jest.mock('../shared/auth', () => ({
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
   registerUser: (...args: unknown[]) => mockRegisterUser(...args),
+  loginUser: (...args: unknown[]) => mockLoginUser(...args),
   getOnboardingJourney: (...args: unknown[]) => mockGetOnboardingJourney(...args),
   completeOnboardingStep: (...args: unknown[]) => mockCompleteOnboardingStep(...args),
   resetOnboarding: (...args: unknown[]) => mockResetOnboarding(...args),
+  getOnboardingStepDetail: (...args: unknown[]) => mockGetOnboardingStepDetail(...args),
+  getUserNodes: (...args: unknown[]) => mockGetUserNodes(...args),
 }));
 
 function buildApp(prisma: unknown): FastifyInstance {
@@ -99,6 +105,52 @@ describe('Account routes', () => {
         'secret123',
         prisma,
       );
+      expect(JSON.parse(response.payload)).toEqual({
+        success: true,
+        token: 'session-token',
+        user: { id: 'user-1', email: 'user@example.com' },
+        data: {
+          token: 'session-token',
+          user: { id: 'user-1', email: 'user@example.com' },
+        },
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('returns top-level token and user fields when logging in', async () => {
+    const prisma = {};
+    const app = buildApp(prisma);
+    mockLoginUser.mockResolvedValue({
+      token: 'login-token',
+      user: { id: 'user-1', email: 'user@example.com' },
+    });
+
+    try {
+      await app.register(cookie);
+      await app.register(accountRoutes, { prefix: '/account' });
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/account/login',
+        payload: {
+          email: 'user@example.com',
+          password: 'secret123',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload)).toEqual({
+        success: true,
+        token: 'login-token',
+        user: { id: 'user-1', email: 'user@example.com' },
+        data: {
+          token: 'login-token',
+          user: { id: 'user-1', email: 'user@example.com' },
+        },
+      });
     } finally {
       await app.close();
     }
@@ -137,6 +189,13 @@ describe('Account routes', () => {
       expect(response.statusCode).toBe(201);
       expect(prisma.apiKey.count).toHaveBeenCalledWith({
         where: { user_id: 'user-1' },
+      });
+      expect(JSON.parse(response.payload)).toMatchObject({
+        id: 'key-1',
+        key: expect.stringMatching(/^ek_/),
+        prefix: 'ek_ab',
+        name: 'Primary',
+        scopes: ['read'],
       });
     } finally {
       await app.close();
@@ -319,6 +378,12 @@ describe('Account routes', () => {
       await app.register(accountRoutes, { prefix: '/account' });
       await app.ready();
 
+      mockGetOnboardingStepDetail.mockReturnValue({
+        step: 2,
+        title: 'Publish Your First Capsule',
+        action_url: '/a2a/publish',
+      });
+
       const [getResponse, completeResponse, resetResponse] = await Promise.all([
         app.inject({
           method: 'GET',
@@ -335,24 +400,74 @@ describe('Account routes', () => {
           payload: { agent_id: 'node-2' },
         }),
       ]);
+      const [aliasGetResponse, aliasCompleteResponse, aliasResetResponse, stepResponse] = await Promise.all([
+        app.inject({
+          method: 'GET',
+          url: '/account/onboarding/agent?agent_id=node-2',
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/account/onboarding/agent/complete',
+          payload: { agent_id: 'node-2', step: 1 },
+        }),
+        app.inject({
+          method: 'POST',
+          url: '/account/onboarding/agent/reset',
+          payload: { agent_id: 'node-2' },
+        }),
+        app.inject({
+          method: 'GET',
+          url: '/account/onboarding/agent/step/2',
+        }),
+      ]);
 
       expect(getResponse.statusCode).toBe(200);
       expect(completeResponse.statusCode).toBe(200);
       expect(resetResponse.statusCode).toBe(200);
+      expect(aliasGetResponse.statusCode).toBe(200);
+      expect(aliasCompleteResponse.statusCode).toBe(200);
+      expect(aliasResetResponse.statusCode).toBe(200);
+      expect(stepResponse.statusCode).toBe(200);
       expect(JSON.parse(getResponse.payload)).toMatchObject({
         agent_id: 'node-2',
         current_step: 1,
         total_steps: 4,
         progress_percentage: 0,
       });
+      expect(JSON.parse(aliasGetResponse.payload)).toMatchObject({
+        agent_id: 'node-2',
+        current_step: 1,
+        total_steps: 4,
+      });
       expect(JSON.parse(completeResponse.payload)).toMatchObject({
         status: 'ok',
         completed_step: 1,
         next_step: 1,
       });
+      expect(JSON.parse(aliasCompleteResponse.payload)).toMatchObject({
+        status: 'ok',
+        completed_step: 1,
+      });
       expect(JSON.parse(resetResponse.payload)).toMatchObject({
         status: 'ok',
         progress_percentage: 0,
+      });
+      expect(JSON.parse(aliasResetResponse.payload)).toMatchObject({
+        status: 'ok',
+        progress_percentage: 0,
+      });
+      expect(JSON.parse(stepResponse.payload)).toEqual({
+        success: true,
+        step: {
+          step: 2,
+          title: 'Publish Your First Capsule',
+          action_url: '/a2a/publish',
+        },
+        data: {
+          step: 2,
+          title: 'Publish Your First Capsule',
+          action_url: '/a2a/publish',
+        },
       });
       expect(mockGetOnboardingJourney).toHaveBeenCalledWith('node-2', prisma);
       expect(mockCompleteOnboardingStep).toHaveBeenCalledWith('node-2', 1, prisma);
@@ -428,6 +543,42 @@ describe('Account routes', () => {
 
       expect(response.statusCode).toBe(400);
       expect(mockCompleteOnboardingStep).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('returns top-level agents list aliases for user-linked nodes', async () => {
+    const prisma = {};
+    const app = buildApp(prisma);
+    mockGetUserNodes.mockResolvedValue([
+      { node_id: 'node-1', trust_level: 'trusted' },
+      { node_id: 'node-2', trust_level: 'verified' },
+    ]);
+
+    try {
+      await app.register(cookie);
+      await app.register(accountRoutes, { prefix: '/account' });
+      await app.ready();
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/account/agents',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload)).toEqual({
+        success: true,
+        agents: [
+          { node_id: 'node-1', trust_level: 'trusted' },
+          { node_id: 'node-2', trust_level: 'verified' },
+        ],
+        total: 2,
+        data: [
+          { node_id: 'node-1', trust_level: 'trusted' },
+          { node_id: 'node-2', trust_level: 'verified' },
+        ],
+      });
     } finally {
       await app.close();
     }

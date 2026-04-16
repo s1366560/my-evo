@@ -13,6 +13,7 @@ export async function creditRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      ...balance,
       data: balance,
     });
   });
@@ -40,6 +41,8 @@ export async function creditRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      history: result.items,
+      total: result.total,
       data: result.items,
       meta: {
         total: result.total,
@@ -85,6 +88,8 @@ export async function creditRoutes(app: FastifyInstance): Promise<void> {
 
     void reply.send({
       success: true,
+      from_transaction: result.from_transaction,
+      to_transaction: result.to_transaction,
       data: result,
     });
   });
@@ -98,21 +103,28 @@ export async function creditRoutes(app: FastifyInstance): Promise<void> {
           type: 'object',
           properties: {
             success: { type: 'boolean' },
+            price_per_credit: { type: 'number' },
+            currency: { type: 'string' },
+            min_purchase: { type: 'number' },
+            max_purchase: { type: 'number' },
+            updated_at: { type: 'string' },
             data: { type: 'object', additionalProperties: true },
           },
         },
       },
     },
   }, async (_request, reply) => {
+    const data = {
+      price_per_credit: 0.01,
+      currency: 'USD',
+      min_purchase: 100,
+      max_purchase: 100000,
+      updated_at: new Date().toISOString(),
+    };
     return reply.send({
       success: true,
-      data: {
-        price_per_credit: 0.01,
-        currency: 'USD',
-        min_purchase: 100,
-        max_purchase: 100000,
-        updated_at: new Date().toISOString(),
-      },
+      ...data,
+      data,
     });
   });
 
@@ -125,24 +137,34 @@ export async function creditRoutes(app: FastifyInstance): Promise<void> {
           type: 'object',
           properties: {
             success: { type: 'boolean' },
+            total_supply: { type: 'number' },
+            circulating: { type: 'number' },
+            price_per_credit_usd: { type: 'number' },
+            publish_gene_cost: { type: 'number' },
+            publish_capsule_cost: { type: 'number' },
+            publish_recipe_cost: { type: 'number' },
+            fetch_cost: { type: 'number' },
+            updated_at: { type: 'string' },
             data: { type: 'object', additionalProperties: true },
           },
         },
       },
     },
   }, async (_request, reply) => {
+    const data = {
+      total_supply: 10000000,
+      circulating: 5000000,
+      price_per_credit_usd: 0.01,
+      publish_gene_cost: 5,
+      publish_capsule_cost: 10,
+      publish_recipe_cost: 20,
+      fetch_cost: 1,
+      updated_at: new Date().toISOString(),
+    };
     return reply.send({
       success: true,
-      data: {
-        total_supply: 10000000,
-        circulating: 5000000,
-        price_per_credit_usd: 0.01,
-        publish_gene_cost: 5,
-        publish_capsule_cost: 10,
-        publish_recipe_cost: 20,
-        fetch_cost: 1,
-        updated_at: new Date().toISOString(),
-      },
+      ...data,
+      data,
     });
   });
 }

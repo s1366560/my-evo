@@ -109,7 +109,7 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
     );
 
     if (!body.signals) {
-      return reply.status(201).send({ success: true, data: node });
+      return reply.status(201).send({ success: true, node, data: node });
     }
 
     const updated = await app.prisma.memoryGraphNode.update({
@@ -121,7 +121,7 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
       },
     });
 
-    return reply.status(201).send({ success: true, data: updated });
+    return reply.status(201).send({ success: true, node: updated, data: updated });
   });
 
   app.post('/edge', {
@@ -148,7 +148,7 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
       body.weight ?? 0.5,
     );
 
-    return reply.status(201).send({ success: true, data: edge });
+    return reply.status(201).send({ success: true, edge, data: edge });
   });
 
   app.get('/lineage', {
@@ -164,14 +164,14 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
       query.asset_id,
       query.depth ? Number(query.depth) : 5,
     );
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, root: result.root, lineage: result.lineage, total_depth: result.total_depth, chain_id: result.chain_id, data: result });
   });
 
   app.get('/stats', {
     schema: { tags: ['MemoryGraph'] },
   }, async (_request, reply) => {
     const result = await service.getGraphStats();
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 
   app.post('/chain/construct', {
@@ -187,7 +187,7 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
     }
 
     const result = await service.constructChain(startNodeId, body.max_depth ?? 10);
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({ success: true, chain: result, data: result });
   });
 
   app.get('/chain/:id', {
@@ -204,7 +204,7 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
       });
     }
 
-    return reply.send({ success: true, data: chain });
+    return reply.send({ success: true, chain, data: chain });
   });
 
   app.post('/recall', {
@@ -229,7 +229,7 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
       limit: body.limit ?? 10,
       filters: body.filters as Parameters<typeof service.recall>[0]['filters'],
     });
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, results: result.results, total: result.total, query_time_ms: result.query_time_ms, data: result });
   });
 
   app.get('/confidence/:assetId', {
@@ -238,14 +238,14 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
   }, async (request, reply) => {
     const { assetId } = request.params as { assetId: string };
     const result = await service.getConfidenceRecord(assetId);
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 
   app.get('/confidence/stats', {
     schema: { tags: ['MemoryGraph'] },
   }, async (_request, reply) => {
     const result = await service.getConfidenceStats();
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 
   app.post('/decay', {
@@ -266,7 +266,10 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
       floor?: number;
     };
     const result = await handleDecayRequest(body);
-    return reply.send({ success: true, data: result });
+    const decayPayload = 'node' in result
+      ? { node: result.node, decay: result.decay }
+      : { processed: result.processed, skipped: result.skipped };
+    return reply.send({ success: true, ...decayPayload, data: result });
   });
 
   app.post('/compute-decay', {
@@ -287,7 +290,10 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
       floor?: number;
     };
     const result = await handleDecayRequest(body);
-    return reply.send({ success: true, data: result });
+    const decayPayload = 'node' in result
+      ? { node: result.node, decay: result.decay }
+      : { processed: result.processed, skipped: result.skipped };
+    return reply.send({ success: true, ...decayPayload, data: result });
   });
 
   app.post('/ban-check', {
@@ -310,7 +316,7 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
       ...(body.report_ratio_max !== undefined ? { report_ratio_max: body.report_ratio_max } : {}),
     });
 
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 
   app.get('/export', {
@@ -320,7 +326,7 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
     const auth = request.auth!;
     requireTrustedNodeOperator(auth, 'Memory graph export');
     const result = await service.exportGraph();
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, nodes: result.nodes, edges: result.edges, chains: result.chains, exported_at: result.exported_at, data: result });
   });
 
   app.post('/import', {
@@ -344,6 +350,6 @@ export async function memoryGraphSpecRoutes(app: FastifyInstance): Promise<void>
     }
 
     const result = await service.importGraph({ nodes, edges, chains });
-    return reply.send({ success: true, data: result });
+    return reply.send({ success: true, ...result, data: result });
   });
 }

@@ -5,6 +5,11 @@ const mockListWorkers = jest.fn();
 const mockGetWorker = jest.fn();
 const mockListWorkersPublic = jest.fn();
 const mockGetWorkerPublic = jest.fn();
+const mockRegisterWorker = jest.fn();
+const mockUpdateHeartbeat = jest.fn();
+const mockDeregisterWorker = jest.fn();
+const mockListSpecialists = jest.fn();
+const mockGetSpecialist = jest.fn();
 const mockSetWorkerAvailability = jest.fn();
 const mockRateSpecialist = jest.fn();
 const mockListSpecialistPools = jest.fn();
@@ -13,10 +18,15 @@ const mockGetWorkerPoolStats = jest.fn();
 
 jest.mock('./service', () => ({
   ...jest.requireActual('./service'),
+  registerWorker: (...args: unknown[]) => mockRegisterWorker(...args),
+  updateHeartbeat: (...args: unknown[]) => mockUpdateHeartbeat(...args),
+  deregisterWorker: (...args: unknown[]) => mockDeregisterWorker(...args),
   listWorkers: (...args: unknown[]) => mockListWorkers(...args),
   getWorker: (...args: unknown[]) => mockGetWorker(...args),
   listWorkersPublic: (...args: unknown[]) => mockListWorkersPublic(...args),
   getWorkerPublic: (...args: unknown[]) => mockGetWorkerPublic(...args),
+  listSpecialists: (...args: unknown[]) => mockListSpecialists(...args),
+  getSpecialist: (...args: unknown[]) => mockGetSpecialist(...args),
   setWorkerAvailability: (...args: unknown[]) => mockSetWorkerAvailability(...args),
   rateSpecialist: (...args: unknown[]) => mockRateSpecialist(...args),
   listSpecialistPools: (...args: unknown[]) => mockListSpecialistPools(...args),
@@ -82,6 +92,13 @@ describe('Worker pool routes', () => {
       4,
       'Great work',
     );
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      rated: true,
+      worker_id: 'worker-1',
+      task_id: 'task-1',
+      data: { rated: true },
+    });
   });
 
   it('returns specialist pools', async () => {
@@ -97,6 +114,8 @@ describe('Worker pool routes', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({
       success: true,
+      pools: [{ name: 'coding', worker_count: 2, avg_reputation: 75 }],
+      total: 1,
       data: {
         pools: [{ name: 'coding', worker_count: 2, avg_reputation: 75 }],
       },
@@ -122,6 +141,8 @@ describe('Worker pool routes', () => {
     expect(mockMatchWorkers).toHaveBeenCalledWith(['coding'], 70, 5);
     expect(JSON.parse(response.payload)).toEqual({
       success: true,
+      matches: [{ worker_id: 'worker-1', match_score: 0.95, price: null }],
+      total: 1,
       data: {
         matches: [{ worker_id: 'worker-1', match_score: 0.95, price: null }],
       },
@@ -156,6 +177,11 @@ describe('Worker pool routes', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.payload)).toEqual({
       success: true,
+      total_workers: 10,
+      active_workers: 8,
+      total_tasks_completed: 100,
+      avg_match_score: 0.87,
+      specialist_pools: 3,
       data: {
         total_workers: 10,
         active_workers: 8,
@@ -184,6 +210,15 @@ describe('Worker pool routes', () => {
       limit: 20,
       offset: 0,
     });
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      workers: [{ worker_id: 'worker-1' }],
+      total: 1,
+      data: {
+        workers: [{ worker_id: 'worker-1' }],
+        total: 1,
+      },
+    });
   });
 
   it('supports the documented /workers/:id detail alias', async () => {
@@ -196,6 +231,11 @@ describe('Worker pool routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetWorkerPublic).toHaveBeenCalledWith('worker-7');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      worker: { worker_id: 'worker-7' },
+      data: { worker_id: 'worker-7' },
+    });
   });
 
   it('updates the authenticated worker availability via the documented alias', async () => {
@@ -213,8 +253,10 @@ describe('Worker pool routes', () => {
     expect(response.statusCode).toBe(200);
     expect(mockSetWorkerAvailability).toHaveBeenCalledWith('node-1', false);
     expect(JSON.parse(response.payload)).toEqual({
+      success: true,
       status: 'ok',
       availability: 'busy',
+      worker_id: 'node-1',
     });
   });
 
@@ -270,5 +312,130 @@ describe('Worker pool routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(mockListWorkers).not.toHaveBeenCalled();
+  });
+
+  it('exposes top-level aliases for authenticated worker registration/list/detail routes', async () => {
+    mockRegisterWorker.mockResolvedValue({
+      node_id: 'node-1',
+      is_available: true,
+      last_heartbeat: '2026-04-16T00:00:00.000Z',
+    });
+    mockUpdateHeartbeat.mockResolvedValue({
+      node_id: 'node-1',
+      is_available: true,
+      last_heartbeat: '2026-04-16T00:01:00.000Z',
+    });
+    mockDeregisterWorker.mockResolvedValue({
+      success: true,
+      node_id: 'node-1',
+    });
+    mockListWorkers.mockResolvedValue({
+      workers: [{ node_id: 'node-1', specialties: ['coding'] }],
+      total: 1,
+      limit: 20,
+      offset: 0,
+    });
+    mockGetWorker.mockResolvedValue({ node_id: 'node-1', specialties: ['coding'] });
+    mockListSpecialists.mockResolvedValue({
+      items: [{ node_id: 'node-1', specialties: ['coding'] }],
+      total: 1,
+    });
+    mockGetSpecialist.mockResolvedValue({ node_id: 'node-1', specialties: ['coding'] });
+
+    const [registerRes, heartbeatRes, deregisterRes, listRes, detailRes, specialistsRes, specialistRes] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/workerpool/register',
+        payload: { specialties: ['coding'] },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/workerpool/heartbeat',
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/workerpool/deregister',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/v2/workerpool',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/v2/workerpool/node-1',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/v2/workerpool/specialists',
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/v2/workerpool/specialists/node-1',
+      }),
+    ]);
+
+    expect(registerRes.statusCode).toBe(201);
+    expect(JSON.parse(registerRes.payload)).toEqual({
+      success: true,
+      worker_id: 'node-1',
+      type: 'passive',
+      tier: 'bronze',
+      is_available: true,
+      registered_at: '2026-04-16T00:00:00.000Z',
+      data: {
+        node_id: 'node-1',
+        is_available: true,
+        last_heartbeat: '2026-04-16T00:00:00.000Z',
+      },
+    });
+    expect(JSON.parse(heartbeatRes.payload)).toEqual({
+      success: true,
+      worker: {
+        node_id: 'node-1',
+        is_available: true,
+        last_heartbeat: '2026-04-16T00:01:00.000Z',
+      },
+      data: {
+        node_id: 'node-1',
+        is_available: true,
+        last_heartbeat: '2026-04-16T00:01:00.000Z',
+      },
+    });
+    expect(JSON.parse(deregisterRes.payload)).toEqual({
+      success: true,
+      node_id: 'node-1',
+      data: {
+        success: true,
+        node_id: 'node-1',
+      },
+    });
+    expect(JSON.parse(listRes.payload)).toEqual({
+      success: true,
+      workers: [{ node_id: 'node-1', specialties: ['coding'] }],
+      total: 1,
+      data: [{ node_id: 'node-1', specialties: ['coding'] }],
+      meta: {
+        total: 1,
+        limit: 20,
+        offset: 0,
+      },
+    });
+    expect(JSON.parse(detailRes.payload)).toEqual({
+      success: true,
+      worker: { node_id: 'node-1', specialties: ['coding'] },
+      data: { node_id: 'node-1', specialties: ['coding'] },
+    });
+    expect(JSON.parse(specialistsRes.payload)).toEqual({
+      success: true,
+      specialists: [{ node_id: 'node-1', specialties: ['coding'] }],
+      total: 1,
+      data: [{ node_id: 'node-1', specialties: ['coding'] }],
+      meta: { total: 1 },
+    });
+    expect(JSON.parse(specialistRes.payload)).toEqual({
+      success: true,
+      specialist: { node_id: 'node-1', specialties: ['coding'] },
+      data: { node_id: 'node-1', specialties: ['coding'] },
+    });
   });
 });

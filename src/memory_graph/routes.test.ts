@@ -158,6 +158,21 @@ describe('Memory graph routes', () => {
         usage_count: 45,
       },
     });
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      node: {
+        node_id: 'gene-1',
+        positive: 12,
+        negative: 1,
+        usage_count: 45,
+      },
+      data: {
+        node_id: 'gene-1',
+        positive: 12,
+        negative: 1,
+        usage_count: 45,
+      },
+    });
   });
 
   it('maps the spec lineage query route to the lineage service', async () => {
@@ -175,6 +190,19 @@ describe('Memory graph routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetLineage).toHaveBeenCalledWith('asset-1', 2);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      root: 'asset-1',
+      lineage: [],
+      total_depth: 0,
+      chain_id: 'chain-1',
+      data: {
+        root: 'asset-1',
+        lineage: [],
+        total_depth: 0,
+        chain_id: 'chain-1',
+      },
+    });
   });
 
   it('routes spec decay requests to single-node or bulk decay services', async () => {
@@ -204,6 +232,17 @@ describe('Memory graph routes', () => {
     expect(bulkResponse.statusCode).toBe(200);
     expect(mockTriggerDecay).toHaveBeenCalledWith('asset-1', { lambda: 0.1 });
     expect(mockTriggerDecayAll).toHaveBeenCalledWith(undefined, 30, 50);
+    expect(JSON.parse(singleResponse.payload)).toEqual({
+      success: true,
+      node: { node_id: 'asset-1' },
+      data: { node: { node_id: 'asset-1' } },
+    });
+    expect(JSON.parse(bulkResponse.payload)).toEqual({
+      success: true,
+      processed: 1,
+      skipped: 0,
+      data: { processed: 1, skipped: 0 },
+    });
   });
 
   it('keeps compute-decay aliases wired for legacy and spec routes', async () => {
@@ -255,6 +294,184 @@ describe('Memory graph routes', () => {
     expect(exportResponse.statusCode).toBe(200);
     expect(mockConstructChain).toHaveBeenCalledWith('node-1', 10);
     expect(mockExportGraph).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(chainResponse.payload)).toEqual({
+      success: true,
+      chain: { chain_id: 'chain-1' },
+      data: { chain_id: 'chain-1' },
+    });
+    expect(JSON.parse(exportResponse.payload)).toEqual({
+      success: true,
+      nodes: [],
+      edges: [],
+      chains: [],
+      exported_at: '2026-01-01T00:00:00Z',
+      data: {
+        nodes: [],
+        edges: [],
+        chains: [],
+        exported_at: '2026-01-01T00:00:00Z',
+      },
+    });
+  });
+
+  it('exposes top-level aliases for stats, recall, confidence, ban-check, and import', async () => {
+    mockGetGraphStats.mockResolvedValue({
+      total_nodes: 10,
+      total_edges: 12,
+      node_types: { gene: 6 },
+      edge_types: { derived_from: 4 },
+      avg_confidence: 0.62,
+      avg_gdi: 54.3,
+      chains_count: 2,
+    });
+    mockRecall.mockResolvedValue({
+      results: [{ asset_id: 'gene-1', score: 0.87 }],
+      total: 1,
+      query_time_ms: 12,
+    });
+    mockGetConfidenceRecord.mockResolvedValue({
+      asset_id: 'gene-1',
+      current: 0.82,
+      initial: 1,
+      grade: 'A',
+      last_decay_at: '2026-04-16T00:00:00Z',
+      positive_signals: 5,
+      negative_signals: 0,
+      history: [],
+    });
+    mockGetConfidenceStats.mockResolvedValue({
+      total_nodes: 10,
+      avg_confidence: 0.62,
+      grade_distribution: { A: 5 },
+      stale_nodes: 1,
+    });
+    mockCheckBan.mockResolvedValue({
+      node_id: 'gene-1',
+      should_ban: false,
+      reasons: [],
+      thresholds: { confidence_min: 0.15, gdi_min: 25, report_ratio_max: 0.05 },
+    });
+    mockImportGraph.mockResolvedValue({
+      imported_nodes: 1,
+      imported_edges: 2,
+      imported_chains: 0,
+    });
+
+    const [statsRes, recallRes, confidenceRes, confidenceStatsRes, banRes, importRes] = await Promise.all([
+      app.inject({ method: 'GET', url: '/api/v2/memory/graph/stats' }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/memory/graph/recall',
+        payload: { query: 'async http', limit: 5 },
+      }),
+      app.inject({ method: 'GET', url: '/api/v2/memory/graph/confidence/gene-1' }),
+      app.inject({ method: 'GET', url: '/api/v2/memory/graph/confidence/stats' }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/memory/graph/ban-check',
+        payload: { node_id: 'gene-1' },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/memory/graph/import',
+        payload: { nodes: [{ node_id: 'gene-1' }], edges: [{ source_id: 'a', target_id: 'b' }] },
+      }),
+    ]);
+
+    expect(statsRes.statusCode).toBe(200);
+    expect(recallRes.statusCode).toBe(200);
+    expect(confidenceRes.statusCode).toBe(200);
+    expect(confidenceStatsRes.statusCode).toBe(200);
+    expect(banRes.statusCode).toBe(200);
+    expect(importRes.statusCode).toBe(200);
+    expect(JSON.parse(statsRes.payload)).toEqual({
+      success: true,
+      total_nodes: 10,
+      total_edges: 12,
+      node_types: { gene: 6 },
+      edge_types: { derived_from: 4 },
+      avg_confidence: 0.62,
+      avg_gdi: 54.3,
+      chains_count: 2,
+      data: {
+        total_nodes: 10,
+        total_edges: 12,
+        node_types: { gene: 6 },
+        edge_types: { derived_from: 4 },
+        avg_confidence: 0.62,
+        avg_gdi: 54.3,
+        chains_count: 2,
+      },
+    });
+    expect(JSON.parse(recallRes.payload)).toEqual({
+      success: true,
+      results: [{ asset_id: 'gene-1', score: 0.87 }],
+      total: 1,
+      query_time_ms: 12,
+      data: {
+        results: [{ asset_id: 'gene-1', score: 0.87 }],
+        total: 1,
+        query_time_ms: 12,
+      },
+    });
+    expect(JSON.parse(confidenceRes.payload)).toEqual({
+      success: true,
+      asset_id: 'gene-1',
+      current: 0.82,
+      initial: 1,
+      grade: 'A',
+      last_decay_at: '2026-04-16T00:00:00Z',
+      positive_signals: 5,
+      negative_signals: 0,
+      history: [],
+      data: {
+        asset_id: 'gene-1',
+        current: 0.82,
+        initial: 1,
+        grade: 'A',
+        last_decay_at: '2026-04-16T00:00:00Z',
+        positive_signals: 5,
+        negative_signals: 0,
+        history: [],
+      },
+    });
+    expect(JSON.parse(confidenceStatsRes.payload)).toEqual({
+      success: true,
+      total_nodes: 10,
+      avg_confidence: 0.62,
+      grade_distribution: { A: 5 },
+      stale_nodes: 1,
+      data: {
+        total_nodes: 10,
+        avg_confidence: 0.62,
+        grade_distribution: { A: 5 },
+        stale_nodes: 1,
+      },
+    });
+    expect(JSON.parse(banRes.payload)).toEqual({
+      success: true,
+      node_id: 'gene-1',
+      should_ban: false,
+      reasons: [],
+      thresholds: { confidence_min: 0.15, gdi_min: 25, report_ratio_max: 0.05 },
+      data: {
+        node_id: 'gene-1',
+        should_ban: false,
+        reasons: [],
+        thresholds: { confidence_min: 0.15, gdi_min: 25, report_ratio_max: 0.05 },
+      },
+    });
+    expect(JSON.parse(importRes.payload)).toEqual({
+      success: true,
+      imported_nodes: 1,
+      imported_edges: 2,
+      imported_chains: 0,
+      data: {
+        imported_nodes: 1,
+        imported_edges: 2,
+        imported_chains: 0,
+      },
+    });
   });
 
   it('rejects export for non-node authentication', async () => {

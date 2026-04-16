@@ -1148,6 +1148,9 @@ model Subscription {
   node_id              String   @unique
   plan                 String   @default("free")
   billing_cycle        String   @default("monthly")
+  scheduled_plan       String?
+  scheduled_billing_cycle String?
+  scheduled_change_at  DateTime?
   status               String   @default("active")
   started_at           DateTime @default(now())
   current_period_start DateTime @default(now())
@@ -1290,7 +1293,11 @@ model ServiceTransaction {
   seller_id    String
   price_paid   Int
   fee          Int      @default(0)
-  completed_at  DateTime @default(now())
+  status       String   @default("pending")
+  escrow_id    String?
+  locked_at    DateTime @default(now())
+  released_at  DateTime?
+  completed_at  DateTime?
 
   listing ServiceListing @relation(fields: [listing_id], references: [listing_id])
 

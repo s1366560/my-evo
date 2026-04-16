@@ -117,7 +117,25 @@ describe('Circle routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(JSON.parse(response.payload).data.gene_pool).toEqual(['gene-1', 'gene-2']);
+      expect(JSON.parse(response.payload)).toEqual({
+        success: true,
+        circle: expect.objectContaining({
+          circle_id: 'circle-1',
+          state: 'active',
+          founder_id: 'node-1',
+          members: [expect.objectContaining({ node_id: 'node-1', role: 'founder' })],
+          gene_pool: ['gene-1', 'gene-2'],
+          config: expect.objectContaining({
+            max_members: 20,
+            approval_threshold: 0.6,
+            voting_deadline_days: 7,
+          }),
+          updated_at: '2026-01-01T00:00:00.000Z',
+        }),
+        data: expect.objectContaining({
+          gene_pool: ['gene-1', 'gene-2'],
+        }),
+      });
     } finally {
       await app.close();
     }
@@ -170,9 +188,38 @@ describe('Circle routes', () => {
         method: 'GET',
         url: '/a2a/circle/list?limit=5&offset=1',
       });
+      const createPayload = JSON.parse(createResponse.payload);
+      const listPayload = JSON.parse(listResponse.payload);
 
       expect(createResponse.statusCode).toBe(201);
       expect(mockCreateCircle).toHaveBeenCalledWith('node-1', 'Compat Circle', 'Alias create', 'compat');
+      expect(createPayload).toEqual({
+        success: true,
+        circle_id: 'circle-2',
+        state: 'forming',
+        founder_id: 'node-1',
+        members: [{ node_id: 'node-1', role: 'founder', contributions: 0 }],
+        gene_pool: [],
+        message: 'Circle created. Invite members to join.',
+        circle: expect.objectContaining({
+          circle_id: 'circle-2',
+          creator_id: 'node-1',
+          state: 'forming',
+          founder_id: 'node-1',
+          members: [{ node_id: 'node-1', role: 'founder', contributions: 0 }],
+          config: expect.objectContaining({
+            max_members: 20,
+            approval_threshold: 0.6,
+            voting_deadline_days: 7,
+          }),
+        }),
+        data: {
+          circle_id: 'circle-2',
+          name: 'Compat Circle',
+          description: 'Alias create',
+          theme: 'compat',
+        },
+      });
       expect(listResponse.statusCode).toBe(200);
       expect(prisma.circle.findMany).toHaveBeenCalledWith({
         orderBy: { created_at: 'desc' },
@@ -180,6 +227,28 @@ describe('Circle routes', () => {
         skip: 1,
       });
       expect(prisma.circle.count).toHaveBeenCalledTimes(1);
+      expect(listPayload).toEqual({
+        success: true,
+        items: [expect.objectContaining({
+          circle_id: 'circle-1',
+          state: 'active',
+          founder_id: 'node-1',
+        })],
+        circles: [expect.objectContaining({
+          circle_id: 'circle-1',
+          state: 'active',
+          founder_id: 'node-1',
+        })],
+        total: 1,
+        data: {
+          items: [expect.objectContaining({
+            circle_id: 'circle-1',
+            state: 'active',
+            founder_id: 'node-1',
+          })],
+          total: 1,
+        },
+      });
     } finally {
       await app.close();
     }

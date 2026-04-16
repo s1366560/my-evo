@@ -7,6 +7,7 @@ const mockTriggerPeriodicSync = jest.fn();
 const mockGetNodeSyncStatus = jest.fn();
 const mockFetchSyncHistory = jest.fn();
 const mockCheckSyncIntegrity = jest.fn();
+const mockFetchSyncMetrics = jest.fn();
 
 jest.mock('./service', () => ({
   claimSyncTrigger: (...args: unknown[]) => mockClaimSyncTrigger(...args),
@@ -14,6 +15,7 @@ jest.mock('./service', () => ({
   getNodeSyncStatus: (...args: unknown[]) => mockGetNodeSyncStatus(...args),
   fetchSyncHistory: (...args: unknown[]) => mockFetchSyncHistory(...args),
   checkSyncIntegrity: (...args: unknown[]) => mockCheckSyncIntegrity(...args),
+  fetchSyncMetrics: (...args: unknown[]) => mockFetchSyncMetrics(...args),
 }));
 
 jest.mock('../shared/auth', () => ({
@@ -32,6 +34,17 @@ describe('Sync routes', () => {
   beforeEach(async () => {
     mockAuthNodeId = 'node-1';
     mockClaimSyncTrigger.mockResolvedValue(true);
+    mockFetchSyncMetrics.mockResolvedValue({
+      node_id: 'node-1',
+      total_syncs: 3,
+      successful_syncs: 3,
+      failed_syncs: 0,
+      average_items_per_sync: 2,
+      average_duration_ms: 500,
+      last_sync_duration_ms: 400,
+      last_successful_sync: '2026-01-01T00:00:00.000Z',
+      sync_success_rate: 1,
+    });
     app = buildApp();
     await app.register(syncRoutes, { prefix: '/a2a/sync' });
     await app.ready();
@@ -57,6 +70,17 @@ describe('Sync routes', () => {
     expect(response.statusCode).toBe(202);
     expect(mockClaimSyncTrigger).toHaveBeenCalledWith('node-1');
     expect(mockTriggerPeriodicSync).toHaveBeenCalledWith('node-1');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      sync_id: 'sync-1',
+      status: 'SYNCED',
+      completed_at: expect.any(String),
+      data: {
+        sync_id: 'sync-1',
+        status: 'SYNCED',
+        message: 'done',
+      },
+    });
   });
 
   it('rejects overlapping sync triggers for the same node', async () => {
@@ -84,7 +108,17 @@ describe('Sync routes', () => {
     });
 
     expect(response.statusCode).toBe(202);
-    expect(JSON.parse(response.payload).data.message).toBe('Sync failed');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      sync_id: 'sync-err',
+      status: 'SYNC_ERROR',
+      completed_at: expect.any(String),
+      data: {
+        sync_id: 'sync-err',
+        status: 'SYNC_ERROR',
+        message: 'Sync failed',
+      },
+    });
   });
 
   it('returns sync status for the authenticated node', async () => {
@@ -104,6 +138,30 @@ describe('Sync routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockGetNodeSyncStatus).toHaveBeenCalledWith('node-1');
+    expect(mockFetchSyncMetrics).toHaveBeenCalledWith('node-1');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      node_id: 'node-1',
+      status: 'SYNCED',
+      last_sync_at: '2026-01-01T00:00:00.000Z',
+      next_sync_at: '2026-01-01T01:00:00.000Z',
+      sync_count: 3,
+      error_count: 0,
+      stats: {
+        total_published: 3,
+        total_fetched: 6,
+        total_carbon_tax_paid: 3,
+        total_report_rewards: 15,
+      },
+      data: {
+        node_id: 'node-1',
+        status: 'SYNCED',
+        last_sync_at: '2026-01-01T00:00:00.000Z',
+        next_sync_at: '2026-01-01T01:00:00.000Z',
+        sync_count: 3,
+        error_count: 0,
+      },
+    });
   });
 
   it('passes limit through to sync history lookups', async () => {
@@ -116,6 +174,12 @@ describe('Sync routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockFetchSyncHistory).toHaveBeenCalledWith('node-1', 10);
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      history: [{ id: 'log-1' }],
+      total: 1,
+      data: [{ id: 'log-1' }],
+    });
   });
 
   it('caps sync history limit to the safe maximum', async () => {
@@ -154,6 +218,19 @@ describe('Sync routes', () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockCheckSyncIntegrity).toHaveBeenCalledWith('node-1');
+    expect(JSON.parse(response.payload)).toEqual({
+      success: true,
+      quarantine: false,
+      warnings: [],
+      is_integral: true,
+      missing_count: 0,
+      issues: [],
+      data: {
+        is_integral: true,
+        missing_count: 0,
+        issues: [],
+      },
+    });
   });
 
   it('rejects non-node identities on sync routes', async () => {

@@ -18,6 +18,29 @@ export interface MonitoringState {
   alerts: MonitoringAlert[];
 }
 
+export interface DashboardMetrics {
+  total_nodes: number;
+  online_nodes: number;
+  offline_nodes: number;
+  quarantined_nodes: number;
+  active_swarms: number;
+  total_assets: number;
+  average_gdi: number;
+  total_credits: number;
+  alerts_triggered_24h: number;
+  uptime_seconds: number;
+}
+
+export interface AlertStats {
+  total: number;
+  info: number;
+  warning: number;
+  critical: number;
+  acknowledged: number;
+  resolved: number;
+  active: number;
+}
+
 export function createMonitoringState(): MonitoringState {
   return {
     metricsBuffer: [],
@@ -146,4 +169,83 @@ export async function getAlerts(
   }
 
   return filtered.slice(0, limit);
+}
+
+export async function getDashboardMetrics(
+  state: MonitoringState,
+  prismaClient: PrismaClient,
+): Promise<DashboardMetrics> {
+  const offlineThreshold = new Date(Date.now() - 45 * 60 * 1000);
+  const alertsWindow = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const [
+    totalNodes,
+    onlineNodes,
+    quarantinedNodes,
+    activeSwarms,
+    assetAggregate,
+    creditAggregate,
+  ] = await Promise.all([
+    prismaClient.node.count(),
+    prismaClient.node.count({
+      where: {
+        last_seen: { gte: offlineThreshold },
+      },
+    }),
+    prismaClient.quarantineRecord.count({
+      where: {
+        is_active: true,
+      },
+    }),
+    prismaClient.swarmTask.count({
+      where: {
+        status: { in: ['pending', 'in_progress'] },
+      },
+    }),
+    prismaClient.asset.aggregate({
+      _count: { _all: true },
+      _avg: { gdi_score: true },
+    }),
+    prismaClient.node.aggregate({
+      _sum: { credit_balance: true },
+    }),
+  ]);
+
+  const alertsTriggered24h = state.alerts.filter(
+    (alert) => new Date(alert.triggered_at).getTime() >= alertsWindow.getTime(),
+  ).length;
+
+  return {
+    total_nodes: totalNodes,
+    online_nodes: onlineNodes,
+    offline_nodes: Math.max(totalNodes - onlineNodes, 0),
+    quarantined_nodes: quarantinedNodes,
+    active_swarms: activeSwarms,
+    total_assets: assetAggregate._count._all,
+    average_gdi: Math.round(((assetAggregate._avg.gdi_score ?? 0) * 100)) / 100,
+    total_credits: creditAggregate._sum.credit_balance ?? 0,
+    alerts_triggered_24h: alertsTriggered24h,
+    uptime_seconds: process.uptime(),
+  };
+}
+
+export async function getAlertStats(
+  state: MonitoringState,
+): Promise<AlertStats> {
+  const stats: AlertStats = {
+    total: state.alerts.length,
+    info: 0,
+    warning: 0,
+    critical: 0,
+    acknowledged: 0,
+    resolved: 0,
+    active: 0,
+  };
+
+  for (const alert of state.alerts) {
+    stats[alert.severity] += 1;
+    stats.active += 1;
+  }
+
+  return stats;
 }

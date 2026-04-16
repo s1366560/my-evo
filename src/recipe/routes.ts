@@ -23,6 +23,8 @@ export async function recipeRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      recipes: result.items,
+      total: result.total,
       data: { items: result.items, total: result.total },
     };
   }
@@ -58,7 +60,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, data: recipe };
+    return { success: true, recipe, data: recipe };
   }
 
   // List recipes
@@ -76,7 +78,7 @@ export async function recipeRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { recipeId: string };
     const recipe = await service.getRecipe(params.recipeId);
-    return { success: true, data: recipe };
+    return { success: true, recipe, data: recipe };
   });
 
   // Create recipe
@@ -108,7 +110,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     };
 
     const recipe = await service.updateRecipe(params.recipeId, auth.node_id, body);
-    return { success: true, data: recipe };
+    return { success: true, recipe, data: recipe };
   });
 
   // Publish recipe
@@ -119,7 +121,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     const params = request.params as { recipeId: string };
     const auth = request.auth!;
     const recipe = await service.publishRecipe(params.recipeId, auth.node_id);
-    return { success: true, data: recipe };
+    return { success: true, recipe, data: recipe };
   });
 
   // Delete recipe
@@ -130,7 +132,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     const params = request.params as { recipeId: string };
     const auth = request.auth!;
     await service.deleteRecipe(params.recipeId, auth.node_id);
-    return { success: true, data: null };
+    return { success: true, deleted: true, data: null };
   });
 
   // List organisms
@@ -139,7 +141,7 @@ export async function recipeRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { recipeId: string };
     const organisms = await service.listOrganisms(params.recipeId);
-    return { success: true, data: organisms };
+    return { success: true, organisms, total: organisms.length, data: organisms };
   });
 
   // Create organism
@@ -162,7 +164,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, data: organism };
+    return { success: true, organism, data: organism };
   });
 
   // Get organism
@@ -171,7 +173,7 @@ export async function recipeRoutes(app: FastifyInstance) {
   }, async (request) => {
     const params = request.params as { recipeId: string; organismId: string };
     const organism = await service.getOrganism(params.organismId);
-    return { success: true, data: organism };
+    return { success: true, organism, data: organism };
   });
 
   // Execute organism
@@ -182,7 +184,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     const params = request.params as { recipeId: string; organismId: string };
     const body = request.body as { inputs?: unknown };
     const result = await service.executeOrganism(params.organismId, body.inputs);
-    return { success: true, data: result };
+    return { success: true, organism: result, data: result };
   });
 
   // ─── A. Recipe extensions ─────────────────────────────────────────────────────
@@ -213,7 +215,7 @@ export async function recipeRoutes(app: FastifyInstance) {
       prisma.recipe.count({ where }),
     ]);
 
-    return { success: true, data: { items, total } };
+    return { success: true, recipes: items, total, data: { items, total } };
   });
 
   // GET /a2a/recipe/stats — aggregate recipe statistics
@@ -238,6 +240,10 @@ export async function recipeRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      total_recipes: total,
+      published_recipes: published,
+      draft_recipes: draft,
+      organisms: organismStats,
       data: {
         total_recipes: total,
         published_recipes: published,
@@ -288,7 +294,7 @@ export async function recipeRoutes(app: FastifyInstance) {
     });
 
     void reply.status(201);
-    return { success: true, data: organism };
+    return { success: true, organism, data: organism };
   });
 
   // ─── B. Organism routes ───────────────────────────────────────────────────────
@@ -330,7 +336,7 @@ export async function recipeRoutes(app: FastifyInstance) {
       prisma.organism.count({ where }),
     ]);
 
-    return { success: true, data: { items, total } };
+    return { success: true, organisms: items, total, data: { items, total } };
   });
 
   // PATCH /a2a/organism/:id — update organism (status, position, etc.)
@@ -365,6 +371,6 @@ export async function recipeRoutes(app: FastifyInstance) {
       data: updateData,
     });
 
-    return { success: true, data: updated };
+    return { success: true, organism: updated, data: updated };
   });
 }

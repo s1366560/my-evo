@@ -52,6 +52,12 @@ export async function bountyRoutes(app: FastifyInstance) {
     void reply.status(201);
     return {
       success: true,
+      bounty_id: bounty.bounty_id,
+      state: bounty.status,
+      reward: bounty.amount,
+      platform_fee: Math.ceil(bounty.amount * 0.05),
+      created_at: bounty.created_at,
+      deadline: bounty.deadline,
       data: {
         ...bounty,
         reward: bounty.amount,
@@ -94,6 +100,8 @@ export async function bountyRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      bounties: result.bounties,
+      total: result.total,
       data: result.bounties,
       meta: {
         total: result.total,
@@ -116,7 +124,7 @@ export async function bountyRoutes(app: FastifyInstance) {
     }
 
     const bounty = await service.acceptBid(params.bountyId, bidId, auth.node_id);
-    return { success: true, data: bounty };
+    return { success: true, bounty, data: bounty };
   }
 
   // Alias: POST /a2a/ask  (same as POST /api/v2/bounty)
@@ -162,7 +170,7 @@ export async function bountyRoutes(app: FastifyInstance) {
       body.approach,
     );
 
-    return { success: true, data: bid };
+    return { success: true, bid, data: bid };
   });
 
   app.post('/:bountyId/accept-bid', {
@@ -178,7 +186,7 @@ export async function bountyRoutes(app: FastifyInstance) {
     }
 
     const bounty = await service.acceptBid(params.bountyId, body.bidId, auth.node_id);
-    return { success: true, data: bounty };
+    return { success: true, bounty, data: bounty };
   });
 
   app.post('/:bountyId/submit', {
@@ -207,7 +215,7 @@ export async function bountyRoutes(app: FastifyInstance) {
       body.milestone_id,
     );
 
-    return { success: true, data: result };
+    return { success: true, bounty: result, deliverable: result.deliverable ?? null, data: result };
   });
 
   app.post('/:bountyId/review', {
@@ -234,7 +242,7 @@ export async function bountyRoutes(app: FastifyInstance) {
       body.milestone_id,
     );
 
-    return { success: true, data: bounty };
+    return { success: true, bounty, data: bounty };
   });
 
   app.post('/:bountyId/cancel', {
@@ -245,7 +253,7 @@ export async function bountyRoutes(app: FastifyInstance) {
     const params = request.params as { bountyId: string };
 
     const bounty = await service.cancelBounty(params.bountyId, auth.node_id);
-    return { success: true, data: bounty };
+    return { success: true, bounty, data: bounty };
   });
 
   app.get('/', {
@@ -293,6 +301,9 @@ export async function bountyRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      bounties: result.bounties,
+      total_open: result.total,
+      total_reward_pool: totalRewardPool,
       data: {
         bounties: result.bounties,
         total_open: result.total,
@@ -317,6 +328,11 @@ export async function bountyRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      total_bounties: total.total,
+      open: open.total,
+      in_progress: claimed.total + submitted.total,
+      completed: accepted.total,
+      expired: expired.total,
       data: {
         total_bounties: total.total,
         open: open.total,
@@ -333,7 +349,7 @@ export async function bountyRoutes(app: FastifyInstance) {
     const auth = await getOptionalAuth(request);
     const params = request.params as { bountyId: string };
     const bounty = await service.getBounty(params.bountyId, auth?.node_id ?? '');
-    return { success: true, data: bounty };
+    return { success: true, bounty, data: bounty };
   });
 
   app.get('/my', {
@@ -350,6 +366,8 @@ export async function bountyRoutes(app: FastifyInstance) {
     const result = await service.listBountiesByCreator(auth.node_id);
     return {
       success: true,
+      bounties: result.bounties,
+      total: result.total,
       data: result.bounties,
       meta: { total: result.total },
     };
@@ -379,6 +397,12 @@ export async function bountyRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      status: 'completed',
+      reward_paid: bounty.amount,
+      worker: deliverable?.worker_id ?? null,
+      rating: body.rating ?? null,
+      deliverable_id: body.deliverable_id ?? null,
+      reputation_impact: '+5.0',
       data: {
         status: 'completed',
         reward_paid: bounty.amount,

@@ -84,6 +84,8 @@ export async function sandboxRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      sandboxes: result.items,
+      total: result.total,
       data: { items: result.items, total: result.total },
     };
   });
@@ -117,6 +119,13 @@ export async function sandboxRoutes(app: FastifyInstance) {
 
     return {
       success: true,
+      sandboxes: result.items.map((sandbox) => ({
+        sandbox_id: sandbox.sandbox_id,
+        name: sandbox.name,
+        status: sandbox.state,
+        isolation_mode: toSpecIsolationMode(sandbox.isolation_level),
+      })),
+      total: result.total,
       data: {
         sandboxes: result.items.map((sandbox) => ({
           sandbox_id: sandbox.sandbox_id,
@@ -133,7 +142,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     schema: { tags: ['Sandbox'] },
   }, async (_request) => {
     const stats = await service.getSandboxStats();
-    return { success: true, data: stats };
+    return { success: true, ...stats, data: stats };
   });
 
   // Get sandbox detail
@@ -145,7 +154,8 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveSandboxNodeId(app, auth);
     const sandbox = await service.getSandbox(params.sandboxId, nodeId);
-    return { success: true, data: toSpecSandboxDetail(sandbox as Record<string, any>) };
+    const detail = toSpecSandboxDetail(sandbox as Record<string, any>);
+    return { success: true, sandbox: detail, data: detail };
   });
 
   // Create sandbox
@@ -177,7 +187,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, data: sandbox };
+    return { success: true, sandbox, data: sandbox };
   });
 
   app.post('/create', {
@@ -220,6 +230,12 @@ export async function sandboxRoutes(app: FastifyInstance) {
 
     return reply.send({
       success: true,
+      sandbox_id: sandbox.sandbox_id,
+      name: sandbox.name,
+      isolation_level: sandbox.isolation_level,
+      state: sandbox.state,
+      member_count: sandbox.member_count,
+      created_at: sandbox.created_at,
       data: {
         sandbox_id: sandbox.sandbox_id,
         status: sandbox.state,
@@ -248,7 +264,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     };
 
     const sandbox = await service.updateSandbox(params.sandboxId, nodeId, body);
-    return { success: true, data: sandbox };
+    return { success: true, sandbox, data: sandbox };
   });
 
   // Delete sandbox
@@ -260,7 +276,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveSandboxNodeId(app, auth);
     await service.deleteSandbox(params.sandboxId, nodeId);
-    return { success: true, data: null };
+    return { success: true, deleted: true, data: null };
   });
 
   // Join sandbox
@@ -272,7 +288,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveSandboxNodeId(app, auth);
     const member = await service.joinSandbox(params.sandboxId, nodeId);
-    return { success: true, data: member };
+    return { success: true, member, data: member };
   });
 
   // Leave sandbox
@@ -284,7 +300,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveSandboxNodeId(app, auth);
     await service.leaveSandbox(params.sandboxId, nodeId);
-    return { success: true, data: null };
+    return { success: true, left: true, data: null };
   });
 
   // List members
@@ -296,7 +312,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveSandboxNodeId(app, auth);
     const members = await service.listMembers(params.sandboxId, nodeId);
-    return { success: true, data: members };
+    return { success: true, members, total: members.length, data: members };
   });
 
   // Invite member
@@ -324,7 +340,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, data: invite };
+    return { success: true, invite, data: invite };
   });
 
   // List sandbox assets
@@ -336,7 +352,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveSandboxNodeId(app, auth);
     const assets = await service.listAssets(params.sandboxId, nodeId);
-    return { success: true, data: assets };
+    return { success: true, assets, total: assets.length, data: assets };
   });
 
   // Add asset to sandbox
@@ -372,7 +388,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     });
 
     void reply.status(201);
-    return { success: true, data: asset };
+    return { success: true, asset, data: asset };
   });
 
   app.post('/:sandboxId/asset', {
@@ -394,7 +410,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       body.asset_id,
     );
 
-    return { success: true, data: result };
+    return { success: true, result, data: result };
   });
 
   app.post('/:sandboxId/experiment', {
@@ -422,7 +438,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       parameters: body.parameters,
     });
 
-    return { success: true, data: result };
+    return { success: true, experiment: result, data: result };
   });
 
   app.post('/:sandboxId/modify', {
@@ -450,7 +466,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       body.asset_id,
       body.modifications,
     );
-    return { success: true, data: result };
+    return { success: true, result, data: result };
   });
 
   app.post('/:sandboxId/complete', {
@@ -469,7 +485,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       promote_assets: body.promote_assets,
       summary: body.summary,
     });
-    return { success: true, data: result };
+    return { success: true, result, data: result };
   });
 
   app.get('/:sandboxId/compare', {
@@ -480,7 +496,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveSandboxNodeId(app, auth);
     const result = await service.compareSandbox(params.sandboxId, nodeId);
-    return { success: true, data: result };
+    return { success: true, comparison: result, data: result };
   });
 
   // Request promotion
@@ -504,7 +520,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     );
 
     void reply.status(201);
-    return { success: true, data: request2 };
+    return { success: true, promotion_request: request2, data: request2 };
   });
 
   // List promotion requests
@@ -516,7 +532,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveSandboxNodeId(app, auth);
     const promotions = await service.listPromotions(params.sandboxId, nodeId);
-    return { success: true, data: promotions };
+    return { success: true, promotions, total: promotions.length, data: promotions };
   });
 
   // Approve promotion
@@ -532,7 +548,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       params.requestId,
       nodeId,
     );
-    return { success: true, data: result };
+    return { success: true, promotion: result, data: result };
   });
 
   // Reject promotion
@@ -550,6 +566,6 @@ export async function sandboxRoutes(app: FastifyInstance) {
       nodeId,
       body.note ?? '',
     );
-    return { success: true, data: result };
+    return { success: true, promotion: result, data: result };
   });
 }

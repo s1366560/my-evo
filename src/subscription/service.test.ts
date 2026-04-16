@@ -354,6 +354,47 @@ describe('Subscription Service', () => {
       expect(mockPrisma.subscriptionInvoice.create).not.toHaveBeenCalled();
     });
 
+    it('should schedule plan downgrades for period-end instead of applying them immediately', async () => {
+      const mockSub = {
+        subscription_id: 'sub_123',
+        node_id: 'node-1',
+        plan: 'ultra',
+        billing_cycle: 'monthly',
+        status: 'active',
+        started_at: new Date('2026-03-01T00:00:00Z'),
+        current_period_start: new Date('2026-03-01T00:00:00Z'),
+        current_period_end: new Date(Date.now() + 86_400_000),
+        auto_renew: true,
+        total_paid: 10000,
+      };
+
+      mockPrisma.node.findUnique.mockResolvedValue({ node_id: 'node-1', credit_balance: 0 });
+      mockPrisma.subscription.findUnique.mockResolvedValue(mockSub);
+      mockPrisma.subscription.update.mockResolvedValue({
+        ...mockSub,
+        scheduled_plan: 'premium',
+        scheduled_billing_cycle: 'monthly',
+        scheduled_change_at: mockSub.current_period_end,
+      });
+
+      const result = await activateSubscription('node-1', 'premium', 'monthly', true);
+
+      expect(result.plan).toBe('ultra');
+      expect(result.scheduled_plan).toBe('premium');
+      expect(mockPrisma.subscription.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: {
+          auto_renew: true,
+          scheduled_plan: 'premium',
+          scheduled_billing_cycle: 'monthly',
+          scheduled_change_at: mockSub.current_period_end,
+        },
+      });
+      expect(mockPrisma.node.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.creditTransaction.create).not.toHaveBeenCalled();
+      expect(mockPrisma.subscriptionInvoice.create).not.toHaveBeenCalled();
+    });
+
     it('should treat a concurrent identical upgrade as idempotent without double charging', async () => {
       const currentSub = {
         subscription_id: 'sub_123',
@@ -461,6 +502,40 @@ describe('Subscription Service', () => {
       expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ status: 'paused', auto_renew: false }),
+        }),
+      );
+    });
+
+    it('should clear scheduled downgrades when cancelling auto renew', async () => {
+      const mockSub = {
+        subscription_id: 'sub_123',
+        node_id: 'node-1',
+        plan: 'ultra',
+        billing_cycle: 'monthly',
+        status: 'active',
+        scheduled_plan: 'premium',
+        scheduled_billing_cycle: 'monthly',
+        scheduled_change_at: new Date('2026-03-31T23:59:59Z'),
+      };
+
+      mockPrisma.subscription.findUnique.mockResolvedValue(mockSub);
+      mockPrisma.subscription.update.mockResolvedValue({
+        ...mockSub,
+        auto_renew: false,
+        scheduled_plan: null,
+        scheduled_billing_cycle: null,
+        scheduled_change_at: null,
+      });
+
+      await cancelSubscription('node-1');
+      expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            auto_renew: false,
+            scheduled_plan: null,
+            scheduled_billing_cycle: null,
+            scheduled_change_at: null,
+          }),
         }),
       );
     });
@@ -635,6 +710,112 @@ describe('Subscription Service', () => {
       mockPrisma.subscription.findUnique.mockResolvedValue(null);
       const result = await getSubscriptionStatus('unknown');
       expect(result).toBeNull();
+    });
+
+    it('should apply scheduled downgrades after the current period ends', async () => {
+      const dueAt = new Date(Date.now() - 60_000);
+      const nextStart = new Date(dueAt);
+      const nextEnd = new Date(nextStart);
+      nextEnd.setMonth(nextEnd.getMonth() + 1);
+
+      mockPrisma.subscription.findUnique
+        .mockResolvedValueOnce({
+          subscription_id: 'sub_123',
+          node_id: 'node-1',
+          plan: 'ultra',
+          billing_cycle: 'monthly',
+          scheduled_plan: 'premium',
+          scheduled_billing_cycle: 'monthly',
+          scheduled_change_at: dueAt,
+          status: 'active',
+          started_at: new Date('2026-03-01T00:00:00Z'),
+          current_period_start: new Date('2026-03-01T00:00:00Z'),
+          current_period_end: dueAt,
+          auto_renew: true,
+          total_paid: 10000,
+        })
+        .mockResolvedValueOnce({
+          subscription_id: 'sub_123',
+          node_id: 'node-1',
+          plan: 'premium',
+          billing_cycle: 'monthly',
+          scheduled_plan: null,
+          scheduled_billing_cycle: null,
+          scheduled_change_at: null,
+          status: 'active',
+          started_at: new Date('2026-03-01T00:00:00Z'),
+          current_period_start: nextStart,
+          current_period_end: nextEnd,
+          auto_renew: true,
+          total_paid: 10000,
+        });
+      mockPrisma.subscription.update.mockResolvedValue({});
+
+      const result = await getSubscriptionStatus('node-1');
+
+      expect(mockPrisma.subscription.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: expect.objectContaining({
+          plan: 'premium',
+          scheduled_plan: null,
+          scheduled_billing_cycle: null,
+          scheduled_change_at: null,
+        }),
+      });
+      expect(result?.plan).toBe('premium');
+      expect(result?.scheduled_plan).toBeUndefined();
+    });
+
+    it('should move ended non-renewing subscriptions into grace period on status reads', async () => {
+      const endedAt = new Date(Date.now() - 60_000);
+
+      mockPrisma.subscription.findUnique
+        .mockResolvedValueOnce({
+          subscription_id: 'sub_123',
+          node_id: 'node-1',
+          plan: 'premium',
+          billing_cycle: 'monthly',
+          status: 'active',
+          started_at: new Date('2026-03-01T00:00:00Z'),
+          current_period_start: new Date('2026-03-01T00:00:00Z'),
+          current_period_end: endedAt,
+          auto_renew: false,
+          total_paid: 2000,
+        })
+        .mockResolvedValueOnce({
+          subscription_id: 'sub_123',
+          node_id: 'node-1',
+          plan: 'premium',
+          billing_cycle: 'monthly',
+          status: 'active',
+          started_at: new Date('2026-03-01T00:00:00Z'),
+          current_period_start: new Date('2026-03-01T00:00:00Z'),
+          current_period_end: endedAt,
+          auto_renew: false,
+          total_paid: 2000,
+        })
+        .mockResolvedValueOnce({
+          subscription_id: 'sub_123',
+          node_id: 'node-1',
+          plan: 'premium',
+          billing_cycle: 'monthly',
+          status: 'grace_period',
+          started_at: new Date('2026-03-01T00:00:00Z'),
+          current_period_start: new Date('2026-03-01T00:00:00Z'),
+          current_period_end: endedAt,
+          auto_renew: false,
+          total_paid: 2000,
+        });
+
+      mockPrisma.subscription.update.mockResolvedValue({});
+
+      const result = await getSubscriptionStatus('node-1');
+
+      expect(mockPrisma.subscription.update).toHaveBeenCalledWith({
+        where: { node_id: 'node-1' },
+        data: { status: 'grace_period' },
+      });
+      expect(result?.status).toBe('grace_period');
     });
   });
 

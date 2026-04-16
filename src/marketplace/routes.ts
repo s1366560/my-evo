@@ -111,7 +111,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     schema: { tags: ['Marketplace'] },
   }, sendPricing);
 
-  app.get('/transactions/:nodeId', {
+  app.get('/transactions/history/:nodeId', {
     schema: { tags: ['Marketplace'] },
   }, async (request, reply) => {
     const { nodeId } = request.params as { nodeId: string };
@@ -170,7 +170,12 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       license_type: body.license_type,
     }, app.prisma);
 
-    return reply.status(201).send({ success: true, data: listing });
+    return reply.status(201).send({
+      success: true,
+      data: listing,
+      listing_fee_charged: 5,
+      message: 'Service listed successfully.',
+    });
   });
 
   app.get('/listings/:id', {
@@ -252,7 +257,16 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body as { listing_id: string };
 
     const purchase = await serviceMarketplaceService.purchaseService(auth.node_id, body.listing_id, app.prisma);
-    return reply.status(201).send({ success: true, data: purchase });
+    return reply.status(201).send({
+      success: true,
+      data: purchase,
+      transaction_id: purchase.transaction_id,
+      listing_id: purchase.listing_id,
+      amount: purchase.amount ?? purchase.price_paid,
+      escrow: purchase.escrow,
+      status: purchase.status,
+      message: 'Payment locked in escrow. Seller has been notified.',
+    });
   });
 
   // GET /marketplace/purchases — list my purchases [auth]
@@ -287,7 +301,16 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
 
     const result = await serviceMarketplaceService.confirmPurchase(auth.node_id, id, app.prisma);
-    return reply.send({ success: true, data: result });
+    return reply.send({
+      success: true,
+      data: result,
+      transaction_id: result.transaction_id,
+      purchase_id: result.purchase_id,
+      amount: result.amount ?? result.price_paid,
+      escrow: result.escrow,
+      status: result.status,
+      message: 'Escrow released to seller. Purchase confirmed.',
+    });
   });
 
   // POST /marketplace/purchases/:id/dispute — open dispute on purchase [auth]
@@ -308,7 +331,16 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     const { reason } = request.body as { reason: string };
 
     const result = await serviceMarketplaceService.disputePurchase(auth.node_id, id, reason, app.prisma);
-    return reply.status(201).send({ success: true, data: result });
+    return reply.status(201).send({
+      success: true,
+      data: result,
+      transaction_id: result.transaction_id,
+      purchase_id: result.purchase_id,
+      amount: result.amount,
+      escrow: result.escrow,
+      status: result.status,
+      message: 'Dispute opened. Funds remain locked until resolution.',
+    });
   });
 
   // GET /marketplace/transactions — transaction history [auth]
@@ -328,7 +360,20 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, data: result });
   });
 
-  // GET /marketplace/transactions/:id — transaction detail [auth]
+  app.get('/transactions/:id', {
+    schema: {
+      tags: ['Marketplace'],
+      params: { type: 'object', properties: { id: { type: 'string' } } },
+    },
+    preHandler: [requireAuth()],
+  }, async (request, reply) => {
+    const auth = request.auth!;
+    const { id } = request.params as { id: string };
+
+    const result = await serviceMarketplaceService.getTransaction(auth.node_id, id, app.prisma);
+    return reply.send({ success: true, data: result });
+  });
+
   app.get('/transactions/detail/:id', {
     schema: {
       tags: ['Marketplace'],

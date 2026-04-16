@@ -83,10 +83,107 @@ describe('securityRoutes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       success: true,
+      assignment: {
+        node_id: 'node-3',
+        role: 'operator',
+      },
       data: {
         node_id: 'node-3',
         role: 'operator',
       },
     });
+  });
+
+  it('exposes top-level aliases across security read endpoints', async () => {
+    const [rolesResponse, rateCheckResponse, nodeRoleResponse, nodeCheckResponse, eventsResponse, anomalyResponse, anomalyHistoryResponse] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: '/api/v2/security/roles',
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/security/rate-limit/check',
+        payload: { identifier: 'node-1', max_requests: 5 },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/v2/security/rbac/node/node-3',
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/security/rbac/node/node-3/check',
+        payload: { permission: 'publish' },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/v2/security/events',
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v2/security/anomaly',
+        payload: { node_id: 'node-3', signals: [{ signal_type: 'unusual_pattern', score: 0.6, description: 'Spike' }] },
+      }),
+      app.inject({
+        method: 'GET',
+        url: '/api/v2/security/anomaly/node-3/history',
+      }),
+    ]);
+
+    expect(rolesResponse.statusCode).toBe(200);
+    expect(rolesResponse.json()).toEqual(expect.objectContaining({
+      success: true,
+      roles: expect.any(Array),
+      total: expect.any(Number),
+      data: expect.any(Array),
+    }));
+    expect(rateCheckResponse.statusCode).toBe(200);
+    expect(rateCheckResponse.json()).toEqual(expect.objectContaining({
+      success: true,
+      allowed: true,
+      result: expect.objectContaining({
+        allowed: true,
+      }),
+    }));
+    expect(nodeRoleResponse.statusCode).toBe(200);
+    expect(nodeRoleResponse.json()).toEqual({
+      success: true,
+      node_id: 'node-3',
+      role: 'operator',
+      data: { node_id: 'node-3', role: 'operator' },
+    });
+    expect(nodeCheckResponse.statusCode).toBe(200);
+    expect(nodeCheckResponse.json()).toEqual(expect.objectContaining({
+      success: true,
+      node_id: 'node-3',
+      permission: 'publish',
+      result: expect.objectContaining({
+        node_id: 'node-3',
+        permission: 'publish',
+      }),
+    }));
+    expect(eventsResponse.statusCode).toBe(200);
+    expect(eventsResponse.json()).toEqual(expect.objectContaining({
+      success: true,
+      events: expect.any(Array),
+      total: expect.any(Number),
+      data: expect.any(Array),
+    }));
+    expect(anomalyResponse.statusCode).toBe(200);
+    expect(anomalyResponse.json()).toEqual(expect.objectContaining({
+      success: true,
+      report: expect.objectContaining({
+        node_id: 'node-3',
+      }),
+      data: expect.objectContaining({
+        node_id: 'node-3',
+      }),
+    }));
+    expect(anomalyHistoryResponse.statusCode).toBe(200);
+    expect(anomalyHistoryResponse.json()).toEqual(expect.objectContaining({
+      success: true,
+      history: expect.any(Array),
+      total: expect.any(Number),
+      data: expect.any(Array),
+    }));
   });
 });
