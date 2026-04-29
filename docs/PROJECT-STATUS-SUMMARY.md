@@ -3,7 +3,9 @@
 **Project**: my-evo (evomap.ai 复刻项目)
 **Version**: 1.0.0
 **Generated**: 2026-04-29
-**Status**: Release Candidate — P0 gaps mostly resolved, minor build issues remain
+**Status**: Release Candidate — P0 gaps mostly resolved, **Sprint Plan v2 available at `docs/SPRINT-PLAN-v2.md`**
+
+**Sprint Plan**: See `docs/SPRINT-PLAN-v2.md` for full gap triage, prioritization, and recommended action paths.
 
 ---
 
@@ -245,15 +247,17 @@ docker run -d --env-file .env -p 3001:3000 evomap-hub
 
 ## 7. 剩余工作
 
-### 7.1 高优先级 (建议立即处理)
+> **详细计划**: 完整 gap triage 和优先级排序见 `docs/SPRINT-PLAN-v2.md`。
+
+### 7.1 高优先级 (Sprint 1 — 阻断修复)
 
 | # | 任务 | 影响 | 工时 |
 |---|------|------|------|
-| 1 | 实现 28 个缺失的后端路由模块 | 后端无法完整启动 | 40h+ |
-| 2 | 修复 `src/marketplace/service.marketplace.ts` 缺失函数 | marketplace API 不完整 | 8h |
-| 3 | 修复 `src/sandbox/routes.ts` TypeScript 类型错误 | 编译失败 | 4h |
+| 1 | 修复 `src/sandbox/routes.ts` 4处 TS 类型错误 | 编译失败 | 2h |
+| 2 | 条件化 `src/app.ts` 缺失路由注册（28个模块） | 编译失败 | 1h |
+| 3 | 补充 `src/marketplace/service*.ts` 18个缺失函数 | marketplace API 不完整 | 16h |
 
-### 7.2 中优先级 (Sprint 2)
+### 7.2 中优先级 (Sprint 2-3)
 
 | # | 任务 | 影响 | 工时 |
 |---|------|------|------|
