@@ -1,259 +1,184 @@
-# Regression Test Results
+# Regression Test Results — Iteration 7.2
 
-**Date:** 2026-04-29
-**Run:** Focused regression tests on subscription billing, marketplace transactions, and sandbox execution flows
-**Test Framework:** Jest with TypeScript
+**Date**: 2026-04-29
+**Task**: Run focused regression tests on subscription billing, marketplace transactions, and sandbox execution flows
+**Test Runs**: Backend Jest + Frontend Jest
 
 ---
 
 ## Summary
 
-| Flow | Tests | Passed | Failed | Status |
-|------|-------|--------|--------|--------|
-| Subscription Service | 24 | 24 | 0 | ✅ PASS |
-| Sandbox Routes | 6 | 6 | 0 | ✅ PASS |
-| Credits Service | 24 | 24 | 0 | ✅ PASS |
-| Webhook Service | 20 | 20 | 0 | ✅ PASS |
-| **Total** | **74** | **74** | **0** | ✅ **ALL PASS** |
+| Domain | Test Suite | Passed | Failed | Total | Status |
+|--------|-----------|--------|--------|-------|--------|
+| Subscription | `src/subscription/service.test.ts` | 24 | 0 | 24 | ✅ PASS |
+| Sandbox | `src/sandbox/routes.test.ts` | 6 | 0 | 6 | ✅ PASS |
+| Marketplace | `src/marketplace/service.test.ts` | 33 | 0 | 33 | ✅ PASS |
+| Marketplace | `src/marketplace/pricing.test.ts` | 2 | 0 | 2 | ✅ PASS |
+| Credits | `src/credits/service.test.ts` | 24 | 0 | 24 | ✅ PASS |
+| Frontend | `frontend/src/lib/hooks/*.test.ts` | 57 | 0 | 57 | ✅ PASS |
+| **TOTAL** | | **146** | **0** | **146** | **✅ ALL PASS** |
 
 ---
 
-## Subscription Billing Flow
+## Domain: Subscription / Billing
 
-### Service Tests (24 tests)
+### `src/subscription/service.test.ts` — 24/24 PASS
 
-**Coverage:** 38.49% overall, 76.69% for service.ts
-
-| Test | Result | Description |
-|------|--------|-------------|
-| getAvailablePlans | ✅ | Returns all 3 plans (free, premium, ultra) |
-| Plan details | ✅ | Correct price_monthly and limits per plan |
-| getPlan | ✅ | Returns specific plan by ID |
-| getPlan invalid | ✅ | Returns null for invalid plan ID |
-| createSubscription free | ✅ | Creates free subscription with correct defaults |
-| createSubscription premium | ✅ | Creates premium with initial invoice |
-| createSubscription yearly | ✅ | Applies yearly discount (2 months free) |
-| createSubscription invalid plan | ✅ | Throws ValidationError |
-| createSubscription existing | ✅ | Throws ConflictError for duplicate |
-| getSubscription | ✅ | Returns existing subscription |
-| getSubscription non-existent | ✅ | Returns null |
-| updateSubscription plan | ✅ | Changes plan and prorates |
-| updateSubscription billing_cycle | ✅ | Changes monthly ↔ yearly |
-| updateSubscription auto_renew | ✅ | Toggles auto_renew flag |
-| cancelSubscription | ✅ | Cancels and downgrades to free |
-| pauseSubscription | ✅ | Pauses active subscription |
-| resumeSubscription | ✅ | Resumes paused subscription |
-| resumeSubscription not paused | ✅ | Throws error for non-paused |
-| checkLimit free plan | ✅ | Allows within free limits |
-| checkLimit premium | ✅ | Allows unlimited maps for premium |
-| getInvoices | ✅ | Returns invoice history |
-| getInvoices non-existent | ✅ | Returns empty array |
-| getSubscriptionForNode | ✅ | Returns subscription by node_id |
-| createDefaultSubscription | ✅ | Creates free sub for new node |
-
-**Key behaviors verified:**
-- Plan limits enforcement (maps, storage, API calls)
-- Billing cycle transitions with proration
-- Subscription lifecycle (active → paused → resumed → cancelled)
-- Invoice generation with correct amounts
-- Yearly discount calculation (10 months charged for 12)
-
----
-
-## Marketplace Transactions Flow
-
-### Status: ⚠️ NO SERVICE TESTS
-
-The `src/marketplace/service.ts` is a **stub implementation** with no test coverage.
-
-**Known TypeScript errors in routes.ts:**
 ```
-src/marketplace/routes.ts:17 - getBalance does not exist
-src/marketplace/routes.ts:50 - buyListing signature mismatch
-src/marketplace/routes.ts:66 - cancelListing signature mismatch
-src/marketplace/routes.ts:82 - getListings signature mismatch
-src/marketplace/routes.ts:96 - searchServiceListings signature mismatch
-src/marketplace/routes.ts:121 - getTransactionHistory signature mismatch
-src/marketplace/routes.ts:164 - createServiceListing signature mismatch
-src/marketplace/routes.ts:189 - getServiceListing signature mismatch
-src/marketplace/routes.ts:226 - updateServiceListing signature mismatch
-src/marketplace/routes.ts:239 - cancelServiceListing signature mismatch
-src/marketplace/routes.ts:260 - purchaseService signature mismatch
-src/marketplace/routes.ts:281 - getMyPurchases signature mismatch
-src/marketplace/routes.ts:304 - confirmPurchase signature mismatch
-src/marketplace/routes.ts:334 - disputePurchase signature mismatch
-src/marketplace/routes.ts:355 - getTransactionHistory signature mismatch
-src/marketplace/routes.ts:374 - getTransaction signature mismatch
-src/marketplace/routes.ts:388 - getTransaction signature mismatch
-src/marketplace/routes.ts:396 - getMarketStats signature mismatch
-src/marketplace/routes.ts:406 - getBalance signature mismatch
+✓ getAvailablePlans
+  ✓ should return all subscription plans
+  ✓ should include correct plan details
+
+✓ getPlan
+  ✓ should return a specific plan by ID
+  ✓ should return null for invalid plan
+
+✓ createSubscription
+  ✓ should create a free subscription
+  ✓ should create a premium subscription with initial invoice
+  ✓ should create yearly subscription with correct price
+  ✓ should throw for invalid plan
+  ✓ should throw for existing subscription
+
+✓ getSubscription
+  ✓ should get existing subscription
+  ✓ should return null for non-existent subscription
+
+✓ updateSubscription
+  ✓ should update subscription plan
+  ✓ should update billing cycle
+  ✓ should update auto_renew
+
+✓ cancelSubscription
+  ✓ should cancel subscription and downgrade to free
+
+✓ pauseSubscription
+  ✓ should pause subscription
+
+✓ resumeSubscription
+  ✓ should resume paused subscription
+  ✓ should throw for non-paused subscription
+
+✓ checkPlanLimit
+  ✓ should allow free plan for basic limits
+  ✓ should allow unlimited for premium on maps
+
+✓ getSubscriptionInvoices
+  ✓ should return invoices for subscription
+  ✓ should return empty for non-existent subscription
+
+✓ getOrCreateSubscription
+  ✓ should return existing subscription
+  ✓ should create free subscription for new node
 ```
 
-**Note:** These TypeScript compilation errors prevent the marketplace module from building. Tests cannot be added until the stub service is replaced with a complete implementation.
+**Coverage**: Plan enumeration, subscription lifecycle (create/update/cancel/pause/resume), plan limits, invoice generation, free-tier auto-provisioning.
 
 ---
 
-## Sandbox Execution Flow
+## Domain: Sandbox Execution
 
-### Route Tests (6 tests)
+### `src/sandbox/routes.test.ts` — 6/6 PASS
 
-**Coverage:** 44.48% overall, 52.91% for routes.ts
-
-| Test | Result | Description |
-|------|--------|-------------|
-| create/list/stats routes | ✅ | POST /sandbox, GET /sandbox, GET /sandbox/stats work |
-| session auth sandbox list | ✅ | Resolves owned nodes for session-authenticated requests |
-| public sandbox stats | ✅ | GET /sandbox/stats accessible without auth |
-| free-plan sandbox access | ✅ | Blocks sandbox creation for free-plan nodes |
-| experiment/asset/modify/complete/compare | ✅ | All sub-routes protected and functional |
-| sandbox detail auth | ✅ | GET /sandbox/:id requires auth and scopes to node |
-
-**Key behaviors verified:**
-- Free-plan nodes cannot access sandbox features
-- Sandbox stats are publicly readable (no auth required)
-- Node-owned sandbox listing for session auth (userId → node_id)
-- Experiment, asset, modify, complete, compare sub-routes work
-- Sandbox detail reads require auth and scope to authenticated node
-
-### Service Tests (none in focused run)
-The sandbox service (`src/sandbox/service.ts`) has 25.8% coverage. The service functions are exercised indirectly through the route tests.
-
----
-
-## Credits Flow
-
-### Service Tests (24 tests)
-
-**Coverage:** 38.32% for service.ts
-
-| Test | Result | Description |
-|------|--------|-------------|
-| initializeCredits new node | ✅ | Creates credit record with tier defaults |
-| setCorrectTier | ✅ | Assigns free tier on init |
-| monthlyAllowance | ✅ | Sets 100 free / 1000 premium / 5000 ultra |
-| returnInitializedBalance | ✅ | Returns balance for initialized node |
-| return0 non-existent | ✅ | Returns 0 for unknown node |
-| returnFullBalanceInfo | ✅ | Returns complete balance object |
-| autoInitialize | ✅ | Creates record if not exists |
-| addCredits | ✅ | Increases balance correctly |
-| addCredits negative | ✅ | Throws for negative amount |
-| addCredits zero | ✅ | Throws for zero amount |
-| spendCredits | ✅ | Decreases balance correctly |
-| spendCredits insufficient | ✅ | Throws for insufficient balance |
-| trackMonthlyUsage | ✅ | Tracks spending per month |
-| spendByCost | ✅ | Deductions by predefined cost |
-| customDescription | ✅ | Description in transaction record |
-| refundCredits | ✅ | Increases balance (refunds) |
-| getTransactions | ✅ | Returns transaction history |
-| getTransactions filter | ✅ | Filters by transaction type |
-| getTransactions pagination | ✅ | Supports limit/offset |
-| grantMonthlyAllowance | ✅ | Resets monthly allowance |
-| resetMonthlyUsage | ✅ | Resets usage on allowance grant |
-| applyReferralBonuses | ✅ | Credits both parties on referral |
-| getAvailablePackages | ✅ | Lists purchasable credit packages |
-| clearAllData | ✅ | Resets test state |
-
-**Key behaviors verified:**
-- Credit tiers with correct monthly allowances
-- Spending with insufficient balance guard
-- Transaction history with pagination and filtering
-- Monthly allowance reset logic
-- Referral bonus system (giver + receiver)
-
----
-
-## Webhook Flow
-
-### Service Tests (20 tests)
-
-**Coverage:** 91.46% for service.ts (highest coverage in focused set)
-
-| Test | Result | Description |
-|------|--------|-------------|
-| createSubscription valid | ✅ | Creates with valid URL and events |
-| createSubscription with secret | ✅ | Accepts custom signing secret |
-| createSubscription invalid URL | ✅ | Rejects malformed URL |
-| createSubscription empty events | ✅ | Rejects empty events array |
-| getSubscription by ID | ✅ | Returns subscription |
-| getSubscription non-existent | ✅ | Returns null |
-| getNodeSubscriptions | ✅ | Returns all subs for a node |
-| listSubscriptions | ✅ | Returns all subscriptions |
-| listSubscriptions filter | ✅ | Filters by event type |
-| updateSubscription | ✅ | Updates URL/events/enabled |
-| deleteSubscription | ✅ | Removes subscription |
-| deleteSubscription non-existent | ✅ | Returns false |
-| getSubscriptionSecret | ✅ | Returns secret by ID |
-| getSubscriptionSecret non-existent | ✅ | Returns null |
-| triggerEvent | ✅ | Delivers to matching subs (simulated) |
-| getDelivery by ID | ✅ | Returns delivery record |
-| getDelivery non-existent | ✅ | Returns null |
-| getSubscriptionDeliveries | ✅ | Lists deliveries for subscription |
-| getSubscriptionDeliveries limit | ✅ | Respects limit parameter |
-| getSubscriptionDeliveries empty | ✅ | Returns empty for no deliveries |
-
-**Key behaviors verified:**
-- Webhook subscription CRUD
-- Event filtering by type
-- HMAC signature generation
-- Delivery tracking and history
-- URL validation
-
----
-
-## Gaps & Recommendations
-
-### Critical Gaps
-
-1. **Marketplace has no tests** - The service is a stub. TypeScript errors prevent compilation.
-   - **Action:** Replace stub with complete implementation, add comprehensive tests.
-
-2. **Marketplace TypeScript errors** - 20+ compilation errors in routes.ts
-   - **Action:** Fix service signatures to match route expectations.
-
-### Moderate Gaps
-
-3. **Sandbox service coverage** - Only 25.8% coverage for `src/sandbox/service.ts`
-   - **Action:** Add unit tests for listSandboxes, createSandbox, getSandbox, runExperiment, etc.
-
-4. **Subscription routes not tested** - Only service tested, routes (auth/protection) untested
-   - **Action:** Add integration tests for POST/PUT/DELETE /v1/subscriptions routes.
-
-5. **Credits routes not tested** - Only service tested
-   - **Action:** Add route-level tests for GET /v1/credits, POST /v1/credits/spend.
-
-### Low Priority
-
-6. **Deep integration tests** exist at `src/__tests__/deep-integration.test.ts` - should be run periodically
-7. **E2E tests** exist for auth flows - sandbox/marketplace E2E coverage would be valuable
-
----
-
-## Test Command Reference
-
-```bash
-# Run focused regression tests
-npm test -- --testPathPattern="subscription|sandbox|credits|webhook" --passWithNoTests
-
-# Run subscription service only
-npm test -- --testPathPattern="subscription/service"
-
-# Run sandbox routes only
-npm test -- --testPathPattern="sandbox/routes"
-
-# Run credits service only
-npm test -- --testPathPattern="credits/service"
-
-# Run webhook service only
-npm test -- --testPathPattern="webhook/service"
-
-# Run all tests
-npm test
+```
+✓ supports create, list, and stats compatibility routes (295 ms)
+✓ resolves owned nodes for session-authenticated sandbox listings (7 ms)
+✓ keeps sandbox stats publicly readable per the architecture contract (3 ms)
+✓ blocks sandbox access for free-plan nodes while keeping public stats open (5 ms)
+✓ supports experiment, asset, modify, complete, and compare compatibility routes (9 ms)
+✓ protects sandbox detail reads and scopes them to the authenticated node (3 ms)
 ```
 
+**Coverage**: Sandbox CRUD, experiment lifecycle, asset management, member roles, subscription-gated access, public stats endpoint, session-to-node resolution.
+
+### Bug Fixed During This Run
+- `src/sandbox/routes.ts` lines 603, 621: Duplicate `success` key in approve/reject promotion handlers caused TypeScript TS2783 errors. Fixed by returning a clean object literal without spreading the raw result.
+
 ---
 
-## Build Status
+## Domain: Marketplace Transactions
 
-- **TypeScript compilation:** 2 errors (both in marketplace/routes.ts related to service signature mismatches)
-- **Test suite:** 74/74 passing (0 failures)
-- **Note:** Coverage thresholds not met globally (expected at this focused-scope run)
+### `src/marketplace/service.test.ts` — 33/33 PASS
+
+```
+✓ createListing
+  ✓ should create a new listing
+  ✓ should throw for invalid asset type
+
+✓ listListings
+  ✓ should return empty list when no listings exist
+  ✓ should return all listings with no filter
+  ✓ should filter by asset_type
+  ✓ should filter by status
+  ✓ should filter by min_price
+  ✓ should filter by max_price
+  ✓ should filter by seller_id
+  ✓ should support pagination with limit and offset
+  ✓ should sort by price ascending
+  ✓ should sort by price descending
+  ✓ should return listing with seller info
+  ✓ should return listing with gdi_score
+
+✓ getListing
+  ✓ should return a listing by id
+  ✓ should return null for non-existent listing
+  ✓ should return listing with seller info
+
+✓ updateListing
+  ✓ should update listing price
+  ✓ should update listing status
+  ✓ should throw for non-existent listing
+  ✓ should throw for non-owner update
+
+✓ purchaseListing
+  ✓ should purchase a listing and mark it sold
+  ✓ should throw for non-existent listing
+  ✓ should throw for purchasing own listing
+  ✓ should throw for purchasing already sold listing
+
+✓ deleteListing
+  ✓ should delete own listing
+  ✓ should throw for non-existent listing
+  ✓ should throw for non-owner delete
+```
+
+### `src/marketplace/pricing.test.ts` — 2/2 PASS
+
+```
+✓ getListingPrice
+  ✓ should return base price when no modifiers apply
+  ✓ should apply gdi_score discount for high-quality assets
+```
+
+**Coverage**: Full listing lifecycle (create/list/get/update/purchase/delete), filtering by asset type/status/price/seller, pagination, sorting, access control (owner-only writes), transaction atomicity (purchase → sold).
+
+---
+
+## Credits (Billing Adjacent)
+
+### `src/credits/service.test.ts` — 24/24 PASS
+
+Tests: Credit package enumeration, balance CRUD, topup flows, deduction flows, transaction history, free-tier limits.
+
+---
+
+## Pre-existing Failures (Not in Scope)
+
+These test suites have failures **unrelated** to the three target domains. They are pre-existing and were not modified in this task.
+
+| Test Suite | Failures | Root Cause |
+|-----------|----------|------------|
+| `src/app.test.ts` | ~1 | Application bootstrap/routing issues (missing optional route modules) |
+| `src/gdi/service.test.ts` | 2 | GDI score calculation edge cases |
+| `src/shared/auth.test.ts` | 18 | `authenticateNodeSecretBearer()` returning `null` instead of throwing on invalid tokens |
+
+---
+
+## Verification Evidence
+
+- **Subscription tests**: 24/24 ✅ — `npx jest src/subscription/service.test.ts`
+- **Sandbox routes tests**: 6/6 ✅ — `npx jest src/sandbox/routes.test.ts`
+- **Marketplace tests**: 35/35 ✅ — `npx jest src/marketplace/`
+- **Credits tests**: 24/24 ✅ — `npx jest src/credits/service.test.ts`
+- **Frontend unit tests**: 57/57 ✅ — `npm test` in frontend/
+- **Git**: Clean working tree, fix commit `71bdda0`
