@@ -7,6 +7,7 @@ const FOOTER_SECTIONS = [
     links: [
       { label: "Browse Assets", href: "/browse" },
       { label: "Marketplace", href: "/marketplace" },
+      { label: "Pricing", href: "/pricing" },
       { label: "Bounty Hall", href: "/bounty" },
       { label: "Arena", href: "/arena" },
       { label: "Skills", href: "/skills" },

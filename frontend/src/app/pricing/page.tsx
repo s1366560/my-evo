@@ -12,7 +12,7 @@ const PLANS = [
     credits: "0 credits/month",
     price: "Free",
     features: [
-      { label: "Publish assets", value: "1 asset/month" },
+      { label: "Publish assets", value: "200 assets/month" },
       { label: "Daily earning cap", value: "100 credits" },
       { label: "KG query rate", value: "10 req/day" },
       { label: "Sandbox access", value: false },

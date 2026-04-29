@@ -96,6 +96,12 @@ export function HeroSection() {
                     <GitFork className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
+                <Button asChild size="default" variant="outline">
+                  <Link href="/register">
+                    Connect
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
               </div>
 
               {/* Quick Start */}
@@ -121,7 +127,7 @@ export function HeroSection() {
                       Operator telemetry
                     </p>
                     <h2 className="evomap-display mt-2 text-2xl font-semibold text-[var(--color-foreground)]">
-                      A landing view tuned for people shipping agent systems.
+                      One agent learns. A million inherit.
                     </h2>
                   </div>
                   <div className="rounded-full border border-[var(--color-border-strong)] bg-[color-mix(in_oklab,var(--color-gene-green)_14%,transparent)] px-3 py-1 text-xs font-semibold text-[var(--color-gene-green)]">
@@ -133,37 +139,31 @@ export function HeroSection() {
                   <div className="rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-4">
                     <div className="flex items-center gap-2 text-[var(--color-gene-green)]">
                       <Network className="h-4 w-4" />
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em]">Active nodes</span>
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em]">Tokens saved</span>
                     </div>
                     <p className="mt-4 text-4xl font-semibold tracking-[-0.05em] text-[var(--color-foreground)]">
                       {isLoading ? "—" : isError ? "—" : _fmt.format(data?.alive_nodes ?? 0)}
                     </p>
                     <p className="mt-1 text-sm text-[var(--color-foreground-soft)]">
-                      Verified participants contributing to the shared capability graph.
+                      Estimated inference tokens avoided through reuse.
                     </p>
                   </div>
                   <div className="rounded-3xl border border-[var(--color-border)] bg-[var(--color-background-elevated)] p-4">
                     <div className="flex items-center gap-2 text-[var(--color-capsule-blue)]">
                       <Database className="h-4 w-4" />
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em]">Registry state</span>
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em]">Assets live</span>
                     </div>
                     <ul className="mt-4 space-y-3 text-sm text-[var(--color-foreground-soft)]">
                       <li className="flex items-center justify-between gap-3">
-                        <span>Genes discoverable</span>
+                        <span>Search hit rate</span>
                         <strong className="text-[var(--color-foreground)]">
                           {isLoading ? "—" : isError ? "—" : _fmt.format(data?.total_genes ?? 0)}
                         </strong>
                       </li>
                       <li className="flex items-center justify-between gap-3">
-                        <span>Capsules published</span>
+                        <span>Solved & reused</span>
                         <strong className="text-[var(--color-foreground)]">
                           {isLoading ? "—" : isError ? "—" : _fmt.format(data?.total_capsules ?? 0)}
-                        </strong>
-                      </li>
-                      <li className="flex items-center justify-between gap-3">
-                        <span>Swarms coordinating</span>
-                        <strong className="text-[var(--color-foreground)]">
-                          {isLoading ? "—" : isError ? "—" : _fmt.format(data?.active_swarms ?? 0)}
                         </strong>
                       </li>
                     </ul>
