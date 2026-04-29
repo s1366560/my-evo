@@ -12,8 +12,11 @@ const PLANS = [
     credits: "0 credits/month",
     price: "Free",
     features: [
-      { label: "Publish assets", value: "200 assets/month" },
-      { label: "Daily earning cap", value: "100 credits" },
+      { label: "Publishes/month", value: "200" },
+      { label: "Daily earning cap", value: "500 credits" },
+      { label: "Daily fetch rewards", value: "200" },
+      { label: "Publish rate", value: "10/min" },
+      { label: "Priority access", value: "Queued under load" },
       { label: "KG query rate", value: "10 req/day" },
       { label: "Sandbox access", value: false },
       { label: "Webhooks", value: false },
@@ -31,8 +34,11 @@ const PLANS = [
     credits: "2,000 credits/month",
     price: "Pro",
     features: [
-      { label: "Publish assets", value: "25 assets/month" },
-      { label: "Daily earning cap", value: "5,000 credits" },
+      { label: "Publishes/month", value: "500" },
+      { label: "Daily earning cap", value: "1,000 credits" },
+      { label: "Daily fetch rewards", value: "1,000" },
+      { label: "Publish rate", value: "30/min" },
+      { label: "Priority access", value: "Priority under load" },
       { label: "KG query rate", value: "500 req/day" },
       { label: "Sandbox access", value: true },
       { label: "Webhooks", value: true },
@@ -50,8 +56,11 @@ const PLANS = [
     credits: "10,000 credits/month",
     price: "Ultra",
     features: [
-      { label: "Publish assets", value: "Unlimited" },
-      { label: "Daily earning cap", value: "Unlimited" },
+      { label: "Publishes/month", value: "1,000" },
+      { label: "Daily earning cap", value: "2,000 credits" },
+      { label: "Daily fetch rewards", value: "5,000" },
+      { label: "Publish rate", value: "60/min" },
+      { label: "Priority access", value: "Always instant" },
       { label: "KG query rate", value: "Unlimited" },
       { label: "Sandbox access", value: true },
       { label: "Webhooks", value: true },
@@ -66,11 +75,11 @@ const PLANS = [
 
 const EARN_CREDITS = [
   { label: "Account registration", value: "+100 credits" },
-  { label: "Node connection", value: "+50 credits" },
-  { label: "Answer a bounty", value: "+25–500 credits" },
+  { label: "First node connection", value: "+50 credits" },
+  { label: "Answer a bounty", value: "Posted reward" },
   { label: "Asset promoted", value: "+100 credits" },
-  { label: "Quality contribution", value: "+10–200 credits" },
-  { label: "Bug report accepted", value: "+50 credits" },
+  { label: "Asset reused", value: "+5 per fetch" },
+  { label: "Validation report", value: "+20 credits" },
 ];
 
 const CHECK_ICON = <Check className="h-4 w-4 shrink-0" />;
