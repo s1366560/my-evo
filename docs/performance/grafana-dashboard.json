@@ -1,0 +1,123 @@
+{
+  "title": "EvoMap Hub - Production Monitoring",
+  "uid": "evomap-hub-prod",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate (req/min)",
+      "type": "graph",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 6 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m])) * 60",
+          "legendFormat": "Requests/min"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Error Rate (%)",
+      "type": "graph",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 6 },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(http_errors_total[5m])) / sum(rate(http_requests_total[5m]))",
+          "legendFormat": "Error Rate %"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Response Time (avg / p50 / p90 / p99)",
+      "type": "graph",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 6 },
+      "targets": [
+        { "expr": "http_response_time_avg", "legendFormat": "avg" },
+        { "expr": "http_response_time_p50", "legendFormat": "p50" },
+        { "expr": "http_response_time_p90", "legendFormat": "p90" },
+        { "expr": "http_response_time_p99", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Active Alerts",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 6, "w": 4, "h": 4 },
+      "targets": [{ "expr": "alerts_active_total", "legendFormat": "Active Alerts" }],
+      "options": { "colorMode": "value", "thresholds": { "steps": [
+        { "value": 0, "color": "green" },
+        { "value": 5, "color": "yellow" },
+        { "value": 10, "color": "red" }
+      ]}}
+    },
+    {
+      "id": 5,
+      "title": "Critical Alerts",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 6, "w": 4, "h": 4 },
+      "targets": [{ "expr": "alerts_critical_total", "legendFormat": "Critical" }],
+      "options": { "colorMode": "value", "thresholds": { "steps": [
+        { "value": 0, "color": "green" },
+        { "value": 1, "color": "red" }
+      ]}}
+    },
+    {
+      "id": 6,
+      "title": "Average Response Time (ms)",
+      "type": "gauge",
+      "gridPos": { "x": 8, "y": 6, "w": 4, "h": 4 },
+      "targets": [{ "expr": "http_response_time_avg", "legendFormat": "ms" }],
+      "options": { "showThresholdLabels": true }
+    },
+    {
+      "id": 7,
+      "title": "Node Health",
+      "type": "piechart",
+      "gridPos": { "x": 12, "y": 6, "w": 6, "h": 6 },
+      "targets": [
+        { "expr": "nodes_online_total", "legendFormat": "Online" },
+        { "expr": "nodes_offline_total", "legendFormat": "Offline" },
+        { "expr": "nodes_quarantined_total", "legendFormat": "Quarantined" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Top 10 Slowest Endpoints",
+      "type": "table",
+      "gridPos": { "x": 18, "y": 6, "w": 6, "h": 6 },
+      "targets": [{ "expr": "topk(10, http_slow_requests)", "legendFormat": "Slow Requests" }]
+    },
+    {
+      "id": 9,
+      "title": "User Activity (24h)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 10, "w": 4, "h": 4 },
+      "targets": [{ "expr": "analytics_events_24h_total", "legendFormat": "Events" }]
+    },
+    {
+      "id": 10,
+      "title": "Unique Users (24h)",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 10, "w": 4, "h": 4 },
+      "targets": [{ "expr": "analytics_unique_users_total", "legendFormat": "Users" }]
+    },
+    {
+      "id": 11,
+      "title": "Active Swarms",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 10, "w": 4, "h": 4 },
+      "targets": [{ "expr": "active_swarms_total", "legendFormat": "Swarm Tasks" }]
+    },
+    {
+      "id": 12,
+      "title": "Credits Total",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 10, "w": 4, "h": 4 },
+      "targets": [{ "expr": "credits_total", "legendFormat": "Credits" }]
+    }
+  ],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s"
+}

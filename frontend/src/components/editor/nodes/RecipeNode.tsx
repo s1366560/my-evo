@@ -1,0 +1,49 @@
+"use client";
+import { memo } from "react";
+import { Handle, Position } from "@xyflow/react";
+import { BookOpen } from "lucide-react";
+import type { EditorNodeData } from "@/lib/stores/editor-store";
+
+// @xyflow/react v12 removed NodeProps; declare it as any to accept React Flow's internal node shape.
+type NodeProps<T = EditorNodeData> = {
+  data: T;
+  selected?: boolean;
+};
+function RecipeNodeComponent({ data, selected }: NodeProps) {
+  const node = data as EditorNodeData;
+  return (
+    <div
+      className={[
+        "group relative min-w-[140px] max-w-[200px] cursor-pointer rounded-xl border bg-[var(--color-card-background)] shadow-md transition-all duration-150",
+        selected
+          ? "border-[var(--color-recipe-amber)] shadow-[0_0_0_2px_var(--color-recipe-amber)]"
+          : "border-[var(--color-border)] hover:border-[var(--color-recipe-amber)]/50",
+      ].join(" ")}
+    >
+      <div className="flex items-center gap-1.5 rounded-t-xl border-b border-[var(--color-border)] bg-[color-mix(in_oklab,var(--color-recipe-amber)_10%,transparent)] px-3 py-2">
+        <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[var(--color-recipe-amber)]/20">
+          <BookOpen className="h-3 w-3 text-[var(--color-recipe-amber)]" />
+        </span>
+        <span className="text-xs font-semibold text-[var(--color-foreground)]">{node.name}</span>
+      </div>
+      {node.description && (
+        <div className="px-3 py-2">
+          <p className="line-clamp-2 text-xs text-[var(--color-muted-foreground)]">{node.description}</p>
+        </div>
+      )}
+      {(node.tags?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap gap-1 border-t border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-1.5 rounded-b-xl">
+          {node.tags?.slice(0, 3).map((tag) => (
+            <span key={tag} className="rounded-full bg-[var(--color-recipe-amber)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-recipe-amber)]">{tag}</span>
+          ))}
+        </div>
+      )}
+      <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-[var(--color-recipe-amber)] !bg-[var(--color-background)]" />
+      <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-[var(--color-recipe-amber)] !bg-[var(--color-background)]" />
+      <Handle type="target" position={Position.Top} className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-[var(--color-recipe-amber)] !bg-[var(--color-background)]" />
+      <Handle type="source" position={Position.Bottom} className="!h-2.5 !w-2.5 !rounded-full !border-2 !border-[var(--color-recipe-amber)] !bg-[var(--color-background)]" />
+    </div>
+  );
+}
+
+export const RecipeNode = memo(RecipeNodeComponent);

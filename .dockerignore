@@ -1,0 +1,60 @@
+# Dependencies
+node_modules
+npm-debug.log
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+dist/
+build/
+.next/
+out/
+
+# Coverage
+coverage/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docs (can be mounted)
+*.md
+!README.md
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+jest.config.js
+vitest.config.ts
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Development
+*.log
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Prisma (runtime will generate)
+prisma/migrations/
+
+# Docker files
+docker-compose*.yml
+Dockerfile
+nginx/
+scripts/
