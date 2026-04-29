@@ -13,6 +13,7 @@ const badgeVariants = cva(
         outline: "border-[var(--color-border)] text-[var(--color-foreground)]",
         gene: "border-transparent bg-[color-mix(in_oklab,var(--color-gene-green)_15%,transparent)] text-[var(--color-gene-green)]",
         capsule: "border-transparent bg-[color-mix(in_oklab,var(--color-capsule-blue)_15%,transparent)] text-[var(--color-capsule-blue)]",
+        recipe: "border-transparent bg-[color-mix(in_oklab,var(--color-recipe-amber)_15%,transparent)] text-[var(--color-recipe-amber)]",
       },
     },
     defaultVariants: { variant: "default" },

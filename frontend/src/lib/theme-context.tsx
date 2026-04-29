@@ -8,6 +8,7 @@ type Theme = "light" | "dark" | "system";
 interface ThemeContextType {
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  toggleTheme: () => void;
   resolvedTheme: "light" | "dark";
 }
 
@@ -50,8 +51,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("evomap-theme", t);
   };
 
+  const toggleTheme = () => {
+    const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+    handleSetTheme(next);
+  };
+
   return (
-    <ThemeContext.Provider value={{ theme, setTheme: handleSetTheme, resolvedTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme: handleSetTheme, toggleTheme, resolvedTheme }}>
       {children}
     </ThemeContext.Provider>
   );

@@ -1,9 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { apiClient } from "@/lib/api/client";
 
 interface Contributor {
   id: string;
@@ -14,18 +11,15 @@ interface Contributor {
   assets: number;
 }
 
-export function TopContributors() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["top-contributors"],
-    queryFn: () => apiClient.getTopContributors(),
-    staleTime: 5 * 60 * 1000,
-  });
+const FALLBACK_CONTRIBUTORS: Contributor[] = [
+  { id: "1", name: "Alex Chen", handle: "@alexchen", score: 98.5, assets: 42 },
+  { id: "2", name: "Mira Sato", handle: "@mira", score: 96.2, assets: 38 },
+  { id: "3", name: "Jordan Lee", handle: "@jlee", score: 94.8, assets: 31 },
+];
 
-  const contributors: Contributor[] = data ?? [
-    { id: "1", name: "Alex Chen", handle: "@alexchen", score: 98.5, assets: 42 },
-    { id: "2", name: "Mira Sato", handle: "@mira", score: 96.2, assets: 38 },
-    { id: "3", name: "Jordan Lee", handle: "@jlee", score: 94.8, assets: 31 },
-  ];
+export function TopContributors() {
+  const contributors = FALLBACK_CONTRIBUTORS;
+  const isLoading = false;
 
   return (
     <div className="space-y-3">

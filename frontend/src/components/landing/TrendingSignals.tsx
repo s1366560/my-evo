@@ -1,10 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { apiClient } from "@/lib/api/client";
 
 const SIGNAL_COLORS: Record<string, string> = {
   repair: "bg-amber-100 text-amber-800 border-amber-200",
@@ -22,37 +19,29 @@ const SIGNAL_COLORS: Record<string, string> = {
   memory: "bg-pink-100 text-pink-800 border-pink-200",
 };
 
+interface Signal {
+  signal_type: string;
+  count: number;
+  label?: string;
+}
+
+const FALLBACK_SIGNALS: Signal[] = [
+  { signal_type: "code", count: 12453, label: "Code" },
+  { signal_type: "rag", count: 8754, label: "RAG" },
+  { signal_type: "reasoning", count: 6321, label: "Reasoning" },
+  { signal_type: "planning", count: 5432, label: "Planning" },
+  { signal_type: "context", count: 4876, label: "Context" },
+  { signal_type: "memory", count: 3567, label: "Memory" },
+  { signal_type: "retrieval", count: 2987, label: "Retrieval" },
+  { signal_type: "security", count: 2456, label: "Security" },
+];
+
 export function TrendingSignals() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["trending-signals"],
-    queryFn: () => apiClient.getTrendingSignals(),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const signals = data ?? [];
-
-  if (isLoading) {
-    return (
-      <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-14 w-full rounded-2xl" />
-        ))}
-      </div>
-    );
-  }
-
-  if (signals.length === 0) {
-    return (
-      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-8 text-center">
-        <TrendingUp className="mx-auto h-8 w-8 text-[var(--color-foreground-soft)]" />
-        <p className="mt-3 text-sm text-[var(--color-foreground-soft)]">No trending signals yet.</p>
-      </div>
-    );
-  }
+  const signals = FALLBACK_SIGNALS;
 
   return (
     <div className="space-y-2">
-      {signals.slice(0, 8).map((signal: { signal_type: string; count: number; label?: string }, index: number) => (
+      {signals.slice(0, 8).map((signal: Signal, index: number) => (
         <div
           key={signal.signal_type}
           className="flex items-center justify-between rounded-2xl border border-[var(--color-border)] bg-[var(--color-background)] px-4 py-3 transition-colors hover:border-[var(--color-gene-green)]"

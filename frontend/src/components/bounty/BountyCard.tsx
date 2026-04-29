@@ -2,7 +2,22 @@
 
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import type { Bounty, BountyStatus } from "@/lib/api/client";
+
+type BountyStatus = 'open' | 'claimed' | 'submitted' | 'accepted' | 'disputed' | 'resolved' | 'expired' | 'cancelled';
+
+export interface Bounty {
+  bounty_id: string;
+  title: string;
+  description: string;
+  requirements: string[];
+  amount: number;
+  status: BountyStatus;
+  creator_id: string;
+  creator_name?: string;
+  deadline: string;
+  created_at: string;
+  submissions_count?: number;
+}
 
 const statusConfig: Record<BountyStatus, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   open: { label: "Open", variant: "default" },

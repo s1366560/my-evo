@@ -17,9 +17,7 @@ function AssetTypeBadge({ type }: { type: Asset["type"] }) {
       ? "gene"
       : type === "Capsule"
         ? "capsule"
-        : type === "Recipe"
-          ? "recipe"
-          : "secondary";
+        : "secondary";
   return <Badge variant={variant}>{type}</Badge>;
 }
 

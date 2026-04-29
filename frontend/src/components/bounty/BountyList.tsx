@@ -1,28 +1,53 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Filter, Search } from "lucide-react";
-import { BountyCard } from "@/components/bounty/BountyCard";
+import { Search } from "lucide-react";
+import { BountyCard, type Bounty } from "@/components/bounty/BountyCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+type BountyStatus = "open" | "in_progress" | "closed";
+
+interface SimplifiedBounty {
+  id: string;
+  title: string;
+  description: string;
+  reward: number;
+  deadline: string;
+  difficulty: "easy" | "medium" | "hard";
+  status: BountyStatus;
+  tags: string[];
+  author: { name: string; avatar?: string };
+  submissionsCount?: number;
+}
+
 export interface BountyListProps {
-  bounties?: Array<{
-    id: string;
-    title: string;
-    description: string;
-    reward: number;
-    deadline: string;
-    difficulty: "easy" | "medium" | "hard";
-    status: "open" | "in_progress" | "closed";
-    tags: string[];
-    author: { name: string; avatar?: string };
-    submissionsCount?: number;
-  }>;
+  bounties?: SimplifiedBounty[];
   showSearch?: boolean;
   showFilters?: boolean;
   showCreator?: boolean;
   emptyMessage?: string;
+}
+
+function mapToBountyCard(bounty: SimplifiedBounty): Bounty {
+  const statusMap: Record<BountyStatus, Bounty["status"]> = {
+    "open": "open",
+    "in_progress": "claimed",
+    "closed": "resolved"
+  };
+  return {
+    bounty_id: bounty.id,
+    title: bounty.title,
+    description: bounty.description,
+    requirements: bounty.tags,
+    amount: bounty.reward,
+    status: statusMap[bounty.status],
+    creator_id: "",
+    creator_name: bounty.author.name,
+    deadline: bounty.deadline,
+    created_at: new Date().toISOString(),
+    submissions_count: bounty.submissionsCount,
+  };
 }
 
 export function BountyList({
@@ -81,7 +106,7 @@ export function BountyList({
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((bounty) => (
-            <BountyCard key={bounty.id} bounty={bounty} />
+            <BountyCard key={bounty.id} bounty={mapToBountyCard(bounty)} />
           ))}
         </div>
       )}

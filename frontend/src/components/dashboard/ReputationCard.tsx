@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
-import { QueryKeys } from "@/lib/api/query-keys";
 
 interface ReputationCardProps {
   /** Pass external data to avoid an extra fetch. */
@@ -31,8 +30,8 @@ function getTier(score: number): { label: string; variant: "default" | "secondar
 export function ReputationCard({ reputation, trustLevel, isLoading, nodeId }: ReputationCardProps) {
   // Use external data when available, otherwise fetch.
   const shouldFetch = !isLoading && reputation === undefined && !!nodeId;
-  const { data: fetched, isLoading: fetching, error } = useQuery({
-    queryKey: QueryKeys.a2a.reputation(nodeId!),
+  const { data: fetched, isLoading: fetching } = useQuery({
+    queryKey: ["reputation", nodeId],
     queryFn: () => apiClient.getReputation(nodeId!),
     enabled: shouldFetch,
   });

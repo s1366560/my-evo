@@ -5,10 +5,12 @@ import { normalizeGDI } from "@/lib/api/normalizers";
 import { AssetList } from "@/components/browse/AssetList";
 import { SearchBar } from "@/components/browse/SearchBar";
 import { TypeFilter } from "@/components/browse/TypeFilter";
-import type { AssetSort } from "@/components/browse/SortSelect";
+import { SortSelect, type AssetSort } from "@/components/browse/SortSelect";
 import { useAssets, useAssetSearch } from "@/lib/hooks/useAssets";
 import type { Asset, AssetType } from "@/lib/api/client";
 import { useState } from "react";
+
+type SortValue = AssetSort;
 
 function sortAssets(assets: Asset[], sort: string): Asset[] {
   return [...assets].sort((a, b) => {
@@ -33,7 +35,7 @@ export function BrowseContent() {
   const searchParams = useSearchParams();
   const q = searchParams.get("q") ?? "";
   const [typeFilter, setTypeFilter] = useState<AssetType | "All">("All");
-  const [sort, setSort] = useState<"relevance" | "gdi_desc" | "newest" | "downloads">("relevance");
+  const [sort, setSort] = useState<SortValue>("relevance");
 
   const isSearching = q.trim().length > 0;
 
@@ -70,12 +72,12 @@ export function BrowseContent() {
           {!isSearching && (
             <TypeFilter
               selected={typeFilter}
-              onChange={setTypeFilter}
+              onChange={(value) => setTypeFilter(value as AssetType | "All")}
             />
           )}
-          <AssetSort
+          <SortSelect
             value={sort}
-            onChange={setSort}
+            onChange={(value) => setSort(value)}
           />
         </div>
       </div>

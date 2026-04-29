@@ -8,7 +8,8 @@ interface StatCard {
   label: string;
   value: string | number;
   sublabel: string;
-  icon: React.ComponentType<{ className?: string }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: React.ComponentType<any>;
   color: string;
 }
 

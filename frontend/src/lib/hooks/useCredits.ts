@@ -2,7 +2,6 @@
 
 import { useQuery, useMutation, UseQueryOptions } from '@tanstack/react-query';
 import { apiClient, CreditsInfo, CreditTransaction } from '../api/client';
-import { QueryKeys } from '../api/query-keys';
 
 // ── Query hooks ──────────────────────────────────────────────────────────────
 
@@ -23,7 +22,7 @@ export function useCredits(
   options?: Partial<UseQueryOptions<CreditsInfo, Error>>,
 ) {
   return useQuery<CreditsInfo, Error>({
-    queryKey: QueryKeys.a2a.credits(nodeId),
+    queryKey: ['credits', nodeId],
     queryFn: () => apiClient.getCredits(nodeId),
     enabled: Boolean(nodeId),
     staleTime: 30_000, // credits can change frequently

@@ -1,33 +1,32 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type Asset, type AssetType } from '@/lib/api/client';
-import { QueryKeys } from '@/lib/api/query-keys';
 
 // ── Asset Hooks ────────────────────────────────────────────────────────────────
 
 export function useAssets(filters?: { type?: AssetType; author_id?: string; status?: string; page?: number; limit?: number }) {
   return useQuery({
-    queryKey: QueryKeys.a2a.assets(filters),
+    queryKey: ['assets', filters],
     queryFn: () => apiClient.getAssets(filters),
   });
 }
 
 export function useTrendingAssets() {
   return useQuery({
-    queryKey: QueryKeys.a2a.trending(),
+    queryKey: ['trending'],
     queryFn: () => apiClient.getTrending(),
   });
 }
 
 export function useRankedAssets() {
   return useQuery({
-    queryKey: QueryKeys.a2a.assetsRanked(),
+    queryKey: ['assets-ranked'],
     queryFn: () => apiClient.getAssetsRanked(),
   });
 }
 
 export function useAssetById(assetId: string) {
   return useQuery({
-    queryKey: QueryKeys.a2a.assetById(assetId),
+    queryKey: ['asset', assetId],
     queryFn: () => apiClient.getAssetById(assetId),
     enabled: !!assetId,
   });
@@ -35,7 +34,7 @@ export function useAssetById(assetId: string) {
 
 export function useAssetLineage(assetId: string) {
   return useQuery({
-    queryKey: QueryKeys.a2a.assetLineage(assetId),
+    queryKey: ['asset-lineage', assetId],
     queryFn: () => apiClient.getAssetLineage(assetId),
     enabled: !!assetId,
   });
@@ -43,7 +42,7 @@ export function useAssetLineage(assetId: string) {
 
 export function useAssetSearch(q: string, page?: number) {
   return useQuery({
-    queryKey: QueryKeys.assets.search(q, page),
+    queryKey: ['asset-search', q, page],
     queryFn: async () => {
       const assets = await apiClient.searchAssets(q, page);
       // Backend returns { success, assets, total, data } - normalize to Asset[]

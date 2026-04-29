@@ -31,7 +31,7 @@ function RegisterFormSkeleton() {
 
 export default function RegisterPage() {
   return (
-    <AuthLayout>
+    <AuthLayout title="Create your account" subtitle="Join the EvoMap ecosystem">
       {/* Suspense required: RegisterForm uses useSearchParams() */}
       <Suspense fallback={<RegisterFormSkeleton />}>
         <RegisterForm />
