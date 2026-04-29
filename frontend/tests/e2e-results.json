@@ -43,12 +43,12 @@
     {
       "test": "TC9: Dashboard page loads",
       "pass": true,
-      "details": "Content: 16841 chars"
+      "details": "Content: 17033 chars"
     },
     {
       "test": "TC10: Map page loads",
       "pass": true,
-      "details": "Content: 17435 chars"
+      "details": "Content: 17639 chars"
     },
     {
       "test": "TC11: Editor page with toolbar",
@@ -58,47 +58,47 @@
     {
       "test": "TC12: Browse page loads",
       "pass": true,
-      "details": "Content: 18252 chars"
+      "details": "Content: 18484 chars"
     },
     {
       "test": "TC13: Pricing page loads",
       "pass": true,
-      "details": "Content: 18022 chars"
+      "details": "Content: 18814 chars"
     },
     {
       "test": "TC14: Arena page loads",
       "pass": true,
-      "details": "Content: 16841 chars"
+      "details": "Content: 17033 chars"
     },
     {
       "test": "TC15: Bounty Hall page loads",
       "pass": true,
-      "details": "Content: 18458 chars"
+      "details": "Content: 18650 chars"
     },
     {
       "test": "TC16: Marketplace page loads",
       "pass": true,
-      "details": "Content: 17241 chars"
+      "details": "Content: 17373 chars"
     },
     {
       "test": "TC17: Onboarding page loads",
       "pass": true,
-      "details": "Content: 17267 chars"
+      "details": "Content: 17459 chars"
     },
     {
       "test": "TC18: Profile page loads",
       "pass": true,
-      "details": "Content: 16841 chars"
+      "details": "Content: 17033 chars"
     },
     {
       "test": "TC19: Swarm page loads",
       "pass": true,
-      "details": "Content: 16841 chars"
+      "details": "Content: 17033 chars"
     },
     {
       "test": "TC20: Workspace page loads",
       "pass": true,
-      "details": "Content: 17194 chars"
+      "details": "Content: 17415 chars"
     }
   ],
   "passed": 20,
