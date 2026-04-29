@@ -312,6 +312,9 @@ export async function buildApp() {
   const { sandboxRoutes } = await import('./sandbox/routes');
   await app.register(sandboxRoutes, { prefix: '/api/v2/sandbox' });
 
+  const { sandboxExecutionRoutes } = await import('./sandbox/queue/routes');
+  await app.register(sandboxExecutionRoutes, { prefix: '/api/v2/sandbox' });
+
   const { recipeRoutes } = await import('./recipe/routes');
   await app.register(recipeRoutes, { prefix: '/api/v2/recipes' });
   await app.register(recipeRoutes, { prefix: '/api/v2/recipe' });

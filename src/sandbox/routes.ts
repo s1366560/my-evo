@@ -83,7 +83,7 @@ async function resolveSandboxNodeId(
   });
 }
 
-async function requireSandboxEntitlement(nodeId: string): Promise<void> {
+export async function requireSandboxEntitlement(nodeId: string): Promise<void> {
   const subscription = await getSubscriptionStatus(nodeId);
 
   if (
@@ -600,7 +600,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       params.requestId,
       nodeId,
     );
-    return { success: true, promotion_id: params.requestId, data: { success: true, promotion_id: params.requestId } };
+    return { success: true, promotion_id: params.requestId, data: { promotion_id: params.requestId } };
   });
 
   // Reject promotion
@@ -618,6 +618,6 @@ export async function sandboxRoutes(app: FastifyInstance) {
       nodeId,
       body.note ?? '',
     );
-    return { success: true, promotion_id: params.requestId, data: { success: true, promotion_id: params.requestId } };
+    return { success: true, promotion_id: params.requestId, data: { promotion_id: params.requestId } };
   });
 }
