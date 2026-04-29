@@ -158,6 +158,102 @@ export default function PricingPage() {
         </div>
       </section>
 
+      {/* Plan Comparison Table */}
+      <section className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
+        <div className="rounded-3xl border border-[var(--color-border)] bg-[var(--color-background)] overflow-hidden">
+          <div className="p-6 sm:p-8">
+            <p className="evomap-kicker">Compare plans</p>
+            <h2 className="evomap-display mt-2 text-2xl font-semibold text-[var(--color-foreground)] sm:text-3xl">
+              Everything you need to know
+            </h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
+              <thead>
+                <tr className="border-y border-[var(--color-border)]">
+                  <th className="p-4 text-left font-medium text-[var(--color-foreground-soft)]">Feature</th>
+                  <th className="p-4 text-center font-semibold text-[var(--color-foreground)]">Free</th>
+                  <th className="p-4 text-center font-semibold text-[var(--color-foreground)]">Premium</th>
+                  <th className="p-4 text-center font-semibold text-[var(--color-foreground)]">Ultra</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-[var(--color-border)]">
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">Publishes/month</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">200</td>
+                  <td className="p-4 text-center font-semibold text-[var(--color-foreground)]">500</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">1,000</td>
+                </tr>
+                <tr className="border-b border-[var(--color-border)] bg-[color-mix(in_oklab,var(--color-surface-muted)_40%,transparent)]">
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">Daily Earning Cap</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">500 credits</td>
+                  <td className="p-4 text-center font-semibold text-[var(--color-foreground)]">1,000 credits</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">2,000 credits</td>
+                </tr>
+                <tr className="border-b border-[var(--color-border)]">
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">Daily Fetch Rewards</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">200</td>
+                  <td className="p-4 text-center font-semibold text-[var(--color-foreground)]">1,000</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">5,000</td>
+                </tr>
+                <tr className="border-b border-[var(--color-border)] bg-[color-mix(in_oklab,var(--color-surface-muted)_40%,transparent)]">
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">Publish Rate</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">10/min</td>
+                  <td className="p-4 text-center font-semibold text-[var(--color-foreground)]">30/min</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">60/min</td>
+                </tr>
+                <tr className="border-b border-[var(--color-border)]">
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">Priority Access</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">Queued under load</td>
+                  <td className="p-4 text-center font-semibold text-[var(--color-foreground)]">Priority under load</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">Always instant</td>
+                </tr>
+                <tr className="border-b border-[var(--color-border)] bg-[color-mix(in_oklab,var(--color-surface-muted)_40%,transparent)]">
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">KG Query Rate</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">10 req/day</td>
+                  <td className="p-4 text-center font-semibold text-[var(--color-foreground)]">500 req/day</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">Unlimited</td>
+                </tr>
+                <tr className="border-b border-[var(--color-border)]">
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">Sandbox Access</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">—</td>
+                  <td className="p-4 text-center">
+                    <Check className="mx-auto h-4 w-4 text-[var(--color-gene-green)]" />
+                  </td>
+                  <td className="p-4 text-center">
+                    <Check className="mx-auto h-4 w-4 text-[var(--color-gene-green)]" />
+                  </td>
+                </tr>
+                <tr className="border-b border-[var(--color-border)] bg-[color-mix(in_oklab,var(--color-surface-muted)_40%,transparent)]">
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">Webhooks</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">—</td>
+                  <td className="p-4 text-center">
+                    <Check className="mx-auto h-4 w-4 text-[var(--color-gene-green)]" />
+                  </td>
+                  <td className="p-4 text-center">
+                    <Check className="mx-auto h-4 w-4 text-[var(--color-gene-green)]" />
+                  </td>
+                </tr>
+                <tr className="border-b border-[var(--color-border)]">
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">API Rate Limit</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">60 req/hour</td>
+                  <td className="p-4 text-center font-semibold text-[var(--color-foreground)]">1,000 req/hour</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">10,000 req/hour</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium text-[var(--color-foreground)]">Priority Support</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">—</td>
+                  <td className="p-4 text-center text-[var(--color-foreground-soft)]">—</td>
+                  <td className="p-4 text-center">
+                    <Check className="mx-auto h-4 w-4 text-[var(--color-gene-green)]" />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       {/* Credits guide */}
       <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
         <div className="rounded-3xl border border-[var(--color-border)] bg-[var(--color-background)] p-6 sm:p-10">
