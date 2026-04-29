@@ -15,6 +15,11 @@ export interface MarketplaceListing {
 // In-memory storage (replace with database in production)
 const listings = new Map<string, MarketplaceListing>();
 
+// Test utility: reset in-memory state
+export function __reset(): void {
+  listings.clear();
+}
+
 export async function listListings(
   filters?: {
     asset_type?: string;

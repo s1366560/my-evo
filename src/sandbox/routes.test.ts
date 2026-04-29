@@ -1,11 +1,16 @@
 import fastify, { type FastifyInstance } from 'fastify';
 import { sandboxRoutes } from './routes';
 
-let mockAuth = {
+let mockAuth: {
+  node_id?: string;
+  auth_type?: string;
+  trust_level?: string;
+  userId?: string;
+} = {
   node_id: 'node-1',
   auth_type: 'node_secret',
   trust_level: 'trusted',
-  userId: undefined as string | undefined,
+  userId: undefined,
 };
 
 const mockListSandboxes = jest.fn();
@@ -23,7 +28,7 @@ jest.mock('../shared/auth', () => ({
   requireAuth: () => async (
     request: {
       auth?: {
-        node_id: string;
+        node_id?: string;
         auth_type?: string;
         trust_level?: string;
         userId?: string;
@@ -35,7 +40,7 @@ jest.mock('../shared/auth', () => ({
   requireTrustLevel: () => async (
     request: {
       auth?: {
-        node_id: string;
+        node_id?: string;
         auth_type?: string;
         trust_level?: string;
         userId?: string;
@@ -220,7 +225,7 @@ describe('Sandbox routes', () => {
 
   it('resolves owned nodes for session-authenticated sandbox listings', async () => {
     mockAuth = {
-      node_id: 'user-1',
+      node_id: undefined,
       auth_type: 'session',
       trust_level: 'trusted',
       userId: 'user-1',

@@ -307,7 +307,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       metadata?: Record<string, unknown>;
     };
 
-    const sandbox = await service.updateSandbox(params.sandboxId, nodeId, body);
+    const sandbox = await service.updateSandbox(params.sandboxId, nodeId, body as unknown as Partial<import('./service').Sandbox>);
     return { success: true, sandbox, data: sandbox };
   });
 
@@ -600,7 +600,7 @@ export async function sandboxRoutes(app: FastifyInstance) {
       params.requestId,
       nodeId,
     );
-    return { success: true, ...result, promotion: result, data: result };
+    return { success: true, promotion_id: params.requestId, data: { success: true, promotion_id: params.requestId } };
   });
 
   // Reject promotion
@@ -612,12 +612,12 @@ export async function sandboxRoutes(app: FastifyInstance) {
     const auth = request.auth!;
     const nodeId = await resolveEntitledSandboxNodeId(app, auth);
     const body = request.body as { note?: string };
-    const result = await service.rejectPromotion(
+    await service.rejectPromotion(
       params.sandboxId,
       params.requestId,
       nodeId,
       body.note ?? '',
     );
-    return { success: true, ...result, promotion: result, data: result };
+    return { success: true, promotion_id: params.requestId, data: { success: true, promotion_id: params.requestId } };
   });
 }

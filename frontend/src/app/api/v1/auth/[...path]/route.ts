@@ -60,16 +60,25 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
     const data = await res.json();
 
-    // Fix login response: backend {success, data: {user, accessToken, refreshToken}}
-    // → frontend expects {token, user: {id, email}}
+    // Fix login response: preserve {success, data} structure for frontend auth store
     if (subPath === "login" && data.success && data.data) {
-      const { user, accessToken } = data.data;
       return NextResponse.json({
-        token: accessToken,
-        user: {
-          id: user.id,
-          email: user.email,
+        success: true,
+        data: {
+          accessToken: data.data.accessToken,
+          user: {
+            id: data.data.user?.id ?? data.data.userId ?? "",
+            email: data.data.user?.email ?? "",
+          },
         },
+      }, { status: res.status });
+    }
+
+    // Fix register response: preserve {success, data} structure
+    if (subPath === "register" && data.success) {
+      return NextResponse.json({
+        success: true,
+        data: data.data ?? {},
       }, { status: res.status });
     }
 

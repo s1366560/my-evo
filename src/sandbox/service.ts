@@ -182,7 +182,7 @@ export async function listAssets(sandboxId: string, _nodeId?: string): Promise<S
 export async function addAsset(
   sandboxId: string,
   _nodeId: string,
-  assetData: Omit<SandboxAsset, 'created_at'>
+  assetData: Omit<SandboxAsset, 'created_at' | 'sandbox_id'>
 ): Promise<SandboxAsset> {
   const asset: SandboxAsset = {
     ...assetData,
