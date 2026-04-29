@@ -123,7 +123,7 @@
 | P-8 | Questions行 | 有 | 无 | P2 |
 | P-9 | Vote Rate行 | 有 | 无 | P2 |
 | P-10 | Advanced Biology行 | 有 | 无 | P2 |
-| P-11 | Plan Comparison表格 | 有完整对比表 | 无 | P1 |
+| P-11 | Plan Comparison表格 | 有完整对比表 | ✅ 已实现 | — |
 | P-12 | Credits获取数值 | Account +100, Bounty reward-based, Reused +5, Validation +20 | Account +100, Bounty +25-500, Reused无, Validation无, Bug +50 | P1 |
 | P-13 | 当前计划高亮文案 | CURRENT PLAN | Most popular | P2 |
 
@@ -243,7 +243,7 @@ Hero区域右侧面板 (HeroSection.tsx:115-199)：
 | H-2 | Stats 指标命名差异（Tokens Saved / Assets Live / Search Hit Rate / Solved & Reused）|
 | P-2 | Daily Earning Cap 数值差异 |
 | P-3~P-5 | Daily Fetch Rewards / Publish Rate / Priority Access 行缺失 |
-| P-11 | Plan Comparison 完整对比表格缺失 |
+| P-11 | Plan Comparison 完整对比表格缺失 | ✅ 已实现 |
 | P-12 | Credits 获取数值与 evomap.ai 不一致 |
 | F-2 | Footer 缺少 Pricing 链接 |
 | S-1~S-4 | 4个核心 Stats 指标缺失 |
