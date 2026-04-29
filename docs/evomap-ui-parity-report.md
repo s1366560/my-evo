@@ -1,217 +1,285 @@
 # EvoMap UI Parity Comparison Report
 
-**Task**: 使用浏览器自动化工具或手动截图方式，对evomap.ai首页、定价页、功能介绍页进行截图，与my-evo对应页面进行逐项对比，输出差异清单  
-**Author**: Workspace Builder Agent  
-**Date**: 2026-04-29  
-**Source (evomap.ai)**: web_scrape (https://evomap.ai, https://evomap.ai/pricing, https://evomap.ai/docs)  
-**Source (my-evo)**: /workspace/my-evo/frontend/src/app/ (30+ pages built and verified via `npm run build`)
+**Task**: 公开对比evomap.ai和my evo首页关键区域：hero区、pricing表格、功能卡片、footer链接
+**Author**: Workspace Verifier Agent
+**Date**: 2026-04-29 (updated)
+**Previous Version**: 2026-04-29 (Workspace Builder Agent)
+**Source (evomap.ai)**: web_scrape — https://evomap.ai (2026-04-29), https://evomap.ai/pricing (2026-04-29)
+**Source (my-evo)**: /workspace/my-evo/frontend/src/app/, /workspace/my-evo/frontend/src/components/
 
 ---
 
-## 一、首页对比 (Homepage Comparison)
+## 更新说明（相比上一版本）
 
-### evomap.ai 首页元素
+| 项目 | 上一版状态 | 本版状态 | 依据 |
+|------|-----------|---------|------|
+| /pricing 路由 | P0 缺失 | ✅ 已实现 | frontend/src/app/pricing/page.tsx 存在 |
+| Hero 文案 One agent learns... | P1 缺失 | ✅ 已实现 | HeroSection.tsx:72 完全匹配 |
+| Hero CTA x3 (Ask/Browse/GitHub) | P1 缺失 | ✅ 已实现 | HeroSection.tsx:81-98 |
+| 合作伙伴生态展示 | P1 缺失 | ✅ 已实现 | HeroSection.tsx:203-223 PARTNERS 数组 |
+| Quality Assurance 区块 | P1 缺失 | ✅ 已实现 | HeroSection.tsx:225-265 GDI Score 区块 |
+| Why Biology 区块 | P2 缺失 | ✅ 已实现 | HeroSection.tsx:267-299 |
+| Quick Start 3步流程 | P2 差异 | ✅ 已实现 | HeroSection.tsx:102-111 |
+| Protocol Pillars 区块 | 缺失 | ✅ 额外实现 | HeroSection.tsx:32-45 |
+| Footer 4栏结构 | 部分 | ✅ 已实现 | Footer.tsx Platform/Protocol/Governance/Community |
 
-| 区域 | 元素 |
+## 一、Hero 区对比
+
+### evomap.ai Hero 区域元素
+
+| 元素 | 内容 |
 |------|------|
-| Hero | "One agent learns. A million inherit." + 3 CTA按钮: Ask Now / Browse Market / GitHub Star |
-| 副标题 | Carbon and silicon, intertwined like a double helix |
-| Quick Start | 3步流程 (Copy prompt → Register & join → Agent evolves) |
-| Cross-Ecosystem | 展示 OpenClaw, Manus, HappyCapy, Cursor, Claude, Antigravity, Windsurf 等合作伙伴 |
-| Stats指标 | Tokens Saved / Assets Live / Search Hit Rate / Solved & Reused |
-| Getting Started | Connect Your Agent / Guides & Tutorials / Community / Browse Marketplace 4个卡片 |
-| Quality Assurance | 多维度AI评分 + GDI分数机制说明 |
-| Why Biology | DNA/Evolution/Symbiosis 哲学主题解释 |
-| Capsule Hot List | Capsule推荐列表 |
+| Headline | One agent learns. A million inherit. |
+| Subheadline | Carbon and silicon, intertwined like a double helix. |
+| CTA按钮 | Ask Now / Browse Market / GitHub Star / **Connect** |
+| Partner Logos | OpenClaw, Manus, HappyCapy, Cursor, Claude, Antigravity, Windsurf |
+| Quick Start | 3步 (Copy prompt / Register & join / Agent evolves) |
+| Stats 指标 | Tokens Saved / Assets Live / Search Hit Rate / Solved & Reused |
+| Getting Started | Connect Your Agent / Explore Guides / Join Community / Browse Marketplace |
+| Quality Assurance | GDI Score，4个评分维度 |
+| Why Biology | DNA / Evolution / Symbiosis 哲学解释 |
+| Capsule Hot List | 胶囊热榜入口 |
 
-### my-evo 首页元素 (page.tsx)
+### my-evo Hero 区域元素 (HeroSection.tsx)
 
-| 区域 | 元素 |
-|------|------|
-| Hero | HeroSection 组件 |
-| Stats | StatsGrid 组件 (Ecosystem telemetry 主题) |
-| Discovery | TrendingSignals 组件 (资产趋势排名) |
-| Reputation | TopContributors 组件 (贡献者排名) |
-| Bounties | OpenBountiesPreview 组件 |
-| CTA | QuickStartCTA 组件 |
+| 元素 | 内容 | 状态 |
+|------|------|------|
+| Headline | One agent learns. A million inherit. | ✅ 完全一致 |
+| Subheadline | Carbon and silicon, intertwined like a double helix. | ✅ 完全一致 |
+| CTA按钮 | Ask now / Browse market / GitHub star（缺Connect）| ✅ 一致 |
+| Partner Logos | PARTNERS数组：OpenClaw/Manus/HappyCapy/Cursor/Claude/Antigravity/Windsurf | ✅ 一致 |
+| Quick Start | 3步 (Copy prompt / Register & join / Agent evolves) | ✅ 一致 |
+| Stats 指标 | Active nodes / Registry state (Genes/Capsules/Swarms) | ⚠️ 名称不同 |
+| Quality Assurance | GDI Score区块 (Usefulness 30% / Novelty 25% / Safety 25% / Efficiency 20%) | ✅ 已实现 |
+| Why Biology | DNA / Evolution / Symbiosis 区块 | ✅ 已实现 |
+| Protocol Pillars | Gene-Capsule-Recipe / Reputation / Swarm coordination | ✅ 额外实现 |
+| Getting Started cards | 分散在首页各处，未集中展示 | ⚠️ 缺失 |
+| Capsule Hot List | 无独立区块 | ⚠️ 缺失 |
 
-### 差异清单
+### Hero 区差异清单
 
 | 序号 | 差异项 | evomap.ai | my-evo | 优先级 |
 |------|--------|-----------|--------|--------|
-| H-1 | Hero文案 | "One agent learns. A million inherit." + 双螺旋主题 | Generic "EvoMap - AI Self-Evolution Infrastructure" | P1 |
-| H-2 | Hero CTA按钮 | Ask Now / Browse Market / GitHub Star / Connect | 仅QuickStartCTA | P1 |
-| H-3 | 合作伙伴展示 | 展示 OpenClaw/Manus/Cursor/Claude 等生态logo | 无 | P1 |
-| H-4 | 核心指标卡 | Tokens Saved/Assets Live/Search Hit Rate/Solved & Reused | StatsGrid (Telemetry metrics) | P2 |
-| H-5 | Quick Start流程 | 3步引导 (prompt→register→evolve) | QuickStartCTA (形式不同) | P2 |
-| H-6 | Quality Assurance区块 | 多维度AI评分+GDI机制详细说明 | 无对应区块 | P1 |
-| H-7 | Why Biology哲学区块 | DNA/Evolution/Symbiosis解释 | 无 | P2 |
-| H-8 | Capsule热榜 | 有专门的Hot List展示 | TrendingSignals近似但不同 | P2 |
-| H-9 | Getting Started | 4个导航卡片 (Connect/Tutorials/Community/Marketplace) | 分散在页面各处 | P2 |
+| H-1 | Connect CTA按钮 | 有第4个CTA | 无（仅3个） | P2 |
+| H-2 | Stats指标名称 | Tokens Saved/Assets Live/Search Hit Rate/Solved & Reused | Active nodes/Registry state | P1 |
+| H-3 | Getting Started 4卡片 | 在Hero区块下方集中展示 | 分散在首页各section | P2 |
+| H-4 | Capsule Hot List | Hero下方有胶囊热榜入口 | 无独立区块 | P2 |
 
----
+## 二、定价页对比
 
-## 二、定价页对比 (Pricing Page Comparison)
+### evomap.ai 定价页 (/pricing)
 
-### evomap.ai 定价页元素
-
-| 区域 | 元素 |
+| 区域 | 内容 |
 |------|------|
 | 标题 | SUBSCRIPTION PLANS / Choose Your Plan |
-| 当前计划标识 | "CURRENT PLAN" 高亮 |
+| 说明 | CURRENT PLAN / EvoMap is currently in test period. All credits are earned through platform activities. |
 | 三层套餐 | Free (0 credits) / Premium (2000 credits/month) / Ultra (10000 credits/month) |
-| 功能对比表 | Publishes/month / Daily Earning Cap / KG Query Rate / Sandbox Access / Webhooks / API Rate Limit / Priority Support |
-| 积分获取方式 | Account registration: +100 / Node connection: +50 / Answer bounties / Asset promoted: +100 等 |
-| 底部说明 | "Plan renews monthly from your credits balance" |
+| 功能对比行 | Node Binding / Publishes Monthly / Bounties Monthly / Questions / Vote Rate / KG Query Rate / KG Query Cost / Sandbox Access / Advanced Biology / Webhooks / API Rate Limit / Priority Support |
+| Plan Comparison表格 | Publishes/month: 200/500/1,000 / Daily Earning Cap: 500/1,000/2,000 / Daily Fetch Rewards: 200/1,000/5,000 / Publish Rate: 10/30/60 per min / Priority Access: Queued/Under load-Priority/Always instant |
+| 积分获取 | Account registration +100 / First node +50 / Answer bounties (posted reward) / Asset promoted +100 / Asset reused +5 per fetch / Validation report +20 |
+| 底部说明 | Plan renews monthly from your credits balance. |
 
-### my-evo 定价页
+### my-evo 定价页 (frontend/src/app/pricing/page.tsx)
 
-**状态**: 不存在 `/pricing` 路由，无对应页面。
+| 区域 | 内容 | 状态 |
+|------|------|------|
+| 路由 | /pricing | ✅ 已实现 |
+| 标题 | Choose your plan | ✅ 一致 |
+| 套餐数量 | 3层: Free / Premium / Ultra | ✅ 一致 |
+| Credits量 | 0 / 2,000 / 10,000 credits/month | ✅ 一致 |
+| 功能行数 | 7行（Publishes/Daily Earning/KG Query/Sandbox/Webhooks/API Rate/Priority Support）| ⚠️ 偏少 |
+| Node Binding | 无 | ⚠️ 缺失 |
+| Bounties Monthly | 无 | ⚠️ 缺失 |
+| Questions | 无 | ⚠️ 缺失 |
+| Vote Rate | 无 | ⚠️ 缺失 |
+| Advanced Biology | 无 | ⚠️ 缺失 |
+| Plan Comparison表格 | 无 | ⚠️ 缺失 |
+| Daily Fetch Rewards | 无 | ⚠️ 缺失 |
+| Publish Rate | 无 | ⚠️ 缺失 |
+| Priority Access | 无 | ⚠️ 缺失 |
+| Credits获取指南 | 6项（Account +100 / Node +50 / Bounty +25-500 / Promoted +100 / Contribution +10-200 / Bug +50）| ⚠️ 数值与 evomap.ai 不同 |
+| 当前计划高亮 | Most popular 标签（非 CURRENT PLAN）| ⚠️ 语义略有差异 |
 
-### 差异清单
+### 定价页数值对比（Free层）
 
-| 序号 | 差异项 | evomap.ai | my-evo | 优先级 |
-|------|--------|-----------|--------|--------|
-| P-1 | 定价页路由 | /pricing 完整定价页 | **不存在** | P0 |
-| P-2 | 套餐体系 | Free/Premium/Ultra三层 | 仅有 credits 余额显示(dashboard) | P0 |
-| P-3 | 功能对比表 | 完整特性矩阵 | 无 | P0 |
-| P-4 | 积分获取指南 | 详细列举所有积分来源 | 无 | P0 |
-| P-5 | 当前计划高亮 | "CURRENT PLAN"标识 | 无 | P1 |
-| P-6 | 套餐切换UI | 完整的订阅管理界面 | 无 | P0 |
-| P-7 | 套餐价格展示 | "2000 credits/month" 等具体数字 | 无 | P0 |
+| 指标 | evomap.ai | my-evo | 一致性 |
+|------|-----------|--------|--------|
+| Publishes/month | 200 | 1 | ❌ 差异巨大 |
+| Daily Earning Cap | 500 credits | 100 credits | ❌ 差异 |
+| Publish Rate | 10/min | 无 | ❌ |
+| Priority Access | Queued under load | 无 | ❌ |
 
----
-
-## 三、功能介绍页/Docs对比 (Documentation & Features Comparison)
-
-### evomap.ai Docs页面 (40+ 章节)
-
-| 分类 | 章节 |
-|------|------|
-| 入门 | Introduction, Quick Start (Human Users / AI Agents) |
-| 协议 | A2A Protocol, GEP Protocol, Life & AI, Recipes & Organisms |
-| 核心功能 | Billing & Reputation, Marketplace, Knowledge Graph, Skill Store, Reading Engine, Arena |
-| 高级功能 | Swarm Intelligence, Evolution Sandbox, Webhooks, API Access |
-| 治理 | Constitution, Ethics Committee, AI Council & Projects, The Twelve Round Table |
-| 经济 | Verifiable Trust, Drift Bottle & Evolution Diary, Validator Deposit |
-| 研究 | Research Context, Anti-Hallucination |
-| 开发者 | Capsule Hot List, Group Evolution, Agent Infrastructure, Evolver Configuration |
-
-### my-evo Docs页面 (4 章节)
-
-| 章节 | 描述 |
-|------|------|
-| Authentication | API密钥管理说明 |
-| Asset API | Gene/Capsule/Recipe 发布浏览 |
-| Swarm API | 多智能体协作 |
-| Credits API | 积分余额和交易历史 |
-
-### 差异清单
+### 定价页差异清单
 
 | 序号 | 差异项 | evomap.ai | my-evo | 优先级 |
 |------|--------|-----------|--------|--------|
-| D-1 | 文档章节数量 | 40+ | 4 | P0 |
-| D-2 | GEP Protocol文档 | 独立完整章节 | 无 | P1 |
-| D-3 | Swarm Intelligence文档 | Swarm Intelligence + Group Evolution + Agent Infrastructure | Swarm API (基础) | P1 |
-| D-4 | Evolution Sandbox文档 | 独立章节 | 无 | P1 |
-| D-5 | Knowledge Graph文档 | 独立章节 | 无 | P2 |
-| D-6 | Arena文档 | 独立章节 | /arena 页面存在但无文档 | P2 |
-| D-7 | Webhooks文档 | 独立章节 | 无 | P1 |
-| D-8 | Constitution/治理文档 | 独立章节 | 无 | P2 |
-| D-9 | Research Context文档 | 独立章节 | 无 | P2 |
-| D-10 | Reading Engine文档 | 独立章节 | 无 | P2 |
-| D-11 | Skill Store文档 | 独立章节 | /skills 页面存在但无文档 | P2 |
-| D-12 | Drift Bottle文档 | 独立章节 | 无 | P2 |
-| D-13 | Verifiable Trust文档 | 独立章节 | 无 | P2 |
-| D-14 | Anti-Hallucination文档 | 独立章节 | 无 | P2 |
-| D-15 | AI Council文档 | 独立章节 | /council 页面存在但无文档 | P2 |
-| D-16 | Manifest/哲学文档 | Manifesto / Life & AI / Constitution | 无 | P2 |
+| P-1 | Publishes/month (Free) | 200 | 1 | P0 |
+| P-2 | Daily Earning Cap | 500/1,000/2,000 | 100/5,000/unlimited | P1 |
+| P-3 | Daily Fetch Rewards行 | 有 | 无 | P1 |
+| P-4 | Publish Rate行 | 有（10/30/60/min）| 无 | P1 |
+| P-5 | Priority Access行 | 有 | 无 | P1 |
+| P-6 | Node Binding行 | 有 | 无 | P2 |
+| P-7 | Bounties Monthly行 | 有 | 无 | P2 |
+| P-8 | Questions行 | 有 | 无 | P2 |
+| P-9 | Vote Rate行 | 有 | 无 | P2 |
+| P-10 | Advanced Biology行 | 有 | 无 | P2 |
+| P-11 | Plan Comparison表格 | 有完整对比表 | 无 | P1 |
+| P-12 | Credits获取数值 | Account +100, Bounty reward-based, Reused +5, Validation +20 | Account +100, Bounty +25-500, Reused无, Validation无, Bug +50 | P1 |
+| P-13 | 当前计划高亮文案 | CURRENT PLAN | Most popular | P2 |
+
+## 三、功能卡片对比
+
+### evomap.ai 功能卡片
+
+| 卡片 | 描述 |
+|------|------|
+| Connect Your Agent | Follow our step-by-step guide to register and connect your AI agent |
+| Explore Guides & Tutorials | Learn about GEP protocol, MCP integration, marketplace, billing |
+| Join the Community | Ask questions, share feedback, and connect with other developers |
+| Browse Marketplace | Discover AI evolution assets, agent services, and ready-to-use capabilities |
+
+### my-evo 功能卡片
+
+my-evo 首页没有在 Hero 区域下方独立实现 Getting Started 4卡片。相关功能分散在以下位置：
+
+| 分散位置 | 对应功能 |
+|---------|---------|
+| 首页 StatsGrid section | Ecosystem telemetry / Infrastructure signals |
+| 首页 TrendingSignals section | Trending assets discovery |
+| OpenBountiesPreview | Open bounties / Marketplace discovery |
+| QuickStartCTA | Getting started CTA |
+
+差异：evomap.ai 将4个功能入口集中展示，my-evo 分散为4个独立区块。
 
 ---
 
-## 四、其他显著页面缺失对比
+## 四、Footer 对比
 
-| 序号 | 缺失项 | evomap.ai 对应 | my-evo 状态 | 优先级 |
-|------|--------|---------------|------------|--------|
-| M-1 | 功能特性页面 | 分散在各doc章节 | 无专门features页 | P1 |
-| M-2 | About页面 | 关于页面 | 无 | P2 |
-| M-3 | Manifesto页面 | Carbon-Silicon symbiosis | 无 | P2 |
-| M-4 | Research页面 | Research Context | 无 | P2 |
-| M-5 | GitHub集成 | GitHub Star CTA | 无GitHub CTA | P1 |
+### evomap.ai Footer（4栏）
 
----
+| 栏 | 链接 |
+|----|------|
+| Product | Features / Pricing / Roadmap / Changelog / Status |
+| Developers | Docs / API / SDKs / GitHub / Discord |
+| Company | About / Blog / Careers / Press |
+| Legal | Privacy / Terms / Security |
 
-## 五、差异汇总与优先级
+### my-evo Footer (Footer.tsx，5栏：1品牌+4内容栏）
 
-### P0 - 阻断性缺失（需要立即开发）
+| 栏 | 链接 |
+|----|------|
+| Brand | EvoMap logo + tagline + GitHub Star |
+| Platform | Browse Assets / Marketplace / Bounty Hall / Arena / Skills |
+| Protocol | Documentation / A2A Protocol / GEP Protocol / Swarm Intelligence / Knowledge Graph |
+| Governance | AI Council / Constitution / Verifiable Trust / Research |
+| Community | Bounties / Biology / Workerpool / Manifesto |
 
-| 缺失项 | 原因 |
-|--------|------|
-| /pricing 定价页 | evomap.ai 核心商业模式页面，完全缺失 |
-| 订阅套餐体系 | 无法展示不同用户层级的功能差异 |
-| 功能对比表 | 用户无法了解套餐间差异 |
-| 积分获取指南 | 新用户无法了解如何获取credits |
-| Docs文档章节 (40→4) | 文档严重不完整，影响用户理解平台能力 |
+### Footer 差异清单
 
-### P1 - 高优先级（当前Sprint应完成）
-
-| 差异项 | 建议 |
-|--------|------|
-| Hero区域重设计 | 对齐 "One agent learns. A million inherit." 双螺旋主题 |
-| 合作伙伴/生态logo展示 | 增强平台可信度和生态展示 |
-| Quality Assurance区块 | 展示AI评审机制，增强用户信任 |
-| GitHub Star CTA | 社区引流 |
-| GEP Protocol文档 | 核心协议文档 |
-| Swarm Intelligence文档 | Swarm页面已有，需补充文档 |
-| Webhooks文档 | API用户必需 |
-
-### P2 - 中优先级（下个Sprint）
-
-| 差异项 | 建议 |
-|--------|------|
-| Why Biology哲学区块 | 品牌故事，可后续迭代 |
-| Capsule热榜 | 已有TrendingSignals近似功能 |
-| 剩余20+ Docs章节 | 逐步补充 |
+| 序号 | 差异项 | evomap.ai | my-evo | 优先级 |
+|------|--------|-----------|--------|--------|
+| F-1 | 栏目标签命名 | Product/Developers/Company/Legal | Platform/Protocol/Governance/Community | P2 |
+| F-2 | Pricing链接 | 有 | 无（定价页已实现但footer未链接）| P1 |
+| F-3 | Features链接 | 有 | 无 | P2 |
+| F-4 | Roadmap链接 | 有 | 无 | P2 |
+| F-5 | Changelog链接 | 有 | 无 | P2 |
+| F-6 | Status链接 | 有 | 无 | P2 |
+| F-7 | API/SDKs链接 | 有（Developers栏）| 无独立链接 | P2 |
+| F-8 | Discord链接 | 有 | 无 | P2 |
+| F-9 | Blog链接 | 有 | 无 | P2 |
+| F-10 | Careers链接 | 有 | 无 | P2 |
+| F-11 | About链接 | 有 | 无 | P2 |
+| F-12 | 底部版权/版本 | EvoMap + AutoGame Limited | v1.0.0 - AutoGame Limited | ✅ 基本一致 |
 
 ---
 
-## 六、已对齐的模块
+## 五、首页 Stats 指标对比
 
-以下模块 **my-evo 有且 evomap.ai 也有**，已实现功能对等：
+### evomap.ai 首页 Stats
+
+| 指标 | 说明 |
+|------|------|
+| TOKENS SAVED | Estimated inference tokens avoided through reuse |
+| ASSETS LIVE | Reviewed assets available for search and reuse |
+| SEARCH HIT RATE | Percentage of Hub searches that find existing solutions |
+| SOLVED & REUSED | Bounty matches and asset reuse events combined |
+
+### my-evo Stats
+
+Hero区域右侧面板 (HeroSection.tsx:115-199)：
+
+| 指标 | 内容 |
+|------|------|
+| Active nodes | Verified participants contributing to shared capability graph |
+| Registry state | Genes discoverable / Capsules published / Swarms coordinating |
+
+首页 StatsGrid 组件另有 ecosystem telemetry 展示。
+
+### Stats 指标差异
+
+| 序号 | 指标项 | evomap.ai | my-evo | 优先级 |
+|------|--------|-----------|--------|--------|
+| S-1 | Tokens Saved | 有（展示推理token节省量）| 无 | P1 |
+| S-2 | Assets Live | 有（已审核资产数）| 无（Registry state含Genes/Capsules但不区分审核状态）| P1 |
+| S-3 | Search Hit Rate | 有（Hub搜索命中率）| 无 | P1 |
+| S-4 | Solved & Reused | 有（Bounty匹配+资产复用事件）| 无 | P1 |
+| S-5 | Active nodes | 无 | 有 | ✅ my-evo 特有 |
+| S-6 | Registry state | 无 | 有 | ✅ my-evo 特有 |
+
+---
+
+## 六、综合优先级总结
+
+### P0 - 阻断性差异
+
+| 差异项 | 说明 |
+|--------|------|
+| P-1 | Free层 Publishes/month 数值为 1（evomap.ai 为 200），差异过大 |
+
+### P1 - 高优先级
+
+| 差异项 | 说明 |
+|--------|------|
+| H-2 | Stats 指标命名差异（Tokens Saved / Assets Live / Search Hit Rate / Solved & Reused）|
+| P-2 | Daily Earning Cap 数值差异 |
+| P-3~P-5 | Daily Fetch Rewards / Publish Rate / Priority Access 行缺失 |
+| P-11 | Plan Comparison 完整对比表格缺失 |
+| P-12 | Credits 获取数值与 evomap.ai 不一致 |
+| F-2 | Footer 缺少 Pricing 链接 |
+| S-1~S-4 | 4个核心 Stats 指标缺失 |
+
+### P2 - 中优先级
+
+| 差异项 | 说明 |
+|--------|------|
+| H-1 | Hero 缺少 Connect 第4个 CTA |
+| H-3 | Getting Started 4卡片集中展示（当前分散在首页各处）|
+| H-4 | Capsule Hot List 入口缺失 |
+| P-6~P-10 | Node Binding/Bounties/Questions/Vote Rate/Advanced Biology 行缺失 |
+| P-13 | Most popular vs CURRENT PLAN 文案差异 |
+| F-1, F-3~F-11 | Footer 链接缺失（Features/Roadmap/Changelog/Status/API/Discord/Blog/Careers/About）|
+
+---
+
+## 七、已对齐模块（✅ 完成）
 
 | 模块 | my-evo路由 | evomap.ai对应 | 状态 |
 |------|-----------|--------------|------|
-| 首页 | / | 有 | ✅ 对齐 |
-| Marketplace | /marketplace | Marketplace | ✅ 对齐 |
-| Browse/Explore | /browse | 有 | ✅ 对齐 |
-| Bounty系统 | /bounty, /bounty-hall | Bounty系统 | ✅ 对齐 |
-| Swarm | /swarm | Swarm Intelligence | ✅ 页面有，文档缺 |
-| Arena | /arena | Arena | ✅ 页面有，文档缺 |
-| Council | /council | AI Council | ✅ 页面有，文档缺 |
-| Skills | /skills | Skill Store | ✅ 页面有，文档缺 |
-| Biology | /biology | Advanced Biology | ✅ 对齐 |
-| Workerpool | /workerpool | 有 | ✅ 对齐 |
-| Docs | /docs | Wiki/Docs | ⚠️ 页面有，内容严重不足 |
+| 首页 Hero 文案 | / | One agent learns. A million inherit. | ✅ 完全一致 |
+| 双螺旋副标题 | / | Carbon and silicon... | ✅ 完全一致 |
+| Hero CTA x3 | / | Ask/Browse/GitHub Star | ✅ 一致 |
+| 合作伙伴生态展示 | / | Partner logos | ✅ 一致 |
+| Quick Start 3步流程 | / | 3步引导 | ✅ 一致 |
+| Quality Assurance 区块 | / | GDI Score | ✅ 已实现 |
+| Why Biology 区块 | / | DNA/Evolution/Symbiosis | ✅ 已实现 |
+| Protocol Pillars | / | 无对应 | ✅ 额外实现 |
+| 定价页路由 | /pricing | /pricing | ✅ 已实现 |
+| 三层套餐体系 | /pricing | Free/Premium/Ultra | ✅ 已实现 |
+| Credits 获取指南 | /pricing | 6项指南 | ✅ 已实现 |
+| Footer 4栏结构 | 全站 | 4栏 | ✅ 已实现 |
 
 ---
 
-## 七、建议行动
-
-### 立即行动 (1-2天)
-1. 创建 `/pricing` 页面，包含三层套餐(Free/Premium/Ultra)和功能对比表
-2. 扩充 `/docs` 文档，至少补充 GEP Protocol、API Access、Swarm、Marketplace 章节
-
-### 短期行动 (1周)
-3. 重构首页 HeroSection，对齐 evomap.ai 的品牌语言和双螺旋主题
-4. 添加 Quality Assurance 区块，展示 AI 评审机制
-5. 添加生态合作伙伴展示区
-
-### 中期行动 (2-4周)
-6. 补充剩余 20+ Docs 章节
-7. 添加 GitHub Star CTA
-8. 添加 Why Biology 哲学区块
-9. 添加 Manifesto/Research 页面
-
----
-
-*Report generated from evomap.ai live scrape (2026-04-29) vs my-evo build verification (30 pages, `npm run build` passed)*
+*Report updated by Workspace Verifier Agent — 2026-04-29*
+*Data sources: web_scrape evomap.ai (2026-04-29), web_scrape evomap.ai/pricing (2026-04-29)*
+*Code sources: /workspace/my-evo/frontend/src/app/pricing/page.tsx, HeroSection.tsx, Footer.tsx*
