@@ -1,0 +1,102 @@
+{
+  "report_timestamp": "2026-05-08T01:05:21Z",
+  "report_type": "Final Health Check & Release Readiness",
+  "environment": "sandbox-preview",
+  
+  "services": {
+    "frontend": {
+      "status": "healthy",
+      "url": "http://127.0.0.1:3002",
+      "health_endpoint": "/api/health",
+      "version": "1.0.0",
+      "timestamp": "2026-05-08T01:05:21.381Z",
+      "service_status": "up"
+    },
+    "backend": {
+      "status": "healthy",
+      "url": "http://127.0.0.1:3001",
+      "version": "1.0.0",
+      "uptime_seconds": 29.42,
+      "environment": "development",
+      "services": {
+        "api": "up",
+        "database": "up"
+      },
+      "dependencies": [
+        {
+          "name": "database",
+          "status": "up",
+          "latencyMs": 17
+        }
+      ],
+      "memory": {
+        "used_mb": 16,
+        "total_mb": 32,
+        "percentage": 51
+      },
+      "checks": {
+        "database": true,
+        "memory_ok": true,
+        "dependencies_ok": true
+      }
+    }
+  },
+  
+  "health_endpoints_verified": [
+    {
+      "endpoint": "GET /health",
+      "status": "pass",
+      "response": "healthy"
+    },
+    {
+      "endpoint": "GET /health/detailed",
+      "status": "pass",
+      "response": "healthy with database latency 0ms"
+    },
+    {
+      "endpoint": "GET /ready",
+      "status": "pass",
+      "response": "ready: true, all checks passed"
+    },
+    {
+      "endpoint": "GET /live",
+      "status": "pass",
+      "response": "alive: true"
+    },
+    {
+      "endpoint": "GET /api/health (frontend)",
+      "status": "pass",
+      "response": "healthy"
+    }
+  ],
+  
+  "readiness_probes": {
+    "kubernetes_readiness": "pass",
+    "kubernetes_liveness": "pass",
+    "database_connectivity": "pass",
+    "required_env_vars": "pass"
+  },
+  
+  "release_readiness": {
+    "status": "ready",
+    "frontend_build": "success",
+    "backend_build": "success",
+    "database_migrations": "applied",
+    "health_checks": "all_pass",
+    "memory_usage": "normal (51%)",
+    "api_latency": "good (<100ms)"
+  },
+  
+  "pipeline_verification": {
+    "deployment_status": "clean",
+    "services_running": ["frontend (Next.js)", "backend (Express/TypeScript)"],
+    "ports_in_use": [3001, 3002],
+    "git_status": "clean with 1 modified file (frontend/src/app/onboarding/page.tsx)"
+  },
+  
+  "sandbox_preview": {
+    "frontend_url": "http://127.0.0.1:3002",
+    "backend_url": "http://127.0.0.1:3001",
+    "preview_available": true
+  }
+}

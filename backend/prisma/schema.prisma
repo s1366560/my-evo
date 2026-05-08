@@ -1,0 +1,277 @@
+// Prisma schema for My Evo Backend
+// AI Self-Evolution Infrastructure based on GEP Protocol
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User and Authentication Models
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  username      String    @unique
+  passwordHash  String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  isActive      Boolean   @default(true)
+  role          String    @default("USER") // USER, ADMIN, MODERATOR
+  
+  // Relations
+  nodes         Node[]
+  assets        Asset[]
+  bounties      Bounty[]
+  claims        BountyClaim[]
+  reviews       AssetReview[]
+  sessions      Session[]
+  savedMaps     SavedMap[]
+  
+  @@index([email])
+  @@index([username])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token        String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  userAgent    String?
+  ipAddress    String?
+  
+  @@index([token])
+  @@index([userId])
+}
+
+// Node (EvoNode) - AI Agent representation
+model Node {
+  id          String      @id @default(uuid())
+  nodeId      String      @unique // Public ID like node_xxxx
+  secret      String      // Hashed secret for authentication
+  name        String
+  description String?
+  capabilities String     @default("[]") // JSON array stored as string
+  version     String?
+  endpoint    String?
+  status      String      @default("PENDING") // PENDING, ACTIVE, INACTIVE, BLOCKED
+  reputation  Float       @default(0)
+  level       Int         @default(1)
+  credits     Float       @default(0)
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+  
+  // Timestamps
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  lastSeenAt  DateTime?
+  
+  // Relations
+  assets      Asset[]
+  heartbeatLogs HeartbeatLog[]
+  
+  @@index([nodeId])
+  @@index([status])
+}
+
+// Asset Models - Gene and Capsule
+model Asset {
+  id          String      @id @default(uuid())
+  assetId     String      @unique // Public ID like gene_xxxx or capsule_xxxx
+  type        String      // GENE, CAPSULE
+  name        String
+  description String?
+  
+  // Content
+  dna         String?     // For Gene: DNA encoding
+  prompt      String?     // For Capsule: System prompt
+  tools       String      @default("[]") // JSON array stored as string
+  model       String?
+  
+  // Metadata
+  tags        String      @default("[]") // JSON array stored as string
+  license     String      @default("MIT") // MIT, APACHE_2, GPL_3, CLOSED
+  parentId    String?     // For inheritance
+  
+  // GDI Scoring
+  gdiScore    Float       @default(0)
+  gdiBreakdown String?    // JSON object stored as string
+  
+  // Status
+  status      String      @default("DRAFT") // DRAFT, PENDING, PUBLISHED, REJECTED, ARCHIVED
+  
+  // Relations
+  nodeId      String
+  node        Node        @relation(fields: [nodeId], references: [id])
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+  reviews     AssetReview[]
+  
+  // Timestamps
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  publishedAt DateTime?
+  
+  @@index([assetId])
+  @@index([type])
+  @@index([status])
+  @@index([nodeId])
+}
+
+model AssetReview {
+  id          String   @id @default(uuid())
+  assetId     String
+  asset       Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  rating      Int      // 1-5
+  comment     String?
+  createdAt   DateTime @default(now())
+  
+  @@index([assetId])
+}
+
+// Heartbeat Log
+model HeartbeatLog {
+  id        String   @id @default(uuid())
+  nodeId    String
+  node      Node     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  status    String
+  load      Float?
+  activeTasks Int?
+  createdAt DateTime @default(now())
+  
+  @@index([nodeId])
+  @@index([createdAt])
+}
+
+// Bounty System
+model Bounty {
+  id          String        @id @default(uuid())
+  bountyId    String        @unique
+  title       String
+  description String
+  requirements String?
+  reward      Float
+  status      String        @default("OPEN") // OPEN, IN_PROGRESS, COMPLETED, CANCELLED, EXPIRED
+  
+  // Relations
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  claims      BountyClaim[]
+  
+  // Timestamps
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  expiresAt   DateTime?
+  completedAt DateTime?
+  
+  @@index([bountyId])
+  @@index([status])
+  @@index([userId])
+}
+
+model BountyClaim {
+  id          String   @id @default(uuid())
+  bountyId    String
+  bounty      Bounty   @relation(fields: [bountyId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  status      String   @default("PENDING") // PENDING, SUBMITTED, ACCEPTED, REJECTED
+  deliverable String?
+  feedback    String?
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  submittedAt DateTime?
+  
+  @@index([bountyId])
+  @@index([userId])
+}
+
+// Memory Graph - Knowledge and Memory Storage
+model Memory {
+  id          String   @id @default(uuid())
+  nodeId      String   // Source node
+  type        String   // FACT, SKILL, EXPERIENCE, RULE
+  content     String
+  embedding   String   @default("[]") // Vector embedding stored as JSON string
+  metadata    String?  // JSON object stored as string
+  
+  createdAt   DateTime @default(now())
+  accessedAt  DateTime @default(now())
+  
+  @@index([nodeId])
+  @@index([type])
+}
+
+// Map Data - Evolution Map Visualization
+model MapNode {
+  id          String   @id @default(uuid())
+  mapNodeId   String   @unique
+  name        String
+  type        String   // gene, capsule, cluster
+  positionX   Float
+  positionY   Float
+  size        Float    @default(1)
+  color       String?
+  metadata    String?  // JSON object stored as string
+  
+  parentId    String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([mapNodeId])
+}
+
+model MapEdge {
+  id          String   @id @default(uuid())
+  sourceId    String
+  targetId    String
+  type        String   // inheritance, reference, uses
+  weight      Float    @default(1)
+  
+  @@index([sourceId])
+  @@index([targetId])
+}
+
+// Saved Maps - User saved map configurations
+model SavedMap {
+  id          String   @id @default(uuid())
+  mapId       String   @unique
+  name        String
+  description String?
+  config      String   // JSON object stored as string
+  nodes       String   @default("[]") // JSON array of node configs
+  edges       String   @default("[]") // JSON array of edge configs
+  
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isPublic    Boolean  @default(false)
+
+  @@index([mapId])
+  @@index([userId])
+}
+
+// Reputation System
+model ReputationLog {
+  id          String   @id @default(uuid())
+  nodeId      String
+  action      String   // publish, complete_bounty, receive_review
+  delta       Float
+  reason      String?
+  createdAt   DateTime @default(now())
+  
+  @@index([nodeId])
+}

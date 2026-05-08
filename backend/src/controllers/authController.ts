@@ -1,0 +1,218 @@
+import { Request, Response } from 'express';
+import prisma from '../db/prisma.js';
+import { hashPassword, verifyPassword, signToken } from '../auth/jwt.js';
+import { RegisterInput, LoginInput } from '../models/schemas.js';
+
+export class AuthController {
+  // POST /auth/register
+  async register(req: Request, res: Response): Promise<void> {
+    try {
+      const { email, username, password } = req.body as RegisterInput;
+
+      // Check if user already exists
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          OR: [{ email }, { username }],
+        },
+      });
+
+      if (existingUser) {
+        res.status(409).json({
+          error: 'Conflict',
+          message: existingUser.email === email
+            ? 'Email already registered'
+            : 'Username already taken',
+        });
+        return;
+      }
+
+      // Hash password and create user
+      const passwordHash = await hashPassword(password);
+
+      const user = await prisma.user.create({
+        data: {
+          email,
+          username,
+          passwordHash,
+        },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          role: true,
+          createdAt: true,
+        },
+      });
+
+      // Generate JWT token
+      const token = signToken({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      });
+
+      res.status(201).json({
+        message: 'Registration successful',
+        user,
+        token,
+      });
+    } catch (error) {
+      console.error('Registration error:', error);
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to register user',
+      });
+    }
+  }
+
+  // POST /auth/login
+  async login(req: Request, res: Response): Promise<void> {
+    try {
+      const { email, password } = req.body as LoginInput;
+
+      // Find user by email
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          passwordHash: true,
+          role: true,
+          isActive: true,
+        },
+      });
+
+      if (!user) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Invalid email or password',
+        });
+        return;
+      }
+
+      if (!user.isActive) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'Account is deactivated',
+        });
+        return;
+      }
+
+      // Verify password
+      const isValidPassword = await verifyPassword(password, user.passwordHash);
+
+      if (!isValidPassword) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Invalid email or password',
+        });
+        return;
+      }
+
+      // Generate JWT token
+      const token = signToken({
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      });
+
+      // Return user without password
+      const { passwordHash: _, ...userWithoutPassword } = user;
+
+      res.json({
+        message: 'Login successful',
+        user: userWithoutPassword,
+        token,
+      });
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to login',
+      });
+    }
+  }
+
+  // GET /auth/me
+  async me(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Not authenticated',
+        });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.userId },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+          nodes: {
+            select: {
+              nodeId: true,
+              name: true,
+              status: true,
+              reputation: true,
+              level: true,
+            },
+          },
+          _count: {
+            select: {
+              assets: true,
+              bounties: true,
+            },
+          },
+        },
+      });
+
+      if (!user) {
+        res.status(404).json({
+          error: 'Not Found',
+          message: 'User not found',
+        });
+        return;
+      }
+
+      // Calculate account age in days
+      const accountAgeDays = user.createdAt
+        ? Math.floor((Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+        : 0;
+
+      // Determine creator level based on published assets
+      const creatorLevel = Math.min(3, Math.floor((user._count?.assets || 0) / 5));
+
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+          isActive: user.isActive,
+          createdAt: user.createdAt,
+          accountAgeDays,
+          creatorLevel,
+          totalMaps: 0, // Maps not yet implemented
+          recentActivity: user.nodes && user.nodes.length > 0 ? user.nodes[0].reputation : 0,
+          accountPlan: 'free',
+          totalEarnings: 0, // Earnings tracking not yet implemented
+        },
+      });
+    } catch (error) {
+      console.error('Get user error:', error);
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to get user',
+      });
+    }
+  }
+}
+
+export const authController = new AuthController();

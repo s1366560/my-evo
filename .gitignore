@@ -1,0 +1,70 @@
+# ===== Dependencies =====
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# ===== Build output =====
+dist/
+build/
+out/
+.next/
+.nuxt/
+.turbo/
+.svelte-kit/
+*.tsbuildinfo
+
+# ===== Test / coverage =====
+coverage/
+test-results/
+playwright-report/
+.nyc_output/
+
+# ===== Logs =====
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ===== Environment / secrets =====
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# ===== Database =====
+*.db
+*.sqlite
+*.sqlite3
+backend/prisma/dev.db
+backend/prisma/*.db-journal
+
+# ===== OS / Editor =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+
+# ===== Tool / agent caches =====
+.claude/
+.qwen/
+.trae/
+.cursor/
+skills/
+.sprint/
+
+# ===== Misc =====
+*.pid
+*.seed
+*.pid.lock
+.eslintcache
+.cache/
+.parcel-cache/
+.tmp/
+tmp/

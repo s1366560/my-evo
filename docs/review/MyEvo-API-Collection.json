@@ -1,0 +1,262 @@
+{
+  "info": {
+    "name": "My Evo API Collection",
+    "description": "API Contract Verification Collection for My Evo Project",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrlBackend",
+      "value": "http://127.0.0.1:3001"
+    },
+    {
+      "key": "baseUrlFrontend",
+      "value": "http://127.0.0.1:3000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Checks",
+      "item": [
+        {
+          "name": "Backend Health",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrlBackend}}/health",
+            "description": "Check backend API health status"
+          }
+        },
+        {
+          "name": "Frontend API Health",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrlFrontend}}/api/health",
+            "description": "Check frontend API health status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Authentication",
+      "item": [
+        {
+          "name": "Register User",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrlFrontend}}/api/frontend/auth/register",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"Test123456\",\n  \"username\": \"testuser\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login User",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrlFrontend}}/api/frontend/auth/login",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"Test123456\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "A2A Protocol",
+      "item": [
+        {
+          "name": "Node Registration (Hello)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrlBackend}}/a2a/hello",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TestNode\",\n  \"description\": \"Test Node Description\",\n  \"capabilities\": [\"test\", \"analysis\"],\n  \"version\": \"1.0.0\",\n  \"endpoint\": \"http://test.example.com\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Node Heartbeat",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrlBackend}}/a2a/heartbeat",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-node-id",
+                "value": "node_423e13982f7ce319"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"node_id\": \"node_423e13982f7ce319\",\n  \"status\": \"active\",\n  \"active_tasks\": [],\n  \"load\": 0.5\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Node Directory",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrlBackend}}/a2a/nodes"
+          }
+        },
+        {
+          "name": "Publish Asset",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrlBackend}}/a2a/publish",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-node-id",
+                "value": "node_423e13982f7ce319"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"gene\",\n  \"name\": \"Test Gene\",\n  \"description\": \"A test gene asset\",\n  \"content\": {\n    \"dna\": \"test_dna_content\",\n    \"prompt\": \"test prompt\"\n  },\n  \"tags\": [\"test\", \"example\"],\n  \"license\": \"MIT\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Fetch Assets",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrlBackend}}/a2a/fetch",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"test\",\n  \"type\": \"gene\",\n  \"limit\": 10\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Map Endpoints",
+      "item": [
+        {
+          "name": "Get Map Nodes",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrlBackend}}/map/nodes"
+          }
+        },
+        {
+          "name": "Get Map Edges",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrlBackend}}/map/edges"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bounty Endpoints",
+      "item": [
+        {
+          "name": "Get Bounty List",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrlBackend}}/bounty/list"
+          }
+        },
+        {
+          "name": "Create Bounty",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrlBackend}}/bounty/create",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Test Bounty\",\n  \"description\": \"A test bounty task\",\n  \"requirements\": \"Test requirements\",\n  \"reward\": 100,\n  \"expires_in_days\": 7\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Marketplace",
+      "item": [
+        {
+          "name": "Get Marketplace Stats",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrlFrontend}}/api/frontend/marketplace/stats"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Protected Endpoints",
+      "item": [
+        {
+          "name": "Get User Profile",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrlFrontend}}/api/frontend/user/profile",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get User Maps",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrlFrontend}}/api/frontend/maps",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
