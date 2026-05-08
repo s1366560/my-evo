@@ -21,4 +21,9 @@ router.get('/me', authenticate, (req, res) => {
   authController.me(req, res);
 });
 
+// PUT /auth/me - Update current user profile
+router.put('/me', authenticate, (req, res) => {
+  authController.updateMe(req, res);
+});
+
 export default router;

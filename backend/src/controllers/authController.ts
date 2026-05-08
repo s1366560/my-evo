@@ -134,6 +134,72 @@ export class AuthController {
     }
   }
 
+  // PUT /auth/me - Update current user profile
+  async updateMe(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Not authenticated',
+        });
+        return;
+      }
+
+      const { username, email } = req.body;
+
+      // Check if username or email is already taken by another user
+      if (username || email) {
+        const existingUser = await prisma.user.findFirst({
+          where: {
+            AND: [
+              { NOT: { id: req.user.userId } },
+              ...(username ? [{ username }] : []),
+              ...(email ? [{ email }] : []),
+            ],
+          },
+        });
+
+        if (existingUser) {
+          res.status(409).json({
+            error: 'Conflict',
+            message: existingUser.username === username
+              ? 'Username already taken'
+              : 'Email already registered',
+          });
+          return;
+        }
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id: req.user.userId },
+        data: {
+          ...(username && { username }),
+          ...(email && { email }),
+        },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      res.json({
+        message: 'Profile updated successfully',
+        user: updatedUser,
+      });
+    } catch (error) {
+      console.error('Update profile error:', error);
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to update profile',
+      });
+    }
+  }
+
   // GET /auth/me
   async me(req: Request, res: Response): Promise<void> {
     try {

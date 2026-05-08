@@ -1,5 +1,5 @@
-// Frontend API proxy for user profile
-// Routes to backend /api/auth/*
+// Frontend API proxy for user profile updates
+// Routes to backend /api/auth/me (PUT)
 
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
     const response = await fetch(`${API_BASE}/auth/me`, {
       method: 'GET',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
@@ -32,6 +32,39 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data);
   } catch (error) {
     console.error('Error fetching profile:', error);
+    return NextResponse.json({ error: 'Failed to connect to backend' }, { status: 503 });
+  }
+}
+
+// PUT /api/frontend/user/profile - Update current user profile
+export async function PUT(request: NextRequest) {
+  try {
+    const token = request.cookies.get('auth_token')?.value;
+
+    if (!token) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    const body = await request.json();
+
+    const response = await fetch(`${API_BASE}/auth/me`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Failed to update profile' }));
+      return NextResponse.json({ error: error.message || 'Failed to update profile' }, { status: response.status });
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error('Error updating profile:', error);
     return NextResponse.json({ error: 'Failed to connect to backend' }, { status: 503 });
   }
 }

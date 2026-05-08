@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import prisma from '../db/prisma.js';
 import { AssetPublishInput, AssetFetchInput } from '../models/schemas.js';
+import { gdiScoringService } from '../services/gdiScoringService.js';
 
 function generateAssetId(type: string): string {
   const prefix = type === 'gene' ? 'gene' : 'capsule';

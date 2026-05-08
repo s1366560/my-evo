@@ -3,13 +3,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
 
 // GET /api/frontend/marketplace/stats - Get marketplace statistics
 export async function GET() {
   try {
-    // Try to get real stats from backend
-    const response = await fetch(`${API_BASE}/marketplace/stats`, {
+    // Get real stats from backend
+    const response = await fetch(`${BACKEND_URL}/marketplace/stats`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
       cache: 'no-store',
@@ -19,11 +19,14 @@ export async function GET() {
       const data = await response.json();
       return NextResponse.json(data);
     }
+
+    // If backend returns error, log and fall back
+    console.warn('Backend stats endpoint returned:', response.status);
   } catch (error) {
     console.error('Error fetching marketplace stats from backend:', error);
   }
 
-  // Fallback to mock data with more realistic numbers
+  // Fallback to mock data (only when backend is unavailable)
   return NextResponse.json({
     totalAssets: 1247832,
     totalGenes: 892451,
