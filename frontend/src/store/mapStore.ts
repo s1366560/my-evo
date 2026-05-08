@@ -28,6 +28,13 @@ export interface MapConfig {
   showScores: boolean;
   showEdges: boolean;
   animation: 'none' | 'gentle' | 'dynamic';
+  // Advanced physics parameters
+  physics: {
+    linkDistance: number;   // 30-200, default 100
+    chargeStrength: number; // -500 to -50, default -200
+    centerForce: number;   // 0-1, default 0.1
+    collisionRadius: number; // 5-50, default 20
+  };
 }
 
 interface MapState {
@@ -59,6 +66,12 @@ const defaultConfig: MapConfig = {
   showScores: true,
   showEdges: true,
   animation: 'gentle',
+  physics: {
+    linkDistance: 100,
+    chargeStrength: -200,
+    centerForce: 0.1,
+    collisionRadius: 20,
+  },
 };
 
 const defaultNodes: MapNode[] = [

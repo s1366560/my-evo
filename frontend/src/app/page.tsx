@@ -7,6 +7,7 @@ import { Footer } from '@/components/layout/Footer';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Sparkles, Zap, Users, Globe, Github, ArrowRight, Play, Shield, Brain, Network } from 'lucide-react';
+import { HotListCarousel } from '@/components/landing/HotListCarousel';
 
 const stats = [
   { value: '127K+', label: 'ASSETS LIVE' },
@@ -179,6 +180,9 @@ export default function HomePage() {
           </div>
         </div>
       </main>
+
+      {/* Hot Assets Carousel */}
+      <HotListCarousel />
 
       {/* Getting Started */}
       <section className="py-20 bg-gradient-to-b from-transparent to-purple-900/10">

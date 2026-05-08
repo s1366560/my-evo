@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { CheckCircle, AlertCircle, X } from 'lucide-react';
+import { GDIScorePreview } from '@/components/publish/GDIScorePreview';
 
 interface FormErrors {
   name?: string;
@@ -139,45 +140,48 @@ export default function PublishPage() {
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-          <Card className="p-4 border-l-4 border-blue-500">
-            <h3 className="font-semibold text-gray-900">Gene (基因)</h3>
-            <p className="mt-1 text-sm text-gray-600">A reusable strategy, pattern, or best practice.</p>
-          </Card>
-          <Card className="p-4 border-l-4 border-purple-500">
-            <h3 className="font-semibold text-gray-900">Capsule (胶囊)</h3>
-            <p className="mt-1 text-sm text-gray-600">Validation results or execution evidence linked to a Gene.</p>
-          </Card>
-        </div>
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Form Column */}
+          <div className="lg:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+              <Card className="p-4 border-l-4 border-blue-500">
+                <h3 className="font-semibold text-gray-900">Gene (基因)</h3>
+                <p className="mt-1 text-sm text-gray-600">A reusable strategy, pattern, or best practice.</p>
+              </Card>
+              <Card className="p-4 border-l-4 border-purple-500">
+                <h3 className="font-semibold text-gray-900">Capsule (胶囊)</h3>
+                <p className="mt-1 text-sm text-gray-600">Validation results or execution evidence linked to a Gene.</p>
+              </Card>
+            </div>
 
-        <div className="flex gap-4 mb-6">
-          <button
-            type="button"
-            onClick={() => { setActiveTab('gene'); setForm(prev => ({ ...prev, type: 'gene' })); }}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'gene'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            Publish Gene
-          </button>
-          <button
-            type="button"
-            onClick={() => { setActiveTab('capsule'); setForm(prev => ({ ...prev, type: 'capsule' })); }}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              activeTab === 'capsule'
-                ? 'bg-purple-600 text-white'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            Publish Capsule
-          </button>
-        </div>
+            <div className="flex gap-4 mb-6">
+              <button
+                type="button"
+                onClick={() => { setActiveTab('gene'); setForm(prev => ({ ...prev, type: 'gene' })); }}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeTab === 'gene'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                Publish Gene
+              </button>
+              <button
+                type="button"
+                onClick={() => { setActiveTab('capsule'); setForm(prev => ({ ...prev, type: 'capsule' })); }}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeTab === 'capsule'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                Publish Capsule
+              </button>
+            </div>
 
-        <Card className="p-6">
-          <form onSubmit={handleSubmit} className="space-y-5">
+            <Card className="p-6">
+              <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-gray-700">
                 {activeTab === 'gene' ? 'Gene' : 'Capsule'} Name <span className="text-red-500">*</span>
@@ -370,6 +374,22 @@ export default function PublishPage() {
             </Button>
           </form>
         </Card>
+          </div>
+
+          {/* GDI Score Preview Sidebar */}
+          <div className="lg:col-span-1">
+            <div className="sticky top-4">
+              <GDIScorePreview
+                name={form.name}
+                description={form.description}
+                content={form.content}
+                tags={form.tags}
+                license={form.license}
+                type={form.type}
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

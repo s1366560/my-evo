@@ -3,6 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import { Bookmark, Save, Trash2, Download, Upload, X, Check } from 'lucide-react';
 
+export interface PhysicsConfig {
+  linkDistance: number;
+  chargeStrength: number;
+  centerForce: number;
+  collisionRadius: number;
+}
+
 export interface MapConfig {
   layout: 'force' | 'radial' | 'hierarchical';
   nodeSize: 'score' | 'fixed' | 'calls';
@@ -12,6 +19,7 @@ export interface MapConfig {
   showScores: boolean;
   showEdges: boolean;
   animation: 'none' | 'gentle' | 'dynamic';
+  physics: PhysicsConfig;
 }
 
 interface Preset {
@@ -45,13 +53,34 @@ export function ConfigPresetPanel({
   const [activeTab, setActiveTab] = useState<'presets' | 'create'>('presets');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  // Default physics configuration
+  const defaultPhysics: PhysicsConfig = {
+    linkDistance: 100,
+    chargeStrength: -200,
+    centerForce: 0.1,
+    collisionRadius: 20,
+  };
+
+  // Normalize preset to include physics
+  const normalizePreset = (preset: Preset): Preset => ({
+    ...preset,
+    config: {
+      ...preset.config,
+      physics: preset.config.physics || defaultPhysics,
+    },
+  });
+
   // Load presets from localStorage on mount or when opened
   useEffect(() => {
     if (isOpen) {
       try {
         const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) setPresets(JSON.parse(saved));
-        else setPresets([]);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setPresets(parsed.map(normalizePreset));
+        } else {
+          setPresets([]);
+        }
       } catch {
         setPresets([]);
       }

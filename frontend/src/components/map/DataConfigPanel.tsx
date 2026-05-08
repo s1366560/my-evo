@@ -4,9 +4,16 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
-import { ChevronLeft, ChevronRight, Database, Layers, Palette, Share2, Download, Upload, Save, Trash2, Bookmark } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Database, Layers, Palette, Share2, Download, Upload, Save, Trash2, Bookmark, Settings } from 'lucide-react';
 import { ConfigPresetPanel, MapConfig as PresetMapConfig } from './ConfigPresetPanel';
 import { useMapStore } from '@/store/mapStore';
+
+interface PhysicsConfig {
+  linkDistance: number;   // 30-200
+  chargeStrength: number; // -500 to -50
+  centerForce: number;   // 0-1
+  collisionRadius: number; // 5-50
+}
 
 interface MapConfig {
   layout: 'force' | 'radial' | 'hierarchical';
@@ -17,6 +24,7 @@ interface MapConfig {
   showScores: boolean;
   showEdges: boolean;
   animation: 'none' | 'gentle' | 'dynamic';
+  physics: PhysicsConfig;
 }
 
 interface DataConfigPanelProps {
@@ -35,12 +43,25 @@ const defaultConfig: MapConfig = {
   showScores: true,
   showEdges: true,
   animation: 'gentle',
+  physics: {
+    linkDistance: 100,
+    chargeStrength: -200,
+    centerForce: 0.1,
+    collisionRadius: 20,
+  },
+};
+
+const defaultPhysics: PhysicsConfig = {
+  linkDistance: 100,
+  chargeStrength: -200,
+  centerForce: 0.1,
+  collisionRadius: 20,
 };
 
 export function DataConfigPanel({ onConfigChange, onImportData, onExportData, onShare }: DataConfigPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [config, setConfig] = useState<MapConfig>(defaultConfig);
-  const [activeSection, setActiveSection] = useState<'data' | 'style' | 'display'>('data');
+  const [activeSection, setActiveSection] = useState<'data' | 'style' | 'display' | 'physics'>('data');
   const [presets, setPresets] = useState<{ name: string; config: MapConfig }[]>([]);
   const [newPresetName, setNewPresetName] = useState('');
   const [showPresetInput, setShowPresetInput] = useState(false);
@@ -111,7 +132,7 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
           </div>
 
           <div className="flex border-b border-white/10">
-            {(['data', 'style', 'display'] as const).map((section) => (
+            {(['data', 'style', 'display', 'physics'] as const).map((section) => (
               <button
                 key={section}
                 onClick={() => setActiveSection(section)}
@@ -120,6 +141,7 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
                 {section === 'data' && <Database className="w-4 h-4 mx-auto mb-1" />}
                 {section === 'style' && <Palette className="w-4 h-4 mx-auto mb-1" />}
                 {section === 'display' && <Layers className="w-4 h-4 mx-auto mb-1" />}
+                {section === 'physics' && <Settings className="w-4 h-4 mx-auto mb-1" />}
                 {section.charAt(0).toUpperCase() + section.slice(1)}
               </button>
             ))}
@@ -255,10 +277,114 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
                 </div>
               </div>
             )}
+
+            {activeSection === 'physics' && (
+              <div className="space-y-4">
+                <div className="text-xs text-gray-400 mb-3">
+                  Fine-tune the force simulation physics for your map layout.
+                </div>
+
+                {/* Link Distance */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs text-gray-300">Link Distance</label>
+                    <span className="text-xs text-purple-400 font-mono">{config.physics.linkDistance}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="30"
+                    max="200"
+                    value={config.physics.linkDistance}
+                    onChange={(e) => updateConfig('physics', { ...config.physics, linkDistance: Number(e.target.value) })}
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                    <span>30</span>
+                    <span>Tight</span>
+                    <span>200</span>
+                  </div>
+                </div>
+
+                {/* Charge Strength */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs text-gray-300">Charge Strength</label>
+                    <span className="text-xs text-purple-400 font-mono">{config.physics.chargeStrength}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-500"
+                    max="-50"
+                    value={config.physics.chargeStrength}
+                    onChange={(e) => updateConfig('physics', { ...config.physics, chargeStrength: Number(e.target.value) })}
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                    <span>-500 (Repel)</span>
+                    <span>Neutral</span>
+                    <span>-50 (Attract)</span>
+                  </div>
+                </div>
+
+                {/* Center Force */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs text-gray-300">Center Force</label>
+                    <span className="text-xs text-purple-400 font-mono">{config.physics.centerForce.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={config.physics.centerForce * 100}
+                    onChange={(e) => updateConfig('physics', { ...config.physics, centerForce: Number(e.target.value) / 100 })}
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                    <span>0 (Free)</span>
+                    <span>Gravity</span>
+                    <span>1 (Locked)</span>
+                  </div>
+                </div>
+
+                {/* Collision Radius */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs text-gray-300">Collision Radius</label>
+                    <span className="text-xs text-purple-400 font-mono">{config.physics.collisionRadius}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="5"
+                    max="50"
+                    value={config.physics.collisionRadius}
+                    onChange={(e) => updateConfig('physics', { ...config.physics, collisionRadius: Number(e.target.value) })}
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                    <span>5 (Dense)</span>
+                    <span>Spacing</span>
+                    <span>50 (Loose)</span>
+                  </div>
+                </div>
+
+                {/* Reset Physics Button */}
+                <div className="pt-2 border-t border-white/10">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => updateConfig('physics', defaultPhysics)}
+                  >
+                    Reset Physics
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="p-4 border-t border-white/10">
-            <Button variant="outline" size="sm" className="w-full" onClick={() => setConfig(defaultConfig)}>
+            <Button variant="outline" size="sm" className="w-full" onClick={() => { setConfig(defaultConfig); setStoreConfig(defaultConfig); onConfigChange?.(defaultConfig); }}>
               Reset Defaults
             </Button>
           </div>

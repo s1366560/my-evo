@@ -25,6 +25,7 @@ import bountyRoutes from './routes/bounty.js';
 import mapRoutes from './routes/map.js';
 import marketplaceRoutes from './routes/marketplace.js';
 import assetsRoutes from './routes/assets.js';
+import gdiRoutes from './routes/gdi.js';
 
 // Initialize Express app
 const app = express();
@@ -83,6 +84,7 @@ app.use('/bounty', bountyRoutes);
 app.use('/map', mapRoutes);
 app.use('/marketplace', marketplaceRoutes);
 app.use('/assets', assetsRoutes);
+app.use('/gdi', gdiRoutes);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
@@ -148,6 +150,7 @@ const server = app.listen(config.port, () => {
 ║   • POST /bounty/create  - Create bounty                ║
 ║   • GET  /bounty/list    - List bounties               ║
 ║   • GET  /map/graph      - Get evolution map           ║
+║   • POST /gdi/preview     - GDI score preview           ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝
   `);
