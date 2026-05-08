@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Play, Pause, Save, Upload, Image } from 'lucide-react';
-import html2canvas from 'html2canvas';
 import { DataConfigPanel } from '@/components/map/DataConfigPanel';
 import { DataImportPanel } from '@/components/map/DataImportPanel';
 import { ExportDialog } from '@/components/map/ExportDialog';
@@ -234,27 +233,30 @@ export default function MapPage() {
       return;
     }
 
-    // PNG via html2canvas (captures DOM state with styles)
-    try {
-      const mapContainer = containerRef.current;
-      if (!mapContainer) return;
-      html2canvas(mapContainer, {
-        scale: options.scale,
-        backgroundColor: options.includeBackground ? options.backgroundColor : null,
-        useCORS: true,
-        logging: false,
-      }).then((htmlCanvas) => {
-        const link = document.createElement('a');
-        link.download = `${options.filename}.png`;
-        link.href = htmlCanvas.toDataURL('image/png');
-        link.click();
+    // PNG via html2canvas (lazy-loaded to reduce initial bundle)
+    if (options.format === 'png') {
+      import('html2canvas').then(({ default: html2canvas }) => {
+        const mapContainer = containerRef.current;
+        if (!mapContainer) return;
+        html2canvas(mapContainer, {
+          scale: options.scale,
+          backgroundColor: options.includeBackground ? options.backgroundColor : null,
+          useCORS: true,
+          logging: false,
+        }).then((htmlCanvas: HTMLCanvasElement) => {
+          const link = document.createElement('a');
+          link.download = `${options.filename}.png`;
+          link.href = htmlCanvas.toDataURL('image/png');
+          link.click();
+        }).catch((err: unknown) => {
+          console.error('html2canvas export failed:', err);
+          alert('Failed to export map as PNG.');
+        });
       }).catch((err) => {
-        console.error('html2canvas export failed:', err);
+        console.error('Failed to load html2canvas:', err);
         alert('Failed to export map as PNG.');
       });
-    } catch (err) {
-      console.error('Export to PNG failed:', err);
-      alert('Failed to export map as PNG.');
+      return;
     }
   }, [nodes, edges, config]);
 
