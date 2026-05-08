@@ -36,6 +36,24 @@ export default function MapPage() {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
+  const [nodeAnimations, setNodeAnimations] = useState<Record<string, number>>({});
+  const nodeEnterTime = useRef<number>(Date.now());
+
+  // Track nodes for entrance animation
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    const newAnimations: Record<string, number> = {};
+    nodes.forEach((node, index) => {
+      if (!(node.id in nodeAnimations)) {
+        newAnimations[node.id] = index * 30; // Stagger delay
+      } else {
+        newAnimations[node.id] = nodeAnimations[node.id];
+      }
+    });
+    if (Object.keys(newAnimations).length > 0) {
+      setNodeAnimations(newAnimations);
+    }
+  }, [nodes.length]);
 
   // Modal states for DataImportPanel wizard + ExportDialog
   const [showImportModal, setShowImportModal] = useState(false);
@@ -120,15 +138,26 @@ export default function MapPage() {
       const radius = isHovered || isSelected ? baseRadius + 4 : baseRadius;
       const nodeColor = getColor(node);
 
+      // Entrance animation: calculate opacity based on animation delay
+      const animDelay = nodeAnimations[node.id] || 0;
+      const elapsed = Date.now() - nodeEnterTime.current;
+      const opacity = Math.min(1, Math.max(0.1, (elapsed - animDelay) / 500));
+
       if (isHovered || isSelected) {
         const gradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, radius * 2);
         gradient.addColorStop(0, nodeColor + '60'); gradient.addColorStop(1, 'transparent');
         ctx.fillStyle = gradient; ctx.beginPath(); ctx.arc(node.x, node.y, radius * 2, 0, Math.PI * 2); ctx.fill();
       }
 
+      // Draw node with entrance animation
+      ctx.save();
+      ctx.globalAlpha = opacity;
+
       ctx.beginPath(); ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
       ctx.fillStyle = nodeColor; ctx.fill();
       ctx.strokeStyle = isSelected ? '#ffffff' : nodeColor; ctx.lineWidth = isSelected ? 3 : 1; ctx.stroke();
+
+      ctx.restore();
 
       if (config.showScores) {
         ctx.fillStyle = '#ffffff'; ctx.font = `bold ${Math.round(radius * 0.6)}px sans-serif`;

@@ -281,11 +281,42 @@ select:focus-visible {
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
 }
 
-/* Skeleton Loading */
+/* Skeleton Loading - Enhanced with shimmer effect */
 .skeleton {
   background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  animation: shimmer-wave 1.8s ease-in-out infinite;
+}
+
+@keyframes shimmer-wave {
+  0% { left: -100%; }
+  100% { left: 200%; }
+}
+
+.-skeleton-x-1\/2 {
+  animation: none;
+  background: linear-gradient(90deg, 
+    rgba(255,255,255,0.03) 0%, 
+    rgba(255,255,255,0.08) 25%, 
+    rgba(255,255,255,0.03) 50%,
+    rgba(255,255,255,0.08) 75%,
+    rgba(255,255,255,0.03) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
 }
 
 /* Staggered Animation Delays */

@@ -41,14 +41,14 @@ const features = [
 
 // Ecosystem with visual metadata (matching evomap.ai reference)
 const ecosystem = [
-  { name: 'OpenClaw', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
-  { name: 'Manus', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
-  { name: 'HappyCapy', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
-  { name: 'Cursor', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
-  { name: 'Cline', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
-  { name: 'Roo', color: 'bg-rose-500/20 text-rose-400 border-rose-500/30' },
-  { name: 'Aider', color: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' },
-  { name: '+ More', color: 'bg-white/10 text-gray-400 border-white/20' },
+  { name: 'OpenClaw', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30', icon: '🦝' },
+  { name: 'Manus', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30', icon: '✋' },
+  { name: 'HappyCapy', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: '🦣' },
+  { name: 'Cursor', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', icon: '⬡' },
+  { name: 'Cline', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30', icon: '🔗' },
+  { name: 'Roo', color: 'bg-rose-500/20 text-rose-400 border-rose-500/30', icon: '🦘' },
+  { name: 'Aider', color: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', icon: '🤝' },
+  { name: '+ More', color: 'bg-white/10 text-gray-400 border-white/20', icon: '→' },
 ];
 
 const gettingStarted = [
@@ -151,7 +151,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Cross-Ecosystem Support - Enhanced with color-coded badges */}
+          {/* Cross-Ecosystem Support - Enhanced with color-coded badges + icons */}
           <div className="text-center mb-16">
             <p className="text-sm text-gray-500 mb-6 tracking-wider uppercase">Cross-Ecosystem Support</p>
             <div className="flex flex-wrap items-center justify-center gap-3">
@@ -163,11 +163,13 @@ export default function HomePage() {
                     transition-all duration-300 ease-out
                     hover:scale-105 hover:shadow-lg hover:shadow-purple-500/20
                     animate-fade-in-up opacity-0
+                    flex items-center gap-2
                     ${item.color}
                   `}
                   style={{ animationDelay: `${index * 50}ms`, animationFillMode: 'forwards' }}
                 >
-                  {item.name}
+                  <span className="text-base leading-none">{item.icon}</span>
+                  <span>{item.name}</span>
                 </span>
               ))}
             </div>

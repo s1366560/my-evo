@@ -152,7 +152,31 @@ export default function MarketplacePage() {
       <div className="max-w-7xl mx-auto px-4 py-6">
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1,2,3,4,5,6].map(i => <div key={i} className="bg-gray-900 rounded-xl border border-gray-800 p-5 animate-pulse"><div className="h-6 bg-gray-800 rounded w-1/4 mb-4"></div><div className="h-8 bg-gray-800 rounded w-3/4 mb-3"></div><div className="h-12 bg-gray-800 rounded w-full mb-3"></div><div className="flex gap-2"><div className="h-5 bg-gray-800 rounded w-16"></div><div className="h-5 bg-gray-800 rounded w-16"></div></div></div>)}
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} className="bg-gray-900 rounded-xl border border-gray-800 p-5 overflow-hidden relative">
+                <div className="absolute inset-0 skeleton -skeleton-x-1/2"></div>
+                <div className="relative">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="h-6 w-16 bg-gray-800 rounded skeleton"></div>
+                    <div className="h-6 w-14 bg-gray-800 rounded skeleton"></div>
+                  </div>
+                  <div className="h-7 w-3/4 bg-gray-800 rounded mb-3 skeleton"></div>
+                  <div className="space-y-2 mb-3">
+                    <div className="h-10 bg-gray-800 rounded w-full skeleton"></div>
+                    <div className="h-4 bg-gray-800 rounded w-5/6 skeleton"></div>
+                  </div>
+                  <div className="flex gap-2 mb-3">
+                    <div className="h-5 w-14 bg-gray-800 rounded skeleton"></div>
+                    <div className="h-5 w-14 bg-gray-800 rounded skeleton"></div>
+                    <div className="h-5 w-14 bg-gray-800 rounded skeleton"></div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="h-4 w-24 bg-gray-800 rounded skeleton"></div>
+                    <div className="h-4 w-16 bg-gray-800 rounded skeleton"></div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         ) : error ? (
           <div className="text-center py-20"><div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 inline-block"><p className="text-red-400 mb-4">{error}</p><button onClick={() => fetchMarketplaceData()} className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm">Try Again</button></div></div>
