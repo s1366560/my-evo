@@ -5,9 +5,9 @@ const fs = require('fs');
 const http = require('http');
 
 const BASE = process.env.E2E_BASE_URL || 'http://127.0.0.1:3002';
-const BACKEND = 'http://127.0.0.1:3001';
-const SCREENSHOT_DIR = '/workspace/my-evo/test-results/e2e-journey';
-const REPORT_FILE = '/workspace/my-evo/test-results/e2e-journey/JOURNEY-REPORT.md';
+const BACKEND = process.env.BACKEND_URL || 'http://127.0.0.1:3001';
+const SCREENSHOT_DIR = path.join(__dirname, 'test-results', 'e2e-journey');
+const REPORT_FILE = path.join(__dirname, 'test-results', 'e2e-journey', 'JOURNEY-REPORT.md');
 
 const TEST_USER = {
   email: 'e2e_' + Date.now() + '@test.com',

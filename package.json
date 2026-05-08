@@ -1,4 +1,13 @@
 {
+  "name": "my-evo",
+  "version": "1.0.0",
+  "description": "AI self-evolution platform",
+  "scripts": {
+    "test": "cd backend && npm test",
+    "test:integration": "node integration-test.js",
+    "test:e2e": "node e2e-journey-complete.js",
+    "test:persistence": "node test-data-persistence.js"
+  },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",
     "playwright": "^1.59.1"
