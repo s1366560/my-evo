@@ -98,9 +98,10 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
     <>
       <button
         onClick={() => setIsOpen(!isOpen)}
+        aria-label={isOpen ? 'Close configuration panel' : 'Open configuration panel'}
         className={`fixed right-0 top-1/2 -translate-y-1/2 z-40 bg-purple-600 hover:bg-purple-700 text-white p-2 rounded-l-lg transition-all ${isOpen ? 'translate-x-64' : ''}`}
       >
-        {isOpen ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+        {isOpen ? <ChevronRight className="w-5 h-5" aria-hidden="true" /> : <ChevronLeft className="w-5 h-5" aria-hidden="true" />}
       </button>
 
       <div className={`fixed right-0 top-0 h-full w-64 bg-black/90 backdrop-blur-lg border-l border-white/10 z-30 transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
@@ -215,9 +216,10 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
                           </button>
                           <button
                             onClick={() => deletePreset(preset.name)}
+                            aria-label={`Delete preset ${preset.name}`}
                             className="p-1 text-gray-500 hover:text-red-400"
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="w-3 h-3" aria-hidden="true" />
                           </button>
                         </div>
                       ))}

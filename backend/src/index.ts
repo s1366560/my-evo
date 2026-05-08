@@ -24,6 +24,7 @@ import a2aRoutes from './routes/a2a.js';
 import bountyRoutes from './routes/bounty.js';
 import mapRoutes from './routes/map.js';
 import marketplaceRoutes from './routes/marketplace.js';
+import assetsRoutes from './routes/assets.js';
 
 // Initialize Express app
 const app = express();
@@ -81,6 +82,7 @@ app.use('/a2a', a2aRoutes);
 app.use('/bounty', bountyRoutes);
 app.use('/map', mapRoutes);
 app.use('/marketplace', marketplaceRoutes);
+app.use('/assets', assetsRoutes);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {

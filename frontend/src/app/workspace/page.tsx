@@ -129,7 +129,7 @@ export default function WorkspacePage() {
             <div className="text-3xl font-bold text-cyan-400">
               {profile?.credits?.toLocaleString() || '0'}
             </div>
-            <div className="text-xs text-gray-500 mt-1">Available Balance</div>
+            <div className="text-xs text-gray-400 mt-1">Available Balance</div>
           </div>
         </div>
       </div>
@@ -149,7 +149,7 @@ export default function WorkspacePage() {
               </button>
             </div>
             {assets.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-gray-400">
                 <p>No assets yet</p>
                 <button
                   onClick={() => router.push('/publish')}
@@ -254,7 +254,7 @@ export default function WorkspacePage() {
                 Add Node →
               </button>
             </div>
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-gray-400">
               <p>No nodes registered</p>
               <button
                 onClick={() => router.push('/onboarding')}

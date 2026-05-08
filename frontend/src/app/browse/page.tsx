@@ -84,15 +84,17 @@ export default function BrowsePage() {
               <div className="flex border border-white/10 rounded-lg overflow-hidden">
                 <button
                   onClick={() => setViewMode('grid')}
+                  aria-label="Grid view"
                   className={`p-2 ${viewMode === 'grid' ? 'bg-purple-600' : 'bg-white/5 hover:bg-white/10'}`}
                 >
-                  <Grid className="w-5 h-5" />
+                  <Grid className="w-5 h-5" aria-hidden="true" />
                 </button>
                 <button
                   onClick={() => setViewMode('list')}
+                  aria-label="List view"
                   className={`p-2 ${viewMode === 'list' ? 'bg-purple-600' : 'bg-white/5 hover:bg-white/10'}`}
                 >
-                  <List className="w-5 h-5" />
+                  <List className="w-5 h-5" aria-hidden="true" />
                 </button>
               </div>
             </div>

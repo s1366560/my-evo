@@ -30,6 +30,11 @@ async function screenshot(name) {
 
 async function axeAudit(label) {
   try {
+    // Wait for data to load: either the stats grid or asset cards must be visible
+    await Promise.all([
+      page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {}),
+      page.waitForSelector('.animate-pulse', { state: 'hidden', timeout: 10000 }).catch(() => {}),
+    ]).catch(() => {});
     // Inject axe-core source, then run via page.evaluate
     await page.addScriptTag({ content: axeSource });
     const results = await page.evaluate(() => {
@@ -53,9 +58,13 @@ const CSV_CONTENT = `id,label,type,score\nnode-1,Alpha Gene,gene,85\nnode-2,Beta
 // ── Marketplace ──────────────────────────────────────────────────────────────
 async function test_marketplace() {
   console.log('\n-- Marketplace ---------------------------------------------');
-  await page.goto(`${BASE}/marketplace`);
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(2500);
+  await page.goto(`${BASE}/marketplace`, { waitUntil: 'commit' });
+  await page.waitForTimeout(4000);
+  // Wait for assets to load (pagination nav appears when > ITEMS_PER_PAGE items)
+  await page.waitForSelector('[role="navigation"][aria-label="Pagination"]', { timeout: 8000 }).catch(() => {});
+  // Also ensure skeleton loading is gone before a11y audit
+  await page.waitForSelector('.animate-pulse', { state: 'hidden', timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(500);
   await screenshot('marketplace-loaded');
   await axeAudit('Marketplace');
 
@@ -102,11 +111,12 @@ async function test_marketplace() {
   }
 
   // Pagination controls (native button text pattern)
-  const paginationNav = page.locator('[role="navigation"]').last();
-  const page1 = page.locator('button').filter({ hasText: '1' }).first();
-  const page2 = page.locator('button').filter({ hasText: '2' }).first();
-  const totalPages = await page.locator('button').filter({ hasText: /^[0-9]$/ }).count();
-  log('Marketplace -- pagination controls present', totalPages >= 1, `found ${totalPages} page buttons`);
+  // Wait for pagination nav to appear (ensures assets have loaded)
+  await page.waitForSelector('[aria-label="Pagination"]', { timeout: 5000 }).catch(() => {});
+  const page1 = page.locator('[aria-label="Pagination"] button').filter({ hasText: '1' }).first();
+  const page2 = page.locator('[aria-label="Pagination"] button').filter({ hasText: '2' }).first();
+  const totalPageButtons = await page.locator('[aria-label="Pagination"] button').filter({ hasText: /^[0-9]+$/ }).count();
+  log('Marketplace -- pagination controls present', totalPageButtons >= 1, `found ${totalPageButtons} page buttons`);
 
   // Navigate to page 2
   if (await page2.count() > 0) {
@@ -198,9 +208,11 @@ async function test_browse() {
 // ── Workspace ─────────────────────────────────────────────────────────────────
 async function test_workspace() {
   console.log('\n-- Workspace ----------------------------------------------');
-  await page.goto(`${BASE}/workspace`);
-  await page.waitForLoadState('domcontentloaded');
+  await page.goto(`${BASE}/workspace`, { waitUntil: 'commit' });
   await page.waitForTimeout(2500);
+  // Ensure skeleton loaders have resolved
+  await page.waitForSelector('.animate-pulse', { state: 'hidden', timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(500);
   await screenshot('workspace-loaded');
   await axeAudit('Workspace');
 

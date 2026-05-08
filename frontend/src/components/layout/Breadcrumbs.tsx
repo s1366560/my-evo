@@ -58,14 +58,15 @@ export function Breadcrumbs() {
     <nav className="flex items-center gap-1 text-sm text-gray-400 mb-4 px-4">
       <Link
         href="/"
+        aria-label="Home"
         className="hover:text-white transition-colors flex items-center gap-1"
       >
-        <Home className="w-4 h-4" />
+        <Home className="w-4 h-4" aria-hidden="true" />
       </Link>
 
       {breadcrumbs.map((crumb, index) => (
         <React.Fragment key={crumb.href}>
-          <ChevronRight className="w-4 h-4 text-gray-600" />
+          <ChevronRight className="w-4 h-4 text-gray-600" aria-hidden="true" />
           {index === breadcrumbs.length - 1 ? (
             <span className="text-white font-medium">{crumb.label}</span>
           ) : (

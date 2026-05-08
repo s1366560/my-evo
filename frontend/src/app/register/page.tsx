@@ -52,7 +52,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2 mb-4">
-            <Sparkles className="w-8 h-8 text-purple-500" />
+            <Sparkles className="w-8 h-8 text-purple-500" aria-hidden="true" />
             <span className="text-2xl font-bold">My Evo</span>
           </Link>
           <h1 className="text-2xl font-bold">Create your account</h1>
