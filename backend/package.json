@@ -14,7 +14,13 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"
   },
-  "keywords": ["ai", "evolution", "gep", "a2a", "agents"],
+  "keywords": [
+    "ai",
+    "evolution",
+    "gep",
+    "a2a",
+    "agents"
+  ],
   "license": "MIT",
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -33,14 +39,14 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
-    "@types/jest": "^29.5.13",
+    "@types/jest": "^29.5.14",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/morgan": "^1.9.9",
     "@types/node": "^22.7.4",
     "@types/uuid": "^10.0.0",
     "jest": "^29.7.0",
     "prisma": "^5.22.0",
-    "ts-jest": "^29.2.5",
+    "ts-jest": "^29.4.9",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2"
   }
