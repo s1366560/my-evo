@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Input';
 import { Card, CardContent } from '@/components/ui/Card';
 import { ChevronLeft, ChevronRight, Database, Layers, Palette, Share2, Download, Upload, Save, Trash2, Bookmark } from 'lucide-react';
+import { ConfigPresetPanel, MapConfig as PresetMapConfig } from './ConfigPresetPanel';
+import { useMapStore } from '@/store/mapStore';
 
 interface MapConfig {
   layout: 'force' | 'radial' | 'hierarchical';
@@ -42,6 +44,8 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
   const [presets, setPresets] = useState<{ name: string; config: MapConfig }[]>([]);
   const [newPresetName, setNewPresetName] = useState('');
   const [showPresetInput, setShowPresetInput] = useState(false);
+  const [showPresetPanel, setShowPresetPanel] = useState(false);
+  const { config: storeConfig, setConfig: setStoreConfig } = useMapStore();
 
   // Load presets from localStorage on mount
   useEffect(() => {
@@ -58,6 +62,7 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
   const savePreset = (name: string) => {
     const newPresets = [...presets.filter(p => p.name !== name), { name, config }];
     setPresets(newPresets);
+    setStoreConfig(config);
     try {
       localStorage.setItem('map-config-presets', JSON.stringify(newPresets));
     } catch (e) {
@@ -69,6 +74,7 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
 
   const loadPreset = (preset: { name: string; config: MapConfig }) => {
     setConfig(preset.config);
+    setStoreConfig(preset.config);
     onConfigChange?.(preset.config);
   };
 
@@ -130,6 +136,9 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
                   </Button>
                   <Button variant="outline" size="sm" className="w-full" onClick={onShare}>
                     <Share2 className="w-4 h-4 mr-2" />Share
+                  </Button>
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => setShowPresetPanel(true)}>
+                    <Bookmark className="w-4 h-4 mr-2" />Presets
                   </Button>
                 </div>
               </div>
@@ -253,6 +262,27 @@ export function DataConfigPanel({ onConfigChange, onImportData, onExportData, on
           </div>
         </div>
       </div>
+
+      {/* Full-featured Config Preset Panel */}
+      <ConfigPresetPanel
+        isOpen={showPresetPanel}
+        onClose={() => setShowPresetPanel(false)}
+        currentConfig={config}
+        onLoadPreset={(presetConfig) => {
+          setConfig(presetConfig);
+          setStoreConfig(presetConfig);
+          onConfigChange?.(presetConfig);
+        }}
+        onExportPresets={(presets) => console.log('Exported presets:', presets.length)}
+        onImportPresets={(presets) => {
+          setPresets(presets);
+          try {
+            localStorage.setItem('map-config-presets', JSON.stringify(presets));
+          } catch (e) {
+            console.error('Failed to save imported presets:', e);
+          }
+        }}
+      />
     </>
   );
 }

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Pagination } from '@/components/ui/Pagination';
+import { AssetPreviewModal } from '@/components/marketplace/AssetPreviewModal';
 
 interface Asset {
   id: string;
@@ -40,6 +42,7 @@ export default function MarketplacePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
 
   useEffect(() => {
     fetchMarketplaceData();
@@ -168,7 +171,7 @@ export default function MarketplacePage() {
                     </div>
                   </div>
                   <div className="px-5 py-3 bg-gray-800/50 border-t border-gray-800 flex justify-between">
-                    <button className="text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors">View Details</button>
+                    <button onClick={() => setSelectedAsset(asset)} className="text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors">View Details</button>
                     <button className="text-gray-400 hover:text-gray-300 text-sm font-medium transition-colors">Add to Collection</button>
                   </div>
                 </div>
@@ -176,34 +179,21 @@ export default function MarketplacePage() {
             </div>
 
             {totalPages > 1 && (
-              <div className="mt-8 flex items-center justify-between">
-                <div className="text-sm text-gray-500">Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, filteredAssets.length)} of {filteredAssets.length} assets</div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => handlePageChange(1)} disabled={currentPage === 1} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="First page">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
-                  </button>
-                  <button onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Previous page">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                  </button>
-
-                  {[...Array(totalPages)].map((_, i) => i + 1).map(page => (
-                    page === 1 || page === totalPages || Math.abs(page - currentPage) <= 2 ? (
-                      <button key={page} onClick={() => handlePageChange(page)} className={`w-10 h-10 rounded-lg text-sm font-medium transition-colors ${currentPage === page ? "bg-purple-600 text-white" : "bg-gray-800 text-gray-300 hover:bg-gray-700"}`}>{page}</button>
-                    ) : (Math.abs(page - currentPage) === 3 ? <span key={page} className="text-gray-500">...</span> : null)
-                  ))}
-
-                  <button onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Next page">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                  </button>
-                  <button onClick={() => handlePageChange(totalPages)} disabled={currentPage === totalPages} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Last page">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>
-                  </button>
-                </div>
-              </div>
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={filteredAssets.length}
+                itemsPerPage={ITEMS_PER_PAGE}
+                onPageChange={handlePageChange}
+              />
             )}
           </>
         )}
       </div>
+
+      {selectedAsset && (
+        <AssetPreviewModal asset={selectedAsset} onClose={() => setSelectedAsset(null)} />
+      )}
     </div>
   );
 }
