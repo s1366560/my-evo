@@ -169,9 +169,9 @@ export function HotListCarousel() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-purple-400" />
+            <Sparkles className="w-6 h-6 text-purple-400 animate-glow-pulse" />
             <h2 className="text-2xl font-bold text-white">Hot Assets</h2>
-            <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 text-xs">
+            <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 text-xs animate-pulse-subtle">
               Trending
             </span>
           </div>
