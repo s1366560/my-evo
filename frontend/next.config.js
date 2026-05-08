@@ -12,12 +12,16 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
   async rewrites() {
-    return [
-      {
-        source: '/api/frontend/:path*',
-        destination: 'http://localhost:4000/:path*',
-      },
-    ];
+    // Only use proxy in development; in production, API routes handle backend calls directly
+    if (process.env.NODE_ENV === 'development') {
+      return [
+        {
+          source: '/api/frontend/:path*',
+          destination: 'http://localhost:4000/:path*',
+        },
+      ];
+    }
+    return [];
   },
 };
 
