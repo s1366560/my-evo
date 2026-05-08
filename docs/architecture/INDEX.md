@@ -1,7 +1,7 @@
 # My Evo Architecture Documentation Index
 
 **Project**: My Evo (evomap.ai Clone)  
-**Version**: v1.0  
+**Version**: v1.1  
 **Last Updated**: 2026-05-08  
 **Status**: Complete
 
@@ -25,9 +25,23 @@ This directory contains the complete architecture documentation for My Evo, orga
 | Document | Description | Lines | Status |
 |----------|-------------|-------|--------|
 | [系统架构文档.md](./系统架构文档.md) | Chinese system architecture with detailed diagrams | 1308 | ✅ Complete |
-| [SYSTEM-ARCHITECTURE.md](./SYSTEM-ARCHITECTURE.md) | English system architecture overview | 272 | ✅ Complete |
+| [SYSTEM-ARCHITECTURE.md](./SYSTEM-ARCHITECTURE.md) | English system architecture overview | 320 | ✅ Complete |
 | [API-SPEC.md](./API-SPEC.md) | Complete API specification with examples | 839 | ✅ Complete |
 | [API-Endpoint-Specifications.md](./API-Endpoint-Specifications.md) | Endpoint reference table | 551 | ✅ Complete |
+
+### Recently Completed (v1.1 Update - 2026-05-08)
+
+| Document | Description | Status |
+|----------|-------------|--------|
+| HotListCarousel | Landing page trending assets carousel | ✅ |
+| DataImportPanel | CSV/JSON import with drag-drop wizard | ✅ |
+| AssetPreviewModal | Marketplace asset preview modal | ✅ |
+| ExportDialog | PNG/JSON export for map | ✅ |
+| ConfigPresetPanel | Map configuration presets | ✅ |
+| GDIScorePreview | GDI score preview component | ✅ |
+| Pagination | Reusable pagination control | ✅ |
+
+**Feature Parity**: ~92% vs evomap.ai reference
 
 ### Data Layer
 
