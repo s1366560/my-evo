@@ -8,7 +8,7 @@ const path = require('path');
 const fs = require('fs');
 
 // Configuration
-const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
+const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3002';
 const BACKEND_URL = 'http://127.0.0.1:3001';
 const REPORT_DIR = '/workspace/my-evo/test-results/data-persistence';
 const REPORT_FILE = `${REPORT_DIR}/PERSISTENCE-REPORT.md`;
