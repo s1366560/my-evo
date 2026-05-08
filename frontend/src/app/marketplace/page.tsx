@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Pagination } from '@/components/ui/Pagination';
 import { AssetPreviewModal } from '@/components/marketplace/AssetPreviewModal';
 
@@ -32,7 +32,6 @@ const ITEMS_PER_PAGE = 20;
 
 export default function MarketplacePage() {
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [filteredAssets, setFilteredAssets] = useState<Asset[]>([]);
   const [stats, setStats] = useState<MarketplaceStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,11 +47,30 @@ export default function MarketplacePage() {
     fetchMarketplaceData();
     const interval = setInterval(() => fetchMarketplaceData(true), 30000);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    filterAndSortAssets();
     setCurrentPage(1);
+  }, [searchQuery, typeFilter, sortBy]);
+
+  const filteredAssets = useMemo(() => {
+    let result = [...assets];
+    if (typeFilter !== 'ALL') result = result.filter(a => a.type === typeFilter);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(a =>
+        a.name.toLowerCase().includes(q) ||
+        (a.description && a.description.toLowerCase().includes(q)) ||
+        a.tags.some(t => t.toLowerCase().includes(q))
+      );
+    }
+    if (sortBy === 'popular' || sortBy === 'gdi') {
+      result.sort((a, b) => (b.gdiScore || 0) - (a.gdiScore || 0));
+    } else {
+      result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    return result;
   }, [assets, searchQuery, typeFilter, sortBy]);
 
   const fetchMarketplaceData = async (silent = false) => {
@@ -70,15 +88,6 @@ export default function MarketplacePage() {
       } else { setAssets(generateMockAssets()); setLastUpdated(new Date()); }
     } catch (err) { console.error('Failed to fetch marketplace data:', err); setAssets(generateMockAssets()); setLastUpdated(new Date()); }
     finally { setLoading(false); setIsRefreshing(false); }
-  };
-
-  const filterAndSortAssets = () => {
-    let result = [...assets];
-    if (typeFilter !== 'ALL') result = result.filter(a => a.type === typeFilter);
-    if (searchQuery) { const q = searchQuery.toLowerCase(); result = result.filter(a => a.name.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q) || a.tags.some(t => t.toLowerCase().includes(q))); }
-    if (sortBy === 'popular' || sortBy === 'gdi') result.sort((a, b) => (b.gdiScore || 0) - (a.gdiScore || 0));
-    else result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    setFilteredAssets(result);
   };
 
   const totalPages = Math.ceil(filteredAssets.length / ITEMS_PER_PAGE);
@@ -198,7 +207,7 @@ export default function MarketplacePage() {
   );
 }
 
-function generateMockAssets(): any[] {
+function generateMockAssets(): Asset[] {
   return [
     { id: "1", assetId: "gene_001", type: "GENE", name: "Creative Writing Gene", description: "A gene optimized for creative writing and storytelling tasks.", tags: ["writing", "creative", "nlp"], gdiScore: 0.85, model: "gpt-4", nodeId: "node_001", createdAt: new Date().toISOString(), status: "PUBLISHED" },
     { id: "2", assetId: "capsule_001", type: "CAPSULE", name: "Code Review Assistant", description: "A capsule that provides detailed code review and optimization suggestions.", tags: ["code", "review", "development"], gdiScore: 0.92, model: "claude-3", nodeId: "node_002", createdAt: new Date(Date.now() - 86400000).toISOString(), status: "PUBLISHED" },
