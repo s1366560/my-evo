@@ -180,14 +180,14 @@ export function HotListCarousel() {
           <div className="flex items-center gap-2">
             <button
               onClick={prevSlide}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all duration-200 focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
               aria-label="Previous"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button
               onClick={nextSlide}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all duration-200 focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
               aria-label="Next"
             >
               <ChevronRight className="w-5 h-5" />
