@@ -37,7 +37,8 @@ async function testPage(name, url, checks) {
   const res = { name, passed: [], failed: [], warnings: [] };
 
   try {
-    const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 20000 });
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.waitForTimeout(2000); // wait for hydration
     await screenshot(page, `${name}_loaded`);
 
     if (checks) {
@@ -121,7 +122,8 @@ async function runAllTests() {
     const page = await browser.newPage();
     const r = { name: 'Marketplace Pagination', passed: [], failed: [], warnings: [] };
     try {
-      await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'networkidle', timeout: 20000 });
+      await page.goto(`${BASE_URL}/marketplace`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForTimeout(2500);
       await screenshot(page, 'marketplace_pagination');
 
       const pagination = await page.$$('[class*="pagination"], [class*="page"], button[class*="next"], button[class*="prev"]');
@@ -151,7 +153,8 @@ async function runAllTests() {
     const page = await browser.newPage();
     const r = { name: 'Config Presets', passed: [], failed: [], warnings: [] };
     try {
-      await page.goto(`${BASE_URL}/map`, { waitUntil: 'networkidle', timeout: 20000 });
+      await page.goto(`${BASE_URL}/map`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForTimeout(2000);
       await screenshot(page, 'config_presets');
 
       // Look for preset buttons, dropdowns, or config panels
@@ -182,7 +185,8 @@ async function runAllTests() {
     const page = await browser.newPage();
     const r = { name: 'Data Import / Upload', passed: [], failed: [], warnings: [] };
     try {
-      await page.goto(`${BASE_URL}/map`, { waitUntil: 'networkidle', timeout: 20000 });
+      await page.goto(`${BASE_URL}/map`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForTimeout(2000);
       await screenshot(page, 'import_upload');
 
       // Look for import/upload button or dropzone
@@ -218,7 +222,8 @@ async function runAllTests() {
     const r = { name: 'Accessibility Audit', passed: [], failed: [], warnings: [] };
     try {
       for (const url of [`${BASE_URL}/`, `${BASE_URL}/login`, `${BASE_URL}/marketplace`]) {
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+         await page.waitForTimeout(1500);
         const issues = await page.evaluate(() => {
           const i = [];
           if (!document.documentElement.lang) i.push('Missing lang attribute');
