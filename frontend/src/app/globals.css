@@ -40,11 +40,38 @@ html {
   outline-offset: 2px;
 }
 
-/* Enhanced Focus Indicators */
+/* Enhanced Focus Indicators - Clear visual feedback for keyboard navigation */
 *:focus-visible {
   outline: 2px solid rgb(139, 92, 246);
   outline-offset: 2px;
+  border-radius: 4px;
 }
+
+/* Specific focus states for interactive elements */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid rgb(139, 92, 246);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.2);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: rgb(139, 92, 246);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25);
+}
+
+/* Focus ring for cards and clickable containers */
+.card-interactive:focus-visible {
+  outline: 2px solid rgb(139, 92, 246);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.2), 0 8px 24px rgba(139, 92, 246, 0.15);
+}
+
+/* Skip link already has focus styles defined above */
 
 /* Reduced Motion Support */
 @media (prefers-reduced-motion: reduce) {
@@ -143,6 +170,81 @@ html {
 
 .animate-spin-slow {
   animation: spin 2s linear infinite;
+}
+
+/* Enhanced Animations for UI Polish */
+
+/* Floating animation for hero elements */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Glow pulse for accent elements */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 5px rgba(139, 92, 246, 0.5), 0 0 10px rgba(139, 92, 246, 0.3); }
+  50% { box-shadow: 0 0 15px rgba(139, 92, 246, 0.8), 0 0 25px rgba(139, 92, 246, 0.5); }
+}
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Gradient text animation */
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 4s ease infinite;
+}
+
+/* Bounce subtle for interactive elements */
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.animate-bounce-subtle {
+  animation: bounce-subtle 1s ease-in-out infinite;
+}
+
+/* Icon spin for loading states */
+.animate-spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+/* Typewriter effect */
+@keyframes typewriter {
+  from { width: 0; }
+  to { width: 100%; }
+}
+.animate-typewriter {
+  overflow: hidden;
+  white-space: nowrap;
+  animation: typewriter 2s steps(40) forwards;
+}
+
+/* Slide up on appear */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slideUp 400ms ease-out forwards;
+}
+
+/* Scale in on appear */
+@keyframes popIn {
+  0% { opacity: 0; transform: scale(0.9); }
+  70% { transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.animate-pop-in {
+  animation: popIn 300ms ease-out forwards;
 }
 
 /* Button Hover Effects */

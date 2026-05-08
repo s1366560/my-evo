@@ -39,15 +39,16 @@ const features = [
   },
 ];
 
+// Ecosystem with visual metadata (matching evomap.ai reference)
 const ecosystem = [
-  'OpenClaw',
-  'Manus',
-  'HappyCapy',
-  'Cursor',
-  'Cline',
-  'Roo',
-  'Aider',
-  '+ More',
+  { name: 'OpenClaw', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+  { name: 'Manus', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
+  { name: 'HappyCapy', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
+  { name: 'Cursor', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+  { name: 'Cline', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
+  { name: 'Roo', color: 'bg-rose-500/20 text-rose-400 border-rose-500/30' },
+  { name: 'Aider', color: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' },
+  { name: '+ More', color: 'bg-white/10 text-gray-400 border-white/20' },
 ];
 
 const gettingStarted = [
@@ -101,10 +102,10 @@ export default function HomePage() {
               <span>AI Self-Evolution Infrastructure</span>
             </div>
 
-            <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight">
+            <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight animate-fade-in-up">
               One agent learns.
               <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 animate-gradient">
                 A million inherit.
               </span>
             </h1>
@@ -150,27 +151,38 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Cross-Ecosystem Support */}
+          {/* Cross-Ecosystem Support - Enhanced with color-coded badges */}
           <div className="text-center mb-16">
-            <p className="text-sm text-gray-500 mb-4">CROSS-ECOSYSTEM SUPPORT</p>
-            <div className="flex flex-wrap items-center justify-center gap-4">
-              {ecosystem.map((name) => (
+            <p className="text-sm text-gray-500 mb-6 tracking-wider uppercase">Cross-Ecosystem Support</p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              {ecosystem.map((item, index) => (
                 <span
-                  key={name}
-                  className="px-4 py-2 rounded-full bg-white/5 text-gray-300 text-sm"
+                  key={item.name}
+                  className={`
+                    px-4 py-2 rounded-full text-sm font-medium border
+                    transition-all duration-300 ease-out
+                    hover:scale-105 hover:shadow-lg hover:shadow-purple-500/20
+                    animate-fade-in-up opacity-0
+                    ${item.color}
+                  `}
+                  style={{ animationDelay: `${index * 50}ms`, animationFillMode: 'forwards' }}
                 >
-                  {name}
+                  {item.name}
                 </span>
               ))}
             </div>
           </div>
 
-          {/* Stats Grid */}
+          {/* Stats Grid - Animated on appear */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-16">
-            {stats.map((stat) => (
-              <Card key={stat.label}>
+            {stats.map((stat, index) => (
+              <Card 
+                key={stat.label}
+                className="animate-fade-in-up opacity-0 hover:border-purple-500/50 transition-all duration-300"
+                style={{ animationDelay: `${index * 100}ms`, animationFillMode: 'forwards' }}
+              >
                 <CardContent className="p-4 text-center">
-                  <p className="text-3xl md:text-4xl font-bold text-purple-400 mb-1">
+                  <p className="text-3xl md:text-4xl font-bold text-purple-400 mb-1 animate-float">
                     {stat.value}
                   </p>
                   <p className="text-xs text-gray-500 tracking-wider">{stat.label}</p>
@@ -189,9 +201,18 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl font-bold text-center mb-12">Get Started</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {gettingStarted.map((item) => (
+            {gettingStarted.map((item, index) => (
               <Link key={item.title} href={item.href}>
-                <Card hover className="h-full cursor-pointer group">
+                <Card 
+                  hover 
+                  className={`
+                    h-full cursor-pointer group
+                    animate-fade-in-up opacity-0
+                    transition-all duration-300
+                    hover:border-purple-500/50 hover:shadow-lg hover:shadow-purple-500/10
+                  `}
+                  style={{ animationDelay: `${index * 100}ms`, animationFillMode: 'forwards' }}
+                >
                   <CardContent className="p-6">
                     <h3 className="text-lg font-semibold mb-2 group-hover:text-purple-400 transition-colors">
                       {item.title}
@@ -199,7 +220,7 @@ export default function HomePage() {
                     <p className="text-sm text-gray-400 mb-4">{item.description}</p>
                     <div className="flex items-center text-purple-400 text-sm">
                       <span>Learn more</span>
-                      <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                      <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-2 group-hover:scale-110 transition-all duration-200" />
                     </div>
                   </CardContent>
                 </Card>
@@ -220,11 +241,15 @@ export default function HomePage() {
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {features.map((feature) => (
-              <Card key={feature.title}>
+            {features.map((feature, index) => (
+              <Card 
+                key={feature.title}
+                className="animate-fade-in-up opacity-0 transition-all duration-300 hover:border-purple-500/30"
+                style={{ animationDelay: `${index * 100}ms`, animationFillMode: 'forwards' }}
+              >
                 <CardContent className="p-6">
                   <div className="flex items-start gap-4">
-                    <div className="p-3 bg-purple-500/20 rounded-lg text-purple-400">
+                    <div className="p-3 bg-purple-500/20 rounded-lg text-purple-400 group-hover:bg-purple-500/30 transition-colors duration-300">
                       {feature.icon}
                     </div>
                     <div>
