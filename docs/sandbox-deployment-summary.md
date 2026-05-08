@@ -132,14 +132,14 @@ cd /workspace/my-evo && git status --short
 
 If issues occur, stop services:
 ```bash
-kill 7859  # Backend
-pkill -f "next dev"  # Frontend
+pkill -f "tsx watch src/index.ts"  # Backend
+pkill -f "next start"  # Frontend
 ```
 
 Then restart with:
 ```bash
 cd /workspace/my-evo/backend && npx tsx src/index.ts &
-cd /workspace/my-evo/frontend && npm run dev &
+cd /workspace/my-evo/frontend && npm start -- -p 3002 &
 ```
 
 ---
@@ -147,8 +147,8 @@ cd /workspace/my-evo/frontend && npm run dev &
 ## Conclusion
 
 ✅ **Deployment verified successful**
-- Backend API responding on port 3001
-- Frontend Next.js app responding on port 3002
+- Backend API responding on port 3001 (healthy, 83% memory)
+- Frontend Next.js app responding on port 3002 (HTTP 200)
 - All health checks passing
-- Database connectivity confirmed
-- Note: Memory shows 92% usage (degraded status) but all services remain operational
+- Database connectivity confirmed (0ms latency)
+- Ready probe returns true
