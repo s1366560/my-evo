@@ -2,9 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Play, Pause, Save, Upload, Image } from 'lucide-react';
-
-  // Skip link target
-  const mainContentId = 'map-canvas';
 import { DataConfigPanel } from '@/components/map/DataConfigPanel';
 import { DataImportPanel } from '@/components/map/DataImportPanel';
 import { ExportDialog } from '@/components/map/ExportDialog';
@@ -23,6 +20,8 @@ export default function MapPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>();
+  // Skip link target ID
+  const mainContentId = 'map-canvas';
 
   const {
     nodes, setNodes, edges, config, setConfig,
