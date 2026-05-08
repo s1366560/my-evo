@@ -444,7 +444,6 @@ export default function MapPage() {
         <canvas
           ref={canvasRef} id={mainContentId} tabIndex={0}
           className="absolute inset-0 w-full h-full cursor-crosshair"
-          style={{ width: dimensions.width, height: dimensions.height }}
           onMouseMove={handleMouseMove} onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
           aria-label={`Evolution map with ${nodes.length} nodes and ${edges.length} connections. Use keyboard or mouse to navigate.`}
