@@ -61,8 +61,17 @@ export class AssetController {
       // Generate asset ID
       const assetId = generateAssetId(type);
       
-      // Calculate initial GDI score (placeholder - would integrate AI scoring)
-      const gdiScore = 0.5; // Default score until AI evaluation
+      // Calculate GDI score using the scoring service
+      const assetContent = {
+        type,
+        name,
+        description,
+        content,
+        tags,
+        license,
+      };
+      const gdiScoreResult = await gdiScoringService.calculateScore(assetContent);
+
       
       // Create asset
       const asset = await prisma.asset.create({
@@ -78,7 +87,13 @@ export class AssetController {
           tags: JSON.stringify(tags),
           license,
           parentId: parent_id,
-          gdiScore,
+          gdiScore: gdiScoreResult.overall,
+          gdiBreakdown: JSON.stringify({
+            correctness: gdiScoreResult.correctness,
+            diversity: gdiScoreResult.diversity,
+            composability: gdiScoreResult.composability,
+            helpfulness: gdiScoreResult.helpfulness,
+          }),
           status: 'PENDING', // Pending review
           nodeId: node.id,
           userId: node.userId,
@@ -101,8 +116,14 @@ export class AssetController {
         type: asset.type.toLowerCase(),
         name: asset.name,
         gdi_score: asset.gdiScore,
+        gdi_breakdown: {
+          correctness: gdiScoreResult.correctness,
+          diversity: gdiScoreResult.diversity,
+          composability: gdiScoreResult.composability,
+          helpfulness: gdiScoreResult.helpfulness,
+        },
         status: 'pending',
-        message: 'Asset published successfully. Pending AI evaluation.',
+        message: 'Asset published successfully with GDI evaluation.',
       });
     } catch (error) {
       console.error('Asset publish error:', error);
