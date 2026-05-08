@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/Card';
-import { Sparkles, ChevronLeft, ChevronRight, Star, TrendingUp, Users, ExternalLink } from 'lucide-react';
+import { Sparkles, ChevronLeft, ChevronRight, Star, TrendingUp, Users, ExternalLink, Play, Pause } from 'lucide-react';
 
 interface HotAsset {
   id: string;
@@ -91,7 +91,9 @@ export function HotListCarousel() {
   const [hotAssets, setHotAssets] = useState<HotAsset[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const fetchHotAssets = async () => {
@@ -119,7 +121,32 @@ export function HotListCarousel() {
     fetchHotAssets();
   }, []);
 
-  const scrollToIndex = (index: number) => {
+  // Auto-scroll effect
+  useEffect(() => {
+    if (hotAssets.length === 0 || isPaused) return;
+
+    const startAutoScroll = () => {
+      autoScrollRef.current = setInterval(() => {
+        setCurrentIndex((prev) => (prev + 1) % hotAssets.length);
+      }, 4000); // Scroll every 4 seconds
+    };
+
+    startAutoScroll();
+
+    return () => {
+      if (autoScrollRef.current) {
+        clearInterval(autoScrollRef.current);
+      }
+    };
+  }, [hotAssets.length, isPaused]);
+
+  // Scroll to the current index when it changes
+  useEffect(() => {
+    if (hotAssets.length === 0) return;
+    scrollToIndex(currentIndex);
+  }, [currentIndex, hotAssets.length]);
+
+  const scrollToIndex = useCallback((index: number) => {
     if (!scrollContainerRef.current) return;
     const container = scrollContainerRef.current;
     const cards = container.children;
@@ -127,17 +154,41 @@ export function HotListCarousel() {
       cards[index].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
     }
     setCurrentIndex(index);
-  };
+  }, []);
 
-  const nextSlide = () => {
+  const nextSlide = useCallback(() => {
+    if (hotAssets.length === 0) return;
     const newIndex = (currentIndex + 1) % hotAssets.length;
     scrollToIndex(newIndex);
-  };
+    // Reset auto-scroll timer
+    if (autoScrollRef.current) {
+      clearInterval(autoScrollRef.current);
+      if (!isPaused) {
+        autoScrollRef.current = setInterval(() => {
+          setCurrentIndex((prev) => (prev + 1) % hotAssets.length);
+        }, 4000);
+      }
+    }
+  }, [currentIndex, hotAssets.length, scrollToIndex, isPaused]);
 
-  const prevSlide = () => {
+  const prevSlide = useCallback(() => {
+    if (hotAssets.length === 0) return;
     const newIndex = currentIndex === 0 ? hotAssets.length - 1 : currentIndex - 1;
     scrollToIndex(newIndex);
-  };
+    // Reset auto-scroll timer
+    if (autoScrollRef.current) {
+      clearInterval(autoScrollRef.current);
+      if (!isPaused) {
+        autoScrollRef.current = setInterval(() => {
+          setCurrentIndex((prev) => (prev + 1) % hotAssets.length);
+        }, 4000);
+      }
+    }
+  }, [currentIndex, hotAssets.length, scrollToIndex, isPaused]);
+
+  const togglePause = useCallback(() => {
+    setIsPaused((prev) => !prev);
+  }, []);
 
   if (isLoading) {
     return (
@@ -171,8 +222,8 @@ export function HotListCarousel() {
           <div className="flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-purple-400 animate-glow-pulse" />
             <h2 className="text-2xl font-bold text-white">Hot Assets</h2>
-            <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 text-xs animate-pulse-subtle">
-              Trending
+            <span className={`px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 text-xs ${isPaused ? '' : 'animate-pulse-subtle'}`}>
+              {isPaused ? 'Paused' : 'Trending'}
             </span>
           </div>
 
@@ -184,6 +235,14 @@ export function HotListCarousel() {
               aria-label="Previous"
             >
               <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+              onClick={togglePause}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all duration-200 focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              aria-label={isPaused ? 'Resume auto-scroll' : 'Pause auto-scroll'}
+              title={isPaused ? 'Resume auto-scroll' : 'Pause auto-scroll'}
+            >
+              {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
             </button>
             <button
               onClick={nextSlide}

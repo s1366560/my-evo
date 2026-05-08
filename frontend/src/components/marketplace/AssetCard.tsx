@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Dna, FlaskConical, Star, Eye, Zap } from 'lucide-react';
@@ -31,16 +31,35 @@ export function AssetCard({
   gepProtocol,
   onClick,
 }: AssetCardProps) {
+  const [isHovered, setIsHovered] = useState(false);
   const TypeIcon = type === 'gene' ? Dna : FlaskConical;
   const typeColor = type === 'gene' ? 'text-purple-400' : 'text-cyan-400';
   const typeBg = type === 'gene' ? 'bg-purple-500/20' : 'bg-cyan-500/20';
+  const glowColor = type === 'gene' ? 'rgba(139, 92, 246, 0.4)' : 'rgba(6, 182, 212, 0.4)';
 
   return (
-    <Card
-      hover
-      className="cursor-pointer group"
-      onClick={onClick}
+    <div
+      className={`relative transition-all duration-300 ${isHovered ? 'scale-[1.02]' : 'scale-100'}`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
+      {/* Glow effect */}
+      <div
+        className={`absolute -inset-1 rounded-xl opacity-0 transition-opacity duration-300 ${isHovered ? 'opacity-100' : ''}`}
+        style={{
+          background: `radial-gradient(circle at center, ${glowColor} 0%, transparent 70%)`,
+          filter: 'blur(8px)',
+        }}
+      />
+      <Card
+        hover
+        className={`cursor-pointer relative z-10 transition-all duration-300 ${
+          isHovered
+            ? 'border-purple-500/50 shadow-lg shadow-purple-500/20 bg-white/10'
+            : ''
+        }`}
+        onClick={onClick}
+      >
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
@@ -67,7 +86,11 @@ export function AssetCard({
           {tags.slice(0, 4).map((tag) => (
             <span
               key={tag}
-              className="px-2 py-0.5 text-xs bg-white/5 text-gray-400 rounded"
+              className={`px-2 py-0.5 text-xs rounded transition-all duration-200 ${
+                isHovered
+                  ? 'bg-purple-500/30 text-purple-300 scale-105'
+                  : 'bg-white/5 text-gray-400'
+              }`}
             >
               {tag}
             </span>
@@ -93,6 +116,7 @@ export function AssetCard({
         </div>
       </CardFooter>
     </Card>
+    </div>
   );
 }
 

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { CheckCircle, AlertCircle, X } from 'lucide-react';
+import { CheckCircle, AlertCircle, X, Save, RotateCcw } from 'lucide-react';
 import { GDIScorePreview } from '@/components/publish/GDIScorePreview';
 
 interface FormErrors {
@@ -22,6 +22,8 @@ interface FormData {
   parentId?: string;
 }
 
+const STORAGE_KEY = 'myevo_publish_draft';
+
 export default function PublishPage() {
   const [activeTab, setActiveTab] = useState<'gene' | 'capsule'>('gene');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,6 +39,52 @@ export default function PublishPage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [tagInput, setTagInput] = useState('');
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load draft from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setForm(parsed);
+        setLastSaved(new Date(parsed.savedAt));
+      }
+    } catch {
+      // Ignore localStorage errors
+    }
+  }, []);
+
+  // Auto-save draft to localStorage
+  useEffect(() => {
+    if (!isDirty) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...form, savedAt: new Date().toISOString() }));
+        setLastSaved(new Date());
+        setIsDirty(false);
+      } catch {
+        // Ignore localStorage errors
+      }
+    }, 2000);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [form, isDirty]);
+
+  const markDirty = () => {
+    if (!isDirty) setIsDirty(true);
+  };
 
   // Validation logic
   const validateField = (name: string, value: string): string | undefined => {
@@ -80,11 +128,25 @@ export default function PublishPage() {
     if (tagInput.trim() && !form.tags.includes(tagInput.trim())) {
       setForm(prev => ({ ...prev, tags: [...prev.tags, tagInput.trim()] }));
       setTagInput('');
+      markDirty();
     }
   };
 
   const handleRemoveTag = (tag: string) => {
     setForm(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tag) }));
+    markDirty();
+  };
+
+  const handleReset = () => {
+    if (confirm('Are you sure you want to clear the form? This cannot be undone.')) {
+      setForm({ type: activeTab, name: '', description: '', content: '', tags: [], license: 'MIT' });
+      setTouched({});
+      setErrors({});
+      setResult(null);
+      setIsDirty(false);
+      localStorage.removeItem(STORAGE_KEY);
+      setLastSaved(null);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -121,6 +183,9 @@ export default function PublishPage() {
         setForm({ type: form.type, name: '', description: '', content: '', tags: [], license: 'MIT' });
         setTouched({});
         setErrors({});
+        setIsDirty(false);
+        localStorage.removeItem(STORAGE_KEY);
+        setLastSaved(null);
       } else {
         setResult({ success: false, message: data.error || 'Failed to publish' });
       }
@@ -158,7 +223,7 @@ export default function PublishPage() {
             <div className="flex gap-4 mb-6">
               <button
                 type="button"
-                onClick={() => { setActiveTab('gene'); setForm(prev => ({ ...prev, type: 'gene' })); }}
+                onClick={() => { setActiveTab('gene'); setForm(prev => ({ ...prev, type: 'gene' })); markDirty(); }}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   activeTab === 'gene'
                     ? 'bg-blue-600 text-white'
@@ -169,7 +234,7 @@ export default function PublishPage() {
               </button>
               <button
                 type="button"
-                onClick={() => { setActiveTab('capsule'); setForm(prev => ({ ...prev, type: 'capsule' })); }}
+                onClick={() => { setActiveTab('capsule'); setForm(prev => ({ ...prev, type: 'capsule' })); markDirty(); }}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                   activeTab === 'capsule'
                     ? 'bg-purple-600 text-white'
@@ -178,6 +243,15 @@ export default function PublishPage() {
               >
                 Publish Capsule
               </button>
+              {/* Auto-save indicator */}
+              <div className="ml-auto flex items-center gap-2 text-sm text-gray-500">
+                {lastSaved && (
+                  <span className="flex items-center gap-1">
+                    <Save className="w-4 h-4" />
+                    {isDirty ? 'Unsaved changes' : `Saved ${lastSaved.toLocaleTimeString()}`}
+                  </span>
+                )}
+              </div>
             </div>
 
             <Card className="p-6">
@@ -190,7 +264,7 @@ export default function PublishPage() {
                 <input
                   type="text"
                   value={form.name}
-                  onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => { setForm(prev => ({ ...prev, name: e.target.value })); markDirty(); }}
                   onBlur={() => handleBlur('name')}
                   placeholder={activeTab === 'gene' ? 'e.g., Optimized Data Pipeline' : 'e.g., Benchmark Results'}
                   className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 ${
@@ -231,7 +305,7 @@ export default function PublishPage() {
                 <textarea
                   rows={3}
                   value={form.description}
-                  onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
+                  onChange={(e) => { setForm(prev => ({ ...prev, description: e.target.value })); markDirty(); }}
                   onBlur={() => handleBlur('description')}
                   placeholder="Describe what this asset does"
                   className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 ${
@@ -272,7 +346,7 @@ export default function PublishPage() {
                 <input
                   type="text"
                   value={form.parentId || ''}
-                  onChange={(e) => setForm(prev => ({ ...prev, parentId: e.target.value }))}
+                  onChange={(e) => { setForm(prev => ({ ...prev, parentId: e.target.value })); markDirty(); }}
                   placeholder="e.g., gene_abc123"
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500"
                 />
@@ -287,7 +361,7 @@ export default function PublishPage() {
                 <textarea
                   rows={8}
                   value={form.content}
-                  onChange={(e) => setForm(prev => ({ ...prev, content: e.target.value }))}
+                  onChange={(e) => { setForm(prev => ({ ...prev, content: e.target.value })); markDirty(); }}
                   onBlur={() => handleBlur('content')}
                   placeholder={activeTab === 'gene' ? 'The core implementation or strategy definition' : 'Document your validation results'}
                   className={`mt-1 block w-full px-3 py-2 border rounded-md shadow-sm font-mono text-sm focus:outline-none focus:ring-2 ${
@@ -325,7 +399,7 @@ export default function PublishPage() {
                 <label className="block text-sm font-medium text-gray-700">License</label>
                 <select
                   value={form.license}
-                  onChange={(e) => setForm(prev => ({ ...prev, license: e.target.value }))}
+                  onChange={(e) => { setForm(prev => ({ ...prev, license: e.target.value })); markDirty(); }}
                   className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="MIT">MIT</option>
@@ -369,9 +443,15 @@ export default function PublishPage() {
               </div>
             )}
 
-            <Button type="submit" variant="default" disabled={isSubmitting} className="w-full">
-              {isSubmitting ? 'Publishing...' : `Publish ${activeTab === 'gene' ? 'Gene' : 'Capsule'}`}
-            </Button>
+            <div className="flex gap-3">
+              <Button type="button" variant="outline" onClick={handleReset} className="flex items-center gap-2">
+                <RotateCcw className="w-4 h-4" />
+                Reset
+              </Button>
+              <Button type="submit" variant="default" disabled={isSubmitting} className="flex-1">
+                {isSubmitting ? 'Publishing...' : `Publish ${activeTab === 'gene' ? 'Gene' : 'Capsule'}`}
+              </Button>
+            </div>
           </form>
         </Card>
           </div>

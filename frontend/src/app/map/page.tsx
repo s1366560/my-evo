@@ -143,19 +143,57 @@ export default function MapPage() {
       const elapsed = Date.now() - nodeEnterTime.current;
       const opacity = Math.min(1, Math.max(0.1, (elapsed - animDelay) / 500));
 
+      // Hover/Selection animations: outer glow
       if (isHovered || isSelected) {
-        const gradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, radius * 2);
-        gradient.addColorStop(0, nodeColor + '60'); gradient.addColorStop(1, 'transparent');
-        ctx.fillStyle = gradient; ctx.beginPath(); ctx.arc(node.x, node.y, radius * 2, 0, Math.PI * 2); ctx.fill();
+        // Outer glow effect
+        const gradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, radius * 2.5);
+        if (isSelected) {
+          gradient.addColorStop(0, 'rgba(139, 92, 246, 0.5)');
+          gradient.addColorStop(0.5, 'rgba(139, 92, 246, 0.2)');
+          gradient.addColorStop(1, 'transparent');
+        } else {
+          gradient.addColorStop(0, nodeColor + '80');
+          gradient.addColorStop(0.5, nodeColor + '30');
+          gradient.addColorStop(1, 'transparent');
+        }
+        ctx.fillStyle = gradient; ctx.beginPath(); ctx.arc(node.x, node.y, radius * 2.5, 0, Math.PI * 2); ctx.fill();
       }
 
       // Draw node with entrance animation
       ctx.save();
       ctx.globalAlpha = opacity;
 
+      // Selection ring animation
+      if (isSelected) {
+        const ringRadius = radius + 6;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, ringRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(139, 92, 246, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Hover pulse effect
+      if (isHovered && !isSelected) {
+        const pulseRadius = radius + 8 + Math.sin(Date.now() / 200) * 3;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, pulseRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = nodeColor + '60';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
       ctx.beginPath(); ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
       ctx.fillStyle = nodeColor; ctx.fill();
       ctx.strokeStyle = isSelected ? '#ffffff' : nodeColor; ctx.lineWidth = isSelected ? 3 : 1; ctx.stroke();
+
+      // Inner highlight for 3D effect
+      const innerGradient = ctx.createRadialGradient(node.x - radius/3, node.y - radius/3, 0, node.x, node.y, radius);
+      innerGradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+      innerGradient.addColorStop(1, 'transparent');
+      ctx.fillStyle = innerGradient; ctx.fill();
 
       ctx.restore();
 
@@ -171,7 +209,7 @@ export default function MapPage() {
       }
     });
     ctx.restore();
-  }, [nodes, edges, dimensions, zoom, offset, hoveredNode, selectedNodeId, config]);
+  }, [nodes, edges, dimensions, zoom, offset, hoveredNode, selectedNodeId, config, nodeAnimations]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current; if (!canvas) return;
