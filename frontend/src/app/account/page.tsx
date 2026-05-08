@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Navigation } from '@/components/layout/Navigation';
 import { Footer } from '@/components/layout/Footer';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
@@ -75,6 +75,15 @@ export default function AccountPage() {
   const [weeklyDigest, setWeeklyDigest] = useState(true);
   const [activeTab, setActiveTab] = useState('profile');
 
+  // API Key state
+  const [apiKeyInfo, setApiKeyInfo] = useState<{ hasKey: boolean; maskedKey: string | null; createdAt: string | null } | null>(null);
+  const [apiKeyLoading, setApiKeyLoading] = useState(false);
+  const [apiKeySaving, setApiKeySaving] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+  const [newApiKey, setNewApiKey] = useState<string | null>(null);
+
   const getToken = useCallback(() => {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem('token');
@@ -111,6 +120,86 @@ export default function AccountPage() {
       setLoading(false);
     }
   }, [getToken]);
+
+  const fetchApiKey = useCallback(async () => {
+    try {
+      const token = getToken();
+      if (!token) return;
+      const res = await fetch('/api/frontend/user/api-key', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setApiKeyInfo(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch API key info:', err);
+    }
+  }, [getToken]);
+
+  const regenerateApiKey = async () => {
+    setApiKeySaving(true);
+    setApiKeyError(null);
+    try {
+      const token = getToken();
+      if (!token) throw new Error('Not authenticated');
+      const res = await fetch('/api/frontend/user/api-key/regenerate', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNewApiKey(data.apiKey);
+        setApiKeyInfo({ hasKey: true, maskedKey: data.apiKey.substring(0, 12) + '...', createdAt: data.createdAt });
+        setShowRegenerateConfirm(false);
+        setSuccess('API key regenerated successfully!');
+        setTimeout(() => setSuccess(null), 5000);
+      } else {
+        const data = await res.json();
+        setApiKeyError(data.error || 'Failed to regenerate API key');
+      }
+    } catch (err: any) {
+      setApiKeyError(err.message || 'Failed to regenerate API key');
+    } finally {
+      setApiKeySaving(false);
+    }
+  };
+
+  const deleteApiKey = async () => {
+    if (!confirm('Are you sure you want to delete your API key? You will lose API access until you generate a new one.')) return;
+    setApiKeySaving(true);
+    setApiKeyError(null);
+    try {
+      const token = getToken();
+      if (!token) throw new Error('Not authenticated');
+      const res = await fetch('/api/frontend/user/api-key', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setApiKeyInfo({ hasKey: false, maskedKey: null, createdAt: null });
+        setNewApiKey(null);
+        setSuccess('API key deleted.');
+        setTimeout(() => setSuccess(null), 3000);
+      } else {
+        const data = await res.json();
+        setApiKeyError(data.error || 'Failed to delete API key');
+      }
+    } catch (err: any) {
+      setApiKeyError(err.message || 'Failed to delete API key');
+    } finally {
+      setApiKeySaving(false);
+    }
+  };
+
+  // Fetch API key info when switching to api-keys tab
+  const prevActiveTab = useRef(activeTab);
+  useEffect(() => {
+    if (activeTab === 'api-keys' && prevActiveTab.current !== 'api-keys') {
+      fetchApiKey();
+    }
+    prevActiveTab.current = activeTab;
+  }, [activeTab, fetchApiKey]);
 
   useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
@@ -229,6 +318,9 @@ export default function AccountPage() {
             </TabsTrigger>
             <TabsTrigger value="notifications" className="data-[state=active]:bg-gray-800">
               <Bell className="w-4 h-4 mr-2" />Notifications
+            </TabsTrigger>
+            <TabsTrigger value="api-keys" className="data-[state=active]:bg-gray-800">
+              <Key className="w-4 h-4 mr-2" />API Keys
             </TabsTrigger>
             <TabsTrigger value="danger" className="data-[state=active]:bg-gray-800">
               <AlertCircle className="w-4 h-4 mr-2" />Danger Zone
@@ -478,6 +570,155 @@ export default function AccountPage() {
                   Save Preferences
                 </Button>
               </CardFooter>
+            </Card>
+          </TabsContent>
+
+          {/* API Keys Tab */}
+          <TabsContent value="api-keys">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Key className="w-5 h-5 mr-2" />
+                  API Keys
+                </CardTitle>
+                <CardDescription>Manage your EvoMap API keys for programmatic access</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {apiKeyError && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">{apiKeyError}</div>
+                )}
+
+                {/* New Key Display (shown after regeneration) */}
+                {newApiKey && (
+                  <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                    <div className="flex items-start gap-3 mb-3">
+                      <Check className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-emerald-400">New API Key Generated!</p>
+                        <p className="text-sm text-gray-400 mt-1">Copy this key now. You won&apos;t be able to see it again.</p>
+                      </div>
+                    </div>
+                    <div className="bg-black/50 rounded-lg p-3 font-mono text-sm break-all">
+                      {newApiKey}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={() => { navigator.clipboard.writeText(newApiKey); setSuccess('Copied to clipboard!'); setTimeout(() => setSuccess(null), 2000); }}
+                    >
+                      Copy Key
+                    </Button>
+                    <Button variant="ghost" size="sm" className="mt-3 ml-2" onClick={() => setNewApiKey(null)}>
+                      Dismiss
+                    </Button>
+                  </div>
+                )}
+
+                {/* Current API Key Status */}
+                <div className="border border-gray-800 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${apiKeyInfo?.hasKey ? 'bg-emerald-500/20' : 'bg-gray-800'}`}>
+                        <Key className={`w-5 h-5 ${apiKeyInfo?.hasKey ? 'text-emerald-400' : 'text-gray-500'}`} />
+                      </div>
+                      <div>
+                        <p className="font-medium">EvoMap API Key</p>
+                        <p className="text-sm text-gray-400">
+                          {apiKeyInfo === null ? 'Loading...' : apiKeyInfo.hasKey ? (showApiKey ? apiKeyInfo.maskedKey : '••••••••••••••••') : 'No key generated'}
+                        </p>
+                        {apiKeyInfo?.createdAt && (
+                          <p className="text-xs text-gray-500">Created: {new Date(apiKeyInfo.createdAt).toLocaleDateString()}</p>
+                        )}
+                      </div>
+                    </div>
+                    {apiKeyInfo && (
+                      <span className={`px-2 py-1 text-xs rounded ${apiKeyInfo.hasKey ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-700 text-gray-400'}`}>
+                        {apiKeyInfo.hasKey ? 'Active' : 'Inactive'}
+                      </span>
+                    )}
+                  </div>
+
+                  {apiKeyInfo && apiKeyInfo.hasKey && !newApiKey && (
+                    <div className="flex gap-2 mt-4 pt-4 border-t border-gray-800">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                      >
+                        {showApiKey ? <EyeOff className="w-4 h-4 mr-1" /> : <Eye className="w-4 h-4 mr-1" />}
+                        {showApiKey ? 'Hide' : 'Reveal'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-amber-400 border-amber-400/30 hover:bg-amber-500/10"
+                        onClick={() => setShowRegenerateConfirm(true)}
+                      >
+                        Regenerate
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-400 border-red-400/30 hover:bg-red-500/10"
+                        onClick={deleteApiKey}
+                        disabled={apiKeySaving}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  )}
+
+                  {apiKeyInfo && !apiKeyInfo.hasKey && !newApiKey && (
+                    <div className="mt-4 pt-4 border-t border-gray-800">
+                      <Button onClick={() => regenerateApiKey()} disabled={apiKeySaving}>
+                        {apiKeySaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Key className="w-4 h-4 mr-2" />}
+                        Generate API Key
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Regenerate Confirmation */}
+                {showRegenerateConfirm && (
+                  <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-amber-400 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-amber-400">Regenerate API Key?</p>
+                        <p className="text-sm text-gray-400 mt-1">
+                          Your current API key will be immediately invalidated. Any applications using the old key will stop working.
+                        </p>
+                        <div className="flex gap-2 mt-3">
+                          <Button
+                            size="sm"
+                            className="bg-amber-600 hover:bg-amber-700"
+                            onClick={regenerateApiKey}
+                            disabled={apiKeySaving}
+                          >
+                            {apiKeySaving ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                            Confirm Regenerate
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => setShowRegenerateConfirm(false)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Usage Info */}
+                <div className="border border-gray-800 rounded-lg p-4 bg-gray-900/30">
+                  <h4 className="text-sm font-medium mb-2">API Key Usage</h4>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Use your API key to authenticate programmatic access to the EvoMap API.
+                  </p>
+                  <code className="block bg-black/50 rounded px-3 py-2 text-xs text-gray-300 font-mono">
+                    curl -H &quot;Authorization: Bearer evo_your-key-here&quot; https://api.evomap.ai/v1/assets
+                  </code>
+                </div>
+              </CardContent>
             </Card>
           </TabsContent>
 

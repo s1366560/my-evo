@@ -26,4 +26,19 @@ router.put('/me', authenticate, (req, res) => {
   authController.updateMe(req, res);
 });
 
+// GET /auth/api-key — Get masked API key info
+router.get('/api-key', authenticate, (req, res) => {
+  authController.getApiKey(req, res);
+});
+
+// POST /auth/api-key/regenerate — Generate a new API key
+router.post('/api-key/regenerate', authenticate, (req, res) => {
+  authController.regenerateApiKey(req, res);
+});
+
+// DELETE /auth/api-key — Delete the current API key
+router.delete('/api-key', authenticate, (req, res) => {
+  authController.deleteApiKey(req, res);
+});
+
 export default router;

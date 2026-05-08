@@ -221,6 +221,8 @@ export class AuthController {
           isActive: true,
           createdAt: true,
           updatedAt: true,
+          apiKey: true,
+          apiKeyCreatedAt: true,
           nodes: {
             select: {
               nodeId: true,
@@ -269,6 +271,8 @@ export class AuthController {
           recentActivity: user.nodes && user.nodes.length > 0 ? user.nodes[0].reputation : 0,
           accountPlan: 'free',
           totalEarnings: 0, // Earnings tracking not yet implemented
+          hasApiKey: !!user.apiKey,
+          apiKeyCreatedAt: user.apiKeyCreatedAt,
         },
       });
     } catch (error) {
@@ -277,6 +281,92 @@ export class AuthController {
         error: 'Internal Server Error',
         message: 'Failed to get user',
       });
+    }
+  }
+
+  // GET /auth/api-key — Get masked API key info
+  async getApiKey(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.userId },
+        select: { apiKey: true, apiKeyCreatedAt: true },
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'Not Found', message: 'User not found' });
+        return;
+      }
+
+      const maskedKey = user.apiKey
+        ? `evo_${user.apiKey.substring(0, 8)}...${user.apiKey.substring(user.apiKey.length - 4)}`
+        : null;
+
+      res.json({
+        hasKey: !!user.apiKey,
+        maskedKey,
+        createdAt: user.apiKeyCreatedAt,
+      });
+    } catch (error) {
+      console.error('Get API key error:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to get API key' });
+    }
+  }
+
+  // POST /auth/api-key/regenerate — Generate a new API key
+  async regenerateApiKey(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
+        return;
+      }
+
+      // Generate a new random API key
+      const crypto = await import('crypto');
+      const newKey = crypto.randomBytes(32).toString('hex');
+
+      await prisma.user.update({
+        where: { id: req.user.userId },
+        data: {
+          apiKey: newKey,
+          apiKeyCreatedAt: new Date(),
+        },
+      });
+
+      // Return the full key (only time it's shown in full)
+      res.json({
+        message: 'API key regenerated successfully',
+        apiKey: `evo_${newKey}`,
+        createdAt: new Date().toISOString(),
+        warning: 'This is the only time the full key will be shown. Store it securely.',
+      });
+    } catch (error) {
+      console.error('Regenerate API key error:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to regenerate API key' });
+    }
+  }
+
+  // DELETE /auth/api-key — Delete the current API key
+  async deleteApiKey(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
+        return;
+      }
+
+      await prisma.user.update({
+        where: { id: req.user.userId },
+        data: { apiKey: null, apiKeyCreatedAt: null },
+      });
+
+      res.json({ message: 'API key deleted successfully' });
+    } catch (error) {
+      console.error('Delete API key error:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to delete API key' });
     }
   }
 }

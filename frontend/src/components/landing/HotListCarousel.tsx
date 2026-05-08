@@ -94,14 +94,26 @@ export function HotListCarousel() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Simulate API fetch
     const fetchHotAssets = async () => {
       setIsLoading(true);
-      // In production: const response = await fetch('/api/assets/hot');
-      // For now, use mock data
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setHotAssets(mockHotAssets);
-      setIsLoading(false);
+      try {
+        const response = await fetch('/api/frontend/assets/hot?limit=6');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.assets && data.assets.length > 0) {
+            setHotAssets(data.assets);
+          } else {
+            // Fallback to mock data if no real assets exist
+            setHotAssets(mockHotAssets);
+          }
+        } else {
+          setHotAssets(mockHotAssets);
+        }
+      } catch {
+        setHotAssets(mockHotAssets);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     fetchHotAssets();

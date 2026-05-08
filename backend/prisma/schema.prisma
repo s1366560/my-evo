@@ -20,6 +20,8 @@ model User {
   updatedAt     DateTime  @updatedAt
   isActive      Boolean   @default(true)
   role          String    @default("USER") // USER, ADMIN, MODERATOR
+  apiKey        String?   // Optional user API key for EvoMap API access
+  apiKeyCreatedAt DateTime? // When the API key was generated
   
   // Relations
   nodes         Node[]
