@@ -1,0 +1,16 @@
+{
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "username": "testuser",
+    "role": "USER",
+    "isActive": true,
+    "createdAt": "2026-05-08T00:00:00Z",
+    "accountAgeDays": 0,
+    "creatorLevel": 0,
+    "totalMaps": 0,
+    "recentActivity": 0,
+    "accountPlan": "free",
+    "totalEarnings": 0
+  }
+}

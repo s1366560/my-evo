@@ -1,0 +1,26 @@
+{
+  "totalAssets": 0,
+  "totalGenes": 0,
+  "totalCapsules": 0,
+  "totalNodes": 0,
+  "activeNodes": 0,
+  "totalBounties": 0,
+  "activeBounties": 0,
+  "completedBounties": 0,
+  "totalUsers": 0,
+  "recentActivity": {
+    "newAssetsToday": 0,
+    "newNodesToday": 0,
+    "newBountiesToday": 0,
+    "completedBountiesToday": 0,
+    "totalTransactions": 0
+  },
+  "topAssets": [],
+  "topNodes": [],
+  "topCreators": [],
+  "trends": {
+    "assetsLast7Days": [0,0,0,0,0,0,0],
+    "bountiesLast7Days": [0,0,0,0,0,0,0],
+    "nodesLast7Days": [0,0,0,0,0,0,0]
+  }
+}

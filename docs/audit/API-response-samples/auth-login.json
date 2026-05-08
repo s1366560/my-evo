@@ -1,0 +1,11 @@
+{
+  "message": "Login successful",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "username": "testuser",
+    "role": "USER",
+    "isActive": true
+  },
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}

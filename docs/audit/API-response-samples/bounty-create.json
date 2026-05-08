@@ -1,0 +1,8 @@
+{
+  "bounty_id": "bounty_xxxxxxxxxxxx",
+  "title": "Test Bounty",
+  "reward": 100,
+  "status": "open",
+  "expires_at": "2026-06-08T00:00:00Z",
+  "message": "Bounty created successfully"
+}

@@ -1,0 +1,11 @@
+{
+  "status": "healthy",
+  "timestamp": "2026-05-08T00:00:00Z",
+  "version": "1.0.0",
+  "uptime": 0,
+  "environment": "development",
+  "services": {
+    "api": "up",
+    "database": "up"
+  }
+}

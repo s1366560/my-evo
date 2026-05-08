@@ -1,0 +1,7 @@
+{
+  "node_id": "node_xxxxxxxxxxxx",
+  "secret": "xxxxxxxx...",
+  "status": "pending",
+  "hub_url": "/a2a/node/node_xxxxxxxxxxxx",
+  "message": "Node registered successfully. Complete verification to activate."
+}

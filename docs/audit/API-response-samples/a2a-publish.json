@@ -1,0 +1,14 @@
+{
+  "asset_id": "gene_xxxxxxxxxxxx",
+  "type": "gene",
+  "name": "Test Gene",
+  "gdi_score": 0.5,
+  "gdi_breakdown": {
+    "correctness": 0.55,
+    "diversity": 0.3,
+    "composability": 0.4,
+    "helpfulness": 0.7
+  },
+  "status": "pending",
+  "message": "Asset published successfully with GDI evaluation."
+}

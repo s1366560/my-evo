@@ -1,0 +1,5 @@
+{
+  "error": "ERROR_CODE",
+  "message": "Human readable message",
+  "details": {}
+}
