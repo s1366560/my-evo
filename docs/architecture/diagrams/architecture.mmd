@@ -1,0 +1,426 @@
+# My Evo Architecture Diagrams
+
+**Generated**: 2026-05-08
+**Purpose**: Component dependency diagrams and system interactions
+
+---
+
+## 1. System Component Diagram
+
+```mermaid
+graph TB
+    subgraph Client["CLIENT LAYER"]
+        Browser["Browser<br/>(Next.js :3002)"]
+        Mobile["Mobile App<br/>(React Native)"]
+        CLI["CLI / SDK"]
+    end
+
+    subgraph Gateway["GATEWAY LAYER"]
+        NextAPI["Next.js API Routes<br/>/api/frontend/**"]
+    end
+
+    subgraph Backend["BACKEND SERVICE"]
+        subgraph Routes["Route Layer"]
+            Auth["/auth"]
+            A2A["/a2a"]
+            Bounty["/bounty"]
+            Map["/map"]
+            Assets["/assets"]
+        end
+        
+        subgraph Controllers["Controller Layer"]
+            AuthCtrl["authController"]
+            A2ACtrl["a2aController"]
+            BountyCtrl["bountyController"]
+            MapCtrl["mapController"]
+            AssetCtrl["assetController"]
+        end
+
+        subgraph Services["Service Layer"]
+            AuthSvc["authService"]
+            ReputationSvc["reputationService"]
+            GDISvc["gdiScoringService"]
+            SearchSvc["searchService"]
+            AssetSvc["assetService"]
+        end
+
+        subgraph Middleware["Middleware"]
+            JWTAuth["JWT Auth"]
+            RateLimit["Rate Limit"]
+            Validator["Zod Validation"]
+            CORS["CORS"]
+        end
+    end
+
+    subgraph Data["DATA LAYER"]
+        SQLite["SQLite<br/>(dev.db)"]
+        Redis["Redis<br/>(optional)"]
+    end
+
+    subgraph External["EXTERNAL SERVICES"]
+        OpenAI["OpenAI API<br/>(GDI Scoring)"]
+    end
+
+    Browser --> NextAPI
+    Mobile --> NextAPI
+    CLI --> NextAPI
+    
+    NextAPI --> Auth
+    NextAPI --> A2A
+    NextAPI --> Bounty
+    NextAPI --> Map
+    NextAPI --> Assets
+
+    Auth --> AuthCtrl
+    A2A --> A2ACtrl
+    Bounty --> BountyCtrl
+    Map --> MapCtrl
+    Assets --> AssetCtrl
+
+    AuthCtrl --> AuthSvc
+    A2ACtrl --> ReputationSvc
+    A2ACtrl --> GDISvc
+    AssetCtrl --> AssetSvc
+    AssetSvc --> SearchSvc
+
+    Auth --> JWTAuth
+    Routes --> RateLimit
+    Routes --> Validator
+    Routes --> CORS
+
+    AuthSvc --> SQLite
+    ReputationSvc --> SQLite
+    GDISvc --> SQLite
+    AssetSvc --> SQLite
+    BountyCtrl --> SQLite
+
+    GDISvc --> OpenAI
+```
+
+---
+
+## 2. Frontend Component Hierarchy
+
+```mermaid
+graph TB
+    subgraph Root["Root"]
+        Layout["layout.tsx<br/>(Root Layout)"]
+    end
+
+    subgraph Pages["Pages"]
+        Landing["page.tsx<br/>(Landing)"]
+        Login["login/page.tsx"]
+        Register["register/page.tsx"]
+        Marketplace["marketplace/page.tsx"]
+        Browse["browse/page.tsx"]
+        Map["map/page.tsx"]
+        Bounty["bounty/page.tsx"]
+        Account["account/page.tsx"]
+        Workspace["workspace/page.tsx"]
+        Onboarding["onboarding/page.tsx"]
+    end
+
+    subgraph Components["Components"]
+        subgraph Layout["Layout Components"]
+            Nav["Navigation.tsx"]
+            Footer["Footer.tsx"]
+        end
+
+        subgraph Marketplace["Marketplace Components"]
+            AssetCard["AssetCard.tsx"]
+            AssetGrid["AssetGrid.tsx"]
+            AssetModal["AssetModal.tsx"]
+            FilterBar["FilterBar.tsx"]
+        end
+
+        subgraph Map["Map Components"]
+            MapCanvas["MapCanvas.tsx"]
+            DataConfigPanel["DataConfigPanel.tsx"]
+            DataImportPanel["DataImportPanel.tsx"]
+            ExportDialog["ExportDialog.tsx"]
+            ConfigPresetPanel["ConfigPresetPanel.tsx"]
+        end
+
+        subgraph Publish["Publish Components"]
+            GenePublishForm["GenePublishForm.tsx"]
+            CapsulePublishForm["CapsulePublishForm.tsx"]
+            GDIScorePreview["GDIScorePreview.tsx"]
+        end
+
+        subgraph Bounty["Bounty Components"]
+            BountyCard["BountyCard.tsx"]
+            BountyForm["BountyForm.tsx"]
+        end
+    end
+
+    subgraph Store["State Management"]
+        UserStore["userStore<br/>(Zustand)"]
+        MapStore["mapStore<br/>(Zustand)"]
+        UIStore["uiStore<br/>(Zustand)"]
+    end
+
+    Layout --> Nav
+    Layout --> Footer
+    
+    Landing --> Nav
+    Marketplace --> AssetGrid
+    Marketplace --> FilterBar
+    Browse --> AssetGrid
+    Map --> MapCanvas
+    Map --> DataConfigPanel
+    Map --> DataImportPanel
+    Bounty --> BountyCard
+
+    AssetGrid --> AssetCard
+    AssetCard --> AssetModal
+    AssetGrid --> FilterBar
+    
+    MapCanvas --> DataConfigPanel
+    MapCanvas --> ExportDialog
+    
+    DataConfigPanel --> DataImportPanel
+    DataConfigPanel --> ConfigPresetPanel
+    
+    UserStore --> User
+    MapStore --> Config
+    UIStore --> Modal
+```
+
+---
+
+## 3. API Request Flow
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant NextJS as Next.js<br/>API Routes
+    participant Express as Express<br/>Backend :3001
+    participant Prisma
+    participant DB as SQLite/PG
+
+    Note over Browser,DB: User Authentication Flow
+    Browser->>NextJS: POST /api/frontend/auth/login
+    NextJS->>Express: POST /auth/login
+    Express->>Prisma: findUnique user
+    Prisma->>DB: SELECT * FROM users WHERE email=?
+    DB->>Prisma: User record
+    Prisma->>Express: User object
+    Express->>Express: bcrypt.compare(password)
+    Express->>Express: jwt.sign({userId, role})
+    Express->>NextJS: {token, user}
+    NextJS->>Browser: Login response
+
+    Note over Browser,DB: Asset Publishing Flow
+    Browser->>NextJS: POST /api/frontend/assets
+    NextJS->>Express: POST /assets
+    Express->>Prisma: create asset
+    Prisma->>DB: INSERT INTO assets...
+    DB->>Prisma: Asset created
+    Prisma->>Express: Asset object
+    Express->>Express: Calculate GDI Score
+    Express->>OpenAI: Request GDI
+    OpenAI->>Express: GDI Score
+    Express->>Prisma: update gdiScore
+    Express->>NextJS: {asset, gdiScore}
+    NextJS->>Browser: Publish success
+```
+
+---
+
+## 4. A2A Protocol Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Disconnected
+    
+    Disconnected --> Registering: POST /a2a/hello
+    Registering --> Active: 200 OK + node_id
+    Active --> Active: heartbeat (30s)
+    Active --> Publishing: POST /a2a/publish
+    Publishing --> Active: asset_id
+    Active --> Querying: POST /a2a/query
+    Querying --> Active: response
+    Active --> Disconnected: timeout/close
+
+    note right of Registering
+        Node sends:
+        - node_name
+        - capabilities
+        - secret
+    end note
+
+    note right of Active
+        Heartbeat payload:
+        - node_id
+        - status
+        - uptime
+        - reputation
+    end note
+```
+
+---
+
+## 5. Data Model Relationships
+
+```mermaid
+erDiagram
+    User {
+        int id PK
+        string email
+        string username
+        string passwordHash
+        string role
+        boolean isActive
+        datetime createdAt
+    }
+
+    Node {
+        string id PK
+        string nodeId UK
+        string secret
+        string name
+        string status
+        float reputation
+        int level
+        int userId FK
+        datetime createdAt
+    }
+
+    Asset {
+        int id PK
+        string assetId UK
+        string type
+        string name
+        text dna
+        text prompt
+        float gdiScore
+        string nodeId FK
+        int userId FK
+        string parentId FK
+        datetime createdAt
+    }
+
+    Bounty {
+        int id PK
+        string bountyId UK
+        string title
+        text description
+        float reward
+        string status
+        int userId FK
+        datetime createdAt
+    }
+
+    BountyClaim {
+        int id PK
+        string status
+        text deliverable
+        string bountyId FK
+        int userId FK
+        datetime createdAt
+    }
+
+    User ||--o{ Node : has
+    User ||--o{ Asset : publishes
+    User ||--o{ Bounty : creates
+    Node ||--o{ Asset : produces
+    Bounty ||--o{ BountyClaim : receives
+    Asset ||--o| Asset : inherits
+```
+
+---
+
+## 6. Deployment Architecture
+
+```mermaid
+graph TB
+    subgraph Cloud["Cloud Provider"]
+        subgraph CDN["CDN / Edge"]
+            CloudFront["CloudFront<br/>(Production)"]
+        end
+
+        subgraph Containers["Container Orchestration"]
+            ECS["ECS Fargate"]
+        end
+
+        subgraph Databases["Data Layer"]
+            RDS["RDS PostgreSQL<br/>(Production)"]
+            Redis["ElastiCache Redis<br/>(Cache)"]
+        end
+
+        subgraph Storage["Storage"]
+            S3["S3<br/>(Assets)"]
+        end
+    end
+
+    subgraph Local["Local Development"]
+        subgraph DevBackend["Backend (:3001)"]
+            ExpressDev["Express.js"]
+            PrismaDev["Prisma + SQLite"]
+        end
+
+        subgraph DevFrontend["Frontend (:3002)"]
+            NextDev["Next.js"]
+        end
+    end
+
+    User --> CloudFront
+    CloudFront --> ECS
+    ECS --> ExpressDev
+    ExpressDev --> RDS
+    ExpressDev --> Redis
+    ExpressDev --> S3
+
+    Developer --> DevFrontend
+    Developer --> DevBackend
+    DevFrontend --> DevBackend
+    DevBackend --> PrismaDev
+```
+
+---
+
+## 7. Component Dependencies Summary
+
+```mermaid
+graph LR
+    subgraph Frontend["Frontend Dependencies"]
+        F1["Next.js App Router"]
+        F2["Tailwind CSS"]
+        F3["shadcn/ui"]
+        F4["Zustand"]
+    end
+
+    subgraph Backend["Backend Dependencies"]
+        B1["Express.js"]
+        B2["Prisma ORM"]
+        B3["Zod"]
+        B4["JWT"]
+    end
+
+    subgraph Infrastructure["Infrastructure"]
+        I1["SQLite/PostgreSQL"]
+        I2["Redis"]
+        I3["Docker"]
+    end
+
+    F1 --> F2
+    F1 --> F3
+    F1 --> F4
+    
+    B1 --> B2
+    B1 --> B3
+    B1 --> B4
+
+    F1 --> B1
+    B2 --> I1
+    B1 --> I2
+```
+
+---
+
+**Legend**:
+- PK = Primary Key
+- FK = Foreign Key
+- UK = Unique Key
+- --> = Dependency/Call
+- erDiagram = Entity Relationship
