@@ -93,7 +93,7 @@ export function DataImportPanel({
       return;
     }
 
-    setFileType(ext);
+    setFileType(ext || null);
 
     const reader = new FileReader();
     reader.onload = (event) => {
