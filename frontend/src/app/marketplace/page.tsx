@@ -127,7 +127,7 @@ export default function MarketplacePage() {
             <button onClick={() => fetchMarketplaceData()} disabled={isRefreshing} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-all disabled:opacity-50" title="Refresh">
               <svg className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
             </button>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)} aria-label="Sort assets" className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="recent">Most Recent</option><option value="popular">Most Popular</option><option value="gdi">Highest GDI</option>
             </select>
           </div>

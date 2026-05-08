@@ -377,25 +377,25 @@ export default function MapPage() {
           <p className="text-sm text-gray-400">{nodes.length} nodes • {edges.length} connections</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleSave} className="p-2 hover:bg-purple-600/30 rounded-lg transition-colors" title="Save Map">
+          <button onClick={handleSave} className="p-2 hover:bg-purple-600/30 rounded-lg transition-colors" title="Save Map" aria-label="Save Map">
             <Save className="w-5 h-5" />
           </button>
-          <button onClick={handleExportToPNG} className="p-2 hover:bg-white/10 rounded-lg transition-colors" title="Export as PNG">
+          <button onClick={handleExportToPNG} className="p-2 hover:bg-white/10 rounded-lg transition-colors" title="Export as PNG" aria-label="Export as PNG">
             <Image className="w-5 h-5" />
           </button>
-          <button onClick={() => setIsPlaying(!isPlaying)} className="p-2 hover:bg-white/10 rounded-lg transition-colors" title={isPlaying ? 'Pause' : 'Play'}>
+          <button onClick={() => setIsPlaying(!isPlaying)} className="p-2 hover:bg-white/10 rounded-lg transition-colors" title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause animation' : 'Play animation'}>
             {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
           </button>
-          <button onClick={() => setZoom(Math.min(zoom * 1.2, 3))} className="p-2 hover:bg-white/10 rounded-lg transition-colors"><ZoomIn className="w-5 h-5" /></button>
-          <button onClick={() => setZoom(Math.max(zoom / 1.2, 0.5))} className="p-2 hover:bg-white/10 rounded-lg transition-colors"><ZoomOut className="w-5 h-5" /></button>
-          <button onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }} className="p-2 hover:bg-white/10 rounded-lg transition-colors"><Maximize2 className="w-5 h-5" /></button>
-          <button className="p-2 hover:bg-white/10 rounded-lg transition-colors"><Settings className="w-5 h-5" /></button>
+          <button onClick={() => setZoom(Math.min(zoom * 1.2, 3))} className="p-2 hover:bg-white/10 rounded-lg transition-colors" aria-label="Zoom in"><ZoomIn className="w-5 h-5" /></button>
+          <button onClick={() => setZoom(Math.max(zoom / 1.2, 0.5))} className="p-2 hover:bg-white/10 rounded-lg transition-colors" aria-label="Zoom out"><ZoomOut className="w-5 h-5" /></button>
+          <button onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }} className="p-2 hover:bg-white/10 rounded-lg transition-colors" aria-label="Reset view"><Maximize2 className="w-5 h-5" /></button>
+          <button className="p-2 hover:bg-white/10 rounded-lg transition-colors" aria-label="Settings"><Settings className="w-5 h-5" /></button>
         </div>
       </div>
 
       <div
         ref={containerRef}
-        className="flex-1 relative"
+        className="flex-1 relative overflow-hidden"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
