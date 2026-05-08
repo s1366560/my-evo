@@ -6,6 +6,15 @@ import { Button } from '@/components/ui/Button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { User, MapPin, CreditCard, TrendingUp, Cpu, Package, History, Settings } from 'lucide-react';
 
+/* Dashboard status region for live updates */
+function DashboardStatus({ credits }: { credits: number }) {
+  return (
+    <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+      {credits > 0 ? `${credits} credits available` : 'No credits available'}
+    </div>
+  );
+}
+
 export interface UserProfile {
   email: string;
   accountPlan: 'free' | 'premium' | 'ultra';
@@ -44,12 +53,17 @@ export function UserDashboard({ user }: { user: UserProfile }) {
   };
 
   return (
-    <div className="space-y-6">
+    <section aria-labelledby="dashboard-heading" className="space-y-6">
+      {/* Dashboard Status Region */}
+      <DashboardStatus credits={user.credits} />
+
+      <h2 id="dashboard-heading" className="sr-only">User Dashboard</h2>
+
       {/* Profile Header */}
       <Card>
         <CardContent className="p-6">
           <div className="flex items-center gap-6">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-cyan-500 flex items-center justify-center" aria-hidden="true">
               <User className="w-10 h-10 text-white" />
             </div>
             <div className="flex-1">
@@ -74,8 +88,8 @@ export function UserDashboard({ user }: { user: UserProfile }) {
                 </div>
               </div>
             </div>
-            <Button variant="outline" size="sm">
-              <Settings className="w-4 h-4 mr-2" />
+            <Button variant="outline" size="sm" aria-label="Open account settings">
+              <Settings className="w-4 h-4 mr-2" aria-hidden="true" />
               Settings
             </Button>
           </div>
@@ -145,7 +159,7 @@ export function UserDashboard({ user }: { user: UserProfile }) {
           <AssetsTab />
         </TabsContent>
       </Tabs>
-    </div>
+    </section>
   );
 }
 

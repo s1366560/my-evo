@@ -1,6 +1,6 @@
 'use client';
 
-import React, { forwardRef, useState, useCallback } from 'react';
+import React, { forwardRef, useState, useCallback, useId } from 'react';
 import { clsx } from 'clsx';
 import { Check, AlertCircle } from 'lucide-react';
 
@@ -17,7 +17,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     const [touched, setTouched] = useState(false);
     const [isValid, setIsValid] = useState(false);
     const [validationMessage, setValidationMessage] = useState<string | null>(null);
-    const id = props.id || props.name;
+    const generatedId = useId();
+    const id = props.id || props.name || generatedId;
 
     const handleBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
       setTouched(true);
@@ -40,6 +41,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 
     const displayError = touched ? (error || validationMessage) : error;
     const showSuccess = showValidState && touched && !displayError && props.value && isValid;
+    const errorId = `${id}-error`;
+    const helperId = `${id}-helper`;
+    const describedBy = [displayError ? errorId : null, helperText && !displayError ? helperId : null].filter(Boolean).join(' ') || undefined;
 
     return (
       <div className="space-y-1.5">
@@ -66,6 +70,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             onBlur={handleBlur}
             onChange={handleChange}
+            aria-invalid={displayError ? 'true' : undefined}
+            aria-describedby={describedBy}
+            aria-required={props.required ? 'true' : undefined}
             {...props}
           />
           {showSuccess && (
@@ -79,8 +86,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             </div>
           )}
         </div>
-        {displayError && <p className="text-xs text-red-400 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{displayError}</p>}
-        {helperText && !displayError && <p className="text-xs text-gray-500">{helperText}</p>}
+        {displayError && (
+          <p id={errorId} className="text-xs text-red-400 flex items-center gap-1" role="alert">
+            <AlertCircle className="w-3 h-3 flex-shrink-0" aria-hidden="true" />
+            <span>{displayError}</span>
+          </p>
+        )}
+        {helperText && !displayError && (
+          <p id={helperId} className="text-xs text-gray-500">
+            {helperText}
+          </p>
+        )}
       </div>
     );
   }

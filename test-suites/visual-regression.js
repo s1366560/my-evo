@@ -103,14 +103,14 @@ async function run() {
   });
   
   const pages = [
-    { name: 'home-page', url: 'http://127.0.0.1:3000' },
-    { name: 'marketplace-page', url: 'http://127.0.0.1:3000/marketplace' },
-    { name: 'map-page', url: 'http://127.0.0.1:3000/map' },
-    { name: 'login-page', url: 'http://127.0.0.1:3000/login' },
-    { name: 'register-page', url: 'http://127.0.0.1:3000/register' },
-    { name: 'onboarding-page', url: 'http://127.0.0.1:3000/onboarding' },
-    { name: 'browse-page', url: 'http://127.0.0.1:3000/browse' },
-    { name: 'bounty-page', url: 'http://127.0.0.1:3000/bounty' }
+    { name: 'home-page', url: 'http://127.0.0.1:3002' },
+    { name: 'marketplace-page', url: 'http://127.0.0.1:3002/marketplace' },
+    { name: 'map-page', url: 'http://127.0.0.1:3002/map' },
+    { name: 'login-page', url: 'http://127.0.0.1:3002/login' },
+    { name: 'register-page', url: 'http://127.0.0.1:3002/register' },
+    { name: 'onboarding-page', url: 'http://127.0.0.1:3002/onboarding' },
+    { name: 'browse-page', url: 'http://127.0.0.1:3002/browse' },
+    { name: 'bounty-page', url: 'http://127.0.0.1:3002/bounty' }
   ];
   
   const results = { name: 'Visual Regression', tests: [] };
@@ -193,7 +193,7 @@ async function run() {
     });
     const newPage = await newContext.newPage();
     
-    const homePath = await capturePage(newPage, 'http://127.0.0.1:3000', `home-${viewport.name}`);
+    const homePath = await capturePage(newPage, 'http://127.0.0.1:3002', `home-${viewport.name}`);
     
     if (homePath) {
       const baselinePath = `${BASELINE_DIR}/home-${viewport.name}.png`;

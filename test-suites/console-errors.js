@@ -8,7 +8,7 @@ const { log } = require('../edge-case-test');
 async function run(tests) {
   log('=== Test Suite: Console Error Patterns ===', 'suite');
   const suite = { name: 'Console Error Patterns', tests: [] };
-  const BASE_URL = 'http://127.0.0.1:3000';
+  const BASE_URL = 'http://127.0.0.1:3002';
 
   // Test 1: Home page console errors
   let browser;

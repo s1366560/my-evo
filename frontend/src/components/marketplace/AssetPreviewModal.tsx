@@ -54,15 +54,20 @@ console.log(asset);`;
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="presentation"
       onClick={onClose}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-fade-in" />
-      
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-fade-in" aria-hidden="true" />
+
       {/* Modal */}
-      <div 
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+        aria-describedby="modal-description"
         className="relative bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-2xl animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
@@ -70,56 +75,57 @@ console.log(asset);`;
         <div className="flex items-start justify-between p-6 border-b border-gray-800">
           <div className="flex items-center gap-4">
             <div className={`p-3 rounded-xl ${typeBg}`}>
-              <TypeIcon className={`w-8 h-8 ${typeColor}`} />
+              <TypeIcon className={`w-8 h-8 ${typeColor}`} aria-hidden="true" />
             </div>
             <div>
               <div className="flex items-center gap-3">
-                <h2 className="text-xl font-bold text-white">{asset.name}</h2>
+                <h2 id="modal-title" className="text-xl font-bold text-white">{asset.name}</h2>
                 <span className={`px-2 py-1 rounded text-xs font-medium ${typeBg} ${typeColor}`}>
                   {asset.type}
                 </span>
               </div>
               {asset.creatorName && (
-                <p className="text-sm text-gray-400 mt-1">by {asset.creatorName}</p>
+                <p id="modal-description" className="text-sm text-gray-400 mt-1">by {asset.creatorName}</p>
               )}
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close modal"
             className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
           >
-            <X className="w-5 h-5 text-gray-400" />
+            <X className="w-5 h-5 text-gray-400" aria-hidden="true" />
           </button>
         </div>
 
         {/* Content */}
         <div className="p-6 overflow-y-auto max-h-[60vh]">
           {/* Stats */}
-          <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-4 gap-4 mb-6" role="list" aria-label="Asset statistics">
             {asset.gdiScore && (
-              <div className="bg-gray-800/50 rounded-lg p-3 text-center">
+              <div className="bg-gray-800/50 rounded-lg p-3 text-center" role="listitem">
                 <div className="flex items-center justify-center gap-1 text-yellow-400 mb-1">
-                  <Star className="w-4 h-4" />
+                  <Star className="w-4 h-4" aria-hidden="true" />
                   <span className="font-bold">{(asset.gdiScore * 100).toFixed(0)}</span>
                 </div>
                 <p className="text-xs text-gray-500">GDI Score</p>
               </div>
             )}
-            <div className="bg-gray-800/50 rounded-lg p-3 text-center">
+            <div className="bg-gray-800/50 rounded-lg p-3 text-center" role="listitem">
               <div className="flex items-center justify-center gap-1 text-blue-400 mb-1">
-                <Eye className="w-4 h-4" />
+                <Eye className="w-4 h-4" aria-hidden="true" />
                 <span className="font-bold">{Math.floor(Math.random() * 1000) + 100}</span>
               </div>
               <p className="text-xs text-gray-500">Views</p>
             </div>
-            <div className="bg-gray-800/50 rounded-lg p-3 text-center">
+            <div className="bg-gray-800/50 rounded-lg p-3 text-center" role="listitem">
               <div className="flex items-center justify-center gap-1 text-amber-400 mb-1">
-                <Zap className="w-4 h-4" />
+                <Zap className="w-4 h-4" aria-hidden="true" />
                 <span className="font-bold">{Math.floor(Math.random() * 500) + 50}</span>
               </div>
               <p className="text-xs text-gray-500">Calls</p>
             </div>
-            <div className="bg-gray-800/50 rounded-lg p-3 text-center">
+            <div className="bg-gray-800/50 rounded-lg p-3 text-center" role="listitem">
               <p className="text-lg font-bold text-gray-300">{new Date(asset.createdAt).toLocaleDateString()}</p>
               <p className="text-xs text-gray-500">Created</p>
             </div>
@@ -137,9 +143,9 @@ console.log(asset);`;
           {asset.tags && asset.tags.length > 0 && (
             <div className="mb-6">
               <h3 className="text-sm font-medium text-gray-400 mb-2">Tags</h3>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2" role="list" aria-label="Asset tags">
                 {asset.tags.map((tag) => (
-                  <span key={tag} className="px-3 py-1 bg-gray-800 rounded-full text-sm text-gray-300">
+                  <span key={tag} role="listitem" className="px-3 py-1 bg-gray-800 rounded-full text-sm text-gray-300">
                     {tag}
                   </span>
                 ))}
@@ -153,16 +159,17 @@ console.log(asset);`;
               <h3 className="text-sm font-medium text-gray-400">Integration Code</h3>
               <button
                 onClick={handleCopyCode}
+                aria-label={copied ? 'Code copied to clipboard' : 'Copy integration code to clipboard'}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm transition-colors"
               >
                 {copied ? (
                   <>
-                    <Check className="w-4 h-4 text-green-400" />
+                    <Check className="w-4 h-4 text-green-400" aria-hidden="true" />
                     <span className="text-green-400">Copied!</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-4 h-4" />
+                    <Copy className="w-4 h-4" aria-hidden="true" />
                     <span>Copy Code</span>
                   </>
                 )}
@@ -180,33 +187,33 @@ console.log(asset);`}</code>
           {/* Meta Info */}
           <div className="bg-gray-800/30 rounded-lg p-4">
             <h3 className="text-sm font-medium text-gray-400 mb-3">Asset Details</h3>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <dl className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <span className="text-gray-500">Asset ID</span>
-                <p className="text-gray-300 font-mono text-xs mt-1">{asset.assetId}</p>
+                <dt className="text-gray-500">Asset ID</dt>
+                <dd className="text-gray-300 font-mono text-xs mt-1">{asset.assetId}</dd>
               </div>
               {asset.model && (
                 <div>
-                  <span className="text-gray-500">Model</span>
-                  <p className="text-gray-300 font-mono text-xs mt-1">{asset.model}</p>
+                  <dt className="text-gray-500">Model</dt>
+                  <dd className="text-gray-300 font-mono text-xs mt-1">{asset.model}</dd>
                 </div>
               )}
               <div>
-                <span className="text-gray-500">Node ID</span>
-                <p className="text-gray-300 font-mono text-xs mt-1">{asset.nodeId}</p>
+                <dt className="text-gray-500">Node ID</dt>
+                <dd className="text-gray-300 font-mono text-xs mt-1">{asset.nodeId}</dd>
               </div>
               <div>
-                <span className="text-gray-500">Status</span>
-                <p className="text-gray-300 text-xs mt-1">{asset.status}</p>
+                <dt className="text-gray-500">Status</dt>
+                <dd className="text-gray-300 text-xs mt-1">{asset.status}</dd>
               </div>
-            </div>
+            </dl>
           </div>
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between p-6 border-t border-gray-800 bg-gray-900">
           <button className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm transition-colors">
-            <ExternalLink className="w-4 h-4" />
+            <ExternalLink className="w-4 h-4" aria-hidden="true" />
             View on GitHub
           </button>
           <div className="flex gap-3">

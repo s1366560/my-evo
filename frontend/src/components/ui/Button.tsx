@@ -38,11 +38,18 @@ export interface ButtonProps
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, loading, children, disabled, ...props }, ref) => {
+    const isDisabled = disabled || loading;
+
     return (
       <button
-        className={clsx(buttonVariants({ variant, size, className }))}
+        className={clsx(
+          buttonVariants({ variant, size, className }),
+          loading && 'cursor-wait'
+        )}
         ref={ref}
-        disabled={disabled || loading}
+        disabled={isDisabled}
+        aria-disabled={isDisabled}
+        aria-busy={loading}
         {...props}
       >
         {loading && (
@@ -51,6 +58,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <circle
               className="opacity-25"
@@ -67,7 +75,12 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             />
           </svg>
         )}
-        {children}
+        <span className={loading ? 'sr-only' : undefined}>
+          {children}
+        </span>
+        {loading && (
+          <span className="sr-only">Loading, please wait</span>
+        )}
       </button>
     );
   }

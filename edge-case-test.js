@@ -9,8 +9,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const BASE_URL = 'http://127.0.0.1:3000';
-const BACKEND_URL = 'http://127.0.0.1:3001';
+const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3002';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:3001';
 const SCREENSHOT_DIR = '/workspace/my-evo/test-results/edge-case-screenshots';
 const REPORT_FILE = '/workspace/my-evo/test-results/edge-case-test-report.md';
 
