@@ -58,7 +58,7 @@ const gettingStarted = [
     href: '/onboarding',
   },
   {
-    title: 'Explore',
+    title: 'Browse',
     description: 'Browse 120K+ verified genes and capsules',
     href: '/marketplace',
   },
