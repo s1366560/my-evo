@@ -7,7 +7,7 @@ const { httpRequest, log, takeScreenshot } = require('../edge-case-test');
 async function run(tests) {
   log('=== Test Suite: Network Failure Recovery ===', 'suite');
   const suite = { name: 'Network Failure Recovery', tests: [] };
-  const BASE_URL = 'http://127.0.0.1:3000';
+  const BASE_URL = 'http://127.0.0.1:3002';
   const BACKEND_URL = 'http://127.0.0.1:3001';
   let browser;
 
