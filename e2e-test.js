@@ -11,8 +11,8 @@ const http = require('http');
 // Configuration
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3002';
 const BACKEND_URL = 'http://127.0.0.1:3001';
-const SCREENSHOT_DIR = '/workspace/my-evo/test-results/e2e-screenshots';
-const REPORT_FILE = '/workspace/my-evo/test-results/E2E-Test-Report.md';
+const SCREENSHOT_DIR = path.join(__dirname, 'test-results', 'e2e-screenshots');
+const REPORT_FILE = path.join(__dirname, 'test-results', 'E2E-Test-Report.md');
 
 // Test data
 const TEST_USER = {

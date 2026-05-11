@@ -5,7 +5,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 
-const SCREENSHOT_DIR = '/workspace/my-evo/test-results/ui-ux-screenshots';
+const SCREENSHOT_DIR = path.join(__dirname, 'test-results', 'ui-ux-screenshots');
 const results = { suites: [], summary: { total: 0, passed: 0, failed: 0, partial: 0 } };
 
 function log(msg) {
@@ -210,13 +210,13 @@ async function runTests() {
   }
   report += '2. **Overall**: UI/UX quality at ' + passRate + '% pass rate.\n';
   
-  fs.writeFileSync('/workspace/my-evo/test-results/ui-ux-audit-report.md', report);
+  fs.writeFileSync(path.join(__dirname, 'test-results', 'ui-ux-audit-report.md'), report);
   
   log('\n========================================');
   log('UI/UX Audit Summary');
   log('========================================');
   log('Total: ' + results.summary.total + ' | Passed: ' + results.summary.passed + ' | Failed: ' + results.summary.failed + ' | Rate: ' + passRate + '%');
-  log('Report: /workspace/my-evo/test-results/ui-ux-audit-report.md');
+  log('Report: ' + path.join(__dirname, 'test-results', 'ui-ux-audit-report.md'));
   log('Screenshots: ' + SCREENSHOT_DIR);
 }
 

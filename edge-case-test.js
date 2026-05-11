@@ -11,8 +11,8 @@ const path = require('path');
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3002';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://127.0.0.1:3001';
-const SCREENSHOT_DIR = '/workspace/my-evo/test-results/edge-case-screenshots';
-const REPORT_FILE = '/workspace/my-evo/test-results/edge-case-test-report.md';
+const SCREENSHOT_DIR = path.join(__dirname, 'test-results', 'edge-case-screenshots');
+const REPORT_FILE = path.join(__dirname, 'test-results', 'edge-case-test-report.md');
 
 if (!fs.existsSync(SCREENSHOT_DIR)) {
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });

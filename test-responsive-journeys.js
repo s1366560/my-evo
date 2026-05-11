@@ -8,7 +8,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 
 const BASE_URL = process.env.E2E_BASE_URL || 'http://127.0.0.1:3002';
-const OUT_DIR = '/workspace/my-evo/test-results/responsive-journeys';
+const OUT_DIR = path.join(__dirname, 'test-results', 'responsive-journeys');
 
 // Ensure output dirs
 ['mobile', 'tablet', 'desktop'].forEach(d => {
