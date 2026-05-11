@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { config } from '../config/index.js';
 
@@ -17,7 +17,7 @@ export interface NodeJwtPayload {
 // JWT utilities
 export function signToken(payload: JwtPayload): string {
   return jwt.sign(payload, config.jwt.secret, {
-    expiresIn: config.jwt.expiresIn,
+    expiresIn: config.jwt.expiresIn as jwt.SignOptions['expiresIn'],
   });
 }
 
@@ -27,7 +27,7 @@ export function verifyToken(token: string): JwtPayload {
 
 export function signNodeToken(payload: NodeJwtPayload): string {
   return jwt.sign(payload, config.jwt.secret, {
-    expiresIn: '30d', // Node tokens last longer
+    expiresIn: '30d' as jwt.SignOptions['expiresIn'], // Node tokens last longer
   });
 }
 
