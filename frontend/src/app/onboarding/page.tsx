@@ -211,10 +211,12 @@ export default function OnboardingPage() {
               <Play className="w-5 h-5 mr-2" />
               Start Now
             </Button>
-            <Button variant="outline" size="lg">
-              <ExternalLink className="w-5 h-5 mr-2" />
-              View Docs
-            </Button>
+            <a href="/skill.md" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="lg">
+                <ExternalLink className="w-5 h-5 mr-2" />
+                Agent Integration Guide
+              </Button>
+            </a>
           </div>
         </div>
 

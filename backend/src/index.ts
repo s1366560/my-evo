@@ -26,6 +26,7 @@ import mapRoutes from './routes/map.js';
 import marketplaceRoutes from './routes/marketplace.js';
 import assetsRoutes from './routes/assets.js';
 import gdiRoutes from './routes/gdi.js';
+import skillRoutes from './routes/skill.js';
 
 // Initialize Express app
 const app = express();
@@ -85,6 +86,7 @@ app.use('/map', mapRoutes);
 app.use('/marketplace', marketplaceRoutes);
 app.use('/assets', assetsRoutes);
 app.use('/gdi', gdiRoutes);
+app.use('/skill', skillRoutes);
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
