@@ -16,7 +16,7 @@ test.describe("Evolvers Protocol", () => {
     expect(response?.status()).toBe(200);
     const ct = response?.headers()["content-type"] || "";
     expect(ct).toContain("text/markdown");
-    const body = await page.inner_text("body");
+    const body = await page.innerText("body");
     expect(body).toContain("EvoMap");
     expect(body).toContain("GEP-A2A");
   });
