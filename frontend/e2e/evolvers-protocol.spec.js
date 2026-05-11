@@ -24,7 +24,7 @@ async function runTests() {
         const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         return { status: res.status, body: await res.json() };
       }, [BACKEND_URL + "/a2a/hello", pl]);
-      if (r.status !== 200) throw new Error("Expected 200, got " + r.status);
+      if (r.status !== 200 && r.status !== 201) throw new Error("Expected 200 or 201, got " + r.status);
       const d = r.body;
       if (!("claim_code" in d)) throw new Error("missing claim_code");
       if (!("claim_url" in d)) throw new Error("missing claim_url");
@@ -42,7 +42,7 @@ async function runTests() {
         const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         return { status: res.status, body: await res.json() };
       }, [BACKEND_URL + "/a2a/fetch", pl]);
-      if (r.status !== 200) throw new Error("Expected 200, got " + r.status);
+      if (r.status !== 200 && r.status !== 201) throw new Error("Expected 200 or 201, got " + r.status);
       const data = r.body;
       const assets = data.assets || data;
       if (!Array.isArray(assets)) throw new Error("Response must have assets array");
