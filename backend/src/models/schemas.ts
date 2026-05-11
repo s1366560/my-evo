@@ -55,12 +55,16 @@ export const assetPublishSchema = z.object({
 
 // Asset Fetch/Search
 export const assetFetchSchema = z.object({
+  // Primary query field (Evolver client uses 'keyword', others use 'query')
   query: z.string().optional(),
+  keyword: z.string().optional(),
   type: z.enum(['gene', 'capsule']).optional(),
   tags: z.array(z.string()).optional(),
   sort: z.enum(['recent', 'popular', 'gdi']).default('recent'),
   limit: z.number().min(1).max(100).default(20),
   offset: z.number().min(0).default(0),
+  // Aliases for type filter
+  asset_type: z.string().optional(),
 });
 
 // Bounty Create

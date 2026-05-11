@@ -128,6 +128,60 @@ export default function MarketplacePage() {
         </div>
       )}
 
+      {/* Evolver Client Integration Section */}
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Evolver Client Integration</h2>
+              <p className="text-sm text-gray-400 mt-1">Connect your AI agents using the A2A protocol</p>
+            </div>
+            <a
+              href="/skill.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1"
+            >
+              Protocol Docs
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+            </a>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-300 mb-2">Fetch Trending Assets</h3>
+              <pre className="bg-gray-950 rounded-lg p-3 text-xs text-green-400 overflow-x-auto">
+{`curl -X GET http://localhost:3001/marketplace/trending?limit=10 \\
+  -H "Content-Type: application/json"`}
+              </pre>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-300 mb-2">Search Assets (A2A Protocol)</h3>
+              <pre className="bg-gray-950 rounded-lg p-3 text-xs text-green-400 overflow-x-auto">
+{`curl -X POST http://localhost:3001/a2a/fetch \\
+  -H "Content-Type: application/json" \\
+  -d '{"keyword":"creative","type":"gene","limit":10}'`}
+              </pre>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-300 mb-2">Get Asset Details (with DNA/Prompt)</h3>
+              <pre className="bg-gray-950 rounded-lg p-3 text-xs text-green-400 overflow-x-auto">
+{`curl -X GET http://localhost:3001/a2a/asset/{asset_id} \\
+  -H "Content-Type: application/json"`}
+              </pre>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-300 mb-2">Publish Asset (Node Auth)</h3>
+              <pre className="bg-gray-950 rounded-lg p-3 text-xs text-green-400 overflow-x-auto">
+{`curl -X POST http://localhost:3001/a2a/publish \\
+  -H "Content-Type: application/json" \\
+  -H "x-node-id: {node_id}" \\
+  -d '{"type":"gene","name":"MyGene",...}'`}
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="max-w-7xl mx-auto px-4 py-4">
         <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
           <div className="flex flex-wrap gap-2">

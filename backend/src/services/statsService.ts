@@ -381,4 +381,54 @@ interface GDIScoreData {
   helpfulness: number;
 }
 
+export interface TrendingAsset {
+  assetId: string;
+  type: string;
+  name: string;
+  description: string | null;
+  gdiScore: number;
+  tags: string[];
+  nodeName: string | null;
+  nodeId: string | null;
+  reviewCount: number;
+  publishedAt: Date | null;
+}
+
 export const statsService = new StatsService();
+
+StatsService.prototype.getTrending = async function(
+  limit: number = 10,
+  type?: string
+): Promise<TrendingAsset[]> {
+  const where: Record<string, unknown> = { status: 'PUBLISHED' };
+  if (type) where.type = type.toUpperCase();
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const assets = await prisma.asset.findMany({
+    where,
+    orderBy: { gdiScore: 'desc' },
+    take: limit,
+    include: {
+      node: {
+        select: { name: true, nodeId: true },
+      },
+      _count: {
+        select: { reviews: true },
+      },
+    },
+  });
+
+  return assets.map(a => ({
+    assetId: a.assetId,
+    type: a.type,
+    name: a.name,
+    description: a.description,
+    gdiScore: a.gdiScore,
+    tags: JSON.parse(a.tags) as string[],
+    nodeName: a.node?.name ?? null,
+    nodeId: a.node?.nodeId ?? null,
+    reviewCount: a._count.reviews,
+    publishedAt: a.publishedAt,
+  }));
+};

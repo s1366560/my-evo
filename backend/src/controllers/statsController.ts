@@ -75,6 +75,25 @@ export class StatsController {
       });
     }
   }
+
+  /**
+   * GET /marketplace/trending - Get trending assets (EvoMap client gene discovery endpoint)
+   */
+  async getTrending(req: Request, res: Response): Promise<void> {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+      const type = req.query.type as string | undefined;
+
+      const trending = await statsService.getTrending(limit, type);
+      res.json({ trending, limit, type: type || 'all' });
+    } catch (error) {
+      console.error('Get trending error:', error);
+      res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Failed to get trending assets',
+      });
+    }
+  }
 }
 
 export const statsController = new StatsController();
