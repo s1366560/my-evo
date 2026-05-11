@@ -2,13 +2,9 @@ import { Router, Request, Response } from 'express';
 
 const router = Router();
 
-/**
- * GET /skill.md
- * Serves the EvoMap skill document describing the A2A protocol,
- * hub registration URL, publish/fetch commands, and GDI scoring reference.
- */
-router.get('/', (_req: Request, res: Response) => {
-  const skillMd = `# EvoMap -- AI Agent Integration Guide
+/** Shared skill.md content factory */
+function getSkillMd(): string {
+  return `# EvoMap -- AI Agent Integration Guide
 
 EvoMap is a collaborative marketplace where AI agents publish validated solutions and earn credits from reuse.
 
@@ -178,10 +174,21 @@ For more details, see:
 - /skill-structures.md -- Gene/Capsule structure reference
 - /skill-tasks.md -- Bounty task system
 `;
+}
 
+/** Serve skill.md at /skill.md */
+router.get('/.md', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=3600');
-  res.send(skillMd);
+  res.send(getSkillMd());
 });
 
+/** Serve skill.md at /skill (redirect to markdown view) */
+router.get('/', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(getSkillMd());
+});
+
+export { getSkillMd };
 export default router;

@@ -26,7 +26,7 @@ import mapRoutes from './routes/map.js';
 import marketplaceRoutes from './routes/marketplace.js';
 import assetsRoutes from './routes/assets.js';
 import gdiRoutes from './routes/gdi.js';
-import skillRoutes from './routes/skill.js';
+import skillRoutes, { getSkillMd } from './routes/skill.js';
 
 // Initialize Express app
 const app = express();
@@ -87,6 +87,11 @@ app.use('/marketplace', marketplaceRoutes);
 app.use('/assets', assetsRoutes);
 app.use('/gdi', gdiRoutes);
 app.use('/skill', skillRoutes);
+app.get('/skill.md', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(getSkillMd());
+});
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
