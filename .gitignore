@@ -68,3 +68,6 @@ skills/
 .parcel-cache/
 .tmp/
 tmp/
+
+# ===== Test screenshots / visual artifacts =====
+screenshots/
