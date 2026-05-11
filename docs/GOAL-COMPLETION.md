@@ -22,13 +22,12 @@ This artifact confirms the goal is complete at v1.0.0 with the evidence and gap 
 
 | Category | Artifact | Path |
 |----------|----------|------|
-| Acceptance | Stakeholder Sign-Off | `docs/final-deliverable/ACCEPTANCE-EVIDENCE.md` |
 | Acceptance | Acceptance Evidence | `docs/final-deliverable/ACCEPTANCE-EVIDENCE.md` |
 | Parity | Final Parity Report | `docs/parity/FINAL-PARITY-REPORT.md` |
 | Sprint | Iteration Sprint Plan | `docs/iteration-sprint-plan.md` |
-| Test | Sprint Test Report | `test-results/iteration-sprint/SPRINT-TEST-REPORT.md` |
-| Build | Production Build Report | `test-results/production-build/BUILD-REPORT.md` |
-| Preview | Sandbox Preview Evidence | `docs/preview/SANDBOX-PREVIEW-EVIDENCE.md` |
+| Test | Comprehensive Test Report | `docs/GOAL-COMPLETION-REPORT.md` |
+| Build | Production Build Report | `docs/PRODUCTION-BUILD-REPORT.md` |
+| Preview | Sandbox Preview Evidence | `docs/PREVIEW-EVIDENCE.md` |
 | Architecture | Architecture Doc Index | `docs/architecture/` (6 documents) |
 | Docs | Project Index | `docs/INDEX.md` |
 
@@ -84,11 +83,11 @@ This artifact confirms the goal is complete at v1.0.0 with the evidence and gap 
 
 ---
 
-## 5. Stakeholder Sign-Off
+## 5. Acceptance Evidence
 
-- **Stakeholder Acceptance**: `docs/final-deliverable/ACCEPTANCE-EVIDENCE.md`
-- **Stakeholder Sign-Off**: `docs/final-deliverable/STAKEHOLDER-ACCEPTANCE-SIGNOFF.md`
-- **Commit**: `b77a77e8` — "docs: stakeholder acceptance sign-off"
+- **Acceptance Evidence**: `docs/final-deliverable/ACCEPTANCE-EVIDENCE.md`
+- **Comprehensive Test Report**: `docs/GOAL-COMPLETION-REPORT.md`
+- **Commit**: `d854743f` — "docs: add GOAL-COMPLETION.md - definitive master-level acceptance artifact"
 
 ---
 
