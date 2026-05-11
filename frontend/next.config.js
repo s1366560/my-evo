@@ -12,15 +12,8 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
   async rewrites() {
-    // Only use proxy in development; in production, API routes handle backend calls directly
-    if (process.env.NODE_ENV === 'development') {
-      return [
-        {
-          source: '/api/frontend/:path*',
-          destination: 'http://localhost:4000/:path*',
-        },
-      ];
-    }
+    // API routes under /api/frontend/ are handled by Next.js route.ts handlers
+    // No rewrites needed - route.ts files proxy to BACKEND_URL
     return [];
   },
 };

@@ -8,7 +8,7 @@ async function run(tests) {
   log('=== Test Suite: Large Dataset Visualization ===', 'suite');
   const suite = { name: 'Large Dataset Visualization', tests: [] };
   const BACKEND_URL = 'http://127.0.0.1:3001';
-  const BASE_URL = 'http://127.0.0.1:3000';
+  const BASE_URL = 'http://127.0.0.1:3002';
 
   // 1. Create 100 nodes efficiently
   try {
