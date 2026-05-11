@@ -209,6 +209,12 @@ async function testUserPreferencesPersistence(page) {
   log('Test: User preferences saving', 'step');
   try {
     // Navigate to workspace/dashboard (authenticated area for preferences)
+    // Skip if page is in crashed state
+    if (page.isClosed()) {
+      recordTest('User preferences page accessible', false, 'Page crashed (sandbox limitation)');
+      recordTest('Local preference keys exist', false, 'Page crashed (sandbox limitation)');
+      return;
+    }
     await page.goto(`${BASE_URL}/workspace`, { timeout: 15000 });
     await waitForLoad(page);
     
@@ -240,6 +246,11 @@ async function testUserPreferencesPersistence(page) {
 async function testMarketplaceFavoritesPersistence(page) {
   log('Test: Marketplace favorites persistence', 'step');
   try {
+    // Skip if page is in crashed state
+    if (page.isClosed()) {
+      recordTest('Marketplace favorites persistence', false, 'Page crashed (sandbox limitation)');
+      return;
+    }
     await page.goto(`${BASE_URL}/marketplace`, { timeout: 15000 });
     await waitForLoad(page);
     
@@ -271,6 +282,11 @@ async function testMarketplaceFavoritesPersistence(page) {
 async function testSessionPersistence(page) {
   log('Test: Session persistence across navigation', 'step');
   try {
+    // Skip if page is in crashed state
+    if (page.isClosed()) {
+      recordTest('Session token persistence across navigation', false, 'Page crashed (sandbox limitation)');
+      return;
+    }
     const tokenAfterLogin = await page.evaluate(() => localStorage.getItem('token'));
     
     if (!tokenAfterLogin) {
@@ -334,6 +350,12 @@ async function testBackendDBPersistence() {
 async function testDataConsistency(page) {
   log('Test: Data consistency check', 'step');
   try {
+    // Skip if page is in crashed state
+    if (page.isClosed()) {
+      recordTest('localStorage availability', false, 'Page crashed (sandbox limitation)');
+      recordTest('localStorage has stored data', false, 'Page crashed (sandbox limitation)');
+      return;
+    }
     const consistencyResults = await page.evaluate(() => {
       return {
         localStorageAvailable: typeof localStorage !== 'undefined',
@@ -356,6 +378,11 @@ async function testDataConsistency(page) {
 async function testLocalStorageIntegrity(page) {
   log('Test: localStorage data integrity', 'step');
   try {
+    // Skip if page is in crashed state
+    if (page.isClosed()) {
+      recordTest('localStorage data integrity (JSON)', false, 'Page crashed (sandbox limitation)');
+      return;
+    }
     // Test JSON serialization/deserialization
     const testData = { complex: { nested: [1, 2, 3], bool: true }, string: 'test' };
     await page.evaluate((data) => {
@@ -419,13 +446,49 @@ async function runPersistenceTests() {
     
     // Run persistence tests (testLocalStorageTokenPersistence handles registration)
     await testLocalStorageTokenPersistence(page);
+    
+    // Recreate page if closed after each navigation test
+    if (page.isClosed() && context) {
+      page = await context.newPage();
+    }
+    
     await testMapConfigPresetsPersistence(page);
+    
+    if (page.isClosed() && context) {
+      page = await context.newPage();
+    }
+    
     await testMapViewportPersistence(page);
+    
+    if (page.isClosed() && context) {
+      page = await context.newPage();
+    }
+    
     await testUserPreferencesPersistence(page);
+    
+    if (page.isClosed() && context) {
+      page = await context.newPage();
+    }
+    
     await testMarketplaceFavoritesPersistence(page);
+    
+    if (page.isClosed() && context) {
+      page = await context.newPage();
+    }
+    
     await testSessionPersistence(page);
+    
+    if (page.isClosed() && context) {
+      page = await context.newPage();
+    }
+    
     await testDataConsistency(page);
     await testBackendDBPersistence();
+    
+    if (page.isClosed() && context) {
+      page = await context.newPage();
+    }
+    
     await testLocalStorageIntegrity(page);
     await testSavedMapPersistence();
     
