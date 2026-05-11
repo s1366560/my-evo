@@ -8,10 +8,10 @@
 
 | Category | Passed | Failed | Total |
 |----------|--------|--------|-------|
-| Backend Unit Tests (Jest) | 118 | 0 | 118 |
+| Backend Unit Tests (Jest) | 117 | 0 | 117 |
 | Integration Tests | — | — | — |
 | E2E Tests (Playwright) | — | — | — |
-| **Total** | **118** | **0** | **118** |
+| **Total** | **117** | **0** | **117** |
 
 ## Backend Unit Tests (Jest — `npm test`)
 
@@ -22,8 +22,8 @@
 | `gdiScoring.test.ts` | 10 | PASS |
 | `schemas.test.ts` | 26 | PASS |
 | `security.integration.test.ts` | 19 | PASS |
-| `security.test.ts` | 25 | PASS |
-| **Total** | **118** | **0** |
+| `security.test.ts` | 24 | PASS |
+| **Total** | **117** | **0** |
 
 ### Run Command
 ```bash
