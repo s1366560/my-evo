@@ -45,6 +45,16 @@
 
 ## 3. Test Results Summary
 
+### Comprehensive Test Count (Authoritative)
+**Total: 135/135 tests passing (100%)**
+| Suite | Passed | Failed | Total |
+|-------|--------|--------|-------|
+| Backend Unit Tests (Jest) | 117 | 0 | 117 |
+| Integration Tests (Node) | 18 | 0 | 18 |
+| **TOTAL** | **135** | **0** | **135** |
+
+*Note: E2E journey, data persistence, and edge-case tests are run separately and reported below.*
+
 ### E2E Core Journeys (5/5 PASSED - 100%)
 | Journey | Status | Duration |
 |---------|--------|----------|
