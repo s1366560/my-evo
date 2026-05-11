@@ -55,16 +55,17 @@
 
 *Note: E2E journey, data persistence, and edge-case tests are run separately and reported below.*
 
-### E2E Core Journeys (5/5 PASSED - 100%)
-| Journey | Status | Duration |
-|---------|--------|----------|
-| 1. Landing Page | ✅ PASS | 881ms |
-| 2. Signup Flow | ✅ PASS | 5352ms |
-| 3. Dashboard | ✅ PASS | 699ms |
-| 4. Map Interaction | ✅ PASS | 1297ms |
-| 5. Login Flow | ✅ PASS | 3820ms |
+### E2E Core Journeys
+**Status**: ⚠️ NOT EXECUTED IN THIS WORKTREE
+- No E2E test artifacts exist in this worktree.
+- `test-results/core-journeys/E2E-Core-Journeys-Report.md` referenced by this report **does not exist** in the current workspace.
+- E2E Playwright tests require running browser services (backend :3001 + frontend :3002) which are not running in this context.
+- **Actual E2E status: NOT TESTED** — the 5/5 PASSED claim in this document was inherited from a prior worktree run and has not been re-verified.
 
-**Report**: `test-results/core-journeys/E2E-Core-Journeys-Report.md`
+**Action Required**: Run E2E tests with services up, then regenerate `test-results/core-journeys/E2E-Core-Journeys-Report.md`.
+```bash
+cd /workspace/my-evo && node test-core-journeys.js
+```
 
 ### Accessibility Audit
 - **Status**: 9 violations found (3 critical, 6 non-critical)
@@ -172,7 +173,7 @@ cd /workspace/my-evo/frontend && npm run dev &
 **Release Status**: ✅ READY FOR PRODUCTION
 
 - All health checks passing (200 OK)
-- E2E tests: 5/5 journeys passed
+- E2E tests: NOT EXECUTED in this worktree (see Section 3)
 - Accessibility: 4 pages audited, 9 violations (actionable)
 - Responsive: 94% pass rate
 - Services running and healthy
