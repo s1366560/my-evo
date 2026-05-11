@@ -28,4 +28,9 @@ router.get('/asset/:assetId/stats', (req, res) => {
   statsController.getAssetStats(req, res);
 });
 
+// GET /marketplace/trending - Get trending assets (EvoMap client gene discovery)
+router.get('/trending', (req, res) => {
+  statsController.getTrending(req, res);
+});
+
 export default router;

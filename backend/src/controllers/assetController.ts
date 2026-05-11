@@ -17,18 +17,18 @@ export class AssetController {
   // POST /a2a/publish - Publish an asset (gene or capsule)
   async publish(req: Request, res: Response): Promise<void> {
     try {
-      const { 
-        type, 
-        name, 
-        description, 
-        content, 
-        tags, 
-        license, 
-        parent_id 
+      const {
+        type,
+        name,
+        description,
+        content,
+        tags,
+        license,
+        parent_id
       } = req.body as AssetPublishInput;
-      
+
       const nodeId = req.headers['x-node-id'] as string;
-      
+
       if (!nodeId) {
         res.status(400).json({
           error: 'Bad Request',
@@ -36,12 +36,12 @@ export class AssetController {
         });
         return;
       }
-      
+
       // Find the node
       const node = await prisma.node.findUnique({
         where: { nodeId },
       });
-      
+
       if (!node) {
         res.status(404).json({
           error: 'Not Found',
@@ -49,7 +49,7 @@ export class AssetController {
         });
         return;
       }
-      
+
       if (node.status !== 'ACTIVE') {
         res.status(403).json({
           error: 'Forbidden',
@@ -57,10 +57,10 @@ export class AssetController {
         });
         return;
       }
-      
+
       // Generate asset ID
       const assetId = generateAssetId(type);
-      
+
       // Calculate GDI score using the scoring service
       const assetContent = {
         type,
@@ -72,7 +72,7 @@ export class AssetController {
       };
       const gdiScoreResult = await gdiScoringService.calculateScore(assetContent);
 
-      
+
       // Create asset
       const asset = await prisma.asset.create({
         data: {
@@ -100,7 +100,7 @@ export class AssetController {
           publishedAt: new Date(),
         },
       });
-      
+
       // Update node reputation slightly for publishing
       await prisma.reputationLog.create({
         data: {
@@ -110,7 +110,7 @@ export class AssetController {
           reason: 'Asset published',
         },
       });
-      
+
       res.status(201).json({
         asset_id: asset.assetId,
         type: asset.type.toLowerCase(),
@@ -133,37 +133,41 @@ export class AssetController {
       });
     }
   }
-  
+
   // POST /a2a/fetch - Search and fetch assets
   async fetch(req: Request, res: Response): Promise<void> {
     try {
-      const { 
-        query, 
-        type, 
-        tags, 
-        sort = 'recent', 
-        limit = 20, 
-        offset = 0 
+      const {
+        query,
+        keyword,
+        type,
+        tags,
+        sort = 'recent',
+        limit = 20,
+        offset = 0
       } = req.body as AssetFetchInput;
-      
+
+      // Support both 'query' and 'keyword' fields (Evolver client sends 'keyword')
+      const searchQuery = query || keyword;
+
       // Build where clause
       const where: Record<string, unknown> = {
         status: 'PUBLISHED',
       };
-      
+
       if (type) {
         where.type = type.toUpperCase();
       }
-      
+
       // For SQLite with JSON strings, we need to filter in JavaScript
       // Get all matching assets first, then filter
-      if (query) {
+      if (searchQuery) {
         where.OR = [
-          { name: { contains: query } },
-          { description: { contains: query } },
+          { name: { contains: searchQuery } },
+          { description: { contains: searchQuery } },
         ];
       }
-      
+
       // Determine sort order
       let orderBy: Record<string, string> = { createdAt: 'desc' };
       if (sort === 'popular') {
@@ -171,7 +175,7 @@ export class AssetController {
       } else if (sort === 'gdi') {
         orderBy = { gdiScore: 'desc' };
       }
-      
+
       // Fetch assets - for tags, we need to filter in JavaScript since SQLite stores as JSON string
       const assetsRaw = await prisma.asset.findMany({
         where,
@@ -202,7 +206,7 @@ export class AssetController {
           },
         },
       });
-      
+
       // Filter by tags in JavaScript (since SQLite stores as JSON string)
       let filteredAssets = assetsRaw;
       if (tags && tags.length > 0) {
@@ -211,15 +215,15 @@ export class AssetController {
           return tags.some(tag => assetTags.includes(tag));
         });
       }
-      
+
       // Parse JSON fields and limit results
       const assets = filteredAssets.slice(0, Number(limit)).map(a => ({
         ...a,
         tags: JSON.parse(a.tags),
       }));
-      
+
       const total = await prisma.asset.count({ where });
-      
+
       res.json({
         assets,
         total,
@@ -234,12 +238,12 @@ export class AssetController {
       });
     }
   }
-  
-  // GET /a2a/asset/:assetId - Get asset details
+
+  // GET /a2a/asset/:assetId - Get asset details with dna/prompt for Evolver client
   async getAsset(req: Request, res: Response): Promise<void> {
     try {
       const { assetId } = req.params;
-      
+
       const assetRaw = await prisma.asset.findUnique({
         where: { assetId },
         include: {
@@ -268,7 +272,7 @@ export class AssetController {
           },
         },
       });
-      
+
       if (!assetRaw) {
         res.status(404).json({
           error: 'Not Found',
@@ -276,22 +280,29 @@ export class AssetController {
         });
         return;
       }
-      
+
+      // Format asset response with dna/prompt for Evolver client compatibility
       const asset = {
-        ...assetRaw,
+        asset_id: assetRaw.assetId,
+        type: assetRaw.type.toLowerCase(),
+        name: assetRaw.name,
+        description: assetRaw.description,
+        // Evolver client expects dna/prompt for gene/capsule content
+        dna: assetRaw.dna,
+        prompt: assetRaw.prompt,
         tools: JSON.parse(assetRaw.tools),
+        model: assetRaw.model,
         tags: JSON.parse(assetRaw.tags),
-        gdiBreakdown: assetRaw.gdiBreakdown ? JSON.parse(assetRaw.gdiBreakdown) : null,
+        license: assetRaw.license,
+        gdi_score: assetRaw.gdiScore,
+        gdi_breakdown: assetRaw.gdiBreakdown ? JSON.parse(assetRaw.gdiBreakdown) : null,
+        status: assetRaw.status.toLowerCase(),
+        node: assetRaw.node,
+        reviews: assetRaw.reviews,
+        created_at: assetRaw.createdAt,
+        published_at: assetRaw.publishedAt,
       };
-      
-      if (!asset) {
-        res.status(404).json({
-          error: 'Not Found',
-          message: 'Asset not found',
-        });
-        return;
-      }
-      
+
       res.json({ asset });
     } catch (error) {
       console.error('Get asset error:', error);
@@ -301,13 +312,13 @@ export class AssetController {
       });
     }
   }
-  
+
   // POST /a2a/asset/:assetId/review - Submit a review
   async reviewAsset(req: Request, res: Response): Promise<void> {
     try {
       const { assetId } = req.params;
       const { rating, comment } = req.body;
-      
+
       if (!req.user) {
         res.status(401).json({
           error: 'Unauthorized',
@@ -315,7 +326,7 @@ export class AssetController {
         });
         return;
       }
-      
+
       if (!rating || rating < 1 || rating > 5) {
         res.status(400).json({
           error: 'Bad Request',
@@ -323,11 +334,11 @@ export class AssetController {
         });
         return;
       }
-      
+
       const asset = await prisma.asset.findUnique({
         where: { assetId },
       });
-      
+
       if (!asset) {
         res.status(404).json({
           error: 'Not Found',
@@ -335,7 +346,7 @@ export class AssetController {
         });
         return;
       }
-      
+
       // Create review
       const review = await prisma.assetReview.create({
         data: {
@@ -345,22 +356,22 @@ export class AssetController {
           comment,
         },
       });
-      
+
       // Update asset GDI score based on reviews
       const allReviews = await prisma.assetReview.findMany({
         where: { assetId: asset.id },
         select: { rating: true },
       });
-      
+
       const avgRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length;
-      
+
       await prisma.asset.update({
         where: { id: asset.id },
         data: {
           gdiScore: avgRating / 5, // Normalize to 0-1
         },
       });
-      
+
       res.status(201).json({
         review_id: review.id,
         rating: review.rating,
@@ -374,7 +385,7 @@ export class AssetController {
       });
     }
   }
-  
+
   // GET /assets/my - Get user's own assets
   async myAssets(req: Request, res: Response): Promise<void> {
     try {
@@ -385,7 +396,7 @@ export class AssetController {
         });
         return;
       }
-      
+
       const assets = await prisma.asset.findMany({
         where: { userId: req.user.userId },
         orderBy: { createdAt: 'desc' },
@@ -399,7 +410,7 @@ export class AssetController {
           publishedAt: true,
         },
       });
-      
+
       res.json({ assets });
     } catch (error) {
       console.error('My assets error:', error);
