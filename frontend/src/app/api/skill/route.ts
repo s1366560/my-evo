@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Accept': 'text/markdown',
       },
-      cache: { revalidate: 3600 }, // Cache for 1 hour
+      next: { revalidate: 3600 }, // Cache for 1 hour
     });
 
     if (!response.ok) {
