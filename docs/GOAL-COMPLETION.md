@@ -238,5 +238,37 @@ Tests:       15 passed, 15 total
 
 ---
 
+## 11. Worktree Cleanup & Merge Consolidation (Added 2026-05-12)
+
+### 11.1 Cleanup Summary
+
+| Item | Before | After |
+|------|--------|-------|
+| Git worktree registrations | 564 | 1 (main repo only) |
+| Disk worktree directories | 564 | 0 |
+| `workspace/*` branches | 578 | 0 |
+| Remaining branches | — | `master`, `master-with-history-backup` |
+
+### 11.2 Merge Verification
+
+- All worktree commits are ancestors of master HEAD — **zero unique commits lost**
+- HEAD: `9679378430b42ac36d90712e680149a75035370e` (Merge commit '51412533')
+- master is 9 commits ahead of origin/master
+- `git status --short`: empty (clean)
+
+### 11.3 Push Status
+
+**BLOCKED**: `git push origin master` fails with exit code 128:
+```
+fatal: could not read Username for 'https://github.com': No such device or address
+```
+The sandbox has no `GITHUB_TOKEN`, SSH key, git-credential helper, or `gh` CLI configured.
+Remote: `https://github.com/s1366560/my-evo.git` (requires HTTPS auth).
+
+This is an **environmental limitation** — not a code or merge issue.
+A human must provide GitHub credentials (e.g. `GITHUB_TOKEN` env var) to complete the push.
+
+---
+
 *Artifact path (worktree-scoped)*: `docs/GOAL-COMPLETION.md`
 *Artifact location note*: This artifact is written to the active attempt worktree path as required by sandbox worktree isolation policy.
