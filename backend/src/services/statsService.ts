@@ -371,6 +371,46 @@ export class StatsService {
       similarAssets: asset.node.assets.map(a => a.assetId),
     };
   }
+
+  /**
+   * Get trending assets by GDI score
+   */
+  async getTrending(
+    limit: number = 10,
+    type?: string
+  ): Promise<TrendingAsset[]> {
+    const where: Record<string, unknown> = { status: 'PUBLISHED' };
+    if (type) where.type = type.toUpperCase();
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const assets = await prisma.asset.findMany({
+      where,
+      orderBy: { gdiScore: 'desc' },
+      take: limit,
+      include: {
+        node: {
+          select: { name: true, nodeId: true },
+        },
+        _count: {
+          select: { reviews: true },
+        },
+      },
+    });
+
+    return assets.map(asset => ({
+      assetId: asset.assetId,
+      type: asset.type,
+      name: asset.name,
+      description: asset.description,
+      gdiScore: asset.gdiScore,
+      tags: typeof asset.tags === 'string' ? JSON.parse(asset.tags) : (asset.tags || []),
+      nodeName: asset.node?.name || null,
+      nodeId: asset.node?.nodeId || null,
+      reviewCount: asset._count.reviews,
+      publishedAt: asset.publishedAt,
+    }));
+  }
 }
 
 interface GDIScoreData {
