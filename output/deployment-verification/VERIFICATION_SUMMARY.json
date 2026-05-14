@@ -1,0 +1,42 @@
+{
+  "deployment_id": "sandbox-968e85a8-20260514",
+  "timestamp": "2026-05-14T03:54:00Z",
+  "services": {
+    "backend": {
+      "name": "My Evo Backend API",
+      "status": "running",
+      "port": 3001,
+      "health_endpoint": "http://localhost:3001/health",
+      "endpoints_verified": [
+        {"path": "/health", "method": "GET", "status": 200, "response_time_ms": 3},
+        {"path": "/health/detailed", "method": "GET", "status": 200},
+        {"path": "/ready", "method": "GET", "status": 200, "ready": true},
+        {"path": "/live", "method": "GET", "status": 200, "alive": true},
+        {"path": "/auth/register", "method": "POST", "status": 200},
+        {"path": "/a2a/hello", "method": "POST", "status": 200}
+      ],
+      "database": {
+        "type": "SQLite",
+        "status": "up",
+        "latency_ms": 3
+      },
+      "version": "1.0.0"
+    },
+    "frontend": {
+      "name": "My Evo Frontend",
+      "status": "running",
+      "port": 3002,
+      "base_url": "http://localhost:3002",
+      "pages_verified": [
+        {"path": "/", "status": 200, "rendering": "SSR", "components": ["Navigation", "Hero", "Footer"]}
+      ],
+      "framework": "Next.js 14",
+      "language": "TypeScript"
+    }
+  },
+  "preflight_checks": {
+    "read_progress": "passed",
+    "git_status": "clean"
+  },
+  "overall_status": "DEPLOYED_SUCCESSFULLY"
+}
