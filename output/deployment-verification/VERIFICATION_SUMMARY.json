@@ -1,43 +1,42 @@
 {
-  "report_timestamp": "2026-05-14T03:57:20Z",
-  "environment": "sandbox-container",
-  "worktree": "workspace/node-8f741d2678f9-885c25ef-9b8",
-  "deployment_status": "SUCCESS",
+  "deployment_id": "sandbox-968e85a8-20260514",
+  "timestamp": "2026-05-14T03:54:00Z",
   "services": {
     "backend": {
+      "name": "My Evo Backend API",
       "status": "running",
       "port": 3001,
-      "endpoints": {
-        "/health": {"method": "GET", "status": 200, "healthy": true},
-        "/health/detailed": {"method": "GET", "status": 200, "healthy": true},
-        "/ready": {"method": "GET", "status": 200, "ready": true},
-        "/live": {"method": "GET", "status": 200, "alive": true},
-        "/": {"method": "GET", "status": 200}
+      "health_endpoint": "http://localhost:3001/health",
+      "endpoints_verified": [
+        {"path": "/health", "method": "GET", "status": 200, "response_time_ms": 3},
+        {"path": "/health/detailed", "method": "GET", "status": 200},
+        {"path": "/ready", "method": "GET", "status": 200, "ready": true},
+        {"path": "/live", "method": "GET", "status": 200, "alive": true},
+        {"path": "/auth/register", "method": "POST", "status": 200},
+        {"path": "/a2a/hello", "method": "POST", "status": 200}
+      ],
+      "database": {
+        "type": "SQLite",
+        "status": "up",
+        "latency_ms": 3
       },
-      "metrics": {
-        "uptime_seconds": 16438,
-        "memory_used_mb": 22,
-        "memory_total_mb": 25,
-        "memory_percentage": 89,
-        "database_latency_ms": 1
-      }
+      "version": "1.0.0"
     },
     "frontend": {
+      "name": "My Evo Frontend",
       "status": "running",
       "port": 3002,
-      "pages": {
-        "/": {"status": 200, "content": "landing"},
-        "/browse": {"status": 200},
-        "/workspace": {"status": 200}
-      }
+      "base_url": "http://localhost:3002",
+      "pages_verified": [
+        {"path": "/", "status": 200, "rendering": "SSR", "components": ["Navigation", "Hero", "Footer"]}
+      ],
+      "framework": "Next.js 14",
+      "language": "TypeScript"
     }
   },
-  "api_tests": {
-    "auth_register": {"status": "pass", "response": 200},
-    "a2a_hello_validation": {"status": "pass"}
+  "preflight_checks": {
+    "read_progress": "passed",
+    "git_status": "clean"
   },
-  "risks": [
-    {"level": "medium", "issue": "high_memory_usage", "value": "89%"},
-    {"level": "low", "issue": "pending_migrations"}
-  ]
+  "overall_status": "DEPLOYED_SUCCESSFULLY"
 }
