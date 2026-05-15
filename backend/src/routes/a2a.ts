@@ -111,4 +111,42 @@ router.delete('/memory', authenticateNode, (req, res) => {
   memoryController.delete(req, res);
 });
 
+// SSE Stream Test - Real-time event streaming
+router.get('/stream/test', (_req: any, res: any) => {
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders();
+
+  // Send initial connection event
+  res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: Date.now() })}\n\n`);
+
+  // Send periodic events
+  let count = 0;
+  const interval = setInterval(() => {
+    count++;
+    const event = {
+      type: 'ping',
+      count,
+      timestamp: Date.now(),
+      message: `SSE Event #${count}`,
+    };
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    
+    // Close after 10 events
+    if (count >= 10) {
+      clearInterval(interval);
+      res.write(`data: ${JSON.stringify({ type: 'done', total: count })}\n\n`);
+      res.end();
+    }
+  }, 1000);
+
+  // Handle client disconnect
+  _req.on('close', () => {
+    clearInterval(interval);
+  });
+});
+
 export default router;
