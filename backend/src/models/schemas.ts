@@ -1,108 +1,167 @@
 import { z } from 'zod';
 
-// User Registration
+// ============================================================
+// Auth Schemas
+// ============================================================
 export const registerSchema = z.object({
   email: z.string().email('Invalid email format'),
-  username: z.string()
-    .min(3, 'Username must be at least 3 characters')
-    .max(20, 'Username must be at most 20 characters')
-    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
-  password: z.string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one number'),
+  username: z.string().min(3, 'Username must be at least 3 characters').max(30, 'Username too long'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
-// User Login
 export const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
 });
 
-// A2A Hello (Node Registration)
-export const a2aHelloSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100, 'Name too long'),
-  description: z.string().max(500, 'Description too long').optional(),
-  capabilities: z.array(z.string()).default([]),
-  version: z.string().optional(),
-  endpoint: z.string().url('Invalid endpoint URL').optional(),
-});
-
-// A2A Heartbeat
-export const a2aHeartbeatSchema = z.object({
-  node_id: z.string(),
-  status: z.enum(['active', 'busy', 'idle']),
-  active_tasks: z.array(z.string()).default([]),
-  load: z.number().min(0).max(1).optional(),
-});
-
-// Asset Publish
-export const assetPublishSchema = z.object({
-  type: z.enum(['gene', 'capsule']),
-  name: z.string().min(1, 'Name is required').max(200, 'Name too long'),
-  description: z.string().max(2000, 'Description too long').optional(),
-  content: z.object({
-    dna: z.string().optional(),
-    prompt: z.string().optional(),
-    tools: z.array(z.string()).default([]),
-    model: z.string().optional(),
-  }),
-  tags: z.array(z.string()).max(10, 'Maximum 10 tags').default([]),
-  license: z.enum(['MIT', 'Apache-2.0', 'GPL-3.0', 'CLOSED']).default('MIT'),
-  parent_id: z.string().uuid().optional(),
-});
-
-// Asset Fetch/Search
-export const assetFetchSchema = z.object({
-  // Primary query field (Evolver client uses 'keyword', others use 'query')
-  query: z.string().optional(),
-  keyword: z.string().optional(),
-  type: z.enum(['gene', 'capsule']).optional(),
-  tags: z.array(z.string()).optional(),
-  sort: z.enum(['recent', 'popular', 'gdi']).default('recent'),
-  limit: z.number().min(1).max(100).default(20),
-  offset: z.number().min(0).default(0),
-  // Aliases for type filter
-  asset_type: z.string().optional(),
-});
-
-// Bounty Create
-export const bountyCreateSchema = z.object({
-  title: z.string().min(1, 'Title is required').max(200, 'Title too long'),
-  description: z.string().min(10, 'Description too short').max(5000, 'Description too long'),
-  requirements: z.string().max(2000).optional(),
-  reward: z.number().positive('Reward must be positive'),
-  expires_in_days: z.number().min(1).max(90).default(30),
-});
-
-// Bounty Claim
-export const bountyClaimSchema = z.object({
-  bounty_id: z.string(),
-});
-
-// Bounty Deliverable Submit
-export const bountyDeliverableSchema = z.object({
-  deliverable: z.string().min(1, 'Deliverable is required'),
-  feedback: z.string().max(1000).optional(),
-});
-
-// Memory Store
-export const memoryStoreSchema = z.object({
-  type: z.enum(['fact', 'skill', 'experience', 'rule']),
-  content: z.string().min(1, 'Content is required'),
-  embedding: z.array(z.number()).optional(),
-  metadata: z.record(z.unknown()).optional(),
-});
-
-// Types export
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
-export type A2AHelloInput = z.infer<typeof a2aHelloSchema>;
-export type A2AHeartbeatInput = z.infer<typeof a2aHeartbeatSchema>;
-export type AssetPublishInput = z.infer<typeof assetPublishSchema>;
-export type AssetFetchInput = z.infer<typeof assetFetchSchema>;
+
+// ============================================================
+// A2A / Node Schemas
+// ============================================================
+export const a2aHelloSchema = z.object({
+  name: z.string().min(1, 'Node name is required'),
+  description: z.string().optional().default(''),
+  capabilities: z.array(z.string()).optional().default([]),
+  version: z.string().optional(),
+  endpoint: z.string().url().optional().or(z.string().max(0)).optional().default(''),
+});
+
+export const a2aHeartbeatSchema = z.object({
+  nodeId: z.string().min(1, 'nodeId is required'),
+  status: z.enum(['IDLE', 'BUSY', 'OFFLINE']).optional().default('IDLE'),
+  load: z.number().min(0).max(1).optional(),
+  activeTasks: z.number().int().min(0).optional(),
+});
+
+export const a2aNodeVerifySchema = z.object({
+  nodeId: z.string().min(1, 'nodeId is required'),
+  action: z.enum(['activate', 'deactivate', 'block']).optional().default('activate'),
+});
+
+// ============================================================
+// Asset Schemas
+// ============================================================
+export const assetPublishSchema = z.object({
+  type: z.enum(['GENE', 'CAPSULE']),
+  name: z.string().min(1, 'Asset name is required'),
+  description: z.string().optional().default(''),
+  content: z.object({
+    dna: z.string().optional().default(''),
+    prompt: z.string().optional().default(''),
+  }).optional().default({}),
+  tools: z.array(z.string()).optional().default([]),
+  model: z.string().optional(),
+  tags: z.array(z.string()).optional().default([]),
+  license: z.enum(['MIT', 'APACHE_2', 'GPL_3', 'CLOSED']).optional().default('MIT'),
+  parentId: z.string().optional(),
+});
+
+export const assetFetchSchema = z.object({
+  query: z.string().optional(),
+  type: z.enum(['GENE', 'CAPSULE']).optional(),
+  tags: z.array(z.string()).optional(),
+  status: z.enum(['PUBLISHED']).optional().default('PUBLISHED'),
+  limit: z.number().int().min(1).max(100).optional().default(20),
+  offset: z.number().int().min(0).optional().default(0),
+  sortBy: z.enum(['gdiScore', 'createdAt', 'name']).optional().default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
+});
+
+export const assetReviewSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().optional(),
+});
+
+// ============================================================
+// Memory Schemas
+// ============================================================
+export const memoryStoreSchema = z.object({
+  type: z.enum(['FACT', 'SKILL', 'EXPERIENCE', 'RULE']),
+  content: z.string().min(1, 'Content is required'),
+  embedding: z.array(z.number()).optional().default([]),
+  metadata: z.record(z.any()).optional(),
+});
+
+export type MemoryStoreInput = z.infer<typeof memoryStoreSchema>;
+
+// ============================================================
+// Bounty Schemas
+// ============================================================
+export const bountyCreateSchema = z.object({
+  title: z.string().min(1, 'Title is required'),
+  description: z.string().optional().default(''),
+  requirements: z.string().optional().default(''),
+  reward: z.number().positive('Reward must be positive'),
+  expires_in_days: z.number().int().min(1).max(90).optional().default(30),
+});
+
+export const bountyClaimSchema = z.object({
+  // claim endpoint uses params for bountyId, body can carry optional notes
+  notes: z.string().optional(),
+});
+
+export const bountyDeliverableSchema = z.object({
+  deliverable: z.string().min(1, 'Deliverable is required'),
+  feedback: z.string().optional(),
+});
+
 export type BountyCreateInput = z.infer<typeof bountyCreateSchema>;
 export type BountyClaimInput = z.infer<typeof bountyClaimSchema>;
 export type BountyDeliverableInput = z.infer<typeof bountyDeliverableSchema>;
-export type MemoryStoreInput = z.infer<typeof memoryStoreSchema>;
+
+// ============================================================
+// Map Schemas
+// ============================================================
+export const mapSaveSchema = z.object({
+  nodes: z.array(z.object({
+    id: z.string().optional(),
+    name: z.string().optional(),
+    label: z.string().optional(),
+    x: z.number().optional(),
+    y: z.number().optional(),
+    score: z.number().optional(),
+    color: z.string().optional(),
+    type: z.string().optional(),
+    metadata: z.record(z.any()).optional(),
+  })).optional(),
+  edges: z.array(z.object({
+    source: z.string(),
+    target: z.string(),
+    type: z.string().optional().default('reference'),
+    strength: z.number().optional(),
+    weight: z.number().optional(),
+  })).optional(),
+  config: z.record(z.any()).optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+});
+
+// ============================================================
+// GDI Scoring Schemas
+// ============================================================
+export const gdiPreviewSchema = z.object({
+  type: z.enum(['gene', 'capsule']),
+  name: z.string().min(1),
+  description: z.string().optional().default(''),
+  content: z.object({
+    dna: z.string().optional().default(''),
+    prompt: z.string().optional().default(''),
+  }).optional().default({}),
+  tools: z.array(z.string()).optional().default([]),
+  tags: z.array(z.string()).optional().default([]),
+});
+
+export const gdiScoreSchema = z.object({
+  type: z.enum(['gene', 'capsule']),
+  name: z.string().min(1),
+  description: z.string().optional().default(''),
+  content: z.object({
+    dna: z.string().optional().default(''),
+    prompt: z.string().optional().default(''),
+  }).optional().default({}),
+  tools: z.array(z.string()).optional().default([]),
+  tags: z.array(z.string()).optional().default([]),
+  nodeId: z.string().optional(),
+});

@@ -1,119 +1,69 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import prisma from '../db/prisma.js';
-import { signNodeToken } from '../auth/jwt.js';
-import { A2AHelloInput, A2AHeartbeatInput } from '../models/schemas.js';
 
 function generateNodeId(): string {
   const hash = crypto.createHash('sha256')
     .update(Date.now().toString() + Math.random().toString())
     .digest('hex')
-    .substring(0, 16);
+    .substring(0, 12);
   return `node_${hash}`;
 }
 
-function generateNodeSecret(): string {
+function generateSecret(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
-// Starter gene pack - curated list of fundamental genes for new nodes
-const STARTER_GENE_PACK = [
-  {
-    name: 'JWT Signature Validation',
-    type: 'gene',
-    description: 'Validates JWT token signatures using cryptographic verification',
-    tags: ['security', 'jwt', 'validation'],
-    tools: ['jwt_validate'],
-    confidence: 0.95,
-  },
-  {
-    name: 'HTTP Request Handler',
-    type: 'gene',
-    description: 'Standardized HTTP request processing and response handling',
-    tags: ['http', 'api', 'network'],
-    tools: ['http_request'],
-    confidence: 0.92,
-  },
-  {
-    name: 'JSON Schema Validator',
-    type: 'gene',
-    description: 'Validates JSON payloads against JSON Schema specifications',
-    tags: ['validation', 'json', 'schema'],
-    tools: ['validate_json_schema'],
-    confidence: 0.90,
-  },
-  {
-    name: 'Markdown Renderer',
-    type: 'gene',
-    description: 'Renders markdown content to HTML with syntax highlighting',
-    tags: ['markdown', 'rendering', 'ui'],
-    tools: ['render_markdown'],
-    confidence: 0.88,
-  },
-  {
-    name: 'Base64 Encoder/Decoder',
-    type: 'gene',
-    description: 'Encodes and decodes data using Base64 format',
-    tags: ['encoding', 'utility', 'data'],
-    tools: ['base64_encode', 'base64_decode'],
-    confidence: 0.93,
-  },
-];
-
-function generateClaimCode(): string {
-  // Generate format: EVOO-XXXX (4 alphanumeric chars)
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = 'EVOO-';
-  for (let i = 0; i < 4; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
 export class A2AController {
-  // POST /a2a/hello - Node registration
+  // POST /a2a/hello - Register a new node
   async hello(req: Request, res: Response): Promise<void> {
     try {
-      const { name, description, capabilities, version, endpoint } = req.body as A2AHelloInput;
+      const { name, description, capabilities, version, endpoint } = req.body;
 
-      // Generate node credentials
+      // Check max nodes per user (if authenticated)
+      if (req.user) {
+        const nodeCount = await prisma.node.count({
+          where: { userId: req.user.userId },
+        });
+        const maxNodes = 10; // could come from config
+        if (nodeCount >= maxNodes) {
+          res.status(400).json({
+            error: 'Bad Request',
+            message: `Maximum number of nodes (${maxNodes}) reached for this user`,
+          });
+          return;
+        }
+      }
+
       const nodeId = generateNodeId();
-      const secret = generateNodeSecret();
+      const secret = generateSecret();
+
+      // Hash the secret for storage
       const secretHash = crypto.createHash('sha256').update(secret).digest('hex');
-      const claimCode = generateClaimCode();
 
-      // Get base URL from config or use default
-      const baseUrl = process.env.API_BASE_URL || 'https://evomap.ai';
-      const claimUrl = `${baseUrl}/claim/${claimCode}`;
-
-      // Create node record
       const node = await prisma.node.create({
         data: {
           nodeId,
           secret: secretHash,
           name,
-          description,
-          capabilities: JSON.stringify(capabilities),
-          version,
-          endpoint,
-          status: 'PENDING', // Start as pending for review
-          userId: req.user?.userId, // Associate with user if authenticated
+          description: description || '',
+          capabilities: JSON.stringify(capabilities || []),
+          version: version || null,
+          endpoint: endpoint || null,
+          status: 'ACTIVE',
+          userId: req.user?.userId || null,
         },
       });
 
       res.status(201).json({
         node_id: node.nodeId,
-        secret: secret, // Return plain secret only once
-        status: 'pending',
-        hub_url: `/a2a/node/${node.nodeId}`,
-        claim_url: claimUrl,
-        claim_code: claimCode,
-        starter_gene_pack: STARTER_GENE_PACK,
-        credit_balance: node.credits,
-        message: 'Node registered successfully. Complete verification to activate.',
+        secret, // Return plain secret ONLY on creation
+        name: node.name,
+        status: node.status,
+        message: 'Node registered successfully. Store the secret securely — it will not be shown again.',
       });
     } catch (error) {
-      console.error('A2A Hello error:', error);
+      console.error('A2A hello error:', error);
       res.status(500).json({
         error: 'Internal Server Error',
         message: 'Failed to register node',
@@ -124,11 +74,10 @@ export class A2AController {
   // POST /a2a/heartbeat - Node heartbeat
   async heartbeat(req: Request, res: Response): Promise<void> {
     try {
-      const { node_id, status, active_tasks, load } = req.body as A2AHeartbeatInput;
+      const { nodeId, status, load, activeTasks } = req.body;
 
-      // Verify node exists
       const node = await prisma.node.findUnique({
-        where: { nodeId: node_id },
+        where: { nodeId },
       });
 
       if (!node) {
@@ -139,12 +88,11 @@ export class A2AController {
         return;
       }
 
-      // Update node status and last seen
+      // Update node status and lastSeen
       await prisma.node.update({
-        where: { nodeId: node_id },
+        where: { nodeId },
         data: {
-          status: status === 'active' ? 'ACTIVE' :
-                  status === 'busy' ? 'ACTIVE' : 'ACTIVE',
+          status: status || 'ACTIVE',
           lastSeenAt: new Date(),
         },
       });
@@ -153,19 +101,19 @@ export class A2AController {
       await prisma.heartbeatLog.create({
         data: {
           nodeId: node.id,
-          status,
-          load: load ?? null,
-          activeTasks: active_tasks?.length ?? null,
+          status: status || 'ACTIVE',
+          load: load || null,
+          activeTasks: activeTasks || null,
         },
       });
 
       res.json({
-        ok: true,
-        server_time: new Date().toISOString(),
-        node_status: node.status,
+        node_id: nodeId,
+        status: 'ok',
+        timestamp: new Date().toISOString(),
       });
     } catch (error) {
-      console.error('A2A Heartbeat error:', error);
+      console.error('A2A heartbeat error:', error);
       res.status(500).json({
         error: 'Internal Server Error',
         message: 'Failed to process heartbeat',
@@ -173,52 +121,15 @@ export class A2AController {
     }
   }
 
-  // POST /a2a/node/verify - Verify and activate node (admin)
-  async verifyNode(req: Request, res: Response): Promise<void> {
-    try {
-      const { node_id, activate } = req.body;
-
-      const node = await prisma.node.findUnique({
-        where: { nodeId: node_id },
-      });
-
-      if (!node) {
-        res.status(404).json({
-          error: 'Not Found',
-          message: 'Node not found',
-        });
-        return;
-      }
-
-      const newStatus = activate ? 'ACTIVE' : 'BLOCKED';
-
-      await prisma.node.update({
-        where: { nodeId: node_id },
-        data: { status: newStatus },
-      });
-
-      res.json({
-        node_id,
-        status: newStatus.toLowerCase(),
-        message: activate ? 'Node activated' : 'Node blocked',
-      });
-    } catch (error) {
-      console.error('Node verify error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to update node status',
-      });
-    }
-  }
-
-  // GET /a2a/nodes - List nodes (public info)
+  // GET /a2a/nodes - List nodes
   async listNodes(req: Request, res: Response): Promise<void> {
     try {
       const { status, limit = 50, offset = 0 } = req.query;
 
-      const where = status ? { status: status as string } : {};
+      const where: Record<string, unknown> = {};
+      if (status) where.status = status;
 
-      const nodesRaw = await prisma.node.findMany({
+      const nodes = await prisma.node.findMany({
         where,
         take: Number(limit),
         skip: Number(offset),
@@ -227,36 +138,19 @@ export class A2AController {
           nodeId: true,
           name: true,
           description: true,
-          capabilities: true,
-          version: true,
           status: true,
           reputation: true,
           level: true,
-          createdAt: true,
+          version: true,
           lastSeenAt: true,
+          createdAt: true,
         },
       });
 
-      // Parse JSON fields
-      const nodes = nodesRaw.map(n => ({
-        ...n,
-        capabilities: JSON.parse(n.capabilities),
-      }));
-
-      const total = await prisma.node.count({ where });
-
-      res.json({
-        nodes,
-        total,
-        limit: Number(limit),
-        offset: Number(offset),
-      });
+      res.json({ nodes, count: nodes.length });
     } catch (error) {
       console.error('List nodes error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to list nodes',
-      });
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to list nodes' });
     }
   }
 
@@ -265,57 +159,80 @@ export class A2AController {
     try {
       const { nodeId } = req.params;
 
-      const nodeRaw = await prisma.node.findUnique({
+      const node = await prisma.node.findUnique({
         where: { nodeId },
         select: {
           nodeId: true,
           name: true,
           description: true,
           capabilities: true,
-          version: true,
-          endpoint: true,
           status: true,
           reputation: true,
           level: true,
           credits: true,
-          createdAt: true,
+          version: true,
+          endpoint: true,
           lastSeenAt: true,
-          _count: {
-            select: {
-              assets: true,
-            },
+          createdAt: true,
+          user: {
+            select: { username: true },
           },
         },
       });
 
-      if (!nodeRaw) {
-        res.status(404).json({
-          error: 'Not Found',
-          message: 'Node not found',
-        });
-        return;
-      }
-
-      const node = {
-        ...nodeRaw,
-        capabilities: JSON.parse(nodeRaw.capabilities),
-      };
-
       if (!node) {
-        res.status(404).json({
-          error: 'Not Found',
-          message: 'Node not found',
-        });
+        res.status(404).json({ error: 'Not Found', message: 'Node not found' });
         return;
       }
 
-      res.json({ node });
+      res.json({
+        node: {
+          ...node,
+          capabilities: node.capabilities ? JSON.parse(node.capabilities) : [],
+        },
+      });
     } catch (error) {
       console.error('Get node error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to get node',
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to get node' });
+    }
+  }
+
+  // POST /a2a/node/verify - Verify/activate node (admin)
+  async verifyNode(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user || req.user.role !== 'ADMIN') {
+        res.status(403).json({ error: 'Forbidden', message: 'Admin role required' });
+        return;
+      }
+
+      const { nodeId, action } = req.body;
+
+      const node = await prisma.node.findUnique({ where: { nodeId } });
+      if (!node) {
+        res.status(404).json({ error: 'Not Found', message: 'Node not found' });
+        return;
+      }
+
+      let newStatus: string;
+      switch (action) {
+        case 'deactivate': newStatus = 'INACTIVE'; break;
+        case 'block': newStatus = 'BLOCKED'; break;
+        default: newStatus = 'ACTIVE';
+      }
+
+      const updated = await prisma.node.update({
+        where: { nodeId },
+        data: { status: newStatus },
       });
+
+      res.json({
+        node_id: nodeId,
+        status: updated.status,
+        message: `Node ${action || 'activated'} successfully`,
+      });
+    } catch (error) {
+      console.error('Verify node error:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to verify node' });
     }
   }
 }

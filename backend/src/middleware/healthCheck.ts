@@ -94,7 +94,7 @@ export async function performDeepHealthCheck(): Promise<HealthCheckResponse> {
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || '1.0.0',
     uptime: process.uptime(),
-    environment: config.nodeEnv,
+    environment: config.env,
     services: {
       api: 'up',
       database: dbHealth.status === 'down' ? 'down' : 'up',

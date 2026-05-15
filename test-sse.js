@@ -4,14 +4,14 @@ const http = require('http');
 const options = {
   hostname: 'localhost',
   port: 3001,
-  path: '/api/a2a/stream/test',
+  path: '/a2a/stream/test',
   method: 'GET',
   headers: {
     'Accept': 'text/event-stream',
   }
 };
 
-console.log('Testing SSE endpoint: http://localhost:3001/api/a2a/stream/test\n');
+console.log('Testing SSE endpoint: http://localhost:3001/a2a/stream/test\n');
 
 const req = http.request(options, (res) => {
   console.log(`Status: ${res.statusCode}`);

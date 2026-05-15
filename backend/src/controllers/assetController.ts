@@ -1,423 +1,142 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import prisma from '../db/prisma.js';
-import { AssetPublishInput, AssetFetchInput } from '../models/schemas.js';
 import { gdiScoringService } from '../services/gdiScoringService.js';
 
 function generateAssetId(type: string): string {
-  const prefix = type === 'gene' ? 'gene' : 'capsule';
+  const prefix = type === 'GENE' ? 'gene' : 'capsule';
   const hash = crypto.createHash('sha256')
     .update(Date.now().toString() + Math.random().toString())
     .digest('hex')
-    .substring(0, 16);
+    .substring(0, 12);
   return `${prefix}_${hash}`;
 }
 
 export class AssetController {
-  // POST /a2a/publish - Publish an asset (gene or capsule)
-  async publish(req: Request, res: Response): Promise<void> {
-    try {
-      const {
-        type,
-        name,
-        description,
-        content,
-        tags,
-        license,
-        parent_id
-      } = req.body as AssetPublishInput;
-
-      const nodeId = req.headers['x-node-id'] as string;
-
-      if (!nodeId) {
-        res.status(400).json({
-          error: 'Bad Request',
-          message: 'x-node-id header required for publishing',
-        });
-        return;
-      }
-
-      // Find the node
-      const node = await prisma.node.findUnique({
-        where: { nodeId },
-      });
-
-      if (!node) {
-        res.status(404).json({
-          error: 'Not Found',
-          message: 'Node not found',
-        });
-        return;
-      }
-
-      if (node.status !== 'ACTIVE') {
-        res.status(403).json({
-          error: 'Forbidden',
-          message: 'Node must be active to publish assets',
-        });
-        return;
-      }
-
-      // Generate asset ID
-      const assetId = generateAssetId(type);
-
-      // Calculate GDI score using the scoring service
-      const assetContent = {
-        type,
-        name,
-        description,
-        content,
-        tags,
-        license,
-      };
-      const gdiScoreResult = await gdiScoringService.calculateScore(assetContent);
-
-
-      // Create asset
-      const asset = await prisma.asset.create({
-        data: {
-          assetId,
-          type: type.toUpperCase(),
-          name,
-          description,
-          dna: content.dna,
-          prompt: content.prompt,
-          tools: JSON.stringify(content.tools),
-          model: content.model,
-          tags: JSON.stringify(tags),
-          license,
-          parentId: parent_id,
-          gdiScore: gdiScoreResult.overall,
-          gdiBreakdown: JSON.stringify({
-            correctness: gdiScoreResult.correctness,
-            diversity: gdiScoreResult.diversity,
-            composability: gdiScoreResult.composability,
-            helpfulness: gdiScoreResult.helpfulness,
-          }),
-          status: 'PENDING', // Pending review
-          nodeId: node.id,
-          userId: node.userId,
-          publishedAt: new Date(),
-        },
-      });
-
-      // Update node reputation slightly for publishing
-      await prisma.reputationLog.create({
-        data: {
-          nodeId: node.nodeId,
-          action: 'publish',
-          delta: 0.1,
-          reason: 'Asset published',
-        },
-      });
-
-      res.status(201).json({
-        asset_id: asset.assetId,
-        type: asset.type.toLowerCase(),
-        name: asset.name,
-        gdi_score: asset.gdiScore,
-        gdi_breakdown: {
-          correctness: gdiScoreResult.correctness,
-          diversity: gdiScoreResult.diversity,
-          composability: gdiScoreResult.composability,
-          helpfulness: gdiScoreResult.helpfulness,
-        },
-        status: 'pending',
-        message: 'Asset published successfully with GDI evaluation.',
-      });
-    } catch (error) {
-      console.error('Asset publish error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to publish asset',
-      });
-    }
-  }
-
-  // POST /a2a/fetch - Search and fetch assets
-  async fetch(req: Request, res: Response): Promise<void> {
-    try {
-      const {
-        query,
-        keyword,
-        type,
-        tags,
-        sort = 'recent',
-        limit = 20,
-        offset = 0
-      } = req.body as AssetFetchInput;
-
-      // Support both 'query' and 'keyword' fields (Evolver client sends 'keyword')
-      const searchQuery = query || keyword;
-
-      // Build where clause
-      const where: Record<string, unknown> = {
-        status: 'PUBLISHED',
-      };
-
-      if (type) {
-        where.type = type.toUpperCase();
-      }
-
-      // For SQLite with JSON strings, we need to filter in JavaScript
-      // Get all matching assets first, then filter
-      if (searchQuery) {
-        where.OR = [
-          { name: { contains: searchQuery } },
-          { description: { contains: searchQuery } },
-        ];
-      }
-
-      // Determine sort order
-      let orderBy: Record<string, string> = { createdAt: 'desc' };
-      if (sort === 'popular') {
-        orderBy = { gdiScore: 'desc' };
-      } else if (sort === 'gdi') {
-        orderBy = { gdiScore: 'desc' };
-      }
-
-      // Fetch assets - for tags, we need to filter in JavaScript since SQLite stores as JSON string
-      const assetsRaw = await prisma.asset.findMany({
-        where,
-        take: Number(limit) * 2, // Fetch more to account for tag filtering
-        skip: Number(offset),
-        orderBy,
-        select: {
-          assetId: true,
-          type: true,
-          name: true,
-          description: true,
-          tags: true,
-          license: true,
-          gdiScore: true,
-          createdAt: true,
-          publishedAt: true,
-          node: {
-            select: {
-              nodeId: true,
-              name: true,
-              reputation: true,
-            },
-          },
-          _count: {
-            select: {
-              reviews: true,
-            },
-          },
-        },
-      });
-
-      // Filter by tags in JavaScript (since SQLite stores as JSON string)
-      let filteredAssets = assetsRaw;
-      if (tags && tags.length > 0) {
-        filteredAssets = assetsRaw.filter(a => {
-          const assetTags = JSON.parse(a.tags) as string[];
-          return tags.some(tag => assetTags.includes(tag));
-        });
-      }
-
-      // Parse JSON fields and limit results
-      const assets = filteredAssets.slice(0, Number(limit)).map(a => ({
-        ...a,
-        tags: JSON.parse(a.tags),
-      }));
-
-      const total = await prisma.asset.count({ where });
-
-      res.json({
-        assets,
-        total,
-        limit: Number(limit),
-        offset: Number(offset),
-      });
-    } catch (error) {
-      console.error('Asset fetch error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to fetch assets',
-      });
-    }
-  }
-
-  // GET /a2a/asset/:assetId - Get asset details with dna/prompt for Evolver client
+  // GET /a2a/asset/:assetId
   async getAsset(req: Request, res: Response): Promise<void> {
     try {
       const { assetId } = req.params;
-
-      const assetRaw = await prisma.asset.findUnique({
-        where: { assetId },
-        include: {
-          node: {
-            select: {
-              nodeId: true,
-              name: true,
-              reputation: true,
-              level: true,
-            },
-          },
-          reviews: {
-            select: {
-              id: true,
-              rating: true,
-              comment: true,
-              createdAt: true,
-              user: {
-                select: {
-                  username: true,
-                },
-              },
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 10,
-          },
-        },
-      });
-
-      if (!assetRaw) {
-        res.status(404).json({
-          error: 'Not Found',
-          message: 'Asset not found',
-        });
-        return;
-      }
-
-      // Format asset response with dna/prompt for Evolver client compatibility
-      const asset = {
-        asset_id: assetRaw.assetId,
-        type: assetRaw.type.toLowerCase(),
-        name: assetRaw.name,
-        description: assetRaw.description,
-        // Evolver client expects dna/prompt for gene/capsule content
-        dna: assetRaw.dna,
-        prompt: assetRaw.prompt,
-        tools: JSON.parse(assetRaw.tools),
-        model: assetRaw.model,
-        tags: JSON.parse(assetRaw.tags),
-        license: assetRaw.license,
-        gdi_score: assetRaw.gdiScore,
-        gdi_breakdown: assetRaw.gdiBreakdown ? JSON.parse(assetRaw.gdiBreakdown) : null,
-        status: assetRaw.status.toLowerCase(),
-        node: assetRaw.node,
-        reviews: assetRaw.reviews,
-        created_at: assetRaw.createdAt,
-        published_at: assetRaw.publishedAt,
-      };
-
-      res.json({ asset });
-    } catch (error) {
-      console.error('Get asset error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to get asset',
-      });
-    }
-  }
-
-  // POST /a2a/asset/:assetId/review - Submit a review
-  async reviewAsset(req: Request, res: Response): Promise<void> {
-    try {
-      const { assetId } = req.params;
-      const { rating, comment } = req.body;
-
-      if (!req.user) {
-        res.status(401).json({
-          error: 'Unauthorized',
-          message: 'Login required to review',
-        });
-        return;
-      }
-
-      if (!rating || rating < 1 || rating > 5) {
-        res.status(400).json({
-          error: 'Bad Request',
-          message: 'Rating must be between 1 and 5',
-        });
-        return;
-      }
-
       const asset = await prisma.asset.findUnique({
         where: { assetId },
-      });
-
-      if (!asset) {
-        res.status(404).json({
-          error: 'Not Found',
-          message: 'Asset not found',
-        });
-        return;
-      }
-
-      // Create review
-      const review = await prisma.assetReview.create({
-        data: {
-          assetId: asset.id,
-          userId: req.user.userId,
-          rating,
-          comment,
+        include: {
+          node: { select: { nodeId: true, name: true, reputation: true } },
+          user: { select: { username: true } },
+          reviews: {
+            select: { rating: true, comment: true, createdAt: true, user: { select: { username: true } } },
+            orderBy: { createdAt: 'desc' }, take: 10,
+          },
+          _count: { select: { reviews: true } },
         },
       });
-
-      // Update asset GDI score based on reviews
-      const allReviews = await prisma.assetReview.findMany({
-        where: { assetId: asset.id },
-        select: { rating: true },
-      });
-
-      const avgRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length;
-
-      await prisma.asset.update({
-        where: { id: asset.id },
-        data: {
-          gdiScore: avgRating / 5, // Normalize to 0-1
-        },
-      });
-
-      res.status(201).json({
-        review_id: review.id,
-        rating: review.rating,
-        message: 'Review submitted successfully',
-      });
+      if (!asset) { res.status(404).json({ error: 'Not Found', message: 'Asset not found' }); return; }
+      res.json({ asset: {
+        ...asset,
+        tools: asset.tools ? JSON.parse(asset.tools) : [],
+        tags: asset.tags ? JSON.parse(asset.tags) : [],
+        gdiBreakdown: asset.gdiBreakdown ? JSON.parse(asset.gdiBreakdown) : null,
+      }});
     } catch (error) {
-      console.error('Review asset error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to submit review',
-      });
+      console.error('Get asset error:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to get asset' });
     }
   }
 
-  // GET /assets/my - Get user's own assets
-  async myAssets(req: Request, res: Response): Promise<void> {
+  // POST /a2a/publish
+  async publish(req: Request, res: Response): Promise<void> {
     try {
-      if (!req.user) {
-        res.status(401).json({
-          error: 'Unauthorized',
-          message: 'Login required',
-        });
-        return;
-      }
+      const nodeId = req.nodeAuth?.nodeId;
+      if (!nodeId) { res.status(401).json({ error: 'Unauthorized', message: 'Node auth required' }); return; }
+      const node = await prisma.node.findUnique({ where: { nodeId } });
+      if (!node) { res.status(404).json({ error: 'Not Found', message: 'Node not found' }); return; }
 
-      const assets = await prisma.asset.findMany({
-        where: { userId: req.user.userId },
-        orderBy: { createdAt: 'desc' },
-        select: {
-          assetId: true,
-          type: true,
-          name: true,
-          status: true,
-          gdiScore: true,
-          createdAt: true,
-          publishedAt: true,
+      const { type, name, description, content, tools, model, tags, license, parentId } = req.body;
+      const assetId = generateAssetId(type);
+      const scoreResult = await gdiScoringService.calculateScore({
+        type, name, description: description || '', content: content || { dna: '', prompt: '', tools: tools || [] }, tags: tags || [],
+      });
+
+      const asset = await prisma.asset.create({
+        data: {
+          assetId, type, name, description: description || null,
+          dna: content?.dna || null, prompt: content?.prompt || null,
+          tools: JSON.stringify(tools || []), model: model || null,
+          tags: JSON.stringify(tags || []), license: license || 'MIT',
+          parentId: parentId || null, gdiScore: scoreResult.overall,
+          gdiBreakdown: JSON.stringify(scoreResult),
+          status: 'PUBLISHED', publishedAt: new Date(),
+          nodeId: node.id, userId: node.userId,
         },
       });
+      await prisma.node.update({ where: { id: node.id }, data: { reputation: { increment: 1 } } });
+      res.status(201).json({ asset_id: asset.assetId, name: asset.name, type: asset.type, gdi_score: asset.gdiScore, status: asset.status, message: 'Asset published successfully' });
+    } catch (error) {
+      console.error('Asset publish error:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to publish asset' });
+    }
+  }
 
-      res.json({ assets });
+  // POST /a2a/fetch
+  async fetch(req: Request, res: Response): Promise<void> {
+    try {
+      const { query, type, tags, status = 'PUBLISHED', limit = 20, offset = 0, sortBy = 'createdAt', sortOrder = 'desc' } = req.body;
+      const where: Record<string, unknown> = {};
+      if (type) where.type = type;
+      if (status) where.status = status;
+      if (query) where.OR = [{ name: { contains: query } }, { description: { contains: query } }];
+
+      let assets = await prisma.asset.findMany({
+        where, take: Number(limit), skip: Number(offset),
+        orderBy: { [sortBy]: sortOrder },
+        include: { node: { select: { nodeId: true, name: true } }, user: { select: { username: true } }, _count: { select: { reviews: true } } },
+      });
+      if (tags && tags.length > 0) {
+        assets = assets.filter(asset => {
+          const assetTags: string[] = asset.tags ? JSON.parse(asset.tags) : [];
+          return tags.every((t: string) => assetTags.includes(t));
+        });
+      }
+      res.json({ assets, count: assets.length });
+    } catch (error) {
+      console.error('Asset fetch error:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to fetch assets' });
+    }
+  }
+
+  // GET /a2a/assets/my
+  async myAssets(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) { res.status(401).json({ error: 'Unauthorized', message: 'Login required' }); return; }
+      const assets = await prisma.asset.findMany({
+        where: { userId: req.user.userId }, orderBy: { createdAt: 'desc' },
+        select: { assetId: true, type: true, name: true, description: true, gdiScore: true, status: true, publishedAt: true, createdAt: true },
+      });
+      res.json({ assets, count: assets.length });
     } catch (error) {
       console.error('My assets error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to get assets',
-      });
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to get assets' });
+    }
+  }
+
+  // POST /a2a/asset/:assetId/review
+  async reviewAsset(req: Request, res: Response): Promise<void> {
+    try {
+      if (!req.user) { res.status(401).json({ error: 'Unauthorized', message: 'Login required' }); return; }
+      const { assetId } = req.params;
+      const { rating, comment } = req.body;
+      const asset = await prisma.asset.findUnique({ where: { assetId } });
+      if (!asset) { res.status(404).json({ error: 'Not Found', message: 'Asset not found' }); return; }
+
+      const existing = await prisma.assetReview.findFirst({ where: { assetId: asset.id, userId: req.user.userId } });
+      if (existing) {
+        const updated = await prisma.assetReview.update({ where: { id: existing.id }, data: { rating, comment } });
+        res.json({ review_id: updated.id, message: 'Review updated' }); return;
+      }
+      const review = await prisma.assetReview.create({ data: { assetId: asset.id, userId: req.user.userId, rating, comment } });
+      res.status(201).json({ review_id: review.id, message: 'Review submitted' });
+    } catch (error) {
+      console.error('Review asset error:', error);
+      res.status(500).json({ error: 'Internal Server Error', message: 'Failed to review asset' });
     }
   }
 }
