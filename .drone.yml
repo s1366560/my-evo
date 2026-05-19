@@ -66,9 +66,10 @@ steps:
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     commands:
-      - docker pull localhost:5001/my-evo:drone-docker-e2e
+      # Deploy using local build (avoids HTTP/HTTPS registry mismatch)
+      - docker build --build-arg NODE_ENV=production -t my-evo:drone-docker-e2e -t my-evo:latest .
       - docker rm -f my-evo || true
-      - docker run -d --name my-evo -p 8080:8080 localhost:5001/my-evo:drone-docker-e2e
+      - docker run -d --name my-evo -p 8080:8080 my-evo:drone-docker-e2e
       - sleep 5
       - docker inspect my-evo --format='{{.State.Running}}'
       - wget -qO- http://host.docker.internal:8080/api/health || curl -sf http://host.docker.internal:8080/api/health
