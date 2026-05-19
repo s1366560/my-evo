@@ -60,3 +60,24 @@ steps:
       event:
         - push
         - custom
+
+  - name: docker-deploy
+    image: docker:20-cli
+    volumes:
+      - name: docker-sock
+        path: /var/run
+    commands:
+      - docker pull localhost:5001/my-evo:drone-docker-e2e
+      - docker rm -f my-evo || true
+      - docker run -d --name my-evo -p 8080:3001 localhost:5001/my-evo:drone-docker-e2e
+      - sleep 5
+      - wget -qO- http://host.docker.internal:8080/health || exit 1
+    when:
+      event:
+        - push
+        - custom
+
+volumes:
+  - name: docker-sock
+    host:
+      path: /var/run/docker.sock
