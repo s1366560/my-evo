@@ -21,8 +21,8 @@ export function getSandboxExecutionEngine(
 ): SandboxExecutionEngine {
   if (!_engine) {
     _engine = new SandboxExecutionEngine(config);
-    _engine.registerHandler('default', defaultSandboxHandler);
-    _engine.registerHandler('sandbox', defaultSandboxHandler);
+    _engine.registerHandler('default', defaultSandboxHandler as ExecutionHandler<unknown, unknown>);
+    _engine.registerHandler('sandbox', defaultSandboxHandler as ExecutionHandler<unknown, unknown>);
   }
   return _engine;
 }

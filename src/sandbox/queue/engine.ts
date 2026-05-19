@@ -221,7 +221,7 @@ export class SandboxExecutionEngine {
     const createdAt = job.created_at.getTime();
 
     for (let i = 0; i < this.queue.length; i++) {
-      const existing = this.queue[i];
+      const existing = this.queue[i]!;
       const existingWeight = PRIORITY_WEIGHTS[existing.priority];
       if (weight > existingWeight) continue;
       if (weight === existingWeight && createdAt >= existing.created_at.getTime()) continue;

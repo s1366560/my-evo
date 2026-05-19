@@ -42,8 +42,8 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@types/bcryptjs": "^2.4.6",
-    "@types/jest": "^29.5.0",
-    "@types/node": "^20.0.0",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.19.41",
     "@types/uuid": "^9.0.0",
     "eslint": "^9.0.0",
     "globals": "^17.4.0",
