@@ -69,15 +69,16 @@ steps:
   - name: deploy
     image: docker:cli
     environment:
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
       - name: dockersock
         path: /var/run/docker.sock
     commands:
-      - docker pull host.docker.internal:5001/my-evo:drone-docker-e2e || docker pull host.docker.internal:5001/my-evo:latest || echo "Image may not exist yet"
-      - docker run -d --name my-evo-deploy -p 8080:8080 host.docker.internal:5001/my-evo:drone-docker-e2e || docker run -d --name my-evo-deploy -p 8080:8080 host.docker.internal:5001/my-evo:latest || echo "Container start skipped"
+      - docker pull host.docker.internal:5001/my-evo:drone-docker-e2e || docker pull host.docker.internal:5001/my-evo:latest
+      - docker rm -f my-evo-deploy || true
+      - docker run -d --name my-evo-deploy -p 8080:8080 host.docker.internal:5001/my-evo:drone-docker-e2e
       - sleep 5
-      - wget --timeout=10 -q -O- http://host.docker.internal:8080/api/health || curl --max-time 10 -sf http://host.docker.internal:8080/api/health || echo "Health check skipped"
+      - curl --max-time 10 -sf http://host.docker.internal:8080/api/health
     when:
       event:
         - push
