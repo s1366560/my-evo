@@ -2,6 +2,10 @@ kind: pipeline
 type: docker
 name: workspace-ci
 
+platform:
+  os: linux
+  arch: arm64
+
 trigger:
   event:
     - push
