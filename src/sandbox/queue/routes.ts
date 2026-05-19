@@ -15,10 +15,11 @@ import type { RouteShorthandOptions } from 'fastify';
 import { requireAuth } from '../../shared/auth';
 import { resolveAuthorizedNodeId } from '../../shared/node-access';
 import { requireSandboxEntitlement } from '../routes';
-import { getSandboxExecutionEngine } from './engine';
+import { getSandboxExecutionEngine } from './index';
 import { RateLimitExceededError, QueueFullError } from './engine';
 import type { JobPriority, RateLimitConfig } from './types';
 import { DEFAULT_RATE_LIMIT_CONFIG } from './types';
+import type { QueueJob } from './types';
 
 // ── Auth helper ────────────────────────────────────────────────────────────
 
