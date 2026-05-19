@@ -60,3 +60,17 @@ steps:
       event:
         - push
         - custom
+
+  - name: deploy
+    image: docker:cli
+    environment:
+      DOCKER_HOST: tcp://docker:2376
+    commands:
+      - docker pull host.docker.internal:5001/my-evo:drone-docker-e2e
+      - docker run -d --name my-evo-app --restart unless-stopped -p 8080:3001 -e NODE_ENV=production -e DATABASE_URL=postgresql://evomap:evomap_secret@host.docker.internal:5432/evomap host.docker.internal:5001/my-evo:drone-docker-e2e
+      - sleep 5
+      - wget -qO- http://localhost:8080/health || (docker logs my-evo-app && exit 1)
+    when:
+      event:
+        - push
+        - custom
