@@ -60,3 +60,33 @@ steps:
       event:
         - push
         - custom
+
+  - name: docker-deploy
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - docker pull localhost:5001/my-evo:drone-docker-e2e
+      - docker rm -f my-evo || true
+      - docker run -d --name my-evo -p 8080:8080 localhost:5001/my-evo:drone-docker-e2e
+      - sleep 5
+      - docker inspect my-evo --format='{{.State.Running}}'
+      - wget -qO- http://host.docker.internal:8080/api/health || curl -sf http://host.docker.internal:8080/api/health
+    volumes:
+      - name: docker-sock
+        path: /var/run/docker.sock
+    when:
+      event:
+        - push
+        - custom
+
+services:
+  - name: docker
+    image: docker:dind
+    privileged: true
+    network_mode: host
+
+volumes:
+  - name: docker-sock
+    host:
+      path: /var/run/docker.sock
