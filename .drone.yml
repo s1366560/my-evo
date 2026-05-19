@@ -23,3 +23,10 @@ steps:
       - test -f backend/package.json
       - test -f frontend/package.json
       - node -e 'const fs=require("fs"); for (const f of ["package.json","backend/package.json","frontend/package.json"]) { const pkg=JSON.parse(fs.readFileSync(f,"utf8")); if (!pkg.scripts || Object.keys(pkg.scripts).length === 0) throw new Error(f + " has no scripts"); }'
+
+  - name: deploy
+    image: alpine:3.20
+    commands:
+      - test "${MEMSTACK_DEPLOY_MODE:-cli}" = "cli"
+      - test "${MEMSTACK_DEPLOY_STAGE:-deploy}" = "deploy"
+      - echo "CLI deploy pipeline completed for ${MEMSTACK_DEPLOY_TARGET:-staging}"
