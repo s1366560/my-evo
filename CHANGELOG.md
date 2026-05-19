@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Sprint Plan (2026-05-19)
 
+### Implemented (2026-05-19)
+
+#### A2A Protocol (`src/a2a/`)
+- ✅ Full implementation with 10 endpoints
+- ✅ `POST /a2a/hello` - Node handshake
+- ✅ `POST /a2a/heartbeat` - Heartbeat
+- ✅ `POST /a2a/publish` - Publish capability (auth required)
+- ✅ `POST /a2a/fetch` - Fetch node/asset
+- ✅ `POST /a2a/search` - Search directory
+- ✅ `POST /a2a/report` - Report status (auth required)
+- ✅ `GET /a2a/directory` - List nodes
+- ✅ `GET /a2a/nodes/:nodeId` - Get specific node
+- ✅ `GET /a2a/billing/earnings` - Earnings (auth required)
+- ✅ `GET /a2a/help` - Help info
+
+#### Assets Module (`src/assets/`)
+- ✅ Full CRUD + publish functionality
+- ✅ `GET /assets` - List assets with filtering
+- ✅ `GET /assets/:id` - Get asset
+- ✅ `POST /assets` - Create asset (auth required)
+- ✅ `PUT /assets/:id` - Update asset (auth required)
+- ✅ `DELETE /assets/:id` - Delete asset (auth required)
+- ✅ `POST /assets/publish` - Publish asset (auth required)
+- ✅ `POST /assets/:id/fork` - Fork asset (auth required)
+- ✅ `GET /assets/categories` - Asset categories
+
+#### Search Module (`src/search/`)
+- ✅ Routes for existing service
+- ✅ `GET /search` - Full-text search
+- ✅ `GET /search/suggestions` - Search suggestions
+- ✅ `GET /search/trending` - Trending searches
+- ✅ `GET /search/similar/:assetId` - Find similar assets
+
+#### Stub Modules (33 modules created)
+Created stub implementations for:
+- claim, reputation, swarm, workerpool, council
+- session, analytics, biology, quarantine, driftbottle
+- community, circle, kg, arena, account, onboarding
+- verifiable_trust, reading, sync, task, task_alias
+- questions, dispute, recipe, gepx, anti_hallucination
+- skill_store, constitution, docs, agent_config, model_tier
+- security, project, memory_graph
+- bounty (with compat-routes)
+
+#### Bug Fixes
+- Fixed `src/sandbox/queue/routes.ts` - import path from './engine' to './index'
+- Fixed `src/sandbox/queue/engine.ts` - added non-null assertion for array access
+- Fixed `src/sandbox/queue/index.ts` - cast handler types for generic compatibility
+- Fixed `src/docs/routes.ts` - updated function signature for getWikiPageResponse
+
 ### Sprint 2026-W21 Implementation Plan
 
 基于 gap-analysis.md (commit a9b04255e)，本轮 Sprint 选取以下 3 个最高优先级 P0 模块进行实现：
