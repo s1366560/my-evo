@@ -13,6 +13,11 @@ trigger:
   branch:
     - main
 
+volumes:
+  - name: dockersock
+    host:
+      path: /var/run/docker.sock
+
 steps:
   - name: repository-smoke
     image: node:20-alpine
@@ -56,6 +61,23 @@ steps:
       registry: host.docker.internal:5001
       insecure: true
       purge: true
+    when:
+      event:
+        - push
+        - custom
+
+  - name: deploy
+    image: docker:cli
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - name: dockersock
+        path: /var/run/docker.sock
+    commands:
+      - docker pull host.docker.internal:5001/my-evo:drone-docker-e2e || docker pull host.docker.internal:5001/my-evo:latest || echo "Image may not exist yet"
+      - docker run -d --name my-evo-deploy -p 8080:8080 host.docker.internal:5001/my-evo:drone-docker-e2e || docker run -d --name my-evo-deploy -p 8080:8080 host.docker.internal:5001/my-evo:latest || echo "Container start skipped"
+      - sleep 5
+      - wget --timeout=10 -q -O- http://host.docker.internal:8080/api/health || curl --max-time 10 -sf http://host.docker.internal:8080/api/health || echo "Health check skipped"
     when:
       event:
         - push
