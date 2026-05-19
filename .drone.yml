@@ -49,11 +49,11 @@ steps:
   - name: docker-build
     image: plugins/docker:20
     settings:
-      repo: localhost:5001/my-evo
+      repo: host.docker.internal:5001/my-evo
       tags:
         - drone-docker-e2e
         - latest
-      registry: localhost:5001
+      registry: host.docker.internal:5001
       insecure: true
       purge: true
     when:
