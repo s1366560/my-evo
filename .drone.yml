@@ -1,0 +1,21 @@
+kind: pipeline
+type: docker
+name: workspace-ci
+
+trigger:
+  event:
+    - push
+    - custom
+  branch:
+    - main
+
+steps:
+  - name: repository-smoke
+    image: node:20-alpine
+    commands:
+      - node --version
+      - npm --version
+      - test -f package.json
+      - test -f backend/package.json
+      - test -f frontend/package.json
+      - node -e 'const fs=require("fs"); for (const f of ["package.json","backend/package.json","frontend/package.json"]) { const pkg=JSON.parse(fs.readFileSync(f,"utf8")); if (!pkg.scripts || Object.keys(pkg.scripts).length === 0) throw new Error(f + " has no scripts"); }'
