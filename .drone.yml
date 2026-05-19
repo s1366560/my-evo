@@ -81,12 +81,6 @@ steps:
         - push
         - custom
 
-services:
-  - name: docker
-    image: docker:dind
-    privileged: true
-    network_mode: host
-
 volumes:
   - name: docker-sock
     host:
