@@ -69,11 +69,12 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - docker build --tag my-evo:latest --tag my-evo:drone-docker-e2e .
+      - docker pull host.docker.internal:5001/my-evo:drone-docker-e2e
+      - docker tag host.docker.internal:5001/my-evo:drone-docker-e2e my-evo:latest
       - docker rm -f my-evo || true
       - docker run -d --name my-evo -p 8080:3001 my-evo:latest
       - sleep 5
-      - wget -qO- http://host.docker.internal:8080/health
+      - wget -qO- http://host.docker.internal:8080/api/health
     when:
       event:
         - push
