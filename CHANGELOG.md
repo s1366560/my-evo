@@ -2,7 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] - Sprint Plan (2026-05-19)
+## [Unreleased] - Sprint Plan (2026-05-20)
+
+### Sprint 2026-W21-2 Implementation Plan
+
+基于 docs/RESEARCH-REPORT-20260520.md 调研结果，本轮 Sprint 选取以下 2 个最高优先级功能点进行独立实现与测试：
+
+#### Feature 1: Asset Purchase Flow (TASK_P0_01)
+**优先级**: P0 (核心交易流程)
+**范围**: backend `routes/purchase.ts` + frontend `src/app/purchase/`
+**独立可测**: ✅ 是（前后端可独立开发，E2E 测试覆盖购物车→结账完整链路）
+
+实现内容:
+- `POST /api/v1/purchase/buy` - 购买资产，原子化扣减 credits，返回交易记录
+- `GET /api/v1/purchase/history` - 用户购买历史
+- `POST /api/v1/purchase/refund` - 退款接口（原子化返还 credits）
+- `src/app/purchase/cart/` - 购物车页面
+- `src/app/purchase/checkout/` - 结账确认页
+- `frontend/tests/e2e-purchase.spec.ts` - 完整购买链路 E2E
+
+**依赖**: Prisma `Transaction` / `CreditLog` 模型已存在于 schema.prisma
+
+#### Feature 2: Backend Test Coverage — Map & Graph Routes
+**优先级**: P1 (质量提升)
+**范围**: backend `routes/map.ts` + `routes/graph.ts` + `middleware/auth.ts`
+**独立可测**: ✅ 是（纯后端 Jest 测试，无需前端）
+
+实现内容:
+- `routes/map.test.ts` - 地图 CRUD 12 端点路由测试（~20 个用例）
+- `routes/graph.test.ts` - 图算法 8 端点路由测试（~15 个用例）
+- `middleware/auth.test.ts` - JWT 认证中间件测试（~10 个用例）
+
+**依据**: 调研报告显示 routes/map.ts、routes/graph.ts、middleware/auth.ts 当前 0 测试覆盖，是最大盲区
+
+#### 分支说明
+- **分支名**: `workspace/node-b056ccaddc5b-fd0a066e-e2e`（已从 main 拉取）
+- **Base**: `f74cba2` (Merge commit)
+- **目标**: 独立实现并测试完成后，通过 PR 合并到 main
+
+### Verification
+- [ ] Backend: `cd backend && npm test` 全部通过
+- [ ] Backend: `npm run build` 成功
+- [ ] Frontend: `cd frontend && npm run build` 成功
+- [ ] E2E: `npx playwright test` 购买链路 100% pass
+
+### Files to Create/Modify
+- `backend/src/routes/purchase.ts` (new)
+- `backend/src/routes/purchase.test.ts` (new)
+- `backend/src/routes/map.test.ts` (new)
+- `backend/src/routes/graph.test.ts` (new)
+- `backend/src/middleware/auth.test.ts` (new)
+- `frontend/src/app/purchase/cart/page.tsx` (new)
+- `frontend/src/app/purchase/checkout/page.tsx` (new)
+- `frontend/tests/e2e-purchase.spec.ts` (new)
+- `CHANGELOG.md` (本条更新)
+
+---
+
+## [Unreleased-old] - Sprint Plan (2026-05-19)
 
 ### Implemented (2026-05-19)
 
