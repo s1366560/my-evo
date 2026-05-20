@@ -22,8 +22,11 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
-# Build TypeScript
+# Build root monorepo TypeScript
 RUN npm run build
+
+# Build my-evo backend TypeScript
+RUN cd backend && npm install && npm run build
 
 # Prune dev dependencies
 RUN npm prune --production
@@ -38,7 +41,7 @@ RUN addgroup -g 1001 -S evomap && adduser -S evomap -u 1001
 WORKDIR /app
 
 # Install runtime dependencies only
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init wget ca-certificates openssl
 
 # Copy package files for production install
 COPY package*.json ./
@@ -46,15 +49,25 @@ COPY package*.json ./
 # Install production dependencies only
 RUN npm ci --production --ignore-scripts
 
-# Copy Prisma schema for migrations
+# Copy root prisma schema for migrations
 COPY prisma ./prisma
 
-# Run migrations at startup
-RUN npx prisma generate
+# Copy backend package files for production install
+COPY backend/package*.json ./backend/
+
+# Copy backend prisma schema BEFORE running prisma generate
+COPY backend/prisma ./backend/prisma
+
+WORKDIR /app/backend
+# Install production deps AND dev deps so Prisma engine binaries are present
+RUN npm ci --include=dev --ignore-scripts && npx prisma generate
+WORKDIR /app
 
 # Copy built artifacts from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/backend/dist ./backend/dist
+COPY --from=builder /app/backend/node_modules/.prisma ./backend/node_modules/.prisma
 
 # Copy source scripts
 COPY src/scripts ./src/scripts
@@ -72,12 +85,12 @@ ENV HOST=0.0.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:3001/health || exit 1
+  CMD ["wget", "-qO-", "http://localhost:3001/health"]
 
 EXPOSE 3001
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Run migrations then start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+# Run schema sync then start server
+CMD ["sh", "-c", "cd backend && npx prisma db push --skip-generate --accept-data-loss && node dist/index.js"]
