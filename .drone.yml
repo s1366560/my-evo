@@ -74,7 +74,7 @@ steps:
       - docker rm -f my-evo || true
       - docker run -d --name my-evo -p 8080:3001 my-evo:latest
       - sleep 5
-      - wget -qO- http://host.docker.internal:8080/api/health
+      - wget -qO- http://host.docker.internal:8080/health
     when:
       event:
         - push
