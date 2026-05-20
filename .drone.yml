@@ -13,11 +13,6 @@ trigger:
   branch:
     - main
 
-volumes:
-  - name: dockersock
-    host:
-      path: /var/run/docker.sock
-
 steps:
   - name: repository-smoke
     image: node:20-alpine
@@ -69,9 +64,9 @@ steps:
   - name: deploy
     image: docker:cli
     environment:
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
-      - name: dockersock
+      - name: docker-sock
         path: /var/run/docker.sock
     commands:
       - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
@@ -83,3 +78,8 @@ steps:
       event:
         - push
         - custom
+
+volumes:
+  - name: docker-sock
+    host:
+      path: /var/run/docker.sock
