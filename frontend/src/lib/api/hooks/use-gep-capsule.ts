@@ -1,8 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { RegisterCapsuleRequest } from "../../../../../src/gep/types";
-import type { GepPublishCapsuleResponse, GepValidationResponse } from "./use-gep-types";
+import type { RegisterCapsuleRequest, GepPublishCapsuleResponse, GepValidationResponse } from "./use-gep-types";
 
 /** Hook to register a new Capsule */
 export function useGepPublishCapsule() {
