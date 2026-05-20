@@ -41,7 +41,7 @@ RUN addgroup -g 1001 -S evomap && adduser -S evomap -u 1001
 WORKDIR /app
 
 # Install runtime dependencies only
-RUN apk add --no-cache dumb-init wget
+RUN apk add --no-cache dumb-init wget ca-certificates openssl
 
 # Copy package files for production install
 COPY package*.json ./
@@ -60,9 +60,6 @@ WORKDIR /app
 
 # Copy backend prisma schema
 COPY backend/prisma ./backend/prisma
-
-# Run migrations at startup
-RUN npx prisma generate
 
 # Copy built artifacts from builder
 COPY --from=builder /app/dist ./dist
@@ -86,12 +83,12 @@ ENV HOST=0.0.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:3001/health || exit 1
+  CMD ["wget", "-qO-", "http://localhost:3001/health"]
 
 EXPOSE 3001
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Run migrations then start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node backend/dist/index.js"]
+# Run schema sync then start server
+CMD ["sh", "-c", "cd backend && npx prisma db push --skip-generate --accept-data-loss && node dist/index.js"]
