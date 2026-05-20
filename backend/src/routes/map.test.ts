@@ -1,215 +1,233 @@
-// Map Routes Unit Tests
-import { describe, test, expect, beforeEach, jest } from '@jest/globals';
+// Map Routes Integration Tests — tests actual MockStore and HttpError
+import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import { MockStore } from '../db/mock-store.js';
+import { HttpError } from '../middleware/errorHandler.js';
 
-const mockNext = jest.fn();
-const mockStatus = jest.fn().mockReturnThis();
-const mockJson = jest.fn().mockReturnThis();
-const mockRes = { json: mockJson, status: mockStatus } as any;
+describe('Map Routes — MockStore Integration', () => {
+  let store: MockStore;
+  let userId: string;
+  let mapId: string;
+  let nodeId: string;
 
-beforeEach(() => {
-  mockNext.mockClear();
-  mockJson.mockClear();
-  mockStatus.mockClear();
+  beforeEach(() => {
+    store = new MockStore();
+  });
+
+  // --- User (setup) ---
+  test('createUser returns a MockUser with id and timestamps', async () => {
+    const user = await store.createUser({
+      email: 'alice@test.com', password: 'hashed', name: 'Alice',
+      level: 1, reputation: 10, credits: 50,
+    });
+    userId = user.id;
+    expect(user.id).toMatch(/^user_/);
+    expect(user.email).toBe('alice@test.com');
+    expect(user.createdAt).toBeInstanceOf(Date);
+    expect(user.updatedAt).toBeInstanceOf(Date);
+  });
+
+  // --- Map CRUD ---
+  test('createMap returns a MockMap with generated id', async () => {
+    const user = await store.createUser({
+      email: 'bob@test.com', password: 'x', name: 'Bob', level: 1, reputation: 0, credits: 0,
+    });
+    const map = await store.createMap({
+      userId: user.id, name: 'Test Map', description: 'desc', isPublic: false,
+    });
+    mapId = map.id;
+    expect(map.id).toMatch(/^map_/);
+    expect(map.name).toBe('Test Map');
+    expect(map.userId).toBe(user.id);
+  });
+
+  test('findMapById returns null for non-existent id', async () => {
+    const result = await store.findMapById('nonexistent');
+    expect(result).toBeNull();
+  });
+
+  test('findMapsByUserId returns only maps for that user', async () => {
+    const user = await store.createUser({
+      email: 'carol@test.com', password: 'x', name: 'Carol', level: 1, reputation: 0, credits: 0,
+    });
+    const map1 = await store.createMap({ userId: user.id, name: 'Map A', description: '', isPublic: false });
+    await store.createMap({ userId: user.id, name: 'Map B', description: '', isPublic: false });
+    const otherUser = await store.createUser({
+      email: 'dave@test.com', password: 'x', name: 'Dave', level: 1, reputation: 0, credits: 0,
+    });
+    await store.createMap({ userId: otherUser.id, name: 'Other Map', description: '', isPublic: false });
+    const maps = await store.findMapsByUserId(user.id);
+    expect(maps).toHaveLength(2);
+    expect(maps.map(m => m.name)).toEqual(expect.arrayContaining(['Map A', 'Map B']));
+  });
+
+  test('updateMap merges fields and sets updatedAt', async () => {
+    const user = await store.createUser({
+      email: 'eve@test.com', password: 'x', name: 'Eve', level: 1, reputation: 0, credits: 0,
+    });
+    const map = await store.createMap({ userId: user.id, name: 'Old Name', description: '', isPublic: false });
+    const updated = await store.updateMap(map.id, { name: 'New Name', isPublic: true });
+    expect(updated).not.toBeNull();
+    expect(updated!.name).toBe('New Name');
+    expect(updated!.isPublic).toBe(true);
+    expect(updated!.updatedAt.getTime()).toBeGreaterThanOrEqual(map.updatedAt.getTime());
+  });
+
+  test('updateMap returns null for non-existent id', async () => {
+    const result = await store.updateMap('fake_map_id', { name: 'X' });
+    expect(result).toBeNull();
+  });
+
+  test('deleteMap returns true and removes map', async () => {
+    const user = await store.createUser({
+      email: 'frank@test.com', password: 'x', name: 'Frank', level: 1, reputation: 0, credits: 0,
+    });
+    const map = await store.createMap({ userId: user.id, name: 'ToDelete', description: '', isPublic: false });
+    const deleted = await store.deleteMap(map.id);
+    expect(deleted).toBe(true);
+    const found = await store.findMapById(map.id);
+    expect(found).toBeNull();
+  });
+
+  // --- Node CRUD ---
+  test('createNode returns a MockNode with generated id', async () => {
+    const user = await store.createUser({
+      email: 'grace@test.com', password: 'x', name: 'Grace', level: 1, reputation: 0, credits: 0,
+    });
+    const map = await store.createMap({ userId: user.id, name: 'Map', description: '', isPublic: false });
+    const node = await store.createNode({
+      mapId: map.id, label: 'Concept Alpha', description: 'Start', nodeType: 'concept',
+      positionX: 100, positionY: 200, metadata: { tag: 'foundation' },
+    });
+    nodeId = node.id;
+    expect(node.id).toMatch(/^node_/);
+    expect(node.label).toBe('Concept Alpha');
+    expect(node.nodeType).toBe('concept');
+    expect(node.positionX).toBe(100);
+  });
+
+  test('findNodesByMapId returns only nodes for that map', async () => {
+    const user = await store.createUser({
+      email: 'henry@test.com', password: 'x', name: 'Henry', level: 1, reputation: 0, credits: 0,
+    });
+    const map1 = await store.createMap({ userId: user.id, name: 'M1', description: '', isPublic: false });
+    const map2 = await store.createMap({ userId: user.id, name: 'M2', description: '', isPublic: false });
+    await store.createNode({ mapId: map1.id, label: 'N1', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    await store.createNode({ mapId: map1.id, label: 'N2', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    await store.createNode({ mapId: map2.id, label: 'N3', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const nodes = await store.findNodesByMapId(map1.id);
+    expect(nodes).toHaveLength(2);
+  });
+
+  test('updateNode merges partial fields', async () => {
+    const user = await store.createUser({
+      email: 'iris@test.com', password: 'x', name: 'Iris', level: 1, reputation: 0, credits: 0,
+    });
+    const map = await store.createMap({ userId: user.id, name: 'M', description: '', isPublic: false });
+    const node = await store.createNode({ mapId: map.id, label: 'Old', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const updated = await store.updateNode(node.id, { label: 'New Label', description: 'Updated desc' });
+    expect(updated).not.toBeNull();
+    expect(updated!.label).toBe('New Label');
+    expect(updated!.description).toBe('Updated desc');
+  });
+
+  test('deleteNode returns true and removes node', async () => {
+    const user = await store.createUser({
+      email: 'jack@test.com', password: 'x', name: 'Jack', level: 1, reputation: 0, credits: 0,
+    });
+    const map = await store.createMap({ userId: user.id, name: 'M', description: '', isPublic: false });
+    const node = await store.createNode({ mapId: map.id, label: 'ToDelete', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const deleted = await store.deleteNode(node.id);
+    expect(deleted).toBe(true);
+    const found = await store.findNodeById(node.id);
+    expect(found).toBeNull();
+  });
+
+  test('deleteNode also removes connected edges', async () => {
+    const user = await store.createUser({
+      email: 'kate@test.com', password: 'x', name: 'Kate', level: 1, reputation: 0, credits: 0,
+    });
+    const map = await store.createMap({ userId: user.id, name: 'M', description: '', isPublic: false });
+    const n1 = await store.createNode({ mapId: map.id, label: 'N1', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const n2 = await store.createNode({ mapId: map.id, label: 'N2', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    await store.createEdge({ mapId: map.id, sourceId: n1.id, targetId: n2.id, label: 'link', metadata: {} });
+    await store.deleteNode(n1.id);
+    const edges = await store.findEdgesByMapId(map.id);
+    expect(edges.some(e => e.sourceId === n1.id)).toBe(false);
+  });
+
+  // --- Edge CRUD ---
+  test('createEdge returns a MockEdge with generated id', async () => {
+    const user = await store.createUser({
+      email: 'leo@test.com', password: 'x', name: 'Leo', level: 1, reputation: 0, credits: 0,
+    });
+    const map = await store.createMap({ userId: user.id, name: 'M', description: '', isPublic: false });
+    const n1 = await store.createNode({ mapId: map.id, label: 'N1', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const n2 = await store.createNode({ mapId: map.id, label: 'N2', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const edge = await store.createEdge({ mapId: map.id, sourceId: n1.id, targetId: n2.id, label: 'evolves to', metadata: { weight: 1 } });
+    expect(edge.id).toMatch(/^edge_/);
+    expect(edge.sourceId).toBe(n1.id);
+    expect(edge.targetId).toBe(n2.id);
+    expect(edge.label).toBe('evolves to');
+  });
+
+  test('findEdgesByMapId returns only edges for that map', async () => {
+    const user = await store.createUser({
+      email: 'maya@test.com', password: 'x', name: 'Maya', level: 1, reputation: 0, credits: 0,
+    });
+    const map1 = await store.createMap({ userId: user.id, name: 'M1', description: '', isPublic: false });
+    const map2 = await store.createMap({ userId: user.id, name: 'M2', description: '', isPublic: false });
+    const n1 = await store.createNode({ mapId: map1.id, label: 'N1', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const n2 = await store.createNode({ mapId: map1.id, label: 'N2', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const n3 = await store.createNode({ mapId: map2.id, label: 'N3', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    await store.createEdge({ mapId: map1.id, sourceId: n1.id, targetId: n2.id, label: 'e1', metadata: {} });
+    await store.createEdge({ mapId: map2.id, sourceId: n3.id, targetId: n3.id, label: 'e2', metadata: {} });
+    const edges = await store.findEdgesByMapId(map1.id);
+    expect(edges).toHaveLength(1);
+    expect(edges[0].label).toBe('e1');
+  });
+
+  test('deleteEdge returns true and removes edge', async () => {
+    const user = await store.createUser({
+      email: 'noah@test.com', password: 'x', name: 'Noah', level: 1, reputation: 0, credits: 0,
+    });
+    const map = await store.createMap({ userId: user.id, name: 'M', description: '', isPublic: false });
+    const n1 = await store.createNode({ mapId: map.id, label: 'N1', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const n2 = await store.createNode({ mapId: map.id, label: 'N2', description: '', nodeType: 'concept', positionX: 0, positionY: 0, metadata: {} });
+    const edge = await store.createEdge({ mapId: map.id, sourceId: n1.id, targetId: n2.id, label: 'e', metadata: {} });
+    const deleted = await store.deleteEdge(edge.id);
+    expect(deleted).toBe(true);
+    const found = await store.findEdgeById(edge.id);
+    expect(found).toBeNull();
+  });
 });
 
-// --- Route Handler Factories (mimicking route logic) ---
-
-describe('Map Routes - GET /nodes', () => {
-  test('should return 401 without auth token', async () => {
-    const req = { headers: {}, query: {} } as any;
-    const hasAuth = !!(req.headers.authorization?.startsWith('Bearer '));
-    expect(hasAuth).toBe(false);
+describe('Map Routes — HttpError', () => {
+  test('HttpError constructs with statusCode and message', () => {
+    const err = new HttpError(400, 'Label and mapId required');
+    expect(err.statusCode).toBe(400);
+    expect(err.message).toBe('Label and mapId required');
+    expect(err instanceof Error).toBe(true);
+    expect(err.isOperational).toBe(true);
   });
 
-  test('should parse pagination params with defaults', async () => {
-    const page = '1', limit = '20';
-    expect(parseInt(page)).toBe(1);
-    expect(parseInt(limit)).toBe(20);
+  test('HttpError 401 with No token provided', () => {
+    const err = new HttpError(401, 'No token provided');
+    expect(err.statusCode).toBe(401);
   });
 
-  test('should handle custom pagination params', async () => {
-    const page = '3', limit = '50';
-    expect(parseInt(page)).toBe(3);
-    expect(parseInt(limit)).toBe(50);
-  });
-});
-
-describe('Map Routes - POST /nodes', () => {
-  test('should require label field', () => {
-    const body = { mapId: 'map_1' };
-    const isValid = !!(body.label && body.mapId);
-    expect(isValid).toBe(false);
+  test('HttpError 404 for Node not found', () => {
+    const err = new HttpError(404, 'Node not found');
+    expect(err.statusCode).toBe(404);
   });
 
-  test('should require mapId field', () => {
-    const body = { label: 'Test Node' };
-    const isValid = !!(body.label && body.mapId);
-    expect(isValid).toBe(false);
+  test('HttpError 404 for Map not found', () => {
+    const err = new HttpError(404, 'Map not found');
+    expect(err.statusCode).toBe(404);
   });
 
-  test('should accept valid node creation payload', () => {
-    const body = { mapId: 'map_1', label: 'Test Node', nodeType: 'concept' };
-    const isValid = !!(body.label && body.mapId);
-    expect(isValid).toBe(true);
-  });
-
-  test('should use default nodeType when not provided', () => {
-    const body = { mapId: 'map_1', label: 'Test' };
-    const nodeType = body.nodeType || 'concept';
-    expect(nodeType).toBe('concept');
-  });
-
-  test('should default positionX to 0', () => {
-    const body = { mapId: 'map_1', label: 'Test' };
-    const posX = body.positionX || 0;
-    expect(posX).toBe(0);
-  });
-});
-
-describe('Map Routes - PATCH /nodes/:nodeId', () => {
-  test('should allow partial update with label only', () => {
-    const body = { label: 'Updated Label' };
-    const update = { ...(body.label && { label: body.label }) };
-    expect(update).toEqual({ label: 'Updated Label' });
-  });
-
-  test('should allow partial update with description only', () => {
-    const body = { description: 'New description' };
-    const update = { ...(body.description !== undefined && { description: body.description }) };
-    expect(update).toEqual({ description: 'New description' });
-  });
-
-  test('should skip undefined fields in update', () => {
-    const body = { label: 'Updated' };
-    const update = { ...(body.label && { label: body.label }) };
-    expect(update.label).toBe('Updated');
-    expect(update.description).toBeUndefined();
-  });
-});
-
-describe('Map Routes - DELETE /nodes/:nodeId', () => {
-  test('should return 404 for non-existent node', () => {
-    const deleted = null;
-    expect(deleted).toBeNull();
-  });
-
-  test('should return success for deleted node', () => {
-    const deleted = { id: 'node_1', label: 'Deleted' };
-    expect(!!deleted).toBe(true);
-  });
-});
-
-describe('Map Routes - GET /edges', () => {
-  test('should return empty array when no mapId provided', () => {
-    const mapId = undefined;
-    const edges = mapId ? ['edge1'] : [];
-    expect(edges).toEqual([]);
-  });
-
-  test('should return edges when mapId provided', () => {
-    const mapId = 'map_1';
-    const edges = mapId ? ['edge1', 'edge2'] : [];
-    expect(edges.length).toBe(2);
-  });
-});
-
-describe('Map Routes - POST /edges', () => {
-  test('should require mapId, sourceId, targetId', () => {
-    const body = { mapId: 'map_1', sourceId: 'n1' };
-    const isValid = !!(body.mapId && body.sourceId && body.targetId);
-    expect(isValid).toBe(false);
-  });
-
-  test('should accept valid edge payload', () => {
-    const body = { mapId: 'map_1', sourceId: 'n1', targetId: 'n2' };
-    const isValid = !!(body.mapId && body.sourceId && body.targetId);
-    expect(isValid).toBe(true);
-  });
-
-  test('should use default empty label', () => {
-    const body = { mapId: 'map_1', sourceId: 'n1', targetId: 'n2' };
-    const label = body.label || '';
-    expect(label).toBe('');
-  });
-});
-
-describe('Map Routes - Map CRUD', () => {
-  test('should require userId for authenticated requests', () => {
-    const userId = undefined;
-    expect(!!userId).toBe(false);
-  });
-
-  test('should have userId when authenticated', () => {
-    const req = { user: { userId: 'user_1' } };
-    expect(!!req.user?.userId).toBe(true);
-  });
-
-  test('should require name for map creation', () => {
-    const body = { description: 'desc only' };
-    const isValid = !!body.name;
-    expect(isValid).toBe(false);
-  });
-
-  test('should accept valid map creation payload', () => {
-    const body = { name: 'My Map', description: 'A test map', isPublic: false };
-    const isValid = !!body.name;
-    expect(isValid).toBe(true);
-    expect(body.isPublic).toBe(false);
-  });
-
-  test('should use default isPublic false', () => {
-    const body = { name: 'My Map' };
-    const isPublic = body.isPublic || false;
-    expect(isPublic).toBe(false);
-  });
-});
-
-describe('Map Routes - Error Handling', () => {
-  test('should throw 400 for missing required fields', () => {
-    const throw400 = (condition: boolean, msg: string) => {
-      if (condition) throw new Error(`400: ${msg}`);
-    };
-    expect(() => throw400(true, 'Label and mapId required')).toThrow();
-  });
-
-  test('should throw 401 for missing auth', () => {
-    const throw401 = (condition: boolean, msg: string) => {
-      if (condition) throw new Error(`401: ${msg}`);
-    };
-    expect(() => throw401(true, 'Authentication required')).toThrow();
-  });
-
-  test('should throw 404 for non-existent resource', () => {
-    const resource = null;
-    const throw404 = (r: any, msg: string) => {
-      if (!r) throw new Error(`404: ${msg}`);
-    };
-    expect(() => throw404(resource, 'Map not found')).toThrow();
-  });
-});
-
-describe('Map Routes - Response Shape', () => {
-  test('successful list response has success and data', () => {
-    const res = { success: true, data: [] };
-    expect(res.success).toBe(true);
-    expect(Array.isArray(res.data)).toBe(true);
-  });
-
-  test('successful create response has 201 status', () => {
-    const status = 201;
-    expect(status).toBe(201);
-  });
-
-  test('pagination response includes page, limit, total', () => {
-    const pagination = { page: 1, limit: 20, total: 100 };
-    expect(pagination.page).toBe(1);
-    expect(pagination.limit).toBe(20);
-    expect(pagination.total).toBe(100);
-  });
-
-  test('delete response includes success message', () => {
-    const res = { success: true, message: 'Node deleted' };
-    expect(res.success).toBe(true);
-    expect(res.message).toBe('Node deleted');
+  test('HttpError 400 for missing mapId/sourceId/targetId', () => {
+    const err = new HttpError(400, 'mapId, sourceId, targetId required');
+    expect(err.statusCode).toBe(400);
+    expect(err.message).toContain('sourceId');
   });
 });

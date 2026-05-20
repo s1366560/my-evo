@@ -109,8 +109,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
 
   // ===== PERFORMANCE: Bundle analysis and optimization =====
-  // Enable strict mode for better tree-shaking
-  swcMinify: true,
+  // Note: swcMinify removed — deprecated in Next.js 15+ (SWC is the default minifier)
 
   // ===== PERFORMANCE: React strict mode for development =====
   reactStrictMode: true,
