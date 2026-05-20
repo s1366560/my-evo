@@ -53,14 +53,15 @@ RUN npm ci --production --ignore-scripts
 COPY prisma ./prisma
 
 # Copy backend package files for production install
-COPY backend/package*.json ./
+COPY backend/package*.json ./backend/
+
+# Copy backend prisma schema BEFORE running prisma generate
+COPY backend/prisma ./backend/prisma
+
 WORKDIR /app/backend
 # Install production deps AND dev deps so Prisma engine binaries are present
 RUN npm ci --include=dev --ignore-scripts && npx prisma generate
 WORKDIR /app
-
-# Copy backend prisma schema
-COPY backend/prisma ./backend/prisma
 
 # Copy built artifacts from builder
 COPY --from=builder /app/dist ./dist
