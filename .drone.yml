@@ -39,7 +39,7 @@ steps:
     image: node:20-alpine
     commands:
       - cd frontend
-      - npm install --silent
+      - npm ci
       - npm run build
     when:
       event:
