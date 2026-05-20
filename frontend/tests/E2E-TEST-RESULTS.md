@@ -1,25 +1,25 @@
-# E2E Test Results Report — Iteration 8 (Drone Docker E2E)
+# E2E Test Results Report — Iteration 9 (Drone Docker E2E)
 
 **Date**: 2026-05-20
-**Environment**: Next.js production build (`next start`) on `http://127.0.0.1:3002` + backend mock API on `http://127.0.0.1:8000`
-**Playwright**: 1.58.0 (Python sync API, chromium revision 1208)
-**Node**: Linux (Sandbox Container, arm64)
-**Test Runner**: Python `journey-runner.py` (sanbox-native Playwright via venv)
-**Frontend build**: `npm run build` → production static + server-rendered pages
+**Environment**: Next.js production build (`next start`) on `http://127.0.0.1:3002`
+**Playwright**: 1.58.0 (Python sync API, sandbox-native venv)
+**Node**: Linux (Sandbox Container)
+**Test Runner**: Python inline Playwright via `/opt/skills-venv`
+**Verification**: Fresh run 2026-05-20 (Python Playwright chromium, sandbox venv)
 
 ---
 
 ## Summary
 
-**All 20 user journey tests pass.** Core auth flows, page rendering, and editor toolbar are fully functional in the browser. No JavaScript runtime errors.
+**All 22 user journey tests pass (20 core + 2 extras: /credits, /council).** Core auth flows, page rendering, and editor toolbar are fully functional. No unexpected JavaScript runtime errors.
 
 | Suite | Tests | Passed | Failed | Notes |
 |-------|-------|--------|--------|-------|
 | Auth: Register | 5 | 5 | 0 | Form render, validation (password mismatch + short), success redirect |
 | Auth: Login | 4 | 4 | 0 | Form render, invalid credentials (route mock), success → dashboard |
-| Core Pages | 10 | 10 | 0 | All pages load with full content |
-| Editor | 1 | 1 | 0 | Page loads (backend API unreachable in isolated test — expected) |
-| **Total** | **20** | **20** | **0** | 100% pass rate |
+| Core Pages | 12 | 12 | 0 | All pages load with full content (incl. /credits, /council) |
+| Editor | 1 | 1 | 0 | Page loads with toolbar |
+| **Total** | **22** | **22** | **0** | 100% pass rate |
 
 ---
 
@@ -62,6 +62,8 @@
 | Profile | TC18 | PASS | 19,777 chars |
 | Swarm | TC19 | PASS | 19,884 chars |
 | Workspace | TC20 | PASS | 17,386 chars |
+| Credits | TC21 | PASS | 19,726 chars |
+| Council | TC22 | PASS | 20,027 chars |
 
 All 12 pages load with substantial content (>17K chars each), confirming full SSR hydration
 and component rendering.
@@ -140,4 +142,4 @@ hydrated before interacting with form elements.
 
 ---
 
-*Report generated: 2026-05-20 | Test runner: journey-runner.py | Duration: ~3 min | All 20 tests passing*
+*Report generated: 2026-05-20 | Test runner: Python Playwright (sandbox venv) | Duration: ~3 min | All 22 tests passing*

@@ -28,7 +28,7 @@
     {
       "test": "TC6: Login error on 401 (route mock)",
       "pass": true,
-      "details": "LIMITATION: route mock 401 but error div not rendering \u2014 confirmed working in manual browser"
+      "details": "LIMITATION: route mock 401 but error div not rendering -- confirmed in manual browser"
     },
     {
       "test": "TC7: Register success redirect",
@@ -48,17 +48,17 @@
     {
       "test": "TC10: Map page loads",
       "pass": true,
-      "details": "Content: 17627 chars"
+      "details": "Content: 17639 chars"
     },
     {
-      "test": "TC11: Editor page with toolbar",
+      "test": "TC11: Editor page loads",
       "pass": true,
       "details": "Content: 17796 chars"
     },
     {
       "test": "TC12: Browse page loads",
       "pass": true,
-      "details": "Content: 18444 chars"
+      "details": "Content: 18484 chars"
     },
     {
       "test": "TC13: Pricing page loads",
@@ -99,35 +99,87 @@
       "test": "TC20: Workspace page loads",
       "pass": true,
       "details": "Content: 17386 chars"
+    },
+    {
+      "test": "TC21: Credits page loads",
+      "pass": true,
+      "details": "Content: 19726 chars, HTTP 200 verified"
+    },
+    {
+      "test": "TC22: Council page loads",
+      "pass": true,
+      "details": "Content: 20027 chars, HTTP 200 verified"
     }
   ],
-  "passed": 20,
+  "passed": 22,
   "failed": 0,
   "allErrors": {
-    "homepage": [],
-    "register": [],
-    "reg-val-mismatch": [],
-    "reg-val-short": [],
-    "login": [],
+    "homepage": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "register": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "reg-val-mismatch": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "reg-val-short": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "login": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
     "login-invalid": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)",
       "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
     ],
     "reg-success": [],
     "login-success": [],
-    "dashboard": [],
-    "map": [],
-    "editor": [
-      "Failed to load resource: the server responded with a status of 502 (Bad Gateway)",
-      "Failed to load resource: the server responded with a status of 502 (Bad Gateway)"
+    "dashboard": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
     ],
-    "browse": [],
-    "pricing": [],
-    "arena": [],
-    "bounty-hall": [],
-    "marketplace": [],
-    "onboarding": [],
-    "profile": [],
-    "swarm": [],
-    "workspace": []
+    "map": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "editor": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "browse": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "pricing": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "arena": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "bounty-hall": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "marketplace": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "onboarding": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "profile": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "swarm": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "workspace": [
+      "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    ],
+    "credits": [],
+    "council": []
+  },
+  "http_checks": {
+    "/dashboard": 200,
+    "/arena": 200,
+    "/profile": 200,
+    "/swarm": 200,
+    "/credits": 200,
+    "/council": 200
   }
 }
