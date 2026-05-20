@@ -156,6 +156,7 @@ export function useViewportPrefetch(
   const { rootMargin = "200px", threshold = 0, enabled = true } = options;
   const observerRef = useRef<IntersectionObserver | null>(null);
   const prefetchedRoutes = useRef<Set<string>>(new Set());
+  const router = useRouter();
 
   const observe = useCallback(
     (element: HTMLElement, route: string) => {
@@ -164,7 +165,6 @@ export function useViewportPrefetch(
       if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
         // Fallback for SSR or unsupported browsers
         try {
-          const router = useRouter();
           router.prefetch(route);
           prefetchedRoutes.current.add(route);
         } catch {

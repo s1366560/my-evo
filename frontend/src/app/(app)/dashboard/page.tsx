@@ -168,7 +168,7 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-2xl font-bold text-[var(--color-foreground)]">Dashboard</h1>
         <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-          Welcome back — here's an overview of your activity.
+          Welcome back &mdash; here&apos;s an overview of your activity.
         </p>
       </div>
 
