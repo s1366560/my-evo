@@ -79,39 +79,16 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      # Build the image locally using the mounted host Docker socket
-      - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
-      # Create a dedicated Docker network for the deploy
+      - docker rm -f my-evo my-evo-postgres my-evo-redis 2>/dev/null || true
       - docker network create workspace-deploy 2>/dev/null || true
-      # Start PostgreSQL sidecar on the deploy network with correct env vars
-      - >
-        docker run -d --name my-evo-postgres --network workspace-deploy
-        -e POSTGRES_USER=postgres
-        -e POSTGRES_PASSWORD=postgres
-        -e POSTGRES_DB=evomap
-        postgres:16-alpine
-      # Wait for PostgreSQL to be ready
-      - >
-        for i in $(seq 1 30); do
-          docker exec my-evo-postgres pg_isready -U postgres >/dev/null 2>&1 && break || sleep 1;
-        done
-      # Remove any previous container
-      - docker rm -f my-evo 2>/dev/null || true
-      # Run the app container on the deploy network with correct port mapping
-      - >
-        docker run -d --name my-evo --network workspace-deploy
-        -p 18080:3001
-        -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap
-        -e NODE_ENV=production
-        my-evo:drone-docker-e2e
-      # Wait for the app to start
+      - docker run -d --name my-evo-postgres --network workspace-deploy -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=evomap postgres:16-alpine
+      - for i in $(seq 1 30); do docker exec my-evo-postgres pg_isready -U postgres >/dev/null 2>&1 && break || sleep 1; done
+      - docker run -d --name my-evo-redis --network workspace-deploy redis:7-alpine
+      - sleep 2
+      - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
+      - docker run -d --name my-evo --network workspace-deploy -p 18080:3001 -e PORT=3001 -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap -e REDIS_URL=redis://my-evo-redis:6379 my-evo:drone-docker-e2e
       - sleep 10
-      # Install wget inside app container (node:alpine base, has wget via apk)
-      - docker exec my-evo apk add --no-cache wget >/dev/null 2>&1 || true
-      # Health check via docker exec inside the app container (avoids host network issues)
-      - >
-        docker exec my-evo wget -qO- http://localhost:3001/health >/dev/null
-        || { echo "=== HEALTH CHECK FAILED ===" && docker logs my-evo && docker ps -a && exit 1; }
+      - wget -qO- http://host.docker.internal:18080/health || { docker ps -a; docker logs my-evo; exit 1; }
     when:
       event:
         - push
