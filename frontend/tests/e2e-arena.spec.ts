@@ -85,7 +85,7 @@ const mockArenaStats = {
 // ── Route interceptors ──────────────────────────────────────────────────────────
 
 function applyMocks(page: Page) {
-  void page.route(/\/api\/v2\/arena\/rankings\//, async (route) => {
+  void page.route(/\/api\/v2\/arena\/rankings\?/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
