@@ -110,10 +110,6 @@ const nextConfig = {
   // ===== PERFORMANCE: Build optimizations =====
   poweredByHeader: false,
 
-  // ===== PERFORMANCE: Bundle analysis and optimization =====
-  // Enable strict mode for better tree-shaking
-  swcMinify: true,
-
   // ===== PERFORMANCE: React strict mode for development =====
   reactStrictMode: true,
 
