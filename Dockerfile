@@ -22,8 +22,11 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
-# Build TypeScript
+# Build root monorepo TypeScript
 RUN npm run build
+
+# Build my-evo backend TypeScript
+RUN cd backend && npm install && npm run build
 
 # Prune dev dependencies
 RUN npm prune --production
@@ -46,8 +49,17 @@ COPY package*.json ./
 # Install production dependencies only
 RUN npm ci --production --ignore-scripts
 
-# Copy Prisma schema for migrations
+# Copy root prisma schema for migrations
 COPY prisma ./prisma
+
+# Copy backend package files for production install
+COPY backend/package*.json ./
+WORKDIR /app/backend
+RUN npm ci --production --ignore-scripts
+WORKDIR /app
+
+# Copy backend prisma schema
+COPY backend/prisma ./backend/prisma
 
 # Run migrations at startup
 RUN npx prisma generate
@@ -55,6 +67,8 @@ RUN npx prisma generate
 # Copy built artifacts from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/backend/dist ./backend/dist
+COPY --from=builder /app/backend/node_modules/.prisma ./backend/node_modules/.prisma
 
 # Copy source scripts
 COPY src/scripts ./src/scripts
@@ -80,4 +94,4 @@ EXPOSE 3001
 ENTRYPOINT ["dumb-init", "--"]
 
 # Run migrations then start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/app.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node backend/dist/index.js"]
