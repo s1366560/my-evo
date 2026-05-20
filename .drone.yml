@@ -46,6 +46,16 @@ steps:
         - push
         - custom
 
+  - name: build
+    image: node:20-alpine
+    commands:
+      - npm install --silent
+      - npm run build
+    when:
+      event:
+        - push
+        - custom
+
   - name: docker-build
     image: plugins/docker:20
     settings:
