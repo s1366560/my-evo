@@ -3,13 +3,13 @@
  * Run with: npx vitest run src/sandbox/queue/engine.test.ts
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import { SandboxExecutionEngine } from './engine';
 import { SandboxRateLimiter } from './rate-limiter';
 
 // Mock handler that resolves after a short delay
 function makeMockHandler(resolveAfterMs = 5) {
-  return vi.fn().mockImplementation(async (job, signal) => {
+  return (jest.fn() as any).mockImplementation(async (job: { job_id: string }, signal: AbortSignal) => {
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(resolve, resolveAfterMs);
       signal.addEventListener('abort', () => { clearTimeout(t); reject(new Error('aborted')); });
@@ -193,7 +193,7 @@ describe('SandboxExecutionEngine', () => {
     strictEngine.enqueue('sbx1', 'node1', {});
     try {
       strictEngine.enqueue('sbx1', 'node1', {});
-      expect.fail('Should have thrown');
+      throw new Error('Should have thrown');
     } catch (e: unknown) {
       const err = e as { code?: string; message?: string };
       expect(err.code).toBe('RATE_LIMIT_EXCEEDED');
@@ -210,7 +210,7 @@ describe('SandboxExecutionEngine', () => {
     tinyEngine.enqueue('sbx1', 'node1', {});
     try {
       tinyEngine.enqueue('sbx1', 'node1', {});
-      expect.fail('Should have thrown');
+      throw new Error('Should have thrown');
     } catch (e: unknown) {
       const err = e as { code?: string; message?: string };
       expect(err.code).toBe('QUEUE_FULL');

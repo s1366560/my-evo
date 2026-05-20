@@ -1,5 +1,5 @@
 // Billing service tests: webhook processing, invoice generation, proration calculation
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from '@jest/globals';
 import {
   verifyStripeSignature,
   generateInvoice,
@@ -67,7 +67,7 @@ describe('Billing Service', () => {
       expect(invoice.billing_cycle).toBe('monthly');
       expect(invoice.amount).toBe(2900); // premium monthly price
       expect(invoice.line_items.length).toBeGreaterThan(0);
-      expect(invoice.line_items[0].type).toBe('subscription');
+      expect(invoice.line_items[0]!.type).toBe('subscription');
     });
 
     it('should generate free plan invoice with zero amount', () => {
@@ -245,6 +245,7 @@ describe('Billing Service', () => {
         data: {
           object: {
             id: 'sub_123',
+            object: 'subscription',
             customer: 'cus_123',
             status: 'active',
             plan: { id: 'price_premium', object: 'plan', active: true, nickname: 'Premium', product: 'prod_premium', unit_amount: 2900, currency: 'usd', recurring: { interval: 'month' as const, interval_count: 1, usage_type: 'licensed' as const } },
@@ -283,6 +284,7 @@ describe('Billing Service', () => {
         data: {
           object: {
             id: 'sub_dup',
+            object: 'subscription',
             customer: 'cus_dup',
             status: 'active',
             plan: { id: 'price_premium', object: 'plan', active: true, nickname: 'Premium', product: 'prod_premium', unit_amount: 2900, currency: 'usd', recurring: { interval: 'month' as const, interval_count: 1, usage_type: 'licensed' as const } },
@@ -320,6 +322,7 @@ describe('Billing Service', () => {
         data: {
           object: {
             id: 'in_123',
+            object: 'invoice',
             subscription: 'sub_123',
             customer: 'cus_123',
             amount_paid: 2900,
@@ -348,6 +351,7 @@ describe('Billing Service', () => {
         data: {
           object: {
             id: 'in_failed',
+            object: 'invoice',
             subscription: 'sub_123',
             customer: 'cus_123',
             status: 'open',
@@ -370,7 +374,7 @@ describe('Billing Service', () => {
         api_version: '2023-10-16',
         type: 'unknown.event.type' as any,
         created: Math.floor(Date.now() / 1000),
-        data: { object: { id: 'obj_123' } },
+        data: { object: { id: 'obj_123', object: 'unknown' } },
         livemode: false,
         pending_webhooks: 1,
         request: { id: 'req_123', idempotency_key: 'idem_123' },
