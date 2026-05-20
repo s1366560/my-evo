@@ -71,9 +71,9 @@ steps:
     commands:
       - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
       - docker rm -f my-evo || true
-      - docker run -d --name my-evo -p 18080:3001 my-evo:drone-docker-e2e
+      - docker run -d --name my-evo -p 18080:3001 -e DATABASE_URL=postgresql://postgres:password@host.docker.internal:5432/evomap my-evo:drone-docker-e2e
       - sleep 5
-      - curl -sf http://host.docker.internal:18080/health || exit 1
+      - wget -qO- http://host.docker.internal:18080/health >/dev/null || exit 1
     when:
       event:
         - push
