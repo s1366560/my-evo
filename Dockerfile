@@ -49,9 +49,6 @@ RUN npm ci --production --ignore-scripts
 # Copy Prisma schema for migrations
 COPY prisma ./prisma
 
-# Run migrations at startup
-RUN npx prisma generate
-
 # Copy built artifacts from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
@@ -79,5 +76,5 @@ EXPOSE 3001
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Run migrations then start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+# Start server (migrate only if DATABASE_URL is set)
+CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npx prisma migrate deploy || true; fi && node dist/index.js"]
