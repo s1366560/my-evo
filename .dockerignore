@@ -1,60 +1,55 @@
 # Dependencies
 node_modules
-npm-debug.log
-.env
-.env.*
-!.env.example
+backend/node_modules
+frontend/node_modules
 
-# Build artifacts
-dist/
-build/
-.next/
-out/
+# Build outputs
+dist
+backend/dist
+frontend/.next
+frontend/out
 
-# Coverage
-coverage/
+# Test and coverage
+coverage
+frontend/coverage
+*.lcov
+.nyc_output
 
-# IDE
-.idea/
-.vscode/
+# Version control
+.git
+.gitignore
+.gitattributes
+*.md
+
+# IDE and editor
+.vscode
+.idea
 *.swp
 *.swo
-
-# OS
 .DS_Store
-Thumbs.db
 
-# Git
-.git/
-.gitignore
+# CI/CD configs (not needed in image)
+.drone.yml
+.drone.star
+.drone.sig
 
-# Docs (can be mounted)
-*.md
-!README.md
-
-# Test files
-**/*.test.ts
-**/*.spec.ts
-jest.config.js
-vitest.config.ts
-
-# CI/CD
-.github/
-.gitlab-ci.yml
-.travis.yml
-
-# Development
+# Logs and temp files
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs
 *.tmp
-*.temp
-temp/
-tmp/
 
-# Prisma (runtime will generate)
-prisma/migrations/
+# Playwright and E2E artifacts
+frontend/tests/screenshots
+frontend/tests/reports
+playwright-report
+test-results
 
-# Docker files
-docker-compose*.yml
-Dockerfile
-nginx/
-scripts/
+# Storybook
+frontend/storybook-static
+
+# Documentation
+docs
+LICENSE
