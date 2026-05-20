@@ -61,6 +61,23 @@ steps:
         - push
         - custom
 
+  - name: docker-build-frontend
+    image: plugins/docker:20
+    settings:
+      repo: host.docker.internal:5001/my-evo-frontend
+      tags:
+        - drone-docker-e2e
+        - latest
+      registry: host.docker.internal:5001
+      insecure: true
+      purge: true
+      dockerfile: frontend/Dockerfile
+      context: frontend
+    when:
+      event:
+        - push
+        - custom
+
   - name: deploy
     image: docker:cli
     environment:
@@ -69,17 +86,20 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - docker rm -f my-evo my-evo-postgres my-evo-redis 2>/dev/null || true
+      - docker rm -f my-evo-backend my-evo-frontend my-evo-postgres my-evo-redis 2>/dev/null || true
       - docker network create workspace-deploy 2>/dev/null || true
       - docker run -d --name my-evo-postgres --network workspace-deploy -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=evomap postgres:16-alpine
       - for i in $(seq 1 30); do docker exec my-evo-postgres pg_isready -U postgres >/dev/null 2>&1 && break || sleep 1; done
       - docker run -d --name my-evo-redis --network workspace-deploy redis:7-alpine
       - sleep 2
       - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
-      - docker run -d --name my-evo --network workspace-deploy -p 18080:3001 -e PORT=3001 -e HOST=0.0.0.0 -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap -e NODE_SECRET=dev-secret -e LOG_LEVEL=info my-evo:drone-docker-e2e
+      - docker build -t my-evo-frontend:drone-docker-e2e -f frontend/Dockerfile frontend
+      - docker run -d --name my-evo-backend --network workspace-deploy -p 18080:3001 -e PORT=3001 -e HOST=0.0.0.0 -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap -e NODE_SECRET=dev-secret -e LOG_LEVEL=info my-evo:drone-docker-e2e
+      - docker run -d --name my-evo-frontend --network workspace-deploy -p 18081:3000 -e NODE_ENV=production -e NEXT_PUBLIC_API_URL=http://my-evo-backend:3001 my-evo-frontend:drone-docker-e2e
       - sleep 15
-      - 'wget -qO- http://host.docker.internal:18080/health || { docker ps -a; docker logs my-evo; exit 1; }'
-      - 'echo "Deployment successful: my-evo container is healthy"'
+      - 'wget -qO- http://host.docker.internal:18080/health || { docker ps -a; docker logs my-evo-backend; exit 1; }'
+      - 'wget -qO- http://host.docker.internal:18081/ || { docker ps -a; docker logs my-evo-frontend; exit 1; }'
+      - 'echo "Deployment successful: backend and frontend containers are healthy"'
     when:
       event:
         - push
