@@ -69,11 +69,11 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - docker build -t my-evo:latest /drone/src/backend
+      - docker build -t my-evo:latest -f backend/Dockerfile backend
       - docker rm -f my-evo || true
-      - docker run -d --name my-evo -p 8080:3001 my-evo:latest
+      - docker run -d --name my-evo -p 8080:3001 -e PORT=3001 my-evo:latest
       - sleep 5
-      - wget -qO- http://host.docker.internal:8080/health
+      - curl -sf http://host.docker.internal:8080/health || curl -sf http://localhost:8080/health
     when:
       event:
         - push
