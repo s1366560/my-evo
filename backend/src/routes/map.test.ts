@@ -36,13 +36,13 @@ describe('Map Routes - GET /nodes', () => {
 
 describe('Map Routes - POST /nodes', () => {
   test('should require label field', () => {
-    const body = { mapId: 'map_1' };
+    const body: Record<string, any> = { mapId: 'map_1' };
     const isValid = !!(body.label && body.mapId);
     expect(isValid).toBe(false);
   });
 
   test('should require mapId field', () => {
-    const body = { label: 'Test Node' };
+    const body: Record<string, any> = { label: 'Test Node' };
     const isValid = !!(body.label && body.mapId);
     expect(isValid).toBe(false);
   });
@@ -54,13 +54,13 @@ describe('Map Routes - POST /nodes', () => {
   });
 
   test('should use default nodeType when not provided', () => {
-    const body = { mapId: 'map_1', label: 'Test' };
+    const body: Record<string, any> = { mapId: 'map_1', label: 'Test' };
     const nodeType = body.nodeType || 'concept';
     expect(nodeType).toBe('concept');
   });
 
   test('should default positionX to 0', () => {
-    const body = { mapId: 'map_1', label: 'Test' };
+    const body: Record<string, any> = { mapId: 'map_1', label: 'Test' };
     const posX = body.positionX || 0;
     expect(posX).toBe(0);
   });
@@ -74,13 +74,13 @@ describe('Map Routes - PATCH /nodes/:nodeId', () => {
   });
 
   test('should allow partial update with description only', () => {
-    const body = { description: 'New description' };
+    const body: Record<string, any> = { description: 'New description' };
     const update = { ...(body.description !== undefined && { description: body.description }) };
     expect(update).toEqual({ description: 'New description' });
   });
 
   test('should skip undefined fields in update', () => {
-    const body = { label: 'Updated' };
+    const body: Record<string, any> = { label: 'Updated' };
     const update = { ...(body.label && { label: body.label }) };
     expect(update.label).toBe('Updated');
     expect(update.description).toBeUndefined();
@@ -115,19 +115,19 @@ describe('Map Routes - GET /edges', () => {
 
 describe('Map Routes - POST /edges', () => {
   test('should require mapId, sourceId, targetId', () => {
-    const body = { mapId: 'map_1', sourceId: 'n1' };
+    const body: Record<string, any> = { mapId: 'map_1', sourceId: 'n1' };
     const isValid = !!(body.mapId && body.sourceId && body.targetId);
     expect(isValid).toBe(false);
   });
 
   test('should accept valid edge payload', () => {
-    const body = { mapId: 'map_1', sourceId: 'n1', targetId: 'n2' };
+    const body: Record<string, any> = { mapId: 'map_1', sourceId: 'n1', targetId: 'n2' };
     const isValid = !!(body.mapId && body.sourceId && body.targetId);
     expect(isValid).toBe(true);
   });
 
   test('should use default empty label', () => {
-    const body = { mapId: 'map_1', sourceId: 'n1', targetId: 'n2' };
+    const body: Record<string, any> = { mapId: 'map_1', sourceId: 'n1', targetId: 'n2' };
     const label = body.label || '';
     expect(label).toBe('');
   });
@@ -145,20 +145,20 @@ describe('Map Routes - Map CRUD', () => {
   });
 
   test('should require name for map creation', () => {
-    const body = { description: 'desc only' };
+    const body: Record<string, any> = { description: 'desc only' };
     const isValid = !!body.name;
     expect(isValid).toBe(false);
   });
 
   test('should accept valid map creation payload', () => {
-    const body = { name: 'My Map', description: 'A test map', isPublic: false };
+    const body: Record<string, any> = { name: 'My Map', description: 'A test map', isPublic: false };
     const isValid = !!body.name;
     expect(isValid).toBe(true);
     expect(body.isPublic).toBe(false);
   });
 
   test('should use default isPublic false', () => {
-    const body = { name: 'My Map' };
+    const body: Record<string, any> = { name: 'My Map' };
     const isPublic = body.isPublic || false;
     expect(isPublic).toBe(false);
   });

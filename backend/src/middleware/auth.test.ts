@@ -22,7 +22,7 @@ describe('Auth Middleware - Token Validation', () => {
   });
 
   test('should reject request without authorization header', () => {
-    const authHeader = undefined;
+    const authHeader: string | undefined = undefined as string | undefined;
     const hasToken = !!(authHeader && authHeader.startsWith('Bearer '));
     expect(hasToken).toBe(false);
   });
@@ -50,7 +50,7 @@ describe('Auth Middleware - JWT Verification', () => {
   test('should verify valid token', () => {
     const payload = { userId: 'user_1', email: 'test@example.com', role: 'user' };
     mockVerify.mockReturnValue(payload);
-    const decoded = mockVerify('token', 'secret');
+    const decoded = mockVerify('token', 'secret') as typeof payload;
     expect(decoded.userId).toBe('user_1');
     expect(decoded.email).toBe('test@example.com');
   });
@@ -119,7 +119,7 @@ describe('Auth Middleware - AuthenticatedRequest Interface', () => {
 
 describe('Auth Middleware - optionalAuth', () => {
   test('should continue without auth header', () => {
-    const authHeader = undefined;
+    const authHeader: string | undefined = undefined as string | undefined;
     const hasAuth = authHeader && authHeader.startsWith('Bearer ');
     expect(!!hasAuth).toBe(false);
   });
@@ -130,7 +130,7 @@ describe('Auth Middleware - optionalAuth', () => {
     if (hasAuth) {
       const token = authHeader.substring(7);
       mockVerify.mockReturnValue({ userId: 'user_1' });
-      const decoded = mockVerify(token, 'secret');
+      const decoded = mockVerify(token, 'secret') as { userId: string };
       expect(decoded.userId).toBe('user_1');
     }
   });

@@ -25,7 +25,7 @@ describe('Graph Routes - GET /', () => {
 
 describe('Graph Routes - GET /metrics', () => {
   test('should require authentication', () => {
-    const req = { user: undefined };
+    const req: { user?: { userId: string } } = { user: undefined };
     const hasAuth = !!req.user?.userId;
     expect(hasAuth).toBe(false);
   });
@@ -73,7 +73,7 @@ describe('Graph Routes - GET /pagerank', () => {
 
 describe('Graph Routes - GET /cycles', () => {
   test('should require authentication', () => {
-    const req = { user: undefined };
+    const req: { user?: { userId: string } } = { user: undefined };
     expect(!!req.user?.userId).toBe(false);
   });
 
@@ -92,7 +92,7 @@ describe('Graph Routes - GET /cycles', () => {
 
 describe('Graph Routes - GET /toposort', () => {
   test('should require authentication', () => {
-    const req = { user: undefined };
+    const req: { user?: { userId: string } } = { user: undefined };
     expect(!!req.user?.userId).toBe(false);
   });
 
@@ -144,25 +144,25 @@ describe('Graph Routes - GET /path', () => {
 
 describe('Graph Routes - POST /layout', () => {
   test('should require nodes field', () => {
-    const body = { edges: [] };
+    const body: Record<string, any> = { edges: [] };
     const isValid = !!(body.nodes && body.edges);
     expect(isValid).toBe(false);
   });
 
   test('should require edges field', () => {
-    const body = { nodes: [] };
+    const body: Record<string, any> = { nodes: [] };
     const isValid = !!(body.nodes && body.edges);
     expect(isValid).toBe(false);
   });
 
   test('should accept valid layout request', () => {
-    const body = { nodes: [{ id: 'n1' }], edges: [{ source: 'n1', target: 'n2' }] };
+    const body: Record<string, any> = { nodes: [{ id: 'n1' }], edges: [{ source: 'n1', target: 'n2' }] };
     const isValid = !!(body.nodes && body.edges);
     expect(isValid).toBe(true);
   });
 
   test('should use default force layout algorithm', () => {
-    const body = { nodes: [], edges: [] };
+    const body: Record<string, any> = { nodes: [], edges: [] };
     const algorithm = body.algorithm || 'force';
     expect(algorithm).toBe('force');
   });
@@ -181,13 +181,13 @@ describe('Graph Routes - POST /layout', () => {
 
 describe('Graph Routes - POST /validate', () => {
   test('should require nodes field', () => {
-    const body = { edges: [] };
+    const body: Record<string, any> = { edges: [] };
     const isValid = !!(body.nodes && body.edges);
     expect(isValid).toBe(false);
   });
 
   test('should require edges field', () => {
-    const body = { nodes: [] };
+    const body: Record<string, any> = { nodes: [] };
     const isValid = !!(body.nodes && body.edges);
     expect(isValid).toBe(false);
   });
