@@ -69,11 +69,11 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - docker build -t my-evo:drone-docker-e2e /drone/src
+      - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
       - docker rm -f my-evo || true
-      - docker run -d --name my-evo -p 8080:3001 my-evo:drone-docker-e2e
+      - docker run -d --name my-evo -p 8080:3001 -e PORT=3001 my-evo:drone-docker-e2e
       - sleep 5
-      - wget -qO- http://host.docker.internal:8080/health
+      - curl -sf http://host.docker.internal:8080/health || exit 1
     when:
       event:
         - push
