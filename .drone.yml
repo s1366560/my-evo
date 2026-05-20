@@ -79,7 +79,7 @@ steps:
       - docker run -d --name my-evo --network workspace-deploy -p 18080:3001 -e PORT=3001 -e HOST=0.0.0.0 -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap -e REDIS_URL=redis://my-evo-redis:6379 my-evo:drone-docker-e2e
       - sleep 10
       - 'wget -qO- http://host.docker.internal:18080/health || { docker ps -a; docker logs my-evo; exit 1; }'
-      - echo "Deployment successful: my-evo container is healthy"
+      - 'echo "Deployment successful: my-evo container is healthy"'
     when:
       event:
         - push
