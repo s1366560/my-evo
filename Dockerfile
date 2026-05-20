@@ -38,7 +38,7 @@ RUN addgroup -g 1001 -S evomap && adduser -S evomap -u 1001
 WORKDIR /app
 
 # Install runtime dependencies only
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init wget
 
 # Copy package files for production install
 COPY package*.json ./
