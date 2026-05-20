@@ -40,24 +40,13 @@ WORKDIR /app
 # Install runtime dependencies only
 RUN apk add --no-cache dumb-init wget
 
-# Copy package files for production install
-COPY package*.json ./
-
-# Install production dependencies only
-RUN npm ci --production --ignore-scripts
-
-# Copy Prisma schema for migrations
-COPY prisma ./prisma
-
-# Run migrations at startup
-RUN npx prisma generate
-
-# Copy built artifacts from builder
+# Copy built artifacts from builder (no npm ci needed in production stage)
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
-# Copy source scripts
-COPY src/scripts ./src/scripts
+# Copy Prisma schema for migrations
+COPY prisma ./prisma
 
 # Set ownership
 RUN chown -R evomap:evomap /app
@@ -79,5 +68,5 @@ EXPOSE 3001
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Run migrations then start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+# Start server (migrate only if DATABASE_URL is set)
+CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npx prisma migrate deploy || true; fi && node dist/index.js"]

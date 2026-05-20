@@ -69,7 +69,6 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      # Build the image locally using the mounted host Docker socket
       - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
       # Create a dedicated Docker network for the deploy
       - docker network create workspace-deploy 2>/dev/null || true
