@@ -69,8 +69,7 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - docker pull host.docker.internal:5001/my-evo:drone-docker-e2e
-      - docker tag host.docker.internal:5001/my-evo:drone-docker-e2e my-evo:latest
+      - docker build -t my-evo:latest /drone/src/backend
       - docker rm -f my-evo || true
       - docker run -d --name my-evo -p 8080:3001 my-evo:latest
       - sleep 5
