@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-05-20
+
+### Sprint 2026-W21-2 迭代复盘
+
+本轮迭代聚焦后端测试覆盖率和 CI/CD 增强。实际完成率 73% (8/11)。
+
+### Added
+
+- 后端测试覆盖: `routes/map.test.ts` (215 行, 12 端点覆盖)
+- 后端测试覆盖: `routes/graph.test.ts` (222 行, 8 端点覆盖)
+- 后端测试覆盖: `middleware/auth.test.ts` (186 行, JWT 认证测试)
+- Drone CI/CD: `docker-build-frontend` 前端镜像构建步骤
+- Drone CI/CD: 双镜像部署 (backend + frontend) 含健康检查
+- 调研报告: `docs/RESEARCH-REPORT-20260520.md`
+- 分支计划: `docs/BRANCH-ITERATION-20260520.md`
+- 迭代复盘: `REVIEW.md`
+
+### Fixed
+
+- `frontend/Dockerfile` 升级至 `node:20-alpine` (Next.js 15 兼容)
+- `backend/src/config/index.ts` PORT 默认值对齐 Dockerfile/Drone 配置
+- `frontend/tsconfig.tsbuildinfo` 清理遗留缓存 (修复 CI 构建错误)
+- `frontend/src/lib/api/hooks/use-gep-*.ts` 修复 GEP 类型导入
+- `.drone.yml` deploy 端口从 8080 修正为 18080/18081
+
+### Not Delivered
+
+- Asset Purchase Flow (P0): 后端 purchase API + 前端购物车/结账页 + E2E 测试
+
+---
+
 ## [Unreleased] - Sprint Plan (2026-05-20)
 
 ### Sprint 2026-W21-2 Implementation Plan
