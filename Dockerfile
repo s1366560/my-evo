@@ -85,7 +85,7 @@ ENV HOST=0.0.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD ["wget", "-qO-", "http://localhost:3001/health"]
+  CMD ["wget", "-qO-", "http://localhost:${PORT:-3001}/health"]
 
 EXPOSE 3001
 
