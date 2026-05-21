@@ -49,7 +49,8 @@ RUN npm ci --production --ignore-scripts
 # Copy Prisma schema for migrations
 COPY prisma ./prisma
 
-# Run migrations at startup (skip if no DATABASE_URL - app falls back to mock mode)
+# Generate Prisma client (use dummy URL for generation; runtime uses real DATABASE_URL)
+# Note: no prisma/migrations/ dir in this project — skip prisma migrate deploy in CMD
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
 
 # Copy built artifacts from builder
@@ -76,6 +77,6 @@ EXPOSE 8080
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Run migrations then start server
-# If no real DATABASE_URL is set, skip migrate (app runs in mock mode)
-CMD ["sh", "-c", "test -n \"$DATABASE_URL\" && DATABASE_URL=\"$DATABASE_URL\" npx prisma migrate deploy; node dist/index.js"]
+# Start server (no prisma/migrations/ dir in this project — skip migrate deploy)
+# If no DATABASE_URL, app falls back to mock mode automatically
+CMD ["sh", "-c", "node dist/index.js"]
