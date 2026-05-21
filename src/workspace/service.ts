@@ -562,7 +562,8 @@ export async function createHeartbeatExtension(
 // Workspace Chat (Group Chat) Functions
 // ============================================================================
 
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
+type JsonObject = Record<string, unknown>;
 import type {
   SendWorkspaceMessageRequest,
   SendWorkspaceMessageResponse,
@@ -603,10 +604,10 @@ export async function sendWorkspaceMessage(
       sender_role: senderRole,
       content: request.content,
       message_type: request.message_type || 'text',
-      metadata: (request.metadata || {}) as Prisma.InputJsonValue,
+      metadata: (request.metadata || {}) as JsonObject,
       mentions: request.mentions || [],
       reply_to: request.reply_to || null,
-      reactions: [] as Prisma.InputJsonValue,
+      reactions: [] as JsonObject,
       is_pinned: false,
     },
   });
@@ -715,7 +716,7 @@ export async function addWorkspaceMessageReaction(
 
   const updated = await prisma.workspaceMessage.update({
     where: { message_id: messageId },
-    data: { reactions: reactions as unknown as Prisma.InputJsonValue },
+    data: { reactions: reactions as unknown as JsonObject },
   });
 
   return {

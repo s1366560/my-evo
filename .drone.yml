@@ -78,14 +78,14 @@ steps:
       - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
       - |
         for i in $(seq 1 3); do
-          docker run -d --name my-evo --network workspace-deploy -p 18080:3001 -e PORT=3001 -e HOST=0.0.0.0 -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap -e NODE_SECRET=dev-secret -e LOG_LEVEL=info my-evo:drone-docker-e2e && break
+          docker run -d --name my-evo --network workspace-deploy -p 18080:8080 -e PORT=8080 -e HOST=0.0.0.0 -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap -e NODE_SECRET=dev-secret -e LOG_LEVEL=info my-evo:drone-docker-e2e && break
           docker rm -f my-evo 2>/dev/null || true
           sleep 2
         done
       - sleep 15
-      - 'wget -qO- http://host.docker.internal:18080/health || { docker ps -a; docker logs my-evo; exit 1; }'
+      - 'wget -qO- http://host.docker.internal:18080/api/health || { docker ps -a; docker logs my-evo; exit 1; }'
       - 'echo "Retry loop on docker run for transient port conflict: PASS"'
-      - 'echo "Deployment successful: my-evo container is healthy"'
+      - 'echo "Deployment successful: my-evo container is healthy at http://host.docker.internal:18080/api/health"'
     when:
       event:
         - push
