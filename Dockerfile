@@ -67,14 +67,14 @@ USER evomap
 
 # Environment defaults
 ENV NODE_ENV=production
-ENV PORT=3001
+ENV PORT=3000
 ENV HOST=0.0.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:3001/health || exit 1
+  CMD wget -qO- http://localhost:3000/health || exit 1
 
-EXPOSE 3001
+EXPOSE 3000
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
