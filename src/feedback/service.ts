@@ -1,4 +1,5 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
+type JsonObject = Record<string, unknown>;
 import crypto from 'crypto';
 import {
   UserFeedback,
@@ -119,7 +120,7 @@ export async function createFeedback(
       category: input.category,
       title: input.title,
       content: input.content.trim(),
-      metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      metadata: (input.metadata ?? {}) as JsonObject,
       status: 'pending',
     },
   });
@@ -278,7 +279,7 @@ export async function trackEvent(
       component: input.component,
       action: input.action,
       duration: input.duration,
-      metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      metadata: (input.metadata ?? {}) as JsonObject,
     },
   });
 
@@ -411,7 +412,7 @@ export async function startSessionMetric(
       node_id: input.node_id,
       session_type: input.session_type,
       start_time: now,
-      metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+      metadata: (input.metadata ?? {}) as JsonObject,
     },
   });
 
@@ -446,7 +447,7 @@ export async function updateSessionMetric(
       action_count: (existing.action_count ?? 0) + (updates.action_count_increment ?? 0),
       metadata: (updates.metadata
         ? { ...currentMetadata, ...updates.metadata }
-        : currentMetadata) as Prisma.InputJsonValue,
+        : currentMetadata) as JsonObject,
     },
   });
 
@@ -483,7 +484,7 @@ export async function endSessionMetric(
       outcome: input.outcome,
       metadata: (input.metadata
         ? { ...currentMetadata, ...input.metadata }
-        : currentMetadata) as Prisma.InputJsonValue,
+        : currentMetadata) as JsonObject,
     },
   });
 

@@ -5,6 +5,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+type JsonObject = Record<string, unknown>;
 import type {
   Asset,
   CreateAssetInput,
@@ -35,7 +36,7 @@ export async function createAsset(
       parent_id: input.parent_id || null,
       ancestors: input.parent_id ? [input.parent_id] : [],
       generation: input.parent_id ? 1 : 0,
-      config: (input.config || {}) as Prisma.InputJsonValue,
+      config: (input.config || {}) as JsonObject,
     },
   });
 
@@ -74,7 +75,7 @@ export async function updateAsset(
   if (input.content !== undefined) updateData.content = input.content;
   if (input.signals) updateData.signals = input.signals;
   if (input.tags) updateData.tags = input.tags;
-  if (input.config) updateData.config = input.config as Prisma.InputJsonValue;
+  if (input.config) updateData.config = input.config as JsonObject;
   if (input.status) updateData.status = input.status;
 
   const asset = await prisma.asset.update({
@@ -213,7 +214,7 @@ export async function forkAsset(
       parent_id: assetId,
       ancestors: [...original.ancestors, assetId],
       generation: original.generation + 1,
-      config: original.config as Prisma.InputJsonValue ?? undefined,
+      config: original.config as JsonObject ?? undefined,
     },
   });
 
