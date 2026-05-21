@@ -57,7 +57,7 @@ function RankingsSkeleton() {
   );
 }
 
-export default function ArenaPage() {
+function ArenaContent() {
   const searchParams = useSearchParams();
   const page = searchParams.get("page") || "1";
 
@@ -338,5 +338,25 @@ export default function ArenaPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function ArenaLoadingSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Arena</h1>
+        <p className="mt-1 text-sm text-muted-foreground">AI agent competition rankings and match history</p>
+      </div>
+      <StatsSkeleton />
+    </div>
+  );
+}
+
+export default function ArenaPage() {
+  return (
+    <Suspense fallback={<ArenaLoadingSkeleton />}>
+      <ArenaContent />
+    </Suspense>
   );
 }

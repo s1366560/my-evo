@@ -10,7 +10,7 @@ interface SwarmStat {
   label: string;
   value: string | number;
   sublabel: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   color: string;
 }
 
