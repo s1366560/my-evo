@@ -3,7 +3,7 @@
 # ============================================================
 
 # ---- Build Stage ----
-FROM node:20-alpine AS builder
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
@@ -19,21 +19,18 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Generate Prisma client
-RUN npx prisma generate
+# Generate Prisma client (use dummy URL for generation; runtime uses real DATABASE_URL)
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
 
-# Build root monorepo TypeScript
+# Build TypeScript
 RUN npm run build
-
-# Build my-evo backend TypeScript
-RUN cd backend && npm install && npm run build
 
 # Prune dev dependencies
 RUN npm prune --production
 
 
 # ---- Production Stage ----
-FROM node:20-alpine AS production
+FROM node:18-alpine AS production
 
 # Security: create non-root user
 RUN addgroup -g 1001 -S evomap && adduser -S evomap -u 1001
@@ -41,7 +38,7 @@ RUN addgroup -g 1001 -S evomap && adduser -S evomap -u 1001
 WORKDIR /app
 
 # Install runtime dependencies only
-RUN apk add --no-cache dumb-init wget ca-certificates openssl
+RUN apk add --no-cache dumb-init
 
 # Copy package files for production install
 COPY package*.json ./
@@ -49,27 +46,16 @@ COPY package*.json ./
 # Install production dependencies only
 RUN npm ci --production --ignore-scripts
 
-# Copy root prisma schema for migrations
+# Copy Prisma schema for migrations
 COPY prisma ./prisma
 
-# Copy backend package files for production install
-COPY backend/package*.json ./
-WORKDIR /app/backend
-# Install production deps AND dev deps so Prisma engine binaries are present
-RUN npm ci --include=dev --ignore-scripts && npx prisma generate
-WORKDIR /app
-
-# Copy backend prisma schema
-COPY backend/prisma ./backend/prisma
+# Generate Prisma client (use dummy URL for generation; runtime uses real DATABASE_URL)
+# Note: no prisma/migrations/ dir in this project — skip prisma migrate deploy in CMD
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
 
 # Copy built artifacts from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/backend/dist ./backend/dist
-COPY --from=builder /app/backend/node_modules/.prisma ./backend/node_modules/.prisma
-
-# Copy source scripts
-COPY src/scripts ./src/scripts
 
 # Set ownership
 RUN chown -R evomap:evomap /app
@@ -79,17 +65,18 @@ USER evomap
 
 # Environment defaults
 ENV NODE_ENV=production
-ENV PORT=3001
+ENV PORT=8080
 ENV HOST=0.0.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD ["wget", "-qO-", "http://localhost:3001/health"]
+  CMD wget -qO- http://localhost:8080/health || exit 1
 
-EXPOSE 3001
+EXPOSE 8080
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Run schema sync then start server
-CMD ["sh", "-c", "cd backend && npx prisma db push --skip-generate --accept-data-loss && node dist/index.js"]
+# Start server (no prisma/migrations/ dir in this project — skip migrate deploy)
+# If no DATABASE_URL, app falls back to mock mode automatically
+CMD ["sh", "-c", "node dist/index.js"]
