@@ -65,9 +65,7 @@ WORKDIR /app
 
 # Copy built artifacts from builder
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/backend/dist ./backend/dist
-COPY --from=builder /app/backend/node_modules/.prisma ./backend/node_modules/.prisma
 
 # Copy source scripts
 COPY src/scripts ./src/scripts
