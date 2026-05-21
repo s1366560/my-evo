@@ -19,8 +19,8 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Generate Prisma client
-RUN npx prisma generate
+# Note: prisma generate runs per-package in production stage
+# Root has no schema; backend/prisma/schema.prisma is handled there
 
 # Build root monorepo TypeScript
 RUN npm run build
