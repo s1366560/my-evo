@@ -76,7 +76,7 @@ steps:
     commands:
       - |
         # Clean up stale containers before deployment
-        docker rm -f my-evo-deploy postgres-sidecar redis-sidecar 2>/dev/null || true
+        docker rm -f my-evo-app postgres-sidecar redis-sidecar 2>/dev/null || true
       - |
         # Ensure deploy network exists
         docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
@@ -117,9 +117,9 @@ steps:
       - |
         # Run the app container (transient port conflict retry)
         for i in 1 2 3; do
-          docker rm -f my-evo-deploy 2>/dev/null || true
+          docker rm -f my-evo-app 2>/dev/null || true
           docker run -d \
-            --name my-evo-deploy \
+            --name my-evo-app \
             --network workspace-deploy \
             -p 18080:8080 \
             -e NODE_ENV=production \
@@ -132,13 +132,13 @@ steps:
         done
       - |
         # Verify container is running
-        if docker ps --filter name=my-evo-deploy --format '{{.Names}}' | grep -q my-evo-deploy; then
-          echo "Container my-evo-deploy is running"
-          docker ps --filter name=my-evo-deploy
+        if docker ps --filter name=my-evo-app --format '{{.Names}}' | grep -q my-evo-app; then
+          echo "Container my-evo-app is running"
+          docker ps --filter name=my-evo-app
         else
-          echo "ERROR: Container my-evo-deploy failed to start"
-          docker ps -a --filter name=my-evo-deploy
-          docker logs my-evo-deploy 2>&1 || true
+          echo "ERROR: Container my-evo-app failed to start"
+          docker ps -a --filter name=my-evo-app
+          docker logs my-evo-app 2>&1 || true
           exit 1
         fi
       - |
@@ -154,8 +154,8 @@ steps:
           sleep 3
         done
         echo "ERROR: Health check failed after $MAX_RETRIES attempts"
-        docker ps -a --filter name=my-evo-deploy
-        docker logs my-evo-deploy 2>&1 || true
+        docker ps -a --filter name=my-evo-app
+        docker logs my-evo-app 2>&1 || true
         exit 1
     when:
       event:
