@@ -14,7 +14,7 @@ trigger:
     - main
 
 volumes:
-  - name: dockersock
+  - name: docker-sock
     host:
       path: /var/run/docker.sock
 
@@ -69,15 +69,40 @@ steps:
   - name: deploy
     image: docker:cli
     environment:
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
-      - name: dockersock
+      - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - docker pull host.docker.internal:5001/my-evo:drone-docker-e2e || docker pull host.docker.internal:5001/my-evo:latest || echo "Image may not exist yet"
-      - docker run -d --name my-evo-deploy -p 8080:8080 host.docker.internal:5001/my-evo:drone-docker-e2e || docker run -d --name my-evo-deploy -p 8080:8080 host.docker.internal:5001/my-evo:latest || echo "Container start skipped"
-      - sleep 5
-      - wget --timeout=10 -q -O- http://host.docker.internal:8080/api/health || curl --max-time 10 -sf http://host.docker.internal:8080/api/health || echo "Health check skipped"
+      - docker rm -f my-evo-app 2>/dev/null || true
+      - docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
+      - |
+        for attempt in 1 2 3; do
+          echo "Deploy attempt $attempt/3"
+          if docker run -d \
+            --name my-evo-app \
+            --network workspace-deploy \
+            -p 18080:8080 \
+            localhost:5001/my-evo:drone-docker-e2e; then
+            echo "Container started successfully"
+            break
+          else
+            echo "Container start failed (attempt $attempt/3)"
+            docker rm -f my-evo-app 2>/dev/null || true
+            sleep 2
+          fi
+        done
+      - |
+        for i in $(seq 1 30); do
+          if wget -qO- http://host.docker.internal:18080/health >/dev/null 2>&1; then
+            echo "Health check passed"
+            break
+          fi
+          echo "Waiting for health endpoint... ($i/30)"
+          sleep 2
+        done
+        wget -qO- http://host.docker.internal:18080/health
+      - docker ps -a --filter "name=my-evo-app"
     when:
       event:
         - push
