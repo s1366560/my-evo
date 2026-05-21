@@ -36,9 +36,13 @@ steps:
     commands:
       - docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
       - docker rm -f my-evo-app postgres-sidecar redis-sidecar 2>/dev/null || true
+      - docker run -d --name postgres-sidecar --network workspace-deploy -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=myevo postgres:16-alpine
+      - docker run -d --name redis-sidecar --network workspace-deploy redis:7-alpine
+      - for i in $(seq 1 30); do docker exec postgres-sidecar pg_isready -U postgres >/dev/null 2>&1 && break || sleep 1; done
+      - echo "postgres and redis sidecars ready"
       - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
-      - docker run -d --name my-evo-app --network workspace-deploy -p 18080:8080 my-evo:drone-docker-e2e
-      - for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18080/api/health >/dev/null 2>&1 && break || sleep 2; done
+      - docker run -d --name my-evo-app --network workspace-deploy -e PORT=8080 -p 18080:8080 my-evo:drone-docker-e2e
+      - for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18080/api/health >/dev/null 2>&1 && break || sleep 2; done; if ! wget -qO- http://host.docker.internal:18080/api/health >/dev/null 2>&1; then echo "Health check failed"; docker logs my-evo-app; exit 1; fi
       - docker ps -a
     volumes:
       - name: docker-sock
