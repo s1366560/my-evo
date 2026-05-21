@@ -1,0 +1,55 @@
+kind: pipeline
+type: docker
+name: my-evo-deploy
+
+steps:
+  - name: build
+    image: node:20-alpine
+    commands:
+      - npm ci
+      - npm run build
+    when:
+      branch:
+        - main
+
+  - name: docker-publish
+    image: plugins/docker
+    settings:
+      repo: host.docker.internal:5001/my-evo
+      registry: host.docker.internal:5001
+      tags:
+        - drone-docker-e2e
+        - latest
+      auto_tag: true
+      insecure: true
+      purge: true
+    depends_on:
+      - build
+    when:
+      branch:
+        - main
+
+  - name: deploy
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    commands:
+      - docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
+      - docker rm -f my-evo-app postgres-sidecar redis-sidecar 2>/dev/null || true
+      - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
+      - docker run -d --name my-evo-app --network workspace-deploy -p 18080:8080 my-evo:drone-docker-e2e
+      - for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18080/api/health >/dev/null 2>&1 && break || sleep 2; done
+      - docker ps -a
+    volumes:
+      - name: docker-sock
+        path: /var/run/docker.sock
+    depends_on:
+      - docker-publish
+    when:
+      branch:
+        - main
+
+volumes:
+  - name: docker-sock
+    host:
+      path: /var/run/docker.sock
