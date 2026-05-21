@@ -69,15 +69,43 @@ steps:
   - name: deploy
     image: docker:cli
     environment:
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
       - name: dockersock
         path: /var/run/docker.sock
     commands:
-      - docker pull host.docker.internal:5001/my-evo:drone-docker-e2e || docker pull host.docker.internal:5001/my-evo:latest || echo "Image may not exist yet"
-      - docker run -d --name my-evo-deploy -p 8080:8080 host.docker.internal:5001/my-evo:drone-docker-e2e || docker run -d --name my-evo-deploy -p 8080:8080 host.docker.internal:5001/my-evo:latest || echo "Container start skipped"
+      - docker rm -f my-evo-deploy 2>/dev/null || true
+      - docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
+      - |
+        for i in 1 2 3; do
+          docker build -t my-evo:drone-docker-e2e -f Dockerfile . && break
+          echo "Docker build attempt $i failed, retrying..."
+          sleep 2
+        done
+      - |
+        for i in 1 2 3; do
+          docker run -d \
+            --name my-evo-deploy \
+            --network workspace-deploy \
+            -p 18080:8080 \
+            my-evo:drone-docker-e2e && break
+          echo "Docker run attempt $i failed, cleaning up and retrying..."
+          docker rm -f my-evo-deploy 2>/dev/null || true
+          sleep 3
+        done
+      - |
+        if docker ps --filter name=my-evo-deploy --format '{{.Names}}' | grep -q my-evo-deploy; then
+          echo "Container my-evo-deploy is running"
+          docker ps --filter name=my-evo-deploy
+        else
+          echo "ERROR: Container my-evo-deploy failed to start"
+          docker ps -a --filter name=my-evo-deploy
+          docker logs my-evo-deploy 2>&1 || true
+          exit 1
+        fi
       - sleep 5
-      - wget --timeout=10 -q -O- http://host.docker.internal:8080/api/health || curl --max-time 10 -sf http://host.docker.internal:8080/api/health || echo "Health check skipped"
+      - wget --timeout=10 -q -O- http://host.docker.internal:18080/api/health || curl --max-time 10 -sf http://host.docker.internal:18080/api/health
+      - echo "Deploy health check passed"
     when:
       event:
         - push
