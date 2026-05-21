@@ -56,9 +56,6 @@ RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma gene
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
-# Copy source scripts
-COPY src/scripts ./src/scripts
-
 # Set ownership
 RUN chown -R evomap:evomap /app
 

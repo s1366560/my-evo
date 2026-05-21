@@ -50,8 +50,8 @@ vitest.config.ts
 temp/
 tmp/
 
-# Prisma (runtime will generate)
-prisma/migrations/
+# Prisma (migrations are committed to repo for CI deployment)
+# prisma/migrations/
 
 # Docker files
 docker-compose*.yml
