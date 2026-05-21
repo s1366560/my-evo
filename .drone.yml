@@ -74,15 +74,54 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - docker rm -f my-evo-deploy 2>/dev/null || true
-      - docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
       - |
+        # Clean up stale containers before deployment
+        docker rm -f my-evo-deploy postgres-sidecar redis-sidecar 2>/dev/null || true
+      - |
+        # Ensure deploy network exists
+        docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
+      - |
+        # Pull the image from the registry (published by docker-build step)
+        # This implements proper docker deployment semantics: pull + run
+        REGISTRY_IMAGE="host.docker.internal:5001/my-evo:drone-docker-e2e"
+        LOCAL_TAG="my-evo:drone-docker-e2e"
         for i in 1 2 3; do
-          docker build -t my-evo:drone-docker-e2e -f Dockerfile . && break
-          echo "Docker build attempt $i failed, retrying..."
-          sleep 2
+          docker pull "$REGISTRY_IMAGE" && docker tag "$REGISTRY_IMAGE" "$LOCAL_TAG" && break
+          echo "Docker pull attempt $i failed, retrying..."
+          sleep 3
         done
       - |
+        # Start PostgreSQL sidecar
+        docker run -d \
+          --name postgres-sidecar \
+          --network workspace-deploy \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_DB=evomap \
+          postgres:16-alpine
+      - |
+        # Wait for PostgreSQL to be ready
+        for i in $(seq 1 30); do
+          if docker exec postgres-sidecar pg_isready -U postgres >/dev/null 2>&1; then
+            echo "PostgreSQL is ready"
+            break
+          fi
+          if [ $i -eq 30 ]; then
+            echo "ERROR: PostgreSQL failed to become ready"
+            docker logs postgres-sidecar
+            exit 1
+          fi
+          sleep 1
+        done
+      - |
+        # Start Redis sidecar
+        docker run -d \
+          --name redis-sidecar \
+          --network workspace-deploy \
+          redis:7-alpine
+        sleep 2
+      - |
+        # Run the app container (transient port conflict retry)
         for i in 1 2 3; do
           docker rm -f my-evo-deploy 2>/dev/null || true
           docker run -d \
@@ -91,11 +130,14 @@ steps:
             -p 18080:3000 \
             -e NODE_ENV=production \
             -e PORT=3000 \
+            -e DATABASE_URL="postgresql://postgres:postgres@postgres-sidecar:5432/evomap" \
+            -e REDIS_URL="redis://redis-sidecar:6379" \
             my-evo:drone-docker-e2e && break
-          echo "Docker run attempt $i failed, cleaning up and retrying..."
+          echo "Docker run attempt $i failed (port conflict or other), retrying..."
           sleep 3
         done
       - |
+        # Verify container is running
         if docker ps --filter name=my-evo-deploy --format '{{.Names}}' | grep -q my-evo-deploy; then
           echo "Container my-evo-deploy is running"
           docker ps --filter name=my-evo-deploy
@@ -105,8 +147,8 @@ steps:
           docker logs my-evo-deploy 2>&1 || true
           exit 1
         fi
-      - sleep 8
       - |
+        # Health check against host-mapped endpoint
         HEALTH_URL="http://host.docker.internal:18080/health"
         MAX_RETRIES=5
         for i in $(seq 1 $MAX_RETRIES); do
