@@ -1,57 +1,104 @@
 kind: pipeline
 type: docker
-name: my-evo-deploy
+name: workspace-ci
+
+platform:
+  os: linux
+  arch: arm64
+
+trigger:
+  event:
+    - push
+    - custom
+  branch:
+    - main
 
 steps:
-  - name: build
+  - name: repository-smoke
     image: node:20-alpine
     commands:
-      - npm ci
+      - node --version
+      - npm --version
+      - test -f package.json
+      - test -f backend/package.json
+      - test -f frontend/package.json
+      - node -e 'const fs=require("fs"); for (const f of ["package.json","backend/package.json","frontend/package.json"]) { const pkg=JSON.parse(fs.readFileSync(f,"utf8")); if (!pkg.scripts || Object.keys(pkg.scripts).length === 0) throw new Error(f + " has no scripts"); }'
+
+  - name: backend-test
+    image: node:20-alpine
+    commands:
+      - cd backend
+      - npm install --silent
+      - npm test
+    when:
+      event:
+        - push
+        - custom
+
+  - name: frontend-build
+    image: node:20-alpine
+    commands:
+      - cd frontend
+      - npm install --silent
       - npm run build
     when:
-      branch:
-        - main
+      event:
+        - push
+        - custom
 
-  - name: docker-publish
-    image: plugins/docker
+  - name: docker-build
+    image: plugins/docker:20
     settings:
       repo: host.docker.internal:5001/my-evo
-      registry: host.docker.internal:5001
       tags:
         - drone-docker-e2e
         - latest
-      auto_tag: true
+      registry: host.docker.internal:5001
       insecure: true
       purge: true
-    depends_on:
-      - build
     when:
-      branch:
-        - main
+      event:
+        - push
+        - custom
 
   - name: deploy
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
-    commands:
-      - docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
-      - docker rm -f my-evo-app postgres-sidecar redis-sidecar 2>/dev/null || true
-      - docker run -d --name postgres-sidecar --network workspace-deploy -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=myevo postgres:16-alpine
-      - docker run -d --name redis-sidecar --network workspace-deploy redis:7-alpine
-      - for i in $(seq 1 30); do docker exec postgres-sidecar pg_isready -U postgres >/dev/null 2>&1 && break || sleep 1; done
-      - echo "postgres and redis sidecars ready"
-      - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
-      - docker run -d --name my-evo-app --network workspace-deploy -e PORT=8080 -p 18080:8080 my-evo:drone-docker-e2e
-      - for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18080/api/health >/dev/null 2>&1 && break || sleep 2; done; if ! wget -qO- http://host.docker.internal:18080/api/health >/dev/null 2>&1; then echo "Health check failed"; docker logs my-evo-app; exit 1; fi
-      - docker ps -a
     volumes:
       - name: docker-sock
         path: /var/run/docker.sock
-    depends_on:
-      - docker-publish
+    commands:
+      - docker rm -f my-evo-app my-evo-postgres my-evo-redis 2>/dev/null || true
+      - docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
+      - docker run -d --name my-evo-postgres --network workspace-deploy -e POSTGRES_USER=evomap -e POSTGRES_PASSWORD=evomap -e POSTGRES_DB=evomap postgres:16-alpine
+      - for i in $(seq 1 30); do docker exec my-evo-postgres pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done
+      - docker run -d --name my-evo-redis --network workspace-deploy redis:7-alpine
+      - sleep 2
+      - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
+      - |
+        for attempt in 1 2 3; do
+          docker run -d --name my-evo-app --network workspace-deploy \
+            -p 18080:3001 \
+            -e PORT=3001 \
+            -e HOST=0.0.0.0 \
+            -e DATABASE_URL=postgresql://evomap:evomap@my-evo-postgres:5432/evomap \
+            -e JWT_SECRET=dev-jwt-secret \
+            -e SESSION_SECRET=dev-session-secret \
+            -e REDIS_URL=redis://my-evo-redis:6379 \
+            -e LOG_LEVEL=info \
+            my-evo:drone-docker-e2e && break
+          echo "docker run attempt $attempt failed, retrying in 5s..."
+          docker rm -f my-evo-app 2>/dev/null || true
+          sleep 5
+        done
+      - sleep 15
+      - 'wget -qO- http://host.docker.internal:18080/health || { docker ps -a; docker logs my-evo-app; exit 1; }'
+      - 'echo "Deployment successful: my-evo-app container is healthy"'
     when:
-      branch:
-        - main
+      event:
+        - push
+        - custom
 
 volumes:
   - name: docker-sock

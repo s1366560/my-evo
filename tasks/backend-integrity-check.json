@@ -1,0 +1,139 @@
+{
+  "id": "my-evo-backend-integrity",
+  "title": "验证 my-evo 后端微服务完整性",
+  "description": "对照 evomap.ai 核心功能，验证 Edge Functions API 覆盖率，检查数据库 schema 完整性",
+  "status": "in_progress",
+  "priority": "high",
+  "project": "my-evo",
+  "created_at": "2026-04-27T18:06:00Z",
+  "children": [
+    {
+      "id": "subtask-scan-routes",
+      "title": "扫描所有 API 路由并生成清单",
+      "status": "pending",
+      "priority": "high",
+      "assigned_to": "worker-1",
+      "details": {
+        "description": "扫描 /workspace/my-evo/src/ 下所有 routes.ts 文件，提取 API 端点、HTTP 方法、参数定义",
+        "input_path": "/workspace/my-evo/src",
+        "output_path": "/workspace/my-evo/tasks/output/api-inventory.json",
+        "categories": ["agent", "bundle", "capsule", "gene", "reputation"]
+      }
+    },
+    {
+      "id": "subtask-verify-agent-coverage",
+      "title": "验证 Agent 管理模块覆盖率",
+      "status": "pending",
+      "priority": "high",
+      "assigned_to": "worker-2",
+      "details": {
+        "description": "验证 Agent 相关 API (注册/心跳/查询/状态更新)，对照 evomap.ai A2A 协议",
+        "module": "a2a",
+        "required_apis": [
+          "agent_register",
+          "agent_heartbeat", 
+          "agent_query",
+          "agent_status_update",
+          "node_info",
+          "hello"
+        ],
+        "evomap_reference": "https://evomap.ai A2A Protocol"
+      }
+    },
+    {
+      "id": "subtask-verify-bundle-coverage",
+      "title": "验证 Bundle 管理模块覆盖率",
+      "status": "pending",
+      "priority": "high",
+      "assigned_to": "worker-2",
+      "details": {
+        "description": "验证 Bundle 创建/发布/查询 API，对照 evomap.ai publish 协议",
+        "module": "bundle",
+        "required_apis": [
+          "bundle_create",
+          "bundle_publish",
+          "bundle_query",
+          "bundle_list",
+          "bundle_validate"
+        ]
+      }
+    },
+    {
+      "id": "subtask-verify-capsule-gene-coverage",
+      "title": "验证 Capsule 和 Gene 管理覆盖率",
+      "status": "pending",
+      "priority": "medium",
+      "assigned_to": "worker-3",
+      "details": {
+        "description": "验证 Capsule 创建/查询/验证，Gene 存储和引用 API",
+        "modules": ["capsule", "gene"],
+        "required_apis": [
+          "capsule_create",
+          "capsule_query",
+          "capsule_validate",
+          "gene_store",
+          "gene_validate",
+          "gene_reference"
+        ]
+      }
+    },
+    {
+      "id": "subtask-verify-reputation-coverage",
+      "title": "验证信誉系统 API 覆盖率",
+      "status": "pending",
+      "priority": "medium",
+      "assigned_to": "worker-3",
+      "details": {
+        "description": "验证信誉系统更新/查询 API",
+        "module": "reputation",
+        "required_apis": [
+          "reputation_update",
+          "reputation_query",
+          "reputation_history",
+          "level_calculate"
+        ]
+      }
+    },
+    {
+      "id": "subtask-check-database-schema",
+      "title": "检查数据库 Schema 完整性",
+      "status": "pending",
+      "priority": "high",
+      "assigned_to": "worker-4",
+      "details": {
+        "description": "扫描 Prisma schema 和 migrations，验证表结构与 API 需求匹配",
+        "schema_path": "/workspace/my-evo/prisma/schema.prisma",
+        "migrations_path": "/workspace/my-evo/prisma/migrations",
+        "checks": [
+          "agent_tables",
+          "bundle_tables",
+          "capsule_tables",
+          "gene_tables",
+          "reputation_tables",
+          "foreign_keys",
+          "indexes",
+          "rlp_policies"
+        ]
+      }
+    },
+    {
+      "id": "subtask-generate-gap-analysis",
+      "title": "生成后端差距分析报告",
+      "status": "pending",
+      "priority": "high",
+      "assigned_to": "worker-1",
+      "details": {
+        "description": "综合所有分析结果，生成完整的后端差距分析报告",
+        "output_path": "/workspace/my-evo/docs/backend-gap-analysis.md",
+        "min_length": 300,
+        "sections": [
+          "已实现 API 清单",
+          "缺失 API 清单", 
+          "数据库 schema 完整性检查",
+          "修复建议和优先级排序",
+          "技术债务和风险评估"
+        ]
+      }
+    }
+  ]
+}

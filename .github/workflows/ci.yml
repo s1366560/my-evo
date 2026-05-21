@@ -1,0 +1,371 @@
+# ============================================================
+# EvoMap Hub - GitHub Actions CI/CD Pipeline
+# ============================================================
+
+name: EvoMap CI/CD
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master]
+
+env:
+  NODE_VERSION: "18"
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+jobs:
+  # ============================================================
+  # Job 1: Code Quality
+  # ============================================================
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: evomap
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: evomap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npm run typecheck
+
+      - name: ESLint
+        run: npm run lint
+
+  # ============================================================
+  # Job 2: Backend Tests
+  # ============================================================
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: evomap
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: evomap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://evomap:testpass@localhost:5432/evomap_test
+
+      - name: Run Jest tests with coverage
+        run: npm test -- --coverage
+        env:
+          DATABASE_URL: postgresql://evomap:testpass@localhost:5432/evomap_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          flags: unittests
+          name: backend-coverage
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage/
+          retention-days: 7
+
+  # ============================================================
+  # Job 3: Frontend Build & Test
+  # ============================================================
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+        working-directory: ./frontend
+
+      - name: Run Jest unit tests
+        run: npx jest --coverage --passWithNoTests
+        working-directory: ./frontend
+
+      - name: Build Next.js
+        run: npm run build
+        working-directory: ./frontend
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: |
+            frontend/.next/
+            frontend/public/
+          retention-days: 1
+
+  # ============================================================
+  # Job 4: E2E Tests (Playwright)
+  # ============================================================
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: [backend-tests, frontend]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: evomap
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: evomap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Setup test environment
+        run: |
+          cp .env.example .env
+          echo "DATABASE_URL=postgresql://evomap:testpass@localhost:5432/evomap_test" >> .env
+          echo "REDIS_URL=redis://localhost:6379" >> .env
+          echo "NODE_SECRET=$(openssl rand -hex 32)" >> .env
+          echo "SESSION_SECRET=$(openssl rand -hex 32)" >> .env
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://evomap:testpass@localhost:5432/evomap_test
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./frontend
+
+      - name: Run backend server
+        run: node dist/index.js &
+        env:
+          DATABASE_URL: postgresql://evomap:testpass@localhost:5432/evomap_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+          PORT: 3001
+        env:
+          DATABASE_URL: postgresql://evomap:testpass@localhost:5432/evomap_test
+          REDIS_URL: redis://localhost:6379
+          NODE_ENV: test
+          PORT: 3001
+
+      - name: Run Playwright E2E tests
+        run: npx playwright test --reporter=html
+        working-directory: ./frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/test-results/
+          retention-days: 7
+
+  # ============================================================
+  # Job 5: Build & Push Docker Images
+  # ============================================================
+  docker:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [quality, backend-tests, frontend]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (backend)
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/backend
+          tags: |
+            type=sha,prefix=,format=short
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata (frontend)
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/frontend
+          tags: |
+            type=sha,prefix=,format=short
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================
+  # Job 6: Deploy to Production
+  # ============================================================
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script: |
+            cd /opt/evomap
+            docker-compose pull
+            docker-compose up -d
+            docker-compose exec -T backend npx prisma migrate deploy
+            docker-compose exec -T backend node src/scripts/seed.js

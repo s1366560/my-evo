@@ -1,0 +1,324 @@
+{
+  "tasks": [
+    {
+      "id": "root-my-evo-replication",
+      "title": "复刻 evomap.ai - My-Evo 前后端完整开发",
+      "status": "in_progress",
+      "priority": "critical",
+      "description": "目标: 复刻 evomap.ai 项目，补齐架构文档并完成 my-evo 项目的前后端功能完整开发",
+      "created_at": "2026-04-27T18:15:00Z",
+      "children": [
+        {
+          "id": "T-P0-001",
+          "title": "资产购买流程 (Asset Purchase Flow)",
+          "status": "pending",
+          "priority": "critical",
+          "worker": "frontend-dev",
+          "description": "实现完整的资产购买流程，包括购物车、结算、交易确认和购买历史",
+          "details": {
+            "components": ["CartDrawer.tsx", "checkout/page.tsx", "purchases/page.tsx"],
+            "apis": ["POST /api/assets/purchase", "GET /api/credits/balance", "POST /api/credits/deduct"],
+            "acceptance": "Browse→Cart→Checkout→Purchase History flow complete",
+            "estimated_hours": "4-6 hours"
+          },
+          "details_file": "/workspace/my-evo/tasks/decomposed/T-P0-001-ASSET-PURCHASE-FLOW.md"
+        },
+        {
+          "id": "T-P0-002",
+          "title": "资产发布 UI (Asset Publishing UI)",
+          "status": "pending",
+          "priority": "critical",
+          "worker": "frontend-dev",
+          "description": "实现资产发布 UI，支持 Gene、Capsule、Recipe 三种资产类型的创建和发布向导",
+          "details": {
+            "components": ["publish/page.tsx", "AssetEditor/", "ValidationPanel/"],
+            "asset_types": ["Gene", "Capsule", "Recipe"],
+            "acceptance": "Gene/Capsule/Recipe wizard with validation complete",
+            "estimated_hours": "8-10 hours"
+          },
+          "details_file": "/workspace/my-evo/tasks/decomposed/T-P0-002-ASSET-PUBLISH-UI.md"
+        },
+        {
+          "id": "T-P0-003",
+          "title": "Checkout/支付后端 (Checkout Backend)",
+          "status": "pending",
+          "priority": "critical",
+          "worker": "backend-dev",
+          "description": "实现结账支付后端逻辑，包括积分原子扣减、交易记录、收据生成",
+          "details": {
+            "modules": ["billing/routes.ts", "credits/routes.ts"],
+            "acceptance": "Credits deducted atomically, receipts generated",
+            "estimated_hours": "6-8 hours"
+          },
+          "details_file": "/workspace/my-evo/tasks/decomposed/T-P0-003-CHECKOUT-BACKEND.md"
+        },
+        {
+          "id": "T-P0-004",
+          "title": "赏金任务前端 (Bounty Task Frontend)",
+          "status": "pending",
+          "priority": "critical",
+          "worker": "frontend-dev",
+          "description": "实现赏金任务完整前端，包括列表、详情、创建、投标、提交功能",
+          "details": {
+            "pages": ["bounty/page.tsx", "bounty/[id]/page.tsx", "bounty/create/page.tsx"],
+            "acceptance": "List→Detail→Submit→Track flow complete",
+            "estimated_hours": "4-6 hours"
+          },
+          "details_file": "/workspace/my-evo/tasks/decomposed/T-P0-004-BOUNTY-FRONTEND.md"
+        },
+        {
+          "id": "T-P1-001",
+          "title": "配方编辑器 (Recipe Composer)",
+          "status": "pending",
+          "priority": "high",
+          "worker": "frontend-dev",
+          "description": "实现可视化配方编辑器，支持拖拽式 Gene/Capsule 组合和工作流编排",
+          "details": {
+            "components": ["recipe/composer/page.tsx", "WorkflowCanvas/", "GeneNode.tsx", "CapsuleNode.tsx"],
+            "acceptance": "Drag-drop visual composer works",
+            "estimated_hours": "8-10 hours"
+          },
+          "details_file": "/workspace/my-evo/tasks/decomposed/T-P1-001-RECIPE-COMPOSER.md"
+        },
+        {
+          "id": "T-P1-002",
+          "title": "通知系统 (Notifications System)",
+          "status": "pending",
+          "priority": "high",
+          "worker": "frontend-dev",
+          "description": "实现通知中心，支持实时 WebSocket 通知和通知偏好设置",
+          "details": {
+            "components": ["NotificationCenter/", "useNotifications.ts", "preferences/page.tsx"],
+            "acceptance": "Real-time WebSocket notifications functional",
+            "estimated_hours": "4-6 hours"
+          },
+          "details_file": "/workspace/my-evo/tasks/decomposed/T-P1-002-NOTIFICATIONS-SYSTEM.md"
+        },
+        {
+          "id": "T-P1-003",
+          "title": "Agent 个人页面 (Agent Profile Pages)",
+          "status": "pending",
+          "priority": "high",
+          "worker": "frontend-dev",
+          "description": "实现 Agent/节点公开个人页面，展示统计、资产、信誉等信息",
+          "details": {
+            "pages": ["agent/[nodeId]/page.tsx"],
+            "acceptance": "Public profile with stats, assets, reputation visible",
+            "estimated_hours": "3-4 hours"
+          },
+          "details_file": "/workspace/my-evo/tasks/decomposed/T-P1-003-AGENT-PROFILE-PAGES.md"
+        },
+        {
+          "id": "T-P1-004",
+          "title": "资产详情页增强 (Asset Detail Enhancements)",
+          "status": "pending",
+          "priority": "high",
+          "worker": "frontend-dev",
+          "description": "增强资产详情页，添加评论、评分、版本历史、下载功能",
+          "details": {
+            "pages": ["browse/[assetId]/page.tsx"],
+            "features": ["reviews", "ratings", "version_history", "download"],
+            "acceptance": "Complete asset detail page with all features",
+            "estimated_hours": "4-6 hours"
+          },
+          "details_file": "/workspace/my-evo/tasks/decomposed/T-P1-004-ASSET-DETAIL-ENHANCEMENTS.md"
+        },
+        {
+          "id": "T-P1-005",
+          "title": "订阅计划 UI (Subscription Plans)",
+          "status": "pending",
+          "priority": "medium",
+          "worker": "frontend-dev",
+          "description": "实现订阅计划页面，支持套餐对比、升级/降级、账单管理",
+          "details": {
+            "pages": ["subscription/page.tsx", "settings/billing/page.tsx"],
+            "acceptance": "Plan comparison, upgrade/downgrade functional",
+            "estimated_hours": "4-5 hours"
+          }
+        },
+        {
+          "id": "T-P1-006",
+          "title": "公会系统 (Guild System)",
+          "status": "pending",
+          "priority": "medium",
+          "worker": "frontend-dev",
+          "description": "实现公会发现、加入、退出、角色管理功能",
+          "details": {
+            "pages": ["guild/page.tsx", "guild/[id]/page.tsx"],
+            "acceptance": "Guild discovery, join/leave, roles functional",
+            "estimated_hours": "5-6 hours"
+          }
+        },
+        {
+          "id": "T-P1-007",
+          "title": "漂流瓶 UI (Drift Bottle UI)",
+          "status": "pending",
+          "priority": "medium",
+          "worker": "frontend-dev",
+          "description": "实现漂流瓶功能：投掷、捡拾、回复的完整流程",
+          "details": {
+            "pages": ["driftbottle/page.tsx"],
+            "acceptance": "Throw→Pick→Reply flow complete",
+            "estimated_hours": "4-5 hours"
+          }
+        },
+        {
+          "id": "T-P1-008",
+          "title": "Circle/社区页面 (Circle/Community Pages)",
+          "status": "pending",
+          "priority": "medium",
+          "worker": "frontend-dev",
+          "description": "实现 Circle/社区功能，支持话题圈、讨论帖、成员管理",
+          "details": {
+            "pages": ["circle/page.tsx", "circle/[id]/page.tsx"],
+            "acceptance": "Circles with threads and discussions",
+            "estimated_hours": "5-6 hours"
+          }
+        },
+        {
+          "id": "T-P2-001",
+          "title": "收藏/心愿单 (Watchlist/Favorites)",
+          "status": "pending",
+          "priority": "low",
+          "worker": "frontend-dev",
+          "description": "实现资产收藏/心愿单功能，支持保存和快速访问",
+          "details": {
+            "features": ["add_to_wishlist", "wishlist_page", "quick_access"],
+            "estimated_hours": "2-3 hours"
+          }
+        },
+        {
+          "id": "T-P2-002",
+          "title": "用户设置增强 (User Settings)",
+          "status": "pending",
+          "priority": "low",
+          "worker": "frontend-dev",
+          "description": "增强用户设置页面：偏好设置、集成管理、API 密钥",
+          "details": {
+            "pages": ["settings/page.tsx"],
+            "features": ["preferences", "integrations", "api_keys"],
+            "estimated_hours": "3-4 hours"
+          }
+        },
+        {
+          "id": "T-P2-003",
+          "title": "国际化支持 (i18n Support)",
+          "status": "pending",
+          "priority": "low",
+          "worker": "frontend-dev",
+          "description": "添加国际化支持，支持多语言切换",
+          "details": {
+            "languages": ["en", "zh-CN"],
+            "framework": "next-intl or similar",
+            "estimated_hours": "8-10 hours"
+          }
+        },
+        {
+          "id": "T-P2-004",
+          "title": "邮件通知 (Email Notifications)",
+          "status": "pending",
+          "priority": "low",
+          "worker": "backend-dev",
+          "description": "实现邮件通知系统，包括模板和触发器",
+          "details": {
+            "templates": ["welcome", "purchase", "bounty", "notification"],
+            "provider": "SendGrid/SES",
+            "estimated_hours": "4-5 hours"
+          }
+        },
+        {
+          "id": "T-P2-005",
+          "title": "分析仪表盘 (Analytics Dashboard)",
+          "status": "pending",
+          "priority": "low",
+          "worker": "frontend-dev",
+          "description": "增强分析仪表盘，提供详细的数据分析视图",
+          "details": {
+            "pages": ["dashboard/analytics/page.tsx"],
+            "charts": ["usage", "revenue", "engagement"],
+            "estimated_hours": "4-5 hours"
+          }
+        },
+        {
+          "id": "T-DOC-001",
+          "title": "API 文档生成 (API Documentation)",
+          "status": "pending",
+          "priority": "high",
+          "worker": "documentation",
+          "description": "基于代码自动生成完整的 API 文档",
+          "details": {
+            "output": "docs/api/",
+            "tools": ["swagger", "redoc"],
+            "acceptance": "All API endpoints documented with examples",
+            "estimated_hours": "6-8 hours"
+          }
+        },
+        {
+          "id": "T-DOC-002",
+          "title": "组件库文档 (Component Library Docs)",
+          "status": "pending",
+          "priority": "medium",
+          "worker": "documentation",
+          "description": "创建组件库文档，包括使用示例和 Props 说明",
+          "details": {
+            "output": "docs/components/",
+            "acceptance": "All UI components documented",
+            "estimated_hours": "4-5 hours"
+          }
+        },
+        {
+          "id": "T-DOC-003",
+          "title": "部署指南 (Deployment Guide)",
+          "status": "pending",
+          "priority": "medium",
+          "worker": "documentation",
+          "description": "编写部署文档，包括 Docker、K8s、环境配置",
+          "details": {
+            "output": "docs/deployment/",
+            "acceptance": "Complete deployment instructions available",
+            "estimated_hours": "3-4 hours"
+          }
+        },
+        {
+          "id": "T-DOC-004",
+          "title": "测试策略文档 (Testing Strategy)",
+          "status": "pending",
+          "priority": "medium",
+          "worker": "documentation",
+          "description": "编写测试策略文档，包括单元测试、集成测试、E2E 测试",
+          "details": {
+            "output": "docs/testing/",
+            "acceptance": "Testing guidelines documented",
+            "estimated_hours": "2-3 hours"
+          }
+        }
+      ]
+    }
+  ],
+  "workers": [
+    {
+      "id": "frontend-dev",
+      "name": "Frontend Developer",
+      "capabilities": ["React", "Next.js", "TypeScript", "UI/UX"],
+      "task_capacity": 3
+    },
+    {
+      "id": "backend-dev",
+      "name": "Backend Developer",
+      "capabilities": ["Node.js", "Fastify", "Prisma", "PostgreSQL"],
+      "task_capacity": 2
+    },
+    {
+      "id": "documentation",
+      "name": "Documentation Writer",
+      "capabilities": ["Technical Writing", "API Docs", "Diagrams"],
+      "task_capacity": 2
+    }
+  ],
+  "dispatch_rules": {
+    "priority_order": ["critical", "high", "medium", "low"],
+    "max_parallel_per_worker": 3,
+    "dependency_handling": "sequential"
+  },
+  "updated_at": "2026-04-27T18:15:00Z"
+}
