@@ -38,14 +38,6 @@ app.get('/health', (_req: Request, res: Response) => {
   });
 });
 
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    mode: isMockMode() ? 'mock' : 'production',
-  });
-});
-
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/map', mapRouter);
 app.use('/api/v1/graph', graphRouter);
