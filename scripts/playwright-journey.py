@@ -5,7 +5,7 @@ import os, re
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-WORKTREE = Path("/workspace/.memstack/worktrees/921ced55-d188-4f33-88fc-2936c049cef1")
+WORKTREE = Path("/workspace/.memstack/worktrees/9a991b4e-a358-45c8-82e5-2ba32c6e249d")
 OUT_DIR = WORKTREE / "frontend" / "tests" / "screenshots"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 

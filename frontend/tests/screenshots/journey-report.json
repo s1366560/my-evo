@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-21T20:04:39.038221Z",
+  "timestamp": "2026-05-21T20:37:02.532650Z",
   "base": "http://127.0.0.1:3002",
   "steps": [
     {
@@ -7,14 +7,14 @@
       "url": "http://127.0.0.1:3002",
       "filename": "01-homepage.png",
       "status": 200,
-      "bodyChars": 82320
+      "bodyChars": 82087
     },
     {
       "step": "02-register",
       "url": "http://127.0.0.1:3002/register",
       "filename": "02-register.png",
       "status": 200,
-      "bodyChars": 38382
+      "bodyChars": 38228
     },
     {
       "step": "03-login",
@@ -28,7 +28,7 @@
       "url": "http://127.0.0.1:3002/dashboard",
       "filename": "04-dashboard.png",
       "status": 200,
-      "bodyChars": 46555
+      "bodyChars": 46479
     },
     {
       "step": "05-map",
@@ -49,21 +49,21 @@
       "url": "http://127.0.0.1:3002/browse",
       "filename": "07-browse.png",
       "status": 200,
-      "bodyChars": 42815
+      "bodyChars": 42891
     },
     {
       "step": "08-pricing",
       "url": "http://127.0.0.1:3002/pricing",
       "filename": "08-pricing.png",
       "status": 200,
-      "bodyChars": 54795
+      "bodyChars": 54717
     },
     {
       "step": "09-arena",
       "url": "http://127.0.0.1:3002/arena",
       "filename": "09-arena.png",
       "status": 200,
-      "bodyChars": 47022
+      "bodyChars": 47098
     },
     {
       "step": "10-marketplace",
@@ -84,14 +84,14 @@
       "url": "http://127.0.0.1:3002/onboarding",
       "filename": "12-onboarding.png",
       "status": 200,
-      "bodyChars": 35623
+      "bodyChars": 35547
     },
     {
       "step": "13-profile",
       "url": "http://127.0.0.1:3002/profile",
       "filename": "13-profile.png",
       "status": 200,
-      "bodyChars": 49885
+      "bodyChars": 49732
     },
     {
       "step": "14-swarm",
@@ -105,28 +105,28 @@
       "url": "http://127.0.0.1:3002/workspace",
       "filename": "15-workspace.png",
       "status": 200,
-      "bodyChars": 33918
+      "bodyChars": 33994
     },
     {
       "step": "16-publish",
       "url": "http://127.0.0.1:3002/publish",
       "filename": "16-publish.png",
       "status": 200,
-      "bodyChars": 37736
+      "bodyChars": 37814
     },
     {
       "step": "17-credits",
       "url": "http://127.0.0.1:3002/credits",
       "filename": "17-credits.png",
       "status": 200,
-      "bodyChars": 35864
+      "bodyChars": 35940
     },
     {
       "step": "18-council",
       "url": "http://127.0.0.1:3002/council",
       "filename": "18-council.png",
       "status": 200,
-      "bodyChars": 33258
+      "bodyChars": 33103
     }
   ],
   "consoleErrors": [
