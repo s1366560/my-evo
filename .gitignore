@@ -13,3 +13,5 @@ coverage/
 .omx/
 test-results/
 *.lcov
+.playwright-cache/
+logs/
