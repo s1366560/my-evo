@@ -68,6 +68,9 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/backend/dist ./backend/dist
 COPY --from=builder /app/backend/node_modules/.prisma ./backend/node_modules/.prisma
 
+# Copy Prisma query engine binary (arm64) - critical for Prisma 6
+COPY --from=builder /app/backend/node_modules/.prisma/client ./node_modules/.prisma/client
+
 # Copy source scripts
 COPY src/scripts ./src/scripts
 
@@ -84,7 +87,7 @@ ENV HOST=0.0.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD ["wget", "-qO-", "http://localhost:3001/health"]
+  CMD ["wget", "-qO-", "http://localhost:3001/api/health"]
 
 EXPOSE 3001
 
