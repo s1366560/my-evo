@@ -19,10 +19,7 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Note: prisma generate runs per-package in production stage
-# Root has no schema; backend/prisma/schema.prisma is handled there
-
-# Generate Prisma client (required for TypeScript type resolution)
+# Generate Prisma client
 RUN npx prisma generate
 
 # Build root monorepo TypeScript
@@ -82,14 +79,14 @@ USER evomap
 
 # Environment defaults
 ENV NODE_ENV=production
-ENV PORT=8080
+ENV PORT=3001
 ENV HOST=0.0.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD ["wget", "-qO-", "http://localhost:8080/api/health"]
+  CMD ["wget", "-qO-", "http://localhost:3001/health"]
 
-EXPOSE 8080
+EXPOSE 3001
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]

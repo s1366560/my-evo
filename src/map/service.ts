@@ -3,8 +3,7 @@
  */
 import { randomUUID } from 'crypto';
 import type { Map as PrismaMap } from '@prisma/client';
-import { PrismaClient, type Prisma } from '@prisma/client';
-type JsonObject = Record<string, unknown>;
+import { PrismaClient, Prisma } from '@prisma/client';
 import type { CreateMapInput, UpdateMapInput, AddNodeInput, AddEdgeInput } from './types';
 
 // Allow test DI - follows the standard module pattern
@@ -30,7 +29,7 @@ export class MapService {
         layout_type: input.layout_type ?? 'force',
         owner_id: ownerId,
         is_public: input.is_public ?? false,
-        metadata: (input.metadata ?? {}) as unknown as JsonObject,
+        metadata: (input.metadata ?? {}) as unknown as Prisma.InputJsonValue,
       },
     });
   }
@@ -63,7 +62,7 @@ export class MapService {
         ...(input.description !== undefined && { description: input.description }),
         ...(input.layout_type !== undefined && { layout_type: input.layout_type }),
         ...(input.is_public !== undefined && { is_public: input.is_public }),
-        ...(input.config !== undefined && { config: input.config as JsonObject }),
+        ...(input.config !== undefined && { config: input.config as Prisma.InputJsonValue }),
       },
     });
   }
