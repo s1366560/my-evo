@@ -76,6 +76,8 @@ steps:
     commands:
       - docker rm -f my-evo-app 2>/dev/null || true
       - docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
+      - echo "Building image locally for host Docker daemon..."
+      - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
       - |
         for attempt in 1 2 3; do
           echo "Deploy attempt $attempt/3"
@@ -85,7 +87,7 @@ steps:
             -p 18080:3001 \
             -e NODE_ENV=production \
             -e PORT=3001 \
-            host.docker.internal:5001/my-evo:drone-docker-e2e; then
+            my-evo:drone-docker-e2e; then
             echo "Container started successfully"
             break
           else
