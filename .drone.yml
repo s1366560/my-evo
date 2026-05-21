@@ -81,15 +81,9 @@ steps:
         # Ensure deploy network exists
         docker network inspect workspace-deploy >/dev/null 2>&1 || docker network create workspace-deploy
       - |
-        # Pull the image from the registry (published by docker-build step)
-        # This implements proper docker deployment semantics: pull + run
-        REGISTRY_IMAGE="host.docker.internal:5001/my-evo:drone-docker-e2e"
-        LOCAL_TAG="my-evo:drone-docker-e2e"
-        for i in 1 2 3; do
-          docker pull "$REGISTRY_IMAGE" && docker tag "$REGISTRY_IMAGE" "$LOCAL_TAG" && break
-          echo "Docker pull attempt $i failed, retrying..."
-          sleep 3
-        done
+        # Build the image locally using the Dockerfile in the deploy step
+        # This implements local_build deployment semantics per workspace contract
+        docker build -t my-evo:drone-docker-e2e -f Dockerfile .
       - |
         # Start PostgreSQL sidecar
         docker run -d \
@@ -127,9 +121,9 @@ steps:
           docker run -d \
             --name my-evo-deploy \
             --network workspace-deploy \
-            -p 18080:3000 \
+            -p 18080:8080 \
             -e NODE_ENV=production \
-            -e PORT=3000 \
+            -e PORT=8080 \
             -e DATABASE_URL="postgresql://postgres:postgres@postgres-sidecar:5432/evomap" \
             -e REDIS_URL="redis://redis-sidecar:6379" \
             my-evo:drone-docker-e2e && break

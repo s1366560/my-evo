@@ -72,9 +72,9 @@ ENV HOST=0.0.0.0
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD wget -qO- http://localhost:3000/health || exit 1
+  CMD wget -qO- http://localhost:8080/health || exit 1
 
-EXPOSE 3000
+EXPOSE 8080
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
