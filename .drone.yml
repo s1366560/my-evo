@@ -82,8 +82,10 @@ steps:
           if docker run -d \
             --name my-evo-app \
             --network workspace-deploy \
-            -p 18080:8080 \
-            localhost:5001/my-evo:drone-docker-e2e; then
+            -p 18080:3001 \
+            -e NODE_ENV=production \
+            -e PORT=3001 \
+            host.docker.internal:5001/my-evo:drone-docker-e2e; then
             echo "Container started successfully"
             break
           else
@@ -92,17 +94,22 @@ steps:
             sleep 2
           fi
         done
+      - docker ps -a --filter "name=my-evo-app"
       - |
         for i in $(seq 1 30); do
           if wget -qO- http://host.docker.internal:18080/health >/dev/null 2>&1; then
             echo "Health check passed"
-            break
+            exit 0
           fi
           echo "Waiting for health endpoint... ($i/30)"
+          docker ps -a --filter "name=my-evo-app" --format "{{.Status}}"
+          docker logs my-evo-app 2>&1 | tail -5
           sleep 2
         done
-        wget -qO- http://host.docker.internal:18080/health
-      - docker ps -a --filter "name=my-evo-app"
+        echo "Health check failed - dumping container state"
+        docker ps -a --filter "name=my-evo-app"
+        docker logs my-evo-app 2>&1
+        exit 1
     when:
       event:
         - push
