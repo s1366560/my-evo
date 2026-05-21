@@ -14,7 +14,7 @@ trigger:
     - main
 
 volumes:
-  - name: dockersock
+  - name: docker-sock
     host:
       path: /var/run/docker.sock
 
@@ -71,7 +71,7 @@ steps:
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
-      - name: dockersock
+      - name: docker-sock
         path: /var/run/docker.sock
     commands:
       - docker rm -f my-evo-deploy 2>/dev/null || true
