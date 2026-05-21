@@ -13,6 +13,9 @@ const nextConfig = {
     ignoreBuildErrors: false,
   },
   outputFileTracingRoot: __dirname,
+  turbopack: {
+    root: __dirname,
+  },
 
   // ===== PERFORMANCE: Code Splitting & Lazy Loading =====
   modularizeImports: {
