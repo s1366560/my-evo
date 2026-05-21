@@ -67,7 +67,7 @@ USER evomap
 
 # Environment defaults
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=8080
 ENV HOST=0.0.0.0
 
 # Health check
