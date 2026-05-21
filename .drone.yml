@@ -94,7 +94,7 @@ steps:
           sleep 3
         done
       - sleep 15
-      - 'wget -qO- http://host.docker.internal:18080/health || { docker ps -a; docker logs my-evo; exit 1; }'
+      - 'wget -qO- http://host.docker.internal:18080/api/health || { docker ps -a; docker logs my-evo; exit 1; }'
       - 'echo "Deployment successful: my-evo container is healthy"'
     when:
       event:
