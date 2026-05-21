@@ -255,13 +255,11 @@ export async function buildApp() {
   const { kgRoutes } = await import('./kg/routes');
   await app.register(kgRoutes, { prefix: '/api/v2/kg' });
 
-  const [{ arenaRoutes }, { createArenaState }] = await Promise.all([
-    import('./arena/routes'),
-    import('./arena/service'),
-  ]);
-  await app.register(arenaRoutes, {
+  const arenaModule = await import('./arena/routes');
+  const arenaState = (await import('./arena/service')).createArenaState();
+  await app.register(arenaModule.default, {
     prefix: '/api/v2/arena',
-    arenaState: createArenaState(),
+    arenaState,
   });
 
   const { accountRoutes } = await import('./account/routes');
