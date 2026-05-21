@@ -84,7 +84,8 @@ steps:
             if docker run -d --name my-evo --network workspace-deploy -p 18080:3001 \
               -e PORT=3001 -e HOST=0.0.0.0 \
               -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap \
-              -e NODE_SECRET=dev-secret -e LOG_LEVEL=info \
+              -e NODE_SECRET=dev-secret -e SESSION_SECRET=dev-session-secret \
+              -e LOG_LEVEL=info -e enableTracing=false \
               my-evo:drone-docker-e2e; then
               echo "Container started successfully."
               return 0
