@@ -99,3 +99,53 @@ Post-merge verification complete:
 - Drone pipeline #142 passed (success)
 - Deployment status: deployed
 - No regressions detected
+
+---
+
+## Iteration 6 - Drone CI/CD Pipeline Verification
+
+**Date:** 2026-05-21
+**Worktree:** workspace/node-6646a1a5cd65-11f1ebad-8c3
+**Branch:** workspace/node-6646a1a5cd65-11f1ebad-8c3
+**Base Ref:** HEAD (c9f8bb4)
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| read-progress | Worktree inspected, evidence file read |
+| git-status | Clean worktree (no uncommitted changes) |
+
+### Drone Pipeline Verification
+
+**Platform Pipeline Run:** 1941a3f9-3d6e-4351-9223-3c4fb573d971
+**Provider:** Drone
+**Status:** success
+**Commit:** f355f3f0d850fdf0c97db6a024282c24455ded08
+**Drone Build:** s1366560/my-evo#142
+**External URL:** http://localhost:8080/s1366560/my-evo/142
+**Deploy Mode:** docker
+**Deploy Stage:** deploy
+**Deployment Status:** deployed
+**Deploy Validation:** explicit_deploy_step_v1
+**Created:** 2026-05-21T16:43:56Z
+**Completed:** 2026-05-21T16:46:58Z
+**Duration:** ~3 minutes
+
+### Drone Configuration (.drone.yml)
+
+Pipeline stages verified:
+1. **repository-smoke** - Node.js version, package.json validation
+2. **backend-test** - Backend test suite
+3. **frontend-build** - Frontend production build
+4. **docker-build** - Docker image build + push to host.docker.internal:5001/my-evo
+5. **deploy** - Docker deploy with sidecars (PostgreSQL, Redis), health check
+
+### Verification Summary
+
+- Drone pipeline #142 triggered after iteration 5 merge to memstack-source-publish/main
+- Pipeline completed successfully (status: success)
+- Docker image built and deployed as my-evo:drone-docker-e2e
+- Deployment verified with health check at http://host.docker.internal:18080/health
+- All 6 stages passed (repository-smoke, backend-test, frontend-build, docker-build, deploy)
+- Platform-persisted pipeline evidence confirms deployment status: deployed
