@@ -19,8 +19,8 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Generate Prisma client
-RUN npx prisma generate
+# Generate Prisma client (use dummy URL for generation; runtime uses real DATABASE_URL)
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
 
 # Build TypeScript
 RUN npm run build
@@ -49,8 +49,8 @@ RUN npm ci --production --ignore-scripts
 # Copy Prisma schema for migrations
 COPY prisma ./prisma
 
-# Run migrations at startup
-RUN npx prisma generate
+# Run migrations at startup (skip if no DATABASE_URL - app falls back to mock mode)
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
 
 # Copy built artifacts from builder
 COPY --from=builder /app/dist ./dist
@@ -80,4 +80,5 @@ EXPOSE 3000
 ENTRYPOINT ["dumb-init", "--"]
 
 # Run migrations then start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+# If no real DATABASE_URL is set, skip migrate (app runs in mock mode)
+CMD ["sh", "-c", "test -n \"$DATABASE_URL\" && DATABASE_URL=\"$DATABASE_URL\" npx prisma migrate deploy; node dist/index.js"]
