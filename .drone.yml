@@ -76,7 +76,31 @@ steps:
       - docker run -d --name my-evo-redis --network workspace-deploy redis:7-alpine
       - sleep 2
       - docker build -t my-evo:drone-docker-e2e -f Dockerfile .
-      - docker run -d --name my-evo --network workspace-deploy -p 18080:3001 -e PORT=3001 -e HOST=0.0.0.0 -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap -e NODE_SECRET=dev-secret -e LOG_LEVEL=info my-evo:drone-docker-e2e
+      - |
+        retry_run() {
+          local max_attempts=3 attempt=1 delay=5
+          while [ $attempt -le $max_attempts ]; do
+            echo "Attempt $attempt of $max_attempts: starting my-evo container..."
+            if docker run -d --name my-evo --network workspace-deploy -p 18080:3001 \
+              -e PORT=3001 -e HOST=0.0.0.0 \
+              -e DATABASE_URL=postgresql://postgres:postgres@my-evo-postgres:5432/evomap \
+              -e NODE_SECRET=dev-secret -e LOG_LEVEL=info \
+              my-evo:drone-docker-e2e; then
+              echo "Container started successfully."
+              return 0
+            fi
+            echo "Failed (attempt $attempt). Cleaning up and retrying in ${delay}s..."
+            docker rm -f my-evo 2>/dev/null || true
+            sleep $delay
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
+          echo "ERROR: Failed to start my-evo container after $max_attempts attempts."
+          docker ps -a
+          docker logs my-evo 2>/dev/null || true
+          return 1
+        }
+        retry_run
       - sleep 15
       - 'wget -qO- http://host.docker.internal:18080/health || { docker ps -a; docker logs my-evo; exit 1; }'
       - 'echo "Deployment successful: my-evo container is healthy"'
