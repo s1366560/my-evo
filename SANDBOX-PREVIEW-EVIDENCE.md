@@ -195,3 +195,98 @@ Tests: 36 passed, 36 total
 - Agent code quality: project is in healthy state
 - No platform issues detected
 - Platform-persisted pipeline evidence confirms deployment status: deployed
+
+---
+
+## Iteration 8 - Sprint 1 Feature Consolidation & Drone Deploy Verification
+
+**Date:** 2026-05-22
+**Worktree:** workspace/node-00647f7abe0d-014ea0d0-a7a
+**Branch:** workspace/node-00647f7abe0d-014ea0d0-a7a
+**Base Ref:** HEAD (7440d41)
+**Task:** Ensure all Sprint 1 feature commits are consolidated and Drone docker deploy pipeline is verified
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| read-progress | Worktree inspected, evidence file read, git state verified |
+| git-status | Clean worktree (no uncommitted changes) |
+
+### Sprint 1 Feature Commits Verified
+
+| Feature | Commit | Status |
+|---------|--------|--------|
+| A2A protocol (marketplace purchase) | ed2ff4f | In worktree |
+| Subscription endpoints | ed2ff4f | In worktree |
+| Asset detail page | ed2ff4f | In worktree |
+| Checkout page | ed2ff4f | In worktree |
+| Subscription pages | ed2ff4f | In worktree |
+| E2E journey tests (20 tests) | 7440d41 | In worktree |
+| Backend test coverage expansion | 73b6369 | In worktree |
+| npm audit vulnerability scanning | be495b6 | In worktree |
+| Drone e2e-test stage + docker deploy | f423be0 | In worktree |
+
+### Diff vs memstack-source-publish/main
+
+22 files differ (2208 insertions, 80 deletions):
+- `.drone.yml` - Enhanced with npm audit, e2e-test stage, docker deploy improvements
+- `SANDBOX-PREVIEW-EVIDENCE.md` - Evidence tracking document
+- `BACKEND_TEST_COVERAGE_REPORT.md` - Test coverage report
+- `backend/src/db/db.test.ts` - Database test suite
+- `backend/src/graph/graph.test.ts` - Graph test suite
+- `backend/src/middleware/middleware.test.ts` - Middleware test suite
+- `frontend/src/app/asset/[assetId]/page.tsx` - Asset detail page
+- `frontend/src/app/checkout/[assetId]/page.tsx` - Checkout page
+- `frontend/src/app/subscription/page.tsx` - Subscription page
+- `frontend/e2e/journey.spec.ts` - 20 E2E journey tests
+- Plus supporting docs, configs, and lockfiles
+
+### Drone .drone.yml Validation
+
+```
+YAML valid: True
+Steps count: 6
+All commands are strings: OK
+```
+
+Pipeline stages: repository-smoke, backend-test, frontend-build, docker-build, deploy, e2e-test
+
+### Backend Test Verification
+
+```
+PASS src/auth/auth.test.ts (13 tests)
+PASS src/ai/ai.test.ts (19 tests)
+PASS src/export/export.test.ts (8 tests)
+PASS src/db/db.test.ts
+PASS src/graph/graph.test.ts
+PASS src/middleware/middleware.test.ts
+Test Suites: 6 passed, 6 total
+Tests: 77 passed, 77 total
+```
+
+### Drone Deploy Configuration (.drone.yml)
+
+| Setting | Value |
+|---------|-------|
+| Docker Registry | host.docker.internal:5001 |
+| Deploy Local Tag | my-evo:drone-docker-e2e |
+| Backend Health | http://host.docker.internal:3001/health |
+| Frontend Health | http://host.docker.internal:3000/ |
+| Deploy Strategy | docker compose (with db, redis, backend, frontend) |
+| E2E Base URL | http://host.docker.internal:3000 |
+
+### Git Push Status
+
+**Blocked:** GitHub push requires GITHUB_TOKEN/auth credentials not available in sandbox environment.
+Branch `workspace/node-00647f7abe0d-014ea0d0-a7a` is ready for push by platform harness.
+memstack-source-publish/main is at 38060fe (behind current worktree HEAD 7440d41 by 6 commits).
+
+### Verification Summary
+
+- Sprint 1 feature commits consolidated and verified in worktree
+- All 6 Drone pipeline stages validated in .drone.yml
+- Backend: 77 tests passing (6 suites)
+- .drone.yml YAML structure valid, all commands properly quoted
+- Git push blocked (platform harness concern - no GITHUB_TOKEN in sandbox)
+- SANDBOX-PREVIEW-EVIDENCE.md updated with full iteration 8 evidence
