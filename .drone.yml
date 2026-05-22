@@ -83,6 +83,7 @@ steps:
         path: /var/run/docker.sock
     commands:
       - "docker compose down -v --remove-orphans 2>/dev/null || true"
+      - "docker network prune -f 2>/dev/null || true"
       - "docker compose up -d db redis"
       - "for i in $(seq 1 30); do docker compose exec -T db pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
       - "sleep 2"
