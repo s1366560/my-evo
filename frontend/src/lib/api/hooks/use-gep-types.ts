@@ -63,17 +63,22 @@ export interface RegisterGeneRequest {
   name: string;
   description: string;
   category: GeneCategory;
-  validation?: string[];
-  strategy?: string[];
+  validation: string[];
+  strategy: string[];
   signals?: string[];
+  capability_profile?: Gene['capability_profile'];
+  metadata?: Record<string, unknown>;
 }
 
 export interface RegisterCapsuleRequest {
   name: string;
   description: string;
+  content: string;
   gene_ids?: string[];
-  strategy?: string[];
+  strategy: string[];
   signals?: string[];
+  organism_id?: string;
+  metadata?: Record<string, unknown>;
 }
 
 // ── Generic API Response wrapper ────────────────────────────────────────────────

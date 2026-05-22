@@ -82,7 +82,7 @@ describe('Error handler middleware', () => {
 
   test('errorHandler should handle error without statusCode', () => {
     const { errorHandler } = require('./errorHandler.js');
-    const err = new Error('No code');
+    const err = new Error('No code') as Error & { statusCode?: number };
     err.statusCode = undefined;
     const req = {} as any;
     const res = {

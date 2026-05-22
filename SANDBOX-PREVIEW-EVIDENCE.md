@@ -561,3 +561,47 @@ The following actions require the platform harness to execute:
 - Backend tests: 77 tests passing (verified in prior iterations)
 - Git status: Clean worktree at commit 730d7f8
 - Drone trigger: Requires platform harness (DRONE_TOKEN/DRONE_SERVER_URL not in sandbox)
+
+---
+
+## Iteration 13 - CI/CD and Container Health Repair
+
+**Date:** 2026-05-22T09:48:27Z
+**Branch:** master
+**Scope:** Repair issues found during autonomous workspace verification for CI/CD, container health, and agent-generated code quality.
+
+### Problems Found and Fixed
+
+| Area | Finding | Fix |
+|------|---------|-----|
+| Backend Docker health | Container healthcheck used `localhost`; Alpine resolved it to IPv6 in the failing deployed container while the service listened on IPv4. | Switched Dockerfile healthcheck to `http://127.0.0.1:${PORT:-3001}/health`; switched compose backend healthcheck to `127.0.0.1:3001`. |
+| Backend image runtime | Production image mixed backend `@prisma/client` 5.22.0 with root generated `.prisma/client` 6.19.3, causing `missing field enableTracing` abort at startup. | Production Dockerfile now copies backend-generated `.prisma` into the runtime client location. |
+| Backend TypeScript tests | Docker build compiled tests and failed on possibly undefined `result.data` plus ad-hoc `Error.statusCode`. | Added explicit test guards and typed the error extension. |
+| Dependency audit | Root/backend `uuid <11.1.1` audit finding. | Upgraded root and backend `uuid` to 14.x. |
+| Drone trigger | `.drone.yml` only triggered branch `main`, but this repository is on `master`. | Added `master` to Drone trigger branches. |
+| Drone YAML lint | E2E summary grep used a YAML double-quoted regex escape that Drone rejected. | Replaced with a single-quoted command and `[0-9]+` regex. |
+| Frontend Docker build | Frontend Dockerfile used Node 18 and served `.next` with `serve -s .`, which is not a correct Next production server. | Switched to Node 20, production `npm ci --omit=dev`, and `next start`; frontend healthcheck now uses `127.0.0.1`. |
+| Frontend Docker context | Frontend source imported types from `../../../../../src/gep/types`, which is outside the `./frontend` Docker build context. | Routed GEP hooks to frontend-local API types and aligned request fields with backend contract. |
+| Next config | Next 15 rejected obsolete `swcMinify`. | Removed `swcMinify`. |
+
+### Verification Evidence
+
+| Check | Result |
+|-------|--------|
+| `docker build -t my-evo:healthcheck-fix .` | Passed; root build, backend build, production install, and prune all completed with 0 vulnerabilities in backend/root production path. |
+| Backend deployment | `my-evo-deploy` running from `my-evo:healthcheck-fix`, Docker health `healthy`, image ID matches current tag. |
+| Backend HTTP health | `curl http://127.0.0.1:18080/health` returned `{"status":"ok","mode":"production"}`. |
+| Backend source validation | `npm run build` passed; targeted Jest suites `src/graph/graph.test.ts` and `src/middleware/middleware.test.ts` passed 23/23 tests. |
+| Root audit | `npm audit --omit=dev --audit-level=moderate` passed with 0 vulnerabilities. |
+| Backend audit | `npm audit --omit=dev --audit-level=moderate` passed with 0 vulnerabilities. |
+| Frontend build | `npm run build` passed on Next 15.5.18 with no invalid config warning. |
+| Frontend Docker build | `docker build -t my-evo-frontend:healthcheck-fix -f frontend/Dockerfile ./frontend` passed. |
+| Frontend container smoke | Temporary container became Docker `healthy`; `curl http://127.0.0.1:18081/` returned HTTP 200 and 82523 bytes. |
+| Drone lint | `drone lint --trusted .drone.yml` passed. |
+
+### Residual Risk
+
+- Frontend `npm audit --omit=dev --audit-level=high` passes.
+- Frontend still reports 2 moderate findings from Next's nested `postcss@8.4.31`.
+- `npm audit fix --force` would downgrade Next to 9.3.3, so this is tracked as an upstream Next/PostCSS residual rather than force-fixed.
+- The sandbox has Drone CLI but no `DRONE_TOKEN`; server-side Drone build triggering still requires the platform harness.

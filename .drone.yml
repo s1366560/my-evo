@@ -12,6 +12,7 @@ trigger:
     - custom
   branch:
     - main
+    - master
 
 steps:
   - name: repository-smoke
@@ -111,7 +112,7 @@ steps:
       - "npx playwright install chromium --with-deps"
       - "npx playwright test --config playwright.test.config.ts --reporter=list 2>&1 | tee /tmp/e2e-output.txt"
       - "echo '--- E2E Test Summary ---'"
-      - "grep -E '(passed|failed|\\d+ test)' /tmp/e2e-output.txt || true"
+      - 'grep -E "(passed|failed|[0-9]+ test)" /tmp/e2e-output.txt || true'
     when:
       event:
         - push
