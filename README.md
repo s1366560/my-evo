@@ -289,9 +289,39 @@ my-evo/
 ├── frontend/                    # Frontend application
 │   ├── src/
 │   │   ├── app/                 # Next.js App Router pages
+│   │   │   ├── page.tsx         # Landing page (/)
+│   │   │   ├── login/           # Authentication
+│   │   │   ├── register/        # User registration
+│   │   │   ├── marketplace/      # Asset marketplace
+│   │   │   ├── browse/          # Browse assets (/browse, /browse/trending, /browse/new)
+│   │   │   ├── asset/[assetId]/ # Asset detail page (Sprint 1)
+│   │   │   ├── checkout/[assetId]/ # Checkout page (Sprint 1)
+│   │   │   ├── subscription/    # Subscription plans (Sprint 1)
+│   │   │   ├── pricing/         # Pricing page
+│   │   │   ├── bounty/          # Bounty listing & creation
+│   │   │   ├── bounty-hall/     # Featured bounties
+│   │   │   ├── council/         # Governance council
+│   │   │   ├── swarm/          # Swarm coordination
+│   │   │   ├── map/            # Evolution map visualization
+│   │   │   ├── editor/          # Map editor
+│   │   │   ├── workspace/       # User workspace
+│   │   │   ├── publish/         # Publish new assets
+│   │   │   ├── (app)/          # Authenticated app pages
+│   │   │   │   ├── dashboard/   # User dashboard
+│   │   │   │   └── profile/     # User profile
+│   │   │   └── credits/         # Credits management
 │   │   ├── components/          # React components
+│   │   │   ├── ui/             # Shadcn/ui base components
+│   │   │   ├── landing/        # Landing page components
+│   │   │   ├── auth/           # Authentication components
+│   │   │   ├── marketplace/     # Marketplace components
+│   │   │   ├── bounty/         # Bounty components
+│   │   │   ├── asset/          # Asset components (Sprint 1)
+│   │   │   ├── dashboard/      # Dashboard components
+│   │   │   └── ...
 │   │   ├── hooks/               # Custom React hooks
-│   │   └── lib/                 # Utilities
+│   │   ├── lib/                 # Utilities & API client
+│   │   └── providers.tsx        # App providers (React Query, etc.)
 │   └── public/
 │
 ├── packages/                   # Shared packages

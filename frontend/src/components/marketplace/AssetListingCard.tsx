@@ -55,7 +55,7 @@ function GDIScoreBadge({ score }: { score: number }) {
 
 export function AssetListingCard({ asset }: AssetListingCardProps) {
   return (
-    <Link href={`/browse/${asset.id}`} className="block">
+    <Link href={`/asset/${asset.id}`} className="block">
       <Card
         data-testid="asset-listing-card"
         className="h-full cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-md"
