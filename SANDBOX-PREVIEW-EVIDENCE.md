@@ -464,3 +464,100 @@ The following actions require the platform harness (GITHUB_TOKEN/DRONE_TOKEN not
 - Backend tests: 77 tests passing (6 suites)
 - Workspace persistence: 11 new tests added across 2 commits (eca9f83, 730d7f8)
 - External CI/CD: Requires platform harness to trigger Drone
+
+---
+
+## Iteration 12 - Drone CI/CD Pipeline End-to-End Validation (Parallel CI Node)
+
+**Date:** 2026-05-22
+**Worktree:** workspace/node-7b1247070eb3-567fcf34-38e
+**Branch:** workspace/node-7b1247070eb3-567fcf34-38e
+**Base Ref:** 730d7f8
+**Attempt ID:** 567fcf34-38e5-4b2d-bb2f-8007fa8cd2b0
+**Task:** Validate Drone CI/CD pipeline end-to-end; trigger test pipeline run via platform harness and capture e2e-test stage results
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| read-progress | Worktree inspected, evidence file read |
+| git-status | Clean worktree (no uncommitted changes) |
+
+### .drone.yml Validation
+
+| Property | Value |
+|----------|-------|
+| YAML valid | True (python3 yaml.safe_load passed) |
+| Steps count | 6 |
+| Commands all strings | OK |
+
+| Step | Commands | All Strings |
+|------|----------|-------------|
+| repository-smoke | 15 | True |
+| backend-test | 3 | True |
+| frontend-build | 3 | True |
+| docker-build | (settings) | True |
+| deploy | 14 | True |
+| e2e-test | 6 | True |
+
+### Drone Pipeline Stages Verified
+
+1. **repository-smoke** - Node/npm version, package.json validation, npm audit high/critical blocking
+2. **backend-test** - `cd backend && npm install --silent && npm test`
+3. **frontend-build** - `cd frontend && npm install --silent && npm run build`
+4. **docker-build** - Docker image build + push to `host.docker.internal:5001/my-evo`, tags: drone-docker-e2e, latest
+5. **deploy** - Docker compose (db, redis, backend, frontend), health checks at `http://host.docker.internal:3001/health` and `http://host.docker.internal:3000/`, local tag `my-evo:drone-docker-e2e`
+6. **e2e-test** - Playwright chromium tests with `E2E_BASE_URL=http://host.docker.internal:3000`, output to `/tmp/e2e-output.txt`
+
+### e2e-test Stage Configuration
+
+```yaml
+- name: e2e-test
+  image: node:20-alpine
+  environment:
+    E2E_BASE_URL: http://host.docker.internal:3000
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+  commands:
+    - cd frontend
+    - npm install --silent
+    - npx playwright install chromium --with-deps
+    - npx playwright test --config playwright.test.config.ts --reporter=list 2>&1 | tee /tmp/e2e-output.txt
+    - echo '--- E2E Test Summary ---'
+    - grep -E '(passed|failed|\\d+ test)' /tmp/e2e-output.txt || true
+```
+
+### Playwright Test Configuration
+
+- Config: `frontend/playwright.test.config.ts` (tests in `frontend/tests/`)
+- E2E test file: `frontend/e2e/journey.spec.ts` (20 journey tests)
+- Base URL: `http://host.docker.internal:3000` (Drone runner Docker network)
+- Timeout: 60s per test, 1 worker, no retries
+
+### Worktree Status
+
+- **Current Branch:** workspace/node-7b1247070eb3-567fcf34-38e
+- **Current Commit:** 730d7f8b7524362c366382a8a30c1daa775b5a24
+- **Worktree Status:** Clean (no uncommitted changes)
+
+### External Action Required (Platform Harness)
+
+Drone/GitHub tokens and Drone API are host-side harness concerns. The sandbox does not have:
+- `DRONE_TOKEN` - Drone API authentication token
+- `DRONE_SERVER_URL` - Drone server endpoint
+- `GITHUB_TOKEN` - GitHub authentication token for push
+
+The following actions require the platform harness to execute:
+
+1. **Trigger Drone Pipeline:** Call `request_workspace_plan_pipeline_run` or Drone API to trigger a build on `s1366560/my-evo` branch `main` at commit `730d7f8`
+2. **Capture e2e-test Results:** Poll Drone API until pipeline completes, extract e2e-test stage logs showing Playwright test results
+3. **Git Push (optional):** If the harness needs the branch pushed, push `workspace/node-7b1247070eb3-567fcf34-38e` to trigger Drone via push event
+
+### Verification Summary
+
+- Drone .drone.yml: Valid YAML, all 6 stages present, all commands properly quoted
+- deploy stage: Uses `docker compose` with db/redis/backend/frontend, health checks configured
+- e2e-test stage: Playwright with `E2E_BASE_URL=http://host.docker.internal:3000`, installs chromium, runs journey.spec.ts
+- docker-build stage: Pushes to `host.docker.internal:5001/my-evo` with tags drone-docker-e2e, latest
+- Backend tests: 77 tests passing (verified in prior iterations)
+- Git status: Clean worktree at commit 730d7f8
+- Drone trigger: Requires platform harness (DRONE_TOKEN/DRONE_SERVER_URL not in sandbox)
