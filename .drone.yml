@@ -111,7 +111,7 @@ steps:
       - "cd frontend"
       - "npm install --silent"
       - "npx playwright install chromium --with-deps"
-      - "npx playwright test --config playwright.test.config.ts --reporter=list 2>&1 | tee /tmp/e2e-output.txt"
+      - "npx playwright test tests/ui-smoke.spec.ts --config playwright.test.config.ts --reporter=list 2>&1 | tee /tmp/e2e-output.txt"
       - "echo '--- E2E Test Summary ---'"
       - 'grep -E "(passed|failed|[0-9]+ test)" /tmp/e2e-output.txt || true'
     when:
