@@ -76,6 +76,11 @@ steps:
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
       POSTGRES_PASSWORD: evomap
+      DATABASE_URL: postgresql://evomap:evomap@db:5432/evomap
+      PORT: "13001"
+      FRONTEND_PORT: "13000"
+      DB_PORT: "15432"
+      REDIS_PORT: "16379"
       NODE_SECRET: dev-jwt-secret
       SESSION_SECRET: dev-session-secret
     volumes:
@@ -83,6 +88,7 @@ steps:
         path: /var/run/docker.sock
     commands:
       - "docker compose down -v --remove-orphans 2>/dev/null || true"
+      - "docker network prune -f 2>/dev/null || true"
       - "docker compose up -d db redis"
       - "for i in $(seq 1 30); do docker compose exec -T db pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
       - "sleep 2"
@@ -90,11 +96,11 @@ steps:
       - "docker build -t my-evo-frontend:drone-docker-e2e -f frontend/Dockerfile ./frontend"
       - "docker compose up -d backend frontend"
       - "echo 'Waiting for backend health...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:3001/health >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:3001/health || { docker compose logs backend; exit 1; }"
+      - "sleep 15"
+      - "wget -qO- http://host.docker.internal:13001/health"
       - "echo 'Waiting for frontend health...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:3000/ >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:3000/ || { docker compose logs frontend; exit 1; }"
+      - "sleep 5"
+      - "wget -qO- http://host.docker.internal:13000/"
       - "echo 'Deployment successful: backend + frontend containers are healthy'"
     when:
       event:
@@ -104,7 +110,7 @@ steps:
   - name: e2e-test
     image: node:20-alpine
     environment:
-      E2E_BASE_URL: http://host.docker.internal:3000
+      E2E_BASE_URL: http://host.docker.internal:13000
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     commands:
       - "cd frontend"
