@@ -1,7 +1,7 @@
 # My Evo 系统架构文档
 
 > **项目**: My Evo (evomap.ai 复刻) | **状态**: 完整
-> **版本**: 6.0 | **更新日期**: 2026-04-29
+> **版本**: 7.0 | **更新日期**: 2026-05-22
 > **验证来源**: `src/app.ts` (18,314行), `prisma/schema.prisma` (1,636行, 56模型)
 
 ---
@@ -437,4 +437,382 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 ---
 
-**作者**: Workspace Builder Agent | **日期**: 2026-04-29 | **版本**: 6.0
+## 13. Sprint 1 Backlog (当前迭代计划)
+
+> **迭代周期**: 2026-05-22 开始
+> **基于**: Gap Analysis (docs/gap-analysis.md) 更新于 2026-05-19
+> **当前基线**: 项目主体结构已完成，33个模块已实现 (~90% 功能覆盖率)
+
+### 13.1 Sprint 1 优先级矩阵
+
+| # | 功能/任务 | 优先级 | 类型 | 状态 |
+|---|---------|--------|------|------|
+| 1 | A2A 协议核心端点增强 | P0 | 后端 | 待完善 |
+| 2 | 资产购买与支付流程 | P0 | 全栈 | 待实现 |
+| 3 | 前端资产详情页增强 | P1 | 前端 | 待实现 |
+| 4 | 搜索功能优化与信号匹配 | P1 | 全栈 | 待实现 |
+| 5 | Subscription 计费系统 | P1 | 后端 | 待实现 |
+
+### 13.2 Sprint 1 详细任务分解
+
+#### Task S1-1: A2A 协议核心端点增强 (P0)
+**目标**: 完善 A2A 协议端点，与 evomap.ai 功能对齐
+
+**实现步骤**:
+1. 实现 `POST /a2a/hello` - Agent 注册握手
+2. 实现 `POST /a2a/heartbeat` - 心跳保持
+3. 实现 `POST /a2a/publish` - 资产发布到网络
+4. 实现 `POST /a2a/fetch` - 跨节点资产获取
+5. 实现 `POST /a2a/search` - 网络搜索
+6. 实现 `POST /a2a/report` - 节点状态上报
+7. 实现 `GET /a2a/directory` - Agent 目录
+8. 添加集成测试覆盖
+
+**验收标准**:
+- [ ] 所有 7 个新端点返回正确 HTTP 状态码
+- [ ] 端点通过 OpenAPI 文档可访问
+- [ ] 单元测试覆盖率 > 80%
+
+---
+
+#### Task S1-2: 资产购买与支付流程 (P0)
+**目标**: 完成资产购买完整流程 (订单→支付→交付)
+
+**实现步骤**:
+1. 创建订单模型 (Order/Transaction)
+2. 实现 `POST /api/v2/marketplace/purchase` 端点
+3. 实现 Credits 扣减逻辑
+4. 实现资产交付 (权限转移)
+5. 添加支付回调处理
+6. 创建前端 Checkout 页面
+
+**数据流**:
+```
+用户选择资产 → 创建订单 → 验证余额 → 扣减 Credits → 交付资产 → 记录交易
+```
+
+**验收标准**:
+- [ ] 余额不足时返回 402 错误
+- [ ] 购买后资产权限正确转移
+- [ ] 交易记录完整可查
+
+---
+
+#### Task S1-3: 前端资产详情页增强 (P1)
+**目标**: 完善资产详情页，增加评论、评分、血统追踪
+
+**实现步骤**:
+1. 实现资产评论功能 (AssetComment)
+2. 实现评分/投票系统
+3. 实现血统视图 (Lineage View)
+4. 添加分享功能
+5. 优化移动端适配
+
+**组件树**:
+```
+AssetDetailPage
+├── AssetHeader (名称、评分、价格)
+├── AssetDescription (描述、标签)
+├── AssetLineage (祖先/后代图)
+├── AssetComments (评论列表)
+│   └── CommentForm (评论表单)
+├── AssetPurchase (购买按钮)
+└── AssetShare (分享选项)
+```
+
+**验收标准**:
+- [ ] 评分系统实时更新 GDI
+- [ ] 血统图正确展示父子关系
+- [ ] 评论支持 Markdown
+
+---
+
+#### Task S1-4: 搜索功能优化与信号匹配 (P1)
+**目标**: 优化资产发现能力，实现智能信号匹配
+
+**实现步骤**:
+1. 实现高级搜索 API (支持多维度过滤)
+2. 实现相似度匹配算法
+3. 实现基于信号的推荐
+4. 添加搜索结果缓存
+5. 优化前端搜索 UI (防抖输入)
+
+**API 端点**:
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/search` | GET | 基础搜索 |
+| `/api/v2/advanced-search` | POST | 高级搜索 (多条件) |
+| `/api/v2/search/signals` | POST | 信号匹配 |
+
+**验收标准**:
+- [ ] 搜索响应时间 < 500ms
+- [ ] 支持按类型、价格、评分过滤
+- [ ] 信号匹配准确率 > 70%
+
+---
+
+#### Task S1-5: Subscription 计费系统 (P1)
+**目标**: 实现订阅分层，支持高级功能
+
+**实现步骤**:
+1. 定义 Subscription Tier 模型
+2. 实现订阅创建/更新/取消端点
+3. 实现计费周期管理
+4. 实现功能访问控制中间件
+5. 创建订阅管理前端页面
+
+**Subscription Tiers**:
+| Tier | 价格 | 功能 |
+|------|------|------|
+| Free | $0 | 基础浏览、5次发布/月 |
+| Pro | $29/mo | 无限发布、API 访问、分析 |
+| Enterprise | $99/mo | 私有资产、优先支持、定制 |
+
+**验收标准**:
+- [ ] 订阅状态正确持久化
+- [ ] 功能限制正确执行
+- [ ] 续费/取消流程正常
+
+---
+
+### 13.3 Sprint 1 数据流图
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            Sprint 1 数据流                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  用户浏览器                    后端服务                    数据库
+       │                          │                          │
+       │  1. 搜索请求              │                          │
+       │─────────────────────────>│                          │
+       │                          │  2. 查询资产               │
+       │                          │─────────────────────────>│
+       │                          │<─────────────────────────│
+       │  3. 返回结果列表          │                          │
+       │<─────────────────────────│                          │
+       │                          │                          │
+       │  4. 点击资产详情          │                          │
+       │─────────────────────────>│                          │
+       │                          │  5. 查询资产+评论+评分    │
+       │                          │─────────────────────────>│
+       │                          │<─────────────────────────│
+       │  6. 返回完整详情          │                          │
+       │<─────────────────────────│                          │
+       │                          │                          │
+       │  7. 点击购买              │                          │
+       │─────────────────────────>│                          │
+       │                          │  8. 验证余额              │
+       │                          │─────────────────────────>│
+       │                          │  9. 扣减 Credits          │
+       │                          │─────────────────────────>│
+       │                          │ 10. 转移资产权限          │
+       │                          │─────────────────────────>│
+       │ 11. 返回购买成功          │                          │
+       │<─────────────────────────│                          │
+       │                          │                          │
+       │ 12. 订阅管理              │                          │
+       │─────────────────────────>│                          │
+       │                          │ 13. 订阅操作              │
+       │                          │─────────────────────────>│
+       │ 14. 返回订阅状态          │                          │
+       │<─────────────────────────│                          │
+```
+
+---
+
+### 13.4 Sprint 1 API 端点规格 (新增)
+
+#### A2A 协议扩展
+
+```yaml
+/a2a/hello:
+  post:
+    summary: Agent 注册握手
+    tags: [A2A]
+    body:
+      type: object
+      required: [nodeId, capabilities]
+      properties:
+        nodeId: { type: string }
+        capabilities: { type: array, items: { type: string } }
+        endpoint: { type: string }
+    responses:
+      200:
+        body:
+          type: object
+          properties:
+            success: { type: boolean }
+            sessionToken: { type: string }
+            expiresAt: { type: string }
+
+/a2a/heartbeat:
+  post:
+    summary: 心跳保持
+    tags: [A2A]
+    body:
+      type: object
+      required: [nodeId]
+      properties:
+        nodeId: { type: string }
+        status: { type: string, enum: [active, busy, idle] }
+        load: { type: number }
+    responses:
+      200:
+        body:
+          type: object
+          properties:
+            success: { type: boolean }
+            nextHeartbeat: { type: number }
+
+/a2a/publish:
+  post:
+    summary: 发布资产到网络
+    tags: [A2A]
+    body:
+      type: object
+      required: [assetId, nodeId]
+      properties:
+        assetId: { type: string }
+        nodeId: { type: string }
+        visibility: { type: string, enum: [public, private, network] }
+    responses:
+      201:
+        body:
+          type: object
+          properties:
+            success: { type: boolean }
+            publicationId: { type: string }
+
+/a2a/fetch:
+  post:
+    summary: 跨节点获取资产
+    tags: [A2A]
+    body:
+      type: object
+      required: [assetId]
+      properties:
+        assetId: { type: string }
+        sourceNodeId: { type: string }
+    responses:
+      200:
+        body:
+          type: object
+          properties:
+            success: { type: boolean }
+            asset: { type: object }
+```
+
+#### 资产市场扩展
+
+```yaml
+/api/v2/marketplace/purchase:
+  post:
+    summary: 购买资产
+    tags: [Marketplace]
+    body:
+      type: object
+      required: [assetId, buyerId]
+      properties:
+        assetId: { type: string }
+        buyerId: { type: string }
+        paymentMethod: { type: string, enum: [credits, stripe] }
+    responses:
+      200:
+        description: 购买成功
+      402:
+        description: 余额不足
+      404:
+        description: 资产不存在
+
+/api/v2/marketplace/order:
+  get:
+    summary: 获取订单列表
+    tags: [Marketplace]
+    query:
+      userId: { type: string }
+      status: { type: string }
+      limit: { type: number, default: 20 }
+      offset: { type: number, default: 0 }
+  post:
+    summary: 创建订单
+    tags: [Marketplace]
+```
+
+#### 订阅系统
+
+```yaml
+/api/v2/subscription/create:
+  post:
+    summary: 创建订阅
+    tags: [Subscription]
+    body:
+      type: object
+      required: [userId, tier]
+      properties:
+        userId: { type: string }
+        tier: { type: string, enum: [free, pro, enterprise] }
+        billingCycle: { type: string, enum: [monthly, yearly] }
+
+  patch:
+    summary: 更新订阅
+    tags: [Subscription]
+    body:
+      type: object
+      properties:
+        subscriptionId: { type: string }
+        tier: { type: string }
+        action: { type: string, enum: [upgrade, downgrade, cancel] }
+
+/api/v2/subscription/verify:
+  get:
+    summary: 验证订阅状态
+    tags: [Subscription]
+    query:
+      userId: { type: string }
+```
+
+---
+
+### 13.5 Sprint 1 前端组件树 (更新)
+
+```
+frontend/src/app/
+├── page.tsx                          # Landing
+├── login/                           # 登录
+├── register/                        # 注册
+├── browse/                          # 资产浏览
+│   └── [id]/                        # 资产详情 (增强)
+│       ├── AssetHeader.tsx
+│       ├── AssetLineage.tsx         # [NEW] 血统追踪
+│       ├── AssetComments.tsx        # [NEW] 评论系统
+│       ├── AssetRating.tsx          # [NEW] 评分组件
+│       └── AssetPurchase.tsx        # [NEW] 购买流程
+├── marketplace/                      # 市场
+│   └── Checkout.tsx                 # [NEW] 结账页面
+├── pricing/                         # 订阅定价 (增强)
+│   └── SubscriptionCard.tsx        # [NEW] 订阅卡片
+├── search/                          # 搜索 (增强)
+│   └── SignalMatcher.tsx            # [NEW] 信号匹配
+└── (app)/
+    └── dashboard/
+        ├── SubscriptionPage.tsx    # [NEW] 订阅管理
+        └── Settings.tsx
+```
+
+---
+
+## 14. 技术债务清单
+
+| ID | 描述 | 影响 | 优先级 | 建议方案 |
+|----|------|------|--------|---------|
+| TD-01 | 33个模块需要完整功能测试 | 高 | P1 | 添加集成测试套件 |
+| TD-02 | 前端状态管理缺少持久化 | 中 | P2 | 集成 Zustand persist |
+| TD-03 | 缺少 API 版本控制 | 中 | P2 | 实现 /api/v1 → /api/v2 迁移 |
+| TD-04 | 缓存策略不统一 | 低 | P3 | 统一 Redis 缓存层 |
+| TD-05 | 缺少 E2E 测试覆盖 | 高 | P1 | 扩展 Playwright 测试 |
+
+---
+
+**作者**: Workspace Builder Agent | **日期**: 2026-05-22 | **版本**: 7.0
+**Sprint**: 1 | **迭代目标**: 完成 P0/P1 功能，实现资产交易完整闭环
