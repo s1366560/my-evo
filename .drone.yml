@@ -96,11 +96,11 @@ steps:
       - "docker build -t my-evo-frontend:drone-docker-e2e -f frontend/Dockerfile ./frontend"
       - "docker compose up -d backend frontend"
       - "echo 'Waiting for backend health...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:13001/health >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:13001/health || { docker compose logs backend; exit 1; }"
+      - "sleep 15"
+      - "wget -qO- http://host.docker.internal:13001/health"
       - "echo 'Waiting for frontend health...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:13000/ >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:13000/ || { docker compose logs frontend; exit 1; }"
+      - "sleep 5"
+      - "wget -qO- http://host.docker.internal:13000/"
       - "echo 'Deployment successful: backend + frontend containers are healthy'"
     when:
       event:
