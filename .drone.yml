@@ -95,13 +95,10 @@ steps:
       - "docker build -t my-evo:drone-docker-e2e -f Dockerfile ."
       - "docker build -t my-evo-frontend:drone-docker-e2e -f frontend/Dockerfile ./frontend"
       - "docker compose up -d backend frontend"
-      - "echo 'Waiting for backend health...'"
-      - "sleep 15"
-      - "wget -qO- http://host.docker.internal:13001/health"
-      - "echo 'Waiting for frontend health...'"
-      - "sleep 5"
-      - "wget -qO- http://host.docker.internal:13000/"
-      - "echo 'Deployment successful: backend + frontend containers are healthy'"
+      - "sleep 20"
+      - "docker ps --filter name=evomap-backend --filter health=healthy --quiet | grep ."
+      - "docker ps --filter name=evomap-frontend --filter health=healthy --quiet | grep ."
+      - "echo deployment healthy"
     when:
       event:
         - push
