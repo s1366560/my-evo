@@ -103,7 +103,7 @@ steps:
         - custom
 
   - name: e2e-test
-    image: node:20-alpine
+    image: node:20-bookworm
     environment:
       E2E_BASE_URL: http://host.docker.internal:13000
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
