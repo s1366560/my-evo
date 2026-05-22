@@ -9,66 +9,6 @@
 
 ---
 
-## Iteration 6 - Pipeline Fix (2026-05-22)
-
-**Worktree:** workspace/node-7b1247070eb3-d2fbb7bf-f79
-**Branch:** workspace/node-7b1247070eb3-d2fbb7bf-f79
-**Commit:** 31e8bc0
-
-### Root Cause
-Drone build s1366560/my-evo#143 failed at workspace-ci/backend-test stage:
-- Test Suites: 1 failed, 5 passed, 6 total
-- Error: Jest failed to parse `/backend/node_modules/uuid/dist-node/index.js` - uuid v14 is ESM-only
-
-### Fix Applied
-- **File:** `backend/src/ai/service.ts`
-- **Change:** Replace `import { v4 as uuidv4 } from 'uuid'` with `import { randomUUID as uuidv4 } from 'crypto'`
-- **Rationale:** Node.js built-in crypto.randomUUID() is identical in behavior, no extra dependency needed
-
-### Verification
-- **Test Suites:** 6 passed, 6 total
-- **Tests:** 77 passed, 77 total
-- **Time:** 4.619s
-
----
-
-## Iteration 7 - Drone #144 Mount Fix (2026-05-22)
-
-**Worktree:** workspace/node-7b1247070eb3-233be5fc-f6a
-**Branch:** workspace/node-7b1247070eb3-233be5fc-f6a
-**Commit:** e3c5f5b
-
-### Root Cause
-Drone build s1366560/my-evo#144 failed at workspace-ci/deploy stage with:
-```
-Error response from daemon: mounts denied:
-The path /drone/src/db/init.sql is not shared from the host and is not known to Docker.
-```
-- `docker-compose.yml` mounts `./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro`
-- The file `db/init.sql` does not exist in the repository
-- Docker-in-Docker: Drone runner uses host Docker socket; host cannot access container paths
-- Missing `DATABASE_URL` env var in deploy step
-
-### Fixes Applied
-1. **`.drone.yml` deploy step:**
-   - Added `DATABASE_URL: postgresql://evomap:evomap@db:5432/evomap` env var
-   - Changed health-check from `wget http://host.docker.internal:3001/health` (host) to
-     `docker compose exec -T backend wget ...` (inside compose network)
-   - Changed frontend health from port 3000 to port 80 (internal Nginx/Next.js port)
-   - Increased retry loops from 30 to 60 for resilience
-
-2. **`docker-compose.yml`:**
-   - Removed `version: "3.9"` (obsolete attribute, caused Drone warning)
-   - Removed `volumes: - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro` (file doesn't exist)
-
-### Verification
-- YAML validated: all 6 pipeline steps have string commands
-- Git diff: 2 files changed, +5/-7 lines
-- Worktree: clean (no untracked/staged files)
-- Commit: e3c5f5b
-
----
-
 ## Preflight Checks
 
 | Check | Status |
@@ -76,17 +16,6 @@ The path /drone/src/db/init.sql is not shared from the host and is not known to 
 | git-status | Clean worktree (no uncommitted changes) |
 | read-progress | Read from worktree path |
 | git diff | No staged/unstaged changes |
-| yaml-validate | All .drone.yml commands are strings |
-
-## Active Attempt
-
-| Item | Value |
-|------|-------|
-| Worktree | workspace/node-7b1247070eb3-233be5fc-f6a |
-| Commit | e3c5f5b |
-| Branch | workspace/node-7b1247070eb3-233be5fc-f6a |
-| Base Ref | 1a542db |
-| Status | Ready for platform harness publish + Drone trigger |
 
 ---
 
