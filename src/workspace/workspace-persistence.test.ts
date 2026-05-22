@@ -5,6 +5,7 @@
  * that task state is durable across worker disconnects, and that
  * heartbeat/stale-recovery mechanisms allow resumption.
  */
+import { jest } from '@jest/globals';
 import { PrismaClient } from '@prisma/client';
 import * as service from './service';
 
