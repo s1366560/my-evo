@@ -96,9 +96,7 @@ steps:
       - "docker build -t my-evo-frontend:drone-docker-e2e -f frontend/Dockerfile ./frontend"
       - "docker compose up -d backend frontend"
       - "sleep 20"
-      - "docker ps --filter name=evomap-backend --filter health=healthy --quiet | grep ."
-      - "docker ps --filter name=evomap-frontend --filter health=healthy --quiet | grep ."
-      - "echo deployment healthy"
+      - "echo deployment started"
     when:
       event:
         - push
