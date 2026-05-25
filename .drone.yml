@@ -83,10 +83,13 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - "echo '[deploy] Full project teardown: down + remove orphans + prune networks...'"
+      - "echo '[deploy] Full project teardown using compose down (project=my-evo)...'"
       - "docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans 2>/dev/null || true"
-      - "docker stop $(docker ps -q --filter 'name=evomap') 2>/dev/null || true"
-      - "docker rm -f $(docker ps -aq --filter 'name=evomap') 2>/dev/null || true"
+      - "echo '[deploy] Stopping and removing any remaining my-evo containers...'"
+      - "docker stop $(docker ps -q --filter 'name=my-evo-') 2>/dev/null || true"
+      - "docker rm -f $(docker ps -aq --filter 'name=my-evo-') 2>/dev/null || true"
+      - "docker rm -f $(docker ps -aq --filter 'name=evomap-') 2>/dev/null || true"
+      - "echo '[deploy] Removing my-evo networks...'"
       - "docker network rm $(docker network ls -q --filter 'name=my-evo') 2>/dev/null || true"
       - "docker network prune -f 2>/dev/null || true"
       - "echo '[deploy] Verifying ports are free...'"
