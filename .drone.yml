@@ -103,7 +103,7 @@ steps:
       - "for i in $(seq 1 30); do docker-compose -f docker-compose.yml -f docker-compose.ci.yml exec -T db pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
       - sleep 2
       - "echo \"[deploy] Verifying effective compose port bindings...\""
-      - "docker-compose -f docker-compose.yml -f docker-compose.ci.yml config | grep -E '^  - [0-9]+' | head -10 || echo \"[deploy] Verifying port bindings done\""
+      - "docker-compose -f docker-compose.yml -f docker-compose.ci.yml config | grep -E -- '^  - [0-9]+' | head -10 || echo \"[deploy] Verifying port bindings done\""
       - "echo \"[deploy] Building backend image...\""
       - "DOCKER_BUILDKIT=0 docker build -t my-evo:drone-docker-e2e -f Dockerfile ."
       - "echo \"[deploy] Building frontend image...\""
