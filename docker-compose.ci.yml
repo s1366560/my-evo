@@ -1,6 +1,9 @@
 # CI-specific docker-compose override
-# Removes host-port publishing to avoid port conflicts in Drone runner
-# The deploy stage uses host.docker.internal to reach containers
+# Maps services to non-reserved host ports to avoid port conflicts in Drone runner.
+# db/redis: no host ports (internal only)
+# backend: 18081->3001 (app host port 18080 is reserved for platform deploy)
+# frontend: 18082->3000 (frontend host port 18080 is reserved for platform deploy)
+# The Drone deploy step uses host.docker.internal to reach containers.
 
 services:
   db:
@@ -10,7 +13,9 @@ services:
     ports: []
 
   backend:
-    ports: []
+    ports:
+      - "18081:3001"
 
   frontend:
-    ports: []
+    ports:
+      - "18082:3000"
