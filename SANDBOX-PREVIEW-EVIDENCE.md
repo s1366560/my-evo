@@ -350,3 +350,83 @@ The following actions require the platform harness (not available in sandbox):
 - Backend tests: 77 tests passing (6 suites)
 - Git status: Clean worktree at commit 0d7d2ca
 - External push/merge: Requires platform harness (GITHUB_TOKEN/DRONE_TOKEN not in sandbox)
+
+
+---
+
+## Iteration 12 - Drone CI/CD Deploy Port Conflict Fix
+
+**Date:** 2026-05-25
+**Worktree:** workspace/node-7b1247070eb3-211c89de-6ae
+**Branch:** workspace/node-7b1247070eb3-211c89de-6ae
+**Base Ref:** 62a0cb0
+**Attempt ID:** 211c89de-6ae0-4ced-a8b2-f7ba8596bedd
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| read-progress | Worktree inspected, evidence file read |
+| git-status | Clean worktree (no uncommitted changes before new fix commit) |
+
+### Problem Analysis
+
+**Pipeline failure:** Drone build s1366560/my-evo#187 (commit 1828d38) failed at `workspace-ci/deploy` stage.
+
+**Root cause:** The deploy step used container ports (3001/3000) in health-check URLs instead of the host-mapped ports (18080/18081):
+```
+# BROKEN (container ports, unreachable from Drone runner host):
+http://host.docker.internal:3001/health
+http://host.docker.internal:3000/
+
+# CORRECT (host-mapped ports per workspace delivery contract):
+http://host.docker.internal:18080/health
+http://host.docker.internal:18081/
+```
+
+Additionally, the cleanup sequence did not aggressively release port bindings before starting new containers.
+
+### Fix Applied (commit 9fb071f)
+
+**.drone.yml deploy stage changes:**
+1. Health checks: backend → `host.docker.internal:18080/health`, frontend → `host.docker.internal:18081/`
+2. E2E_BASE_URL: `host.docker.internal:18081`
+3. Added `fuser -k` on all reserved ports (3000/3001/18080/18081) during cleanup
+4. Added pre-deploy port availability verification with `fuser`
+5. Reordered cleanup: `docker compose down` before network prune
+6. Removed unreliable `docker network rm bridge` command
+
+**docker-compose.yml:**
+- Removed deprecated `version: "3.9"` field
+
+### .drone.yml Validation
+
+```
+YAML valid: True
+Steps: ['repository-smoke', 'backend-test', 'frontend-build', 'docker-build', 'deploy', 'e2e-test']
+All deploy commands are strings: True
+E2E_BASE_URL: http://host.docker.internal:18081
+```
+
+### Git Status
+
+- **Current Branch:** workspace/node-7b1247070eb3-211c89de-6ae
+- **Current Commit:** 9fb071f (fix(CI): align deploy stage health checks to host-mapped ports 18080/18081)
+- **Worktree Status:** Clean (no uncommitted changes)
+
+### Verification Summary
+
+- Drone deploy health checks: aligned to host-mapped ports (18080/18081) per delivery contract
+- E2E_BASE_URL: corrected to host.docker.internal:18081
+- Port cleanup: fuser -k added for all reserved ports
+- YAML validation: all commands are strings, deploy step valid
+- docker-compose.yml: version field removed (modern compose format)
+- Git status: clean at commit 9fb071f
+- External push/merge: Requires platform harness (GITHUB_TOKEN/DRONE_TOKEN not in sandbox)
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `.drone.yml` | Health checks 3001→18080, 3000→18081; E2E_BASE_URL→18081; port cleanup added |
+| `docker-compose.yml` | Removed deprecated version field |
