@@ -101,11 +101,11 @@ steps:
       - "docker build -t my-evo-frontend:drone-docker-e2e -f frontend/Dockerfile ./frontend"
       - "docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d backend frontend"
       - "echo 'Waiting for backend health...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:3001/health >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:3001/health || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs backend; exit 1; }"
+      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18081/health >/dev/null 2>&1 && break || sleep 2; done"
+      - "wget -qO- http://host.docker.internal:18081/health || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs backend; exit 1; }"
       - "echo 'Waiting for frontend health...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:3000/ >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:3000/ || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs frontend; exit 1; }"
+      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18082/ >/dev/null 2>&1 && break || sleep 2; done"
+      - "wget -qO- http://host.docker.internal:18082/ || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs frontend; exit 1; }"
       - "echo 'Deployment successful: backend + frontend containers are healthy'"
     when:
       event:
@@ -115,7 +115,7 @@ steps:
   - name: e2e-test
     image: node:20-alpine
     environment:
-      E2E_BASE_URL: http://host.docker.internal:3000
+      E2E_BASE_URL: http://host.docker.internal:18082
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     commands:
       - "cd frontend"
