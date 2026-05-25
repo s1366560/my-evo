@@ -33,6 +33,9 @@ frontend/coverage
 .drone.star
 .drone.sig
 
+# CI/development overrides
+docker-compose.override.yml
+
 # Logs and temp files
 *.log
 npm-debug.log*
