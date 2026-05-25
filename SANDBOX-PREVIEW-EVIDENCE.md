@@ -605,3 +605,47 @@ The following actions require the platform harness to execute:
 - Frontend still reports 2 moderate findings from Next's nested `postcss@8.4.31`.
 - `npm audit fix --force` would downgrade Next to 9.3.3, so this is tracked as an upstream Next/PostCSS residual rather than force-fixed.
 - The sandbox has Drone CLI but no `DRONE_TOKEN`; server-side Drone build triggering still requires the platform harness.
+
+
+---
+
+## Iteration 14 - Drone Build #150 Mount Denial Fix
+
+**Date:** 2026-05-25T01:38:00Z
+**Branch:** workspace/node-7b1247070eb3-a8bd2076-b25
+**Commit:** 0c1905b
+**Worktree:** /workspace/.memstack/worktrees/a8bd2076-b255-4068-b751-df594ab5fa86
+
+### Problem
+
+Drone build s1366560/my-evo#150 failed at `workspace-ci/deploy` stage with:
+```
+Error response from daemon: mounts denied:
+The path /drone/src/db/init.sql is not shared from the host and is not known to Docker.
+```
+
+**Root cause:** `docker-compose.yml` referenced `./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro` as a bind mount, but the `db/` directory did not exist in the repository.
+
+### Fix Applied
+
+| File | Change |
+|------|--------|
+| `db/init.sql` | Created — `CREATE EXTENSION IF NOT EXISTS "uuid-ossp";` |
+| `db/Dockerfile` | Created — `FROM postgres:16-alpine` + `COPY init.sql` to initdb.d |
+| `docker-compose.yml` | `db:` changed from `image: postgres:16-alpine + bind mount` to `build: ./db` + `image: evomap-db:latest`; removed `version: "3.9"` deprecated field |
+| `.drone.yml` | Added `DATABASE_URL: postgresql://evomap:evomap@db:5432/evomap` to deploy step env |
+
+### Verification
+
+| Check | Result |
+|-------|--------|
+| YAML validation | `python3 yaml.safe_load` passed for `.drone.yml` and `docker-compose.yml` |
+| Git status | Clean worktree after commit 0c1905b |
+| Commit | `0c1905b` — "fix(ci): create db/ directory and build-based postgres image to resolve Drone mount error" |
+| db/ directory | `db/init.sql` (80B) and `db/Dockerfile` (75B) present |
+
+### CI/CD Trigger
+
+The platform harness will trigger Drone build after this commit is published. Expected outcome:
+- `workspace-ci/deploy` stage: `docker compose up -d db redis` now uses `build:./db` image (no bind mount)
+- `workspace-ci/e2e-test` stage: Playwright E2E tests against `http://host.docker.internal:3000`
