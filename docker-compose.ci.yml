@@ -4,10 +4,18 @@
 # backend: 18081->3001 (app host port 18080 is reserved for platform deploy)
 # frontend: 18082->3000 (frontend host port 18080 is reserved for platform deploy)
 # The Drone deploy step uses host.docker.internal to reach containers.
+#
+# NOTE: backend environment variables must be provided so docker-compose can
+# interpolate them when parsing the compose file (even when starting only db/redis).
+# Real values come from Drone deploy step environment block; defaults are CI fallbacks.
 
 services:
   db:
     ports: []
+    environment:
+      POSTGRES_USER: evomap
+      POSTGRES_PASSWORD: evomap
+      POSTGRES_DB: evomap
 
   redis:
     ports: []
@@ -15,7 +23,22 @@ services:
   backend:
     ports:
       - "18081:3001"
+    environment:
+      NODE_SECRET: dev-jwt-secret
+      SESSION_SECRET: dev-session-secret
+      DATABASE_URL: postgresql://evomap:evomap@db:5432/evomap
+      NODE_ENV: production
+      PORT: "3001"
+      HOST: "0.0.0.0"
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: info
+      FEATURE_NEO4J_ENABLED: "false"
+      FEATURE_S3_ENABLED: "false"
 
   frontend:
     ports:
       - "18082:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://backend:3001
+      NEXT_PUBLIC_WS_URL: ws://backend:3001
