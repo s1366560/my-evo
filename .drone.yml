@@ -90,8 +90,8 @@ steps:
       - "docker network rm $(docker network ls -q --filter 'name=my-evo') 2>/dev/null || true"
       - "docker network prune -f 2>/dev/null || true"
       - "echo '[deploy] Verifying ports are free...'"
+      - "fuser 18080/tcp 2>/dev/null && echo 'WARN: port 18080 still busy after cleanup' || echo '[deploy] Port 18080 is free'"
       - "fuser 18081/tcp 2>/dev/null && echo 'WARN: port 18081 still busy after cleanup' || echo '[deploy] Port 18081 is free'"
-      - "fuser 18082/tcp 2>/dev/null && echo 'WARN: port 18082 still busy after cleanup' || echo '[deploy] Port 18082 is free'"
       - "echo '[deploy] Starting dependency services (db, redis)...'"
       - "docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d db redis"
       - "for i in $(seq 1 30); do docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T db pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
@@ -99,12 +99,12 @@ steps:
       - "docker build -t my-evo:drone-docker-e2e -f Dockerfile ."
       - "docker build -t my-evo-frontend:drone-docker-e2e -f frontend/Dockerfile ./frontend"
       - "docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d backend frontend"
-      - "echo 'Waiting for backend health (checking host.docker.internal:18081)...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18081/health >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:18081/health || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs backend; exit 1; }"
-      - "echo 'Waiting for frontend health (checking host.docker.internal:18082)...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18082/ >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:18082/ || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs frontend; exit 1; }"
+      - "echo 'Waiting for backend health (checking host.docker.internal:18080)...'"
+      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18080/health >/dev/null 2>&1 && break || sleep 2; done"
+      - "wget -qO- http://host.docker.internal:18080/health || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs backend; exit 1; }"
+      - "echo 'Waiting for frontend health (checking host.docker.internal:18081)...'"
+      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18081/ >/dev/null 2>&1 && break || sleep 2; done"
+      - "wget -qO- http://host.docker.internal:18081/ || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs frontend; exit 1; }"
       - "echo 'Deployment successful: backend + frontend containers are healthy'"
     when:
       event:
@@ -114,7 +114,7 @@ steps:
   - name: e2e-test
     image: node:20-alpine
     environment:
-      E2E_BASE_URL: http://host.docker.internal:18082
+      E2E_BASE_URL: http://host.docker.internal:18081
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     commands:
       - "cd frontend"
