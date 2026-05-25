@@ -6,8 +6,6 @@
 #   Production:  docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 # ============================================================
 
-version: "3.9"
-
 services:
   # ---- Backend API ----
   backend:
@@ -69,7 +67,10 @@ services:
 
   # ---- PostgreSQL Database ----
   db:
-    image: postgres:16-alpine
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+    image: evomap-db:latest
     container_name: evomap-db
     restart: unless-stopped
     environment:
