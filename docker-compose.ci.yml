@@ -4,18 +4,10 @@
 # backend: 18080->3001 (workspace deploy contract)
 # frontend: 18081->3000 (workspace deploy contract)
 # The Drone deploy step uses host.docker.internal to reach containers.
-#
-# NOTE: backend environment variables must be provided so docker-compose can
-# interpolate them when parsing the compose file (even when starting only db/redis).
-# Real values come from Drone deploy step environment block; defaults are CI fallbacks.
 
 services:
   db:
     ports: []
-    environment:
-      POSTGRES_USER: evomap
-      POSTGRES_PASSWORD: evomap
-      POSTGRES_DB: evomap
 
   redis:
     ports: []
