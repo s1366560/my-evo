@@ -9,29 +9,6 @@
 
 ---
 
-## Iteration 6 - Pipeline Fix (2026-05-22)
-
-**Worktree:** workspace/node-7b1247070eb3-d2fbb7bf-f79
-**Branch:** workspace/node-7b1247070eb3-d2fbb7bf-f79
-**Commit:** 31e8bc0
-
-### Root Cause
-Drone build s1366560/my-evo#143 failed at workspace-ci/backend-test stage:
-- Test Suites: 1 failed, 5 passed, 6 total
-- Error: Jest failed to parse `/backend/node_modules/uuid/dist-node/index.js` - uuid v14 is ESM-only
-
-### Fix Applied
-- **File:** `backend/src/ai/service.ts`
-- **Change:** Replace `import { v4 as uuidv4 } from 'uuid'` with `import { randomUUID as uuidv4 } from 'crypto'`
-- **Rationale:** Node.js built-in crypto.randomUUID() is identical in behavior, no extra dependency needed
-
-### Verification
-- **Test Suites:** 6 passed, 6 total
-- **Tests:** 77 passed, 77 total
-- **Time:** 4.619s
-
----
-
 ## Preflight Checks
 
 | Check | Status |
