@@ -78,6 +78,7 @@ steps:
       POSTGRES_PASSWORD: evomap
       NODE_SECRET: dev-jwt-secret
       SESSION_SECRET: dev-session-secret
+      DATABASE_URL: postgresql://evomap:evomap@db:5432/evomap
     volumes:
       - name: docker-sock
         path: /var/run/docker.sock
