@@ -1,0 +1,10 @@
+# CI-specific docker-compose override
+# Removes sidecar port publishing to avoid host port conflicts in Drone runner
+# The deploy stage uses host.docker.internal to reach containers
+
+services:
+  db:
+    ports: []
+
+  redis:
+    ports: []
