@@ -15,7 +15,23 @@ services:
   backend:
     ports:
       - "18081:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - DATABASE_URL=postgresql://evomap:evomap@db:5432/evomap
+      - REDIS_URL=redis://redis:6379
+      - NODE_SECRET=ci-dev-jwt-secret
+      - SESSION_SECRET=ci-dev-session-secret
+      - LOG_LEVEL=info
+      - FEATURE_NEO4J_ENABLED=false
+      - FEATURE_S3_ENABLED=false
+      - OPENAI_API_KEY=
 
   frontend:
     ports:
       - "18082:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://backend:3001
+      - NEXT_PUBLIC_WS_URL=ws://backend:3001
