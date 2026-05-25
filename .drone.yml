@@ -72,7 +72,7 @@ steps:
         - custom
 
   - name: deploy
-    image: docker/compose:v2
+    image: docker/compose
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
       POSTGRES_PASSWORD: evomap
