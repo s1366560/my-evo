@@ -1,0 +1,19 @@
+# ============================================================
+# EvoMap Hub - CI/Development Override
+# Automatically loaded by `docker compose up` (no -f flags needed).
+# Removes host-port bindings to avoid conflicts with host services
+# (e.g. port 5432 occupied by host PostgreSQL, port 6379 by host Redis).
+# ============================================================
+
+version: "3.9"
+
+services:
+  # No port mapping: PostgreSQL is only reachable inside evomap-network
+  # from backend via SERVICE_NAME:5432 (Docker DNS resolution).
+  db:
+    ports: []
+
+  # No port mapping: Redis is only reachable inside evomap-network
+  # from backend via SERVICE_NAME:6379 (Docker DNS resolution).
+  redis:
+    ports: []

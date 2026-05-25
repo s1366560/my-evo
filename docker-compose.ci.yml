@@ -1,0 +1,21 @@
+# CI-specific docker-compose override
+# Maps services to workspace deploy contract ports.
+# db/redis: no host ports (internal only)
+# backend: 18080->3001 (workspace deploy contract)
+# frontend: 18081->3000 (workspace deploy contract)
+# The Drone deploy step uses host.docker.internal to reach containers.
+
+services:
+  db:
+    ports: []
+
+  redis:
+    ports: []
+
+  backend:
+    ports:
+      - "18080:3001"
+
+  frontend:
+    ports:
+      - "18081:3000"

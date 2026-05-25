@@ -202,6 +202,10 @@ describe('GraphAlgorithms', () => {
       const result = await algorithms.findPath('any-owner-id', 'source', 'target');
 
       expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+      if (!result.data) {
+        throw new Error('Expected findPath to return path data');
+      }
       expect(result.data.path).toEqual([]);
       expect(result.data.distance).toBe(-1);
     });
@@ -212,6 +216,10 @@ describe('GraphAlgorithms', () => {
       const result = await algorithms.topologicalSort('any-owner-id');
 
       expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+      if (!result.data) {
+        throw new Error('Expected topologicalSort to return order data');
+      }
       expect(result.data.order).toEqual([]);
     });
   });
