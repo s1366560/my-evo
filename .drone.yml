@@ -81,14 +81,18 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - "echo '[deploy] Full cleanup: kill containers, remove networks...'"
+      - "echo '[deploy] Full cleanup: kill containers, remove networks, clean volumes...'"
       - "docker ps -a --format '{{.Names}}' | grep -E '^(evomap-|my-evo-|workspace-)' | xargs -r docker rm -f 2>/dev/null || true"
+      - "docker compose down -v --remove-orphans 2>/dev/null || true"
       - "docker network rm workspace-deploy 2>/dev/null || true"
       - "docker network rm evomap-network 2>/dev/null || true"
-      - "docker network rm bridge 2>/dev/null || true"
+      - "docker network prune -f 2>/dev/null || true"
       - "echo '[deploy] Cleanup complete. Waiting for ports to be released...'"
       - "sleep 5"
-      - "docker compose down -v --remove-orphans 2>/dev/null || true"
+      - "fuser -k 3001/tcp 2>/dev/null || true"
+      - "fuser -k 3000/tcp 2>/dev/null || true"
+      - "fuser -k 18080/tcp 2>/dev/null || true"
+      - "fuser -k 18081/tcp 2>/dev/null || true"
       - "echo '[deploy] Starting db and redis...'"
       - "docker compose up -d db redis"
       - "for i in $(seq 1 30); do docker compose exec -T db pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
@@ -96,12 +100,15 @@ steps:
       - "docker build -t my-evo:drone-docker-e2e -f Dockerfile ."
       - "docker build -t my-evo-frontend:drone-docker-e2e -f frontend/Dockerfile ./frontend"
       - "docker compose up -d backend frontend"
+      - "echo '[deploy] Verifying deployment host ports are free...'"
+      - "fuser 18080/tcp 2>/dev/null && echo 'WARN: port 18080 still busy after cleanup' || echo '[deploy] Port 18080 is free'"
+      - "fuser 18081/tcp 2>/dev/null && echo 'WARN: port 18081 still busy after cleanup' || echo '[deploy] Port 18081 is free'"
       - "echo 'Waiting for backend health...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:3001/health >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:3001/health || { docker compose logs backend; exit 1; }"
+      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18080/health >/dev/null 2>&1 && break || sleep 2; done"
+      - "wget -qO- http://host.docker.internal:18080/health || { docker compose logs backend; exit 1; }"
       - "echo 'Waiting for frontend health...'"
-      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:3000/ >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:3000/ || { docker compose logs frontend; exit 1; }"
+      - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:18081/ >/dev/null 2>&1 && break || sleep 2; done"
+      - "wget -qO- http://host.docker.internal:18081/ || { docker compose logs frontend; exit 1; }"
       - "echo 'Deployment successful: backend + frontend containers are healthy'"
     when:
       event:
@@ -111,7 +118,7 @@ steps:
   - name: e2e-test
     image: node:20-alpine
     environment:
-      E2E_BASE_URL: http://host.docker.internal:3000
+      E2E_BASE_URL: http://host.docker.internal:18081
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     commands:
       - "cd frontend"
