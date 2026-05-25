@@ -706,3 +706,44 @@ The following actions require the platform harness to execute:
 - Frontend still reports 2 moderate findings from Next's nested `postcss@8.4.31`.
 - `npm audit fix --force` would downgrade Next to 9.3.3, so this is tracked as an upstream Next/PostCSS residual rather than force-fixed.
 - The sandbox has Drone CLI but no `DRONE_TOKEN`; server-side Drone build triggering still requires the platform harness.
+
+---
+
+## Iteration 25 - Drone Deploy Port Conflict Fix (commit 9b3e7cc)
+
+**Date:** 2026-05-25T04:15:00Z
+**Branch:** workspace/node-7b1247070eb3-65ecc91a-0aa
+**Scope:** Fix Drone build #168 port 3001 conflict in deploy stage.
+
+### Problem
+
+Drone build `s1366560/my-evo#168` failed at `workspace-ci/deploy` with:
+```
+Bind for 0.0.0.0:3001 failed: port is already allocated
+```
+The `docker-compose.ci.yml` used `ports: []` to remove host-port publishing, but Docker Compose does not reliably override inherited `ports:` with an empty list.
+
+### Fix
+
+Changed `docker-compose.ci.yml` to explicitly map non-reserved host ports:
+- backend: `18081:3001` (container port 3001 → host port 18081)
+- frontend: `18082:3000` (container port 3000 → host port 18082)
+- db/redis: unchanged (internal only, `ports: []`)
+
+Updated `.drone.yml` health checks:
+- Backend health: `http://host.docker.internal:18081/health`
+- Frontend health: `http://host.docker.internal:18082/`
+- E2E_BASE_URL: `http://host.docker.internal:18082`
+
+### Verification Evidence
+
+| Check | Result |
+|-------|--------|
+| `.drone.yml` YAML valid | All `steps[].commands[]` items are strings |
+| `docker-compose.ci.yml` valid | YAML parsed; ports confirmed as `["18081:3001"]` and `["18082:3000"]` |
+| Git status | Clean worktree at commit `9b3e7cc` |
+| Commit | `9b3e7cc fix(CI): remap CI ports to 18081/18082 to avoid reserved-port conflicts` |
+
+### Next Action
+
+Platform harness: trigger Drone pipeline on `s1366560/my-evo` branch `main` at commit `9b3e7cc`.
