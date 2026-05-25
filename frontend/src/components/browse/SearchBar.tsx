@@ -1,17 +1,23 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useState } from 'react';
+import { Search } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 
 interface SearchBarProps {
+  initialValue?: string;
   onSearch?: (query: string) => void;
   placeholder?: string;
   className?: string;
 }
 
-export function SearchBar({ onSearch, placeholder = "Search...", className }: SearchBarProps) {
-  const [value, setValue] = useState("");
+export function SearchBar({
+  initialValue = '',
+  onSearch,
+  placeholder = 'Search...',
+  className,
+}: SearchBarProps) {
+  const [value, setValue] = useState(initialValue);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setValue(e.target.value);
@@ -19,7 +25,7 @@ export function SearchBar({ onSearch, placeholder = "Search...", className }: Se
   };
 
   return (
-    <div className={`relative ${className ?? ""}`}>
+    <div className={`relative ${className ?? ''}`}>
       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-foreground-soft)]" />
       <Input
         placeholder={placeholder}
