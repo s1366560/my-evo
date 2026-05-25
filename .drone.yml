@@ -121,12 +121,12 @@ steps:
       E2E_BASE_URL: http://host.docker.internal:18081
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     commands:
-      - "cd frontend"
+      - cd frontend
       - "npm install --silent"
       - "npx playwright install chromium --with-deps"
       - "npx playwright test --config playwright.test.config.ts --reporter=list 2>&1 | tee /tmp/e2e-output.txt"
       - "echo '--- E2E Test Summary ---'"
-      - "grep -E '(passed|failed|\\d+ test)' /tmp/e2e-output.txt || true"
+      - grep -E "(passed|failed|\d+ test)" /tmp/e2e-output.txt || true
     when:
       event:
         - push
