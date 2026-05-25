@@ -82,20 +82,24 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - "docker compose down -v --remove-orphans 2>/dev/null || true"
+      - "echo '[deploy] Stopping and removing any existing containers...'"
+      - "docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans 2>/dev/null || true"
+      - "docker stop evomap-backend evomap-frontend evomap-db evomap-redis 2>/dev/null || true"
+      - "docker rm -f evomap-backend evomap-frontend evomap-db evomap-redis 2>/dev/null || true"
       - "docker network prune -f 2>/dev/null || true"
-      - "docker compose up -d db redis"
-      - "for i in $(seq 1 30); do docker compose exec -T db pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
+      - "echo '[deploy] Starting dependency services (db, redis) without host port publishing...'"
+      - "docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d db redis"
+      - "for i in $(seq 1 30); do docker compose -f docker-compose.yml -f docker-compose.ci.yml exec -T db pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
       - "sleep 2"
       - "docker build -t my-evo:drone-docker-e2e -f Dockerfile ."
       - "docker build -t my-evo-frontend:drone-docker-e2e -f frontend/Dockerfile ./frontend"
-      - "docker compose up -d backend frontend"
+      - "docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d backend frontend"
       - "echo 'Waiting for backend health...'"
       - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:3001/health >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:3001/health || { docker compose logs backend; exit 1; }"
+      - "wget -qO- http://host.docker.internal:3001/health || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs backend; exit 1; }"
       - "echo 'Waiting for frontend health...'"
       - "for i in $(seq 1 30); do wget -qO- http://host.docker.internal:3000/ >/dev/null 2>&1 && break || sleep 2; done"
-      - "wget -qO- http://host.docker.internal:3000/ || { docker compose logs frontend; exit 1; }"
+      - "wget -qO- http://host.docker.internal:3000/ || { docker compose -f docker-compose.yml -f docker-compose.ci.yml logs frontend; exit 1; }"
       - "echo 'Deployment successful: backend + frontend containers are healthy'"
     when:
       event:
