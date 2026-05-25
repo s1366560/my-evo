@@ -75,19 +75,27 @@ steps:
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
-      POSTGRES_PASSWORD: evomap
       NODE_SECRET: dev-jwt-secret
       SESSION_SECRET: dev-session-secret
+      POSTGRES_USER: evomap
+      POSTGRES_PASSWORD: evomap
+      POSTGRES_DB: evomap
       DATABASE_URL: postgresql://evomap:evomap@db:5432/evomap
     volumes:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - "echo '[deploy] Full project teardown: down + remove orphans + prune networks...'"
-      - "docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans 2>/dev/null || true"
-      - "docker stop $(docker ps -q --filter 'name=evomap') 2>/dev/null || true"
-      - "docker rm -f $(docker ps -aq --filter 'name=evomap') 2>/dev/null || true"
-      - "docker network rm $(docker network ls -q --filter 'name=my-evo') 2>/dev/null || true"
+      - "echo \"[deploy] Installing docker-compose standalone...\""
+      - apk add --no-cache docker-compose
+      - "echo \"[deploy] Stopping all evomap containers gracefully...\""
+      - "docker-compose -f docker-compose.yml -f docker-compose.ci.yml down --remove-orphans --volumes 2>/dev/null || true"
+      - "echo \"[deploy] Force-removing ALL remaining evomap containers (kill + rm)...\""
+      - "for c in $(docker ps -aq --filter name=evomap- 2>/dev/null || true); do docker kill $c 2>/dev/null || true; docker rm -f $c 2>/dev/null || true; done"
+      - "docker rm -f $(docker ps -aq --filter name=evomap- 2>/dev/null || true) 2>/dev/null || true"
+      - "docker rm -f $(docker ps -aq --filter name=evomap- 2>/dev/null || true) 2>/dev/null || true"
+      - "echo \"[deploy] Removing stale networks...\""
+      - "docker network rm evomap-network 2>/dev/null || true"
+      - "docker network rm workspace-deploy 2>/dev/null || true"
       - "docker network prune -f 2>/dev/null || true"
       - "echo '[deploy] Verifying ports are free...'"
       - "fuser 18080/tcp 2>/dev/null && echo 'WARN: port 18080 still busy after cleanup' || echo '[deploy] Port 18080 is free'"
