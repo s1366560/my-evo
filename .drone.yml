@@ -75,6 +75,12 @@ steps:
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
+      NODE_SECRET: dev-jwt-secret
+      SESSION_SECRET: dev-session-secret
+      POSTGRES_USER: evomap
+      POSTGRES_PASSWORD: evomap
+      POSTGRES_DB: evomap
+      DATABASE_URL: postgresql://evomap:evomap@db:5432/evomap
     volumes:
       - name: docker-sock
         path: /var/run/docker.sock
