@@ -1,17 +1,15 @@
-# ============================================================
-# CI-only: remove all host-port bindings so services
-# communicate only over the internal bridge network.
-# Usage: docker-compose -f docker-compose.yml -f docker-compose.ci.yml up -d
-# ============================================================
-
+# CI override: map app ports to workspace deploy host ports,
+# remove dependency host-port bindings to avoid reserved-port conflicts.
 services:
   backend:
-    ports: []
+    ports:
+      - "18080:3001"
     networks:
       - workspace-deploy
 
   frontend:
-    ports: []
+    ports:
+      - "18081:3000"
     networks:
       - workspace-deploy
 
@@ -27,4 +25,4 @@ services:
 
 networks:
   workspace-deploy:
-    driver: bridge
+    external: true
