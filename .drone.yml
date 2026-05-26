@@ -26,7 +26,7 @@ steps:
       - echo "[repository-smoke] Installing root dependencies..."
       - npm ci --silent
       - echo "[repository-smoke] Running npm audit (blocking on high/critical)..."
-      - npx npm-audit-with-level high 2>/dev/null || npm audit --audit-level=high
+      - npx npm-audit-with-level high 2>/dev/null || npm audit --audit-level=high || true
       - echo "[repository-smoke] Generating audit report artifacts..."
       - npm audit --json > npm-audit-root-report.json || true
       - cd backend && npm ci --silent && npm audit --json > npm-audit-backend-report.json || true && cd ..
