@@ -1,0 +1,30 @@
+# ============================================================
+# CI-only: remove all host-port bindings so services
+# communicate only over the internal bridge network.
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+# ============================================================
+
+services:
+  backend:
+    ports: []
+    networks:
+      - workspace-deploy
+
+  frontend:
+    ports: []
+    networks:
+      - workspace-deploy
+
+  db:
+    ports: []
+    networks:
+      - workspace-deploy
+
+  redis:
+    ports: []
+    networks:
+      - workspace-deploy
+
+networks:
+  workspace-deploy:
+    driver: bridge
