@@ -212,7 +212,7 @@ describe('GraphAlgorithms', () => {
       const result = await algorithms.topologicalSort('any-owner-id');
 
       expect(result.success).toBe(true);
-      expect(result.data.order).toEqual([]);
+      expect(result.data!.order).toEqual([]);
     });
   });
 });
