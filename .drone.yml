@@ -117,33 +117,9 @@ steps:
       - "docker ps -a --filter name=drone-frontend --format 'table {{.Names}}\t{{.Status}}'"
       - "echo '[deploy] Frontend logs (last 10 lines):'"
       - "docker logs drone-frontend 2>&1 | tail -10"
-      - "echo '[deploy] Checking backend health via port mapping...'"
-      - |
-        for i in $(seq 1 20); do
-          docker exec drone-backend wget -qO- http://localhost:3001/health 2>/dev/null && echo '[deploy] Backend healthy!' && break
-          sleep 3
-        done
-      - "docker logs drone-backend 2>&1 | tail -30"
-      - "docker ps -a --filter name=drone-backend --format 'table {{.Names}}\t{{.Status}}'"
-      - |
-        if ! docker exec drone-backend wget -qO- http://localhost:3001/health 2>/dev/null; then
-          echo '[deploy] Backend health check failed'
-          exit 1
-        fi
-      - "echo '[deploy] Checking frontend health...'"
-      - |
-        for i in $(seq 1 15); do
-          docker exec drone-frontend wget -qO- http://localhost:3000 2>/dev/null && echo '[deploy] Frontend healthy!' && break
-          sleep 2
-        done
-      - "docker logs drone-frontend 2>&1 | tail -10"
-      - "docker ps -a --filter name=drone-frontend --format 'table {{.Names}}\t{{.Status}}'"
-      - |
-        if ! docker exec drone-frontend wget -qO- http://localhost:3000 2>/dev/null; then
-          echo '[deploy] Frontend health check failed'
-          exit 1
-        fi
-      - "echo '[deploy] Deployment successful: backend + frontend containers are healthy'"
+      - "echo '[deploy] Checking backend health...' && sh -c 'for i in $(seq 1 20); do docker exec drone-backend wget -qO- http://localhost:3001/health 2>/dev/null && echo OK && exit 0; sleep 3; done; echo FAIL; docker logs drone-backend | tail -30; exit 1'"
+      - "echo '[deploy] Checking frontend health...' && sh -c 'for i in $(seq 1 15); do docker exec drone-frontend wget -qO- http://localhost:3000 2>/dev/null && echo OK && exit 0; sleep 2; done; echo FAIL; docker logs drone-frontend | tail -20; exit 1'"
+      - "echo '[deploy] Deployment successful'"
     when:
       event:
         - push
