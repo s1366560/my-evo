@@ -25,15 +25,15 @@ steps:
       - test -f frontend/package.json
       - node -e 'const fs=require("fs"); for (const f of ["package.json","backend/package.json","frontend/package.json"]) { const pkg=JSON.parse(fs.readFileSync(f,"utf8")); if (!pkg.scripts || Object.keys(pkg.scripts).length === 0) throw new Error(f + " has no scripts"); }'
       - echo "[repository-smoke] Installing root dependencies..."
-      - npm install
+      - "npm install --prefer-offline 2>&1; NPM_EXIT=$?; echo '[repository-smoke] npm install exit code:' $NPM_EXIT; exit $NPM_EXIT"
       - echo "[repository-smoke] Running npm audit (blocking on critical only)..."
       - npm audit --audit-level=critical
       - echo "[repository-smoke] Generating audit report artifacts..."
       - npm audit --json > npm-audit-root-report.json || true
       - echo "[repository-smoke] Backend audit..."
-      - cd backend && npm install && npm audit --json > npm-audit-backend-report.json || true && cd ..
+      - cd backend && npm install --prefer-offline && npm audit --json > npm-audit-backend-report.json || true && cd ..
       - echo "[repository-smoke] Frontend audit..."
-      - cd frontend && npm install && npm audit --json > npm-audit-frontend-report.json || true && cd ..
+      - cd frontend && npm install --prefer-offline && npm audit --json > npm-audit-frontend-report.json || true && cd ..
       - "echo '[repository-smoke] Vulnerability scan complete. Reports: npm-audit-*-report.json'"
 
   - name: backend-test
