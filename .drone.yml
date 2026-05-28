@@ -26,8 +26,8 @@ steps:
       - node -e 'const fs=require("fs"); for (const f of ["package.json","backend/package.json","frontend/package.json"]) { const pkg=JSON.parse(fs.readFileSync(f,"utf8")); if (!pkg.scripts || Object.keys(pkg.scripts).length === 0) throw new Error(f + " has no scripts"); }'
       - echo "[repository-smoke] Installing root dependencies..."
       - npm ci --silent
-      - echo "[repository-smoke] Running npm audit (non-blocking)..."
-      - npm audit --audit-level=high || true
+      - echo "[repository-smoke] Running npm audit (blocking on critical only)..."
+      - npm audit --audit-level=critical
       - echo "[repository-smoke] Generating audit report artifacts..."
       - npm audit --json > npm-audit-root-report.json || true
       - echo "[repository-smoke] Backend audit..."
