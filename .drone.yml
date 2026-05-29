@@ -83,8 +83,8 @@ steps:
       registry: host.docker.internal:5001
       insecure: true
       purge: true
-      dockerfile: Dockerfile
-      context: frontend
+      dockerfile: frontend/Dockerfile
+      context: ./frontend
     when:
       event:
         - push

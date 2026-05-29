@@ -3,7 +3,7 @@
 # ============================================================
 
 # ---- Build Stage ----
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -19,23 +19,21 @@ COPY . .
 # Build Next.js application
 RUN npm run build
 
-# ---- Production Stage (Static) ----
-FROM node:18-alpine AS production
+# ---- Production Stage ----
+FROM node:20-alpine AS production
 
 # Security: create non-root user
 RUN addgroup -g 1001 -S evomap && adduser -S evomap -u 1001
 
 WORKDIR /app
 
-# Install serve to serve static files
-RUN npm install -g serve
+# Install only production dependencies
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 
 # Copy built artifacts
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-
-# Copy package.json for reference
-COPY --from=builder /app/package.json ./package.json
 
 # Set ownership
 RUN chown -R evomap:evomap /app
@@ -53,4 +51,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000 || exit 1
 
-CMD ["serve", "-s", ".", "-l", "3000"]
+CMD ["npm", "run", "start"]
