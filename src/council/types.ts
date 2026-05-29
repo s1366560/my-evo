@@ -147,6 +147,7 @@ export interface CastVoteInput {
 
 /** Proposal with computed vote statistics */
 export interface ProposalWithStats extends ProposalDetail {
+  votes: VoteRecord[];
   total_votes: number;
   approval_rate: number;  // Percentage of approve votes
   voter_count: number;   // Number of unique voters
