@@ -74,7 +74,7 @@ steps:
         - custom
 
   - name: docker-build-frontend
-    image: plugins/docker:20
+    image: plugins/docker:latest
     settings:
       repo: host.docker.internal:5001/my-evo-frontend
       tags:
