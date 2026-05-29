@@ -84,7 +84,7 @@ steps:
       insecure: true
       purge: true
       dockerfile: frontend/Dockerfile
-      context: ./frontend
+      context: .
     when:
       event:
         - push
