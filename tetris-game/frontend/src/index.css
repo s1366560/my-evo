@@ -1,0 +1,155 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #fff;
+}
+
+#root {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.game-container {
+  display: flex;
+  gap: 30px;
+  padding: 20px;
+}
+
+.game-board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+canvas {
+  border: 3px solid #4a90d9;
+  border-radius: 8px;
+  box-shadow: 0 0 20px rgba(74, 144, 217, 0.5);
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 150px;
+}
+
+.panel {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 10px;
+  padding: 15px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.panel h3 {
+  font-size: 14px;
+  color: #aaa;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.score-value {
+  font-size: 28px;
+  font-weight: bold;
+  color: #4ade80;
+  text-shadow: 0 0 10px rgba(74, 222, 128, 0.5);
+}
+
+.level-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #facc15;
+  text-shadow: 0 0 10px rgba(250, 204, 21, 0.5);
+}
+
+.next-preview {
+  width: 120px;
+  height: 120px;
+  border: 2px solid #4a90d9;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.next-preview canvas {
+  display: block;
+}
+
+.controls {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.controls p {
+  font-size: 12px;
+  color: #888;
+  margin: 5px 0;
+}
+
+.game-over-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  z-index: 100;
+}
+
+.game-over-text {
+  font-size: 48px;
+  font-weight: bold;
+  color: #ef4444;
+  text-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+  margin-bottom: 20px;
+}
+
+.play-button {
+  padding: 15px 40px;
+  font-size: 18px;
+  background: linear-gradient(135deg, #4ade80, #22c55e);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: bold;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.play-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(74, 222, 128, 0.6);
+}
+
+.pause-indicator {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  padding: 20px 40px;
+  border-radius: 10px;
+  font-size: 24px;
+  color: #fff;
+  z-index: 50;
+}

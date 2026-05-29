@@ -1,0 +1,28 @@
+# CI override: map app ports to workspace deploy host ports,
+# remove dependency host-port bindings to avoid reserved-port conflicts.
+services:
+  backend:
+    ports:
+      - "18080:3001"
+    networks:
+      - workspace-deploy
+
+  frontend:
+    ports:
+      - "18081:3000"
+    networks:
+      - workspace-deploy
+
+  db:
+    ports: []
+    networks:
+      - workspace-deploy
+
+  redis:
+    ports: []
+    networks:
+      - workspace-deploy
+
+networks:
+  workspace-deploy:
+    external: true

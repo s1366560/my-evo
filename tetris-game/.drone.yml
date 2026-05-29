@@ -1,0 +1,129 @@
+kind: pipeline
+type: docker
+name: tetris-deploy
+
+trigger:
+  event:
+    - push
+  branch:
+    - main
+    - master
+
+steps:
+  # Step 1: Build Backend
+  - name: build-backend
+    image: node:20-alpine
+    commands:
+      - apk add --no-cache git
+      - echo "[build-backend] Installing dependencies..."
+      - cd tetris-game/backend && npm install --silent
+      - echo "[build-backend] Building TypeScript..."
+      - npm run build
+      - echo "[build-backend] Build complete."
+    when:
+      event:
+        - push
+
+  # Step 2: Build Frontend
+  - name: build-frontend
+    image: node:20-alpine
+    commands:
+      - apk add --no-cache git
+      - echo "[build-frontend] Installing dependencies..."
+      - cd tetris-game/frontend && npm install --silent
+      - echo "[build-frontend] Building with Vite..."
+      - npm run build
+      - echo "[build-frontend] Build complete."
+    when:
+      event:
+        - push
+
+  # Step 3: Build Docker Images
+  - name: docker-build
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - name: docker-sock
+        path: /var/run/docker.sock
+    commands:
+      - echo "[docker-build] Building backend image..."
+      - docker build -t tetris-backend:latest -f tetris-game/backend/Dockerfile ./tetris-game/backend
+      - echo "[docker-build] Building frontend image..."
+      - docker build -t tetris-frontend:latest -f tetris-game/frontend/Dockerfile ./tetris-game/frontend
+      - echo "[docker-build] Tagging for registry..."
+      - docker tag tetris-backend:latest 45.77.246.72:5000/tetris-backend:latest
+      - docker tag tetris-frontend:latest 45.77.246.72:5000/tetris-frontend:latest
+      - echo "[docker-build] Done."
+    when:
+      event:
+        - push
+
+  # Step 4: Push to Remote Registry
+  - name: docker-push
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - name: docker-sock
+        path: /var/run/docker.sock
+    commands:
+      - echo "[docker-push] Pushing to remote registry..."
+      - docker push 45.77.246.72:5000/tetris-backend:latest
+      - docker push 45.77.246.72:5000/tetris-frontend:latest
+      - echo "[docker-push] Done."
+    when:
+      event:
+        - push
+
+  # Step 5: Deploy to Remote Server
+  - name: deploy
+    image: alpine:latest
+    environment:
+      SSH_KEY:
+        from_secret: ssh_key
+      SSH_HOST:
+        from_secret: ssh_host
+      SSH_USER:
+        from_secret: ssh_user
+    commands:
+      - apk add --no-cache openssh-client
+      - echo "[deploy] Setting up SSH key..."
+      - mkdir -p ~/.ssh
+      - echo "$SSH_KEY" > ~/.ssh/id_rsa
+      - chmod 600 ~/.ssh/id_rsa
+      - ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts 2>/dev/null
+      - echo "[deploy] Pulling images on remote server..."
+      - ssh $SSH_USER@$SSH_HOST "cd /opt/tetris && docker compose pull"
+      - echo "[deploy] Restarting services..."
+      - ssh $SSH_USER@$SSH_HOST "cd /opt/tetris && docker compose up -d"
+      - echo "[deploy] Waiting for services..."
+      - sleep 10
+      - echo "[deploy] Deployment complete!"
+    when:
+      event:
+        - push
+
+  # Step 6: Health Check
+  - name: health-check
+    image: alpine:latest
+    environment:
+      DEPLOY_HOST:
+        from_secret: deploy_host
+    commands:
+      - apk add --no-cache curl
+      - echo "[health-check] Testing backend..."
+      - for i in $(seq 1 10); do curl -sf http://$DEPLOY_HOST:3001/health >/dev/null && break || sleep 2; done
+      - curl -sf http://$DEPLOY_HOST:3001/health
+      - echo ""
+      - echo "[health-check] Testing frontend..."
+      - curl -sf http://$DEPLOY_HOST:8080 >/dev/null && echo "[health-check] Frontend OK" || echo "[health-check] Frontend FAILED"
+      - echo "[health-check] Complete!"
+    when:
+      event:
+        - push
+
+volumes:
+  - name: docker-sock
+    host:
+      path: /var/run/docker.sock
