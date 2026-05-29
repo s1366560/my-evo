@@ -1,5 +1,56 @@
 # SANDBOX-PREVIEW-EVIDENCE.md
 
+## Iteration 7 - Playwright E2E Journey Verification
+
+**Date:** 2026-05-29
+**Worktree:** workspace/node-a5ed591ebc00-c92b7cbe-b5d
+**Branch:** workspace/node-a5ed591ebc00-c92b7cbe-b5d
+**Base Ref:** HEAD (rebased from github/main abce8b5)
+
+---
+
+## Playwright E2E Journey Test Results
+
+**Config:** `frontend/e2e/playwright.config.ts`
+**Suite:** `frontend/e2e/journey.spec.ts`
+**Result:** **20/20 passed (0 failed)**
+**Duration:** 1.1 minutes
+**Workers:** 1 (sequential)
+**Browser:** Chromium Headless Shell 145.0.7632.6
+
+| # | Test | Status | Duration |
+|---|------|--------|----------|
+| 1 | Landing -- homepage loads | PASS | 3.8s |
+| 2 | Onboarding -- page renders | PASS | 1.4s |
+| 3 | Auth -- register form renders | PASS | 1.1s |
+| 4 | Auth -- login form renders | PASS | 1.2s |
+| 5 | Browse -- page loads | PASS | 1.2s |
+| 6 | Map -- page loads | PASS | 8.3s |
+| 7 | Editor -- page loads | PASS | 5.2s |
+| 8 | Marketplace -- heading visible | PASS | 1.2s |
+| 9 | Marketplace -- empty assets handled gracefully | PASS | 3.7s |
+| 10 | Marketplace -- purchase/content verified | PASS | 3.7s |
+| 11 | Publish -- page loads | PASS | 3.7s |
+| 12 | Workspace -- page loads | PASS | 2.2s |
+| 13 | Pricing -- page loads | PASS | 1.9s |
+| 14 | Bounty Hall -- page loads | PASS | 1.3s |
+| 15 | Dashboard -- page loads | PASS | 3.5s |
+| 16 | Arena -- page loads | PASS | 3.4s |
+| 17 | Profile -- page loads | PASS | 3.4s |
+| 18 | Swarm -- page loads | PASS | 3.3s |
+| 19 | Credits -- page loads | PASS | 3.4s |
+| 20 | Council -- page loads | PASS | 8.7s |
+
+### Services Verified
+- **Backend:** http://127.0.0.1:3001/health -> 200 OK
+- **Frontend:** http://127.0.0.1:3002/ -> 200 OK
+
+### New Routes Verified
+- `/swarm` (test 18) — Swarm module page loads correctly
+- `/council` (test 20) — Council module page loads correctly
+
+---
+
 ## Iteration 5 - Post-Merge Verification
 
 **Date:** 2026-05-21
