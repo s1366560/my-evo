@@ -73,6 +73,23 @@ steps:
         - push
         - custom
 
+  - name: docker-build-frontend
+    image: plugins/docker:20
+    settings:
+      repo: host.docker.internal:5001/my-evo-frontend
+      tags:
+        - drone-docker-e2e
+        - latest
+      registry: host.docker.internal:5001
+      insecure: true
+      purge: true
+      dockerfile: frontend/Dockerfile
+      context: ./frontend
+    when:
+      event:
+        - push
+        - custom
+
   - name: deploy
     image: docker:cli
     environment:
@@ -100,7 +117,15 @@ steps:
       - "docker run -d --name drone-redis --network workspace-deploy --memory=128m --memory-swap=128m --pids-limit=64 redis:7-alpine"
       - "echo '[deploy] Waiting for postgres to be ready...'"
       - "for i in $(seq 1 30); do docker exec drone-postgres pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
-      - "echo '[deploy] Pulling images built by docker-build step...'"
+      - "echo '[deploy] Pulling images from registry...'"
+      - "docker pull host.docker.internal:5001/my-evo:drone-docker-e2e || echo '[deploy] Registry pull failed, building locally...'"
+      - "docker pull host.docker.internal:5001/my-evo:latest || echo '[deploy] latest tag not found, using drone-docker-e2e...'"
+      - "docker pull host.docker.internal:5001/my-evo-frontend:drone-docker-e2e || echo '[deploy] Frontend registry pull failed, building locally...'"
+      - "docker pull host.docker.internal:5001/my-evo-frontend:latest || echo '[deploy] Frontend latest tag not found...'"
+      - "docker tag host.docker.internal:5001/my-evo:drone-docker-e2e my-evo:drone-docker-e2e 2>/dev/null || true"
+      - "docker tag host.docker.internal:5001/my-evo:latest my-evo:latest 2>/dev/null || true"
+      - "docker tag host.docker.internal:5001/my-evo-frontend:drone-docker-e2e my-evo-frontend:drone-docker-e2e 2>/dev/null || true"
+      - "docker tag host.docker.internal:5001/my-evo-frontend:latest my-evo-frontend:latest 2>/dev/null || true"
       - "docker images | grep my-evo || echo '[deploy] No pre-built images found, building locally...'"
       - "docker inspect my-evo:latest >/dev/null 2>&1 || docker build -t my-evo:drone-docker-e2e -t my-evo:latest -f Dockerfile ."
       - "docker inspect my-evo-frontend:latest >/dev/null 2>&1 || docker build -t my-evo-frontend:drone-docker-e2e -t my-evo-frontend:latest -f frontend/Dockerfile ./frontend"
