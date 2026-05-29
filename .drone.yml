@@ -75,6 +75,9 @@ steps:
 
   - name: docker-build-frontend
     image: plugins/docker:latest
+    volumes:
+      - name: docker-sock
+        path: /var/run/docker.sock
     settings:
       repo: host.docker.internal:5001/my-evo-frontend
       tags:
