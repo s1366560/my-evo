@@ -481,3 +481,75 @@ E2E_BASE_URL: http://host.docker.internal:18081
 |------|--------|
 | `.drone.yml` | Health checks 3001→18080, 3000→18081; E2E_BASE_URL→18081; port cleanup added |
 | `docker-compose.yml` | Removed deprecated version field |
+
+---
+
+## Iteration 13 - Playwright E2E Journey (20/20) via Production Build
+
+**Date:** 2026-05-30
+**Worktree:** workspace/node-a5ed591ebc00-b9140653-bf2
+**Branch:** workspace/node-a5ed591ebc00-b9140653-bf2
+**Base Ref:** e1d0979
+**Attempt ID:** b9140653-bf2c-4295-86f0-60ba7f72e2af
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| read-progress | Read from worktree path |
+| git-status | Clean worktree (no uncommitted changes) |
+| git HEAD | e1d0979 (same as base_ref) |
+
+### Environment Setup
+
+- Backend: port 3000 (mock in-memory mode), health 200 OK
+- Frontend: port 3002 (production build `npm start`), health 200 OK
+- Playwright: chromium browser installed via `playwright install chromium`
+
+### Test Results
+
+**Command:** `node_modules/.bin/playwright test --config=e2e/playwright.config.ts`
+**Result:** **20/20 passed (0 failed)**
+**Duration:** 32.9s
+**Workers:** 1 (sequential)
+
+| # | Test | Status | Duration |
+|---|------|--------|----------|
+| 1 | 01 Landing -- homepage loads | PASS | 3.2s |
+| 2 | 02 Onboarding -- page renders | PASS | 295ms |
+| 3 | 03 Auth -- register form renders | PASS | 270ms |
+| 4 | 04 Auth -- login form renders | PASS | 212ms |
+| 5 | 05 Browse -- page loads | PASS | 202ms |
+| 6 | 06 Map -- page loads | PASS | 2.2s |
+| 7 | 07 Editor -- page loads | PASS | 2.2s |
+| 8 | 08 Marketplace -- heading visible | PASS | 172ms |
+| 9 | 09 Marketplace -- empty assets handled gracefully | PASS | 3.2s |
+| 10 | 10 Marketplace -- purchase/content verified | PASS | 3.2s |
+| 11 | 11 Publish -- page loads | PASS | 2.2s |
+| 12 | 12 Workspace -- page loads | PASS | 172ms |
+| 13 | 13 Pricing -- page loads | PASS | 169ms |
+| 14 | 14 Bounty Hall -- page loads | PASS | 184ms |
+| 15 | 15 Dashboard -- page loads | PASS | 2.2s |
+| 16 | 16 Arena -- page loads | PASS | 2.2s |
+| 17 | 17 Profile -- page loads | PASS | 2.2s |
+| 18 | 18 Swarm -- page loads | PASS | 2.3s |
+| 19 | 19 Credits -- page loads | PASS | 2.2s |
+| 20 | 20 Council -- page loads | PASS | 2.2s |
+
+### New Routes Verified
+
+- `/swarm` (test 18) — Swarm module page loads correctly
+- `/council` (test 20) — Council module page loads correctly
+
+### Test Execution Notes
+
+- Used production build (`npm run build` + `npm start`) instead of dev server to avoid OOM during route compilation
+- Backend runs on port 3000 in mock in-memory mode (no DATABASE_URL)
+- Frontend production build: 31 routes compiled successfully
+
+### Verification Summary
+
+- All 20 Playwright E2E journey tests: PASS (0 failures)
+- Both swarm and council new routes: verified functional
+- Services health: backend 200 OK, frontend 200 OK
+- Test duration: 32.9s (production mode, fast)
