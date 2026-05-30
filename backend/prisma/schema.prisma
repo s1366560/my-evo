@@ -1,0 +1,169 @@
+// Prisma schema for My Evo Backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String
+  name       String?
+  avatar     String?
+  role       String   @default("user")
+  level      Int      @default(1)
+  reputation Float    @default(0)
+  credits    Float    @default(0)
+  claimed    Boolean  @default(false)
+  claimCode  String?  @unique
+  claimDeadline DateTime?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  nodes       Node[]
+  maps        Map[]
+  assets      Asset[]
+  votes       Vote[]
+  sessions    Session[]
+
+  @@map("users")
+}
+
+// Session model
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  refreshToken String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@map("sessions")
+}
+
+// Map model
+model Map {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  nodes       Node[]
+  edges       Edge[]
+
+  @@index([ownerId])
+  @@map("maps")
+}
+
+// Node model
+model Node {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  type        String   @default("concept")
+  category    String?
+  metadata    Json     @default("{}")
+  position    Json?
+  level       Int      @default(0)
+  reputation  Float    @default(0)
+  viewCount   Int      @default(0)
+
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  mapId       String?
+  map         Map?     @relation(fields: [mapId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outgoingEdges Edge[]  @relation("SourceNode")
+  incomingEdges Edge[]  @relation("TargetNode")
+  assets        Asset[]
+
+  @@index([ownerId])
+  @@index([mapId])
+  @@index([type])
+  @@map("nodes")
+}
+
+// Edge model
+model Edge {
+  id          String   @id @default(uuid())
+  type        String   @default("related")
+  weight      Float    @default(1.0)
+  description String?
+
+  sourceId    String
+  sourceNode  Node     @relation("SourceNode", fields: [sourceId], references: [id], onDelete: Cascade)
+
+  targetId    String
+  targetNode  Node     @relation("TargetNode", fields: [targetId], references: [id], onDelete: Cascade)
+
+  mapId       String?
+  map         Map?     @relation(fields: [mapId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now())
+
+  @@index([sourceId])
+  @@index([targetId])
+  @@index([mapId])
+  @@map("edges")
+}
+
+// Asset model
+model Asset {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  type        String
+  content     String?
+  url         String?
+  metadata    Json     @default("{}")
+  published   Boolean  @default(false)
+  price       Float?
+
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  nodeId      String?
+  node        Node?    @relation(fields: [nodeId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  votes       Vote[]
+
+  @@index([authorId])
+  @@index([nodeId])
+  @@map("assets")
+}
+
+// Vote model
+model Vote {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assetId   String
+  asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  value     Int
+  createdAt DateTime @default(now())
+
+  @@unique([userId, assetId])
+  @@index([assetId])
+  @@map("votes")
+}

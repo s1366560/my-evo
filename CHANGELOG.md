@@ -120,46 +120,6 @@ Created stub implementations for:
 
 ---
 
-## [Unreleased] - Sprint 2 (2026-05-22)
-
-### Implemented (2026-05-22)
-
-#### Swarm Module (`src/swarm/`)
-- ✅ Full implementation with task orchestration, agent scheduling, and result aggregation
-- ✅ `GET /swarm/tasks` - List swarm tasks
-- ✅ `POST /swarm/tasks` - Create swarm task
-- ✅ `GET /swarm/tasks/:taskId` - Get task details
-- ✅ `GET /swarm/tasks/:taskId/results` - Get aggregated results
-- ✅ `src/swarm/swarm.test.ts` - 36 unit tests
-
-#### Council Module (`src/council/`)
-- ✅ Full implementation with proposal CRUD, voting logic, and vote tallying
-- ✅ `GET /council/proposals` - List proposals
-- ✅ `POST /council/proposals` - Submit proposal
-- ✅ `GET /council/proposals/:proposalId` - Get proposal details
-- ✅ `POST /council/proposals/:proposalId/vote` - Cast vote
-- ✅ `GET /council/proposals/:proposalId/results` - Get voting results
-- ✅ `src/council/council.test.ts` - 29 unit tests
-
-#### CI/CD Pipeline (`.drone.yml`)
-- ✅ 7-step pipeline: repository-smoke, backend-test, frontend-build, docker-build, docker-build-frontend, deploy, e2e-test
-- ✅ Drone retry logic for transient npm ECONNRESET failures
-- ✅ Docker multi-stage build for backend and frontend
-
-#### Frontend Pages
-- ✅ `/council` - AI governance page with proposal submission and voting interface
-- ✅ `/swarm` - Multi-agent collaboration page with task creation and result display
-- ✅ `frontend/e2e/journey.spec.ts` - Playwright E2E test suite (20 routes)
-
-### Verification
-- [x] Backend: `npm test` - 6 suites, 77 tests passed (swarm: 36, council: 29)
-- [x] Frontend: `next build` - 31 pages built successfully
-- [x] Drone pipeline: 7 steps defined, docker-build stage present
-- [x] Git status: clean worktree
-- [x] SANDBOX-PREVIEW-EVIDENCE.md: updated with iteration evidence
-
----
-
 ## [1.0.0] - 2026-04-29
 
 ### Added

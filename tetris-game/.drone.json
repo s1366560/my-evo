@@ -1,0 +1,25 @@
+{
+  "workspace": {
+    "backend": "backend",
+    "frontend": "frontend"
+  },
+  "delivery_cicd": {
+    "provider": "drone",
+    "config_path": ".drone.yml",
+    "drone": {
+      "registry": "45.77.246.72:5000",
+      "deploy": {
+        "docker": {
+          "deploy_services": ["backend", "frontend"],
+          "compose_file": "docker-compose.yml",
+          "registry": "45.77.246.72:5000"
+        }
+      },
+      "remote": {
+        "host": "45.77.246.72",
+        "user": "root",
+        "path": "/opt/tetris"
+      }
+    }
+  }
+}

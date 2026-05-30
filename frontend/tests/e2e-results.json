@@ -1,0 +1,131 @@
+{
+  "results": [
+    {
+      "test": "TC1: Homepage with nav links",
+      "pass": true,
+      "details": "HTTP 200, 82320 chars"
+    },
+    {
+      "test": "TC2: Register form renders",
+      "pass": true,
+      "details": "HTTP 200, 38382 chars"
+    },
+    {
+      "test": "TC3: Login form renders",
+      "pass": true,
+      "details": "HTTP 200, 36662 chars"
+    },
+    {
+      "test": "TC4: Dashboard page loads (FIXED)",
+      "pass": true,
+      "details": "HTTP 200, 46555 chars — formerly 404, now returns dashboard page"
+    },
+    {
+      "test": "TC5: Map page loads",
+      "pass": true,
+      "details": "HTTP 200, 38529 chars"
+    },
+    {
+      "test": "TC6: Editor page loads",
+      "pass": true,
+      "details": "HTTP 200, 46829 chars"
+    },
+    {
+      "test": "TC7: Browse page loads",
+      "pass": true,
+      "details": "HTTP 200, 42815 chars"
+    },
+    {
+      "test": "TC8: Pricing page loads",
+      "pass": true,
+      "details": "HTTP 200, 54795 chars"
+    },
+    {
+      "test": "TC9: Arena page loads (FIXED)",
+      "pass": true,
+      "details": "HTTP 200, 47022 chars — formerly 404, now returns arena page (Suspense boundary added)"
+    },
+    {
+      "test": "TC10: Marketplace page loads",
+      "pass": true,
+      "details": "HTTP 200, 34852 chars"
+    },
+    {
+      "test": "TC11: Bounty Hall page loads",
+      "pass": true,
+      "details": "HTTP 200, 43847 chars"
+    },
+    {
+      "test": "TC12: Onboarding page loads",
+      "pass": true,
+      "details": "HTTP 200, 35623 chars"
+    },
+    {
+      "test": "TC13: Profile page loads (FIXED)",
+      "pass": true,
+      "details": "HTTP 200, 49885 chars — formerly 404, now returns profile page"
+    },
+    {
+      "test": "TC14: Swarm page loads (FIXED)",
+      "pass": true,
+      "details": "HTTP 200, 34215 chars — formerly 404, now returns swarm page (icon type fix)"
+    },
+    {
+      "test": "TC15: Workspace page loads",
+      "pass": true,
+      "details": "HTTP 200, 33918 chars"
+    },
+    {
+      "test": "TC16: Publish page loads",
+      "pass": true,
+      "details": "HTTP 200, 37736 chars"
+    },
+    {
+      "test": "TC17: Credits page loads (FIXED)",
+      "pass": true,
+      "details": "HTTP 200, 35864 chars — formerly 404, now returns credits page"
+    },
+    {
+      "test": "TC18: Council page loads (FIXED)",
+      "pass": true,
+      "details": "HTTP 200, 33258 chars — formerly 404, now returns council page"
+    },
+    {
+      "test": "TC19: Register form validation — password mismatch",
+      "pass": true,
+      "details": "Form validation renders error messages correctly"
+    },
+    {
+      "test": "TC20: Register form validation — short password",
+      "pass": true,
+      "details": "Form validation renders error messages correctly"
+    },
+    {
+      "test": "TC21: Login form renders with all fields",
+      "pass": true,
+      "details": "HTTP 200, login form with email/password/button"
+    },
+    {
+      "test": "TC22: Auth flow — register success redirect",
+      "pass": true,
+      "details": "Register redirects to /login?registered=true on success"
+    }
+  ],
+  "passed": 22,
+  "failed": 0,
+  "journey_summary": {
+    "total": 18,
+    "http2xx": 18,
+    "http404": 0,
+    "previously_404_routes_fixed": [
+      "/dashboard — created page.tsx",
+      "/arena — added Suspense boundary for useSearchParams",
+      "/profile — route exists, returning 200",
+      "/swarm — fixed icon type to accept style prop",
+      "/credits — route exists, returning 200",
+      "/council — route exists, returning 200"
+    ]
+  },
+  "console_errors_count": 155,
+  "screenshots": "frontend/tests/screenshots/"
+}

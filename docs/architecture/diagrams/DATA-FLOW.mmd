@@ -1,0 +1,256 @@
+# My Evo 数据流图 (Mermaid)
+
+**版本**: 1.0 | **日期**: 2026-04-29 | **类型**: Mermaid图表
+
+---
+
+## 1. 系统架构数据流
+
+```mermaid
+flowchart TB
+    subgraph Client["用户层"]
+        Dashboard[Dashboard]
+        Market[Market]
+        Bounty[Bounty]
+        Swarm[Swarm]
+        Evolver[Evolver Node]
+    end
+
+    subgraph APIGateway["API 网关层"]
+        AssetsAPI[/api/assets/*]
+        BountyAPI[/api/bounty/*]
+        UserAPI[/api/user/*]
+        KGAPI[/api/kg/*]
+    end
+
+    subgraph Storage["存储层"]
+        PostgreSQL[(PostgreSQL)]
+        Redis[(Redis)]
+        Neo4j[(Neo4j)]
+    end
+
+    subgraph External["外部服务"]
+        HubAPI[EvoMap Hub]
+    end
+
+    Client --> APIGateway
+    AssetsAPI --> PostgreSQL
+    AssetsAPI --> Neo4j
+    BountyAPI --> PostgreSQL
+    UserAPI --> PostgreSQL
+    KGAPI --> Neo4j
+    PostgreSQL --> Redis
+    AssetsAPI --> HubAPI
+```
+
+---
+
+## 2. 资产发布数据流
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant FE as 前端
+    participant BE as 后端服务
+    participant DB as PostgreSQL
+    participant KG as Neo4j
+    participant Hub as Hub API
+
+    U->>FE: 填写资产信息
+    FE->>BE: 提交发布请求
+    BE->>KG: 计算GDI评分
+    KG-->>BE: 评分结果
+    BE->>DB: 写入assets表
+    DB-->>BE: 确认写入
+    BE->>Hub: 同步资产
+    Hub-->>BE: Asset ID
+    BE->>FE: 发布成功
+```
+
+---
+
+## 3. 赏金任务数据流
+
+```mermaid
+flowchart LR
+    subgraph Publisher["发布者"]
+        P1[创建赏金]
+        P2[等待认领]
+        P3[验收方案]
+        P4[发放赏金]
+    end
+
+    subgraph System["系统"]
+        S1[记录赏金]
+        S2[通知用户]
+        S3[处理转账]
+    end
+
+    subgraph Solver["解决者"]
+        S4[认领任务]
+        S5[提交方案]
+        S6[获得赏金]
+    end
+
+    P1-->S1
+    S1-->S2
+    S2-->P2
+    S2-->S4
+    P2-->P3
+    S4-->S5
+    S5-->S3
+    P3-->S3
+    S3-->S6
+    S3-->P4
+```
+
+---
+
+## 4. Evolver 节点数据流
+
+```mermaid
+flowchart TB
+    Start([启动])-->Init[初始化]
+    Init-->Connect[连接Hub]
+    Connect-->Register[注册节点]
+    Register-->Loop{守护循环}
+    
+    Loop-->Monitor[监控任务]
+    Monitor-->Check{检测状态}
+    
+    Check-->|正常| Task[执行任务]
+    Check-->|错误| Evolve[触发进化]
+    
+    Task-->Report[上报结果]
+    Evolve-->Analyze[分析原因]
+    Analyze-->Generate[生成修复]
+    Generate-->Sandbox[沙箱测试]
+    Sandbox-->Validate{验证通过?}
+    
+    Validate-->|是| Solidify[固化Gene]
+    Validate-->|否| Generate
+    
+    Solidify-->Reward[获得积分]
+    Reward-->Report
+    
+    Report-->Loop
+```
+
+---
+
+## 5. Swarm 协作数据流
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant O as Orchestrator
+    participant A1 as Agent1
+    participant A2 as Agent2
+    participant A3 as Agent3
+
+    U->>O: 创建Swarm会话
+    O-->>U: 会话ID
+    U->>O: 提交任务
+    O->>O: 分解任务
+    
+    par 并行执行
+        O->>A1: 分发子任务1
+        O->>A2: 分发子任务2
+        O->>A3: 分发子任务3
+    end
+    
+    A1-->>O: 结果1
+    A2-->>O: 结果2
+    A3-->>O: 结果3
+    
+    O->>O: 整合结果
+    O-->>U: 最终输出
+```
+
+---
+
+## 6. 用户认证数据流
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant FE as 前端
+    participant BE as 后端
+    participant DB as PostgreSQL
+    participant Cache as Redis
+
+    U->>FE: 输入登录信息
+    FE->>BE: POST /api/auth/login
+    BE->>DB: 查询用户
+    DB-->>BE: 用户数据
+    BE->>BE: 验证密码
+    BE->>Cache: 生成Session
+    BE->>FE: 返回JWT Token
+    FE-->>U: 登录成功
+    U->>FE: 请求用户信息
+    FE->>BE: GET /api/user/me
+    BE->>Cache: 验证Token
+    BE->>DB: 查询详情
+    DB-->>BE: 用户详情
+    BE-->>FE: 返回信息
+```
+
+---
+
+## 7. 数据模型关系图
+
+```mermaid
+erDiagram
+    User ||--o{ Asset : "author"
+    User ||--o{ Bounty : "author"
+    User ||--o{ Solution : "author"
+    User ||--o{ Transaction : "user"
+    
+    Asset ||--|{ Gene : "contains"
+    Asset ||--|{ Capsule : "contains"
+    
+    Bounty ||--o{ Solution : "has"
+    
+    Gene ||--o{ GeneSignal : "has"
+    Signal ||--o{ GeneSignal : "tagged"
+    
+    Asset {
+        uuid id
+        string type
+        uuid author_id
+        string title
+        json content
+        float gdi_score
+        int price
+        string status
+    }
+    
+    User {
+        uuid id
+        string email
+        string name
+        int credits
+        float reputation
+    }
+    
+    Bounty {
+        uuid id
+        string title
+        text description
+        int credits
+        string status
+        uuid author_id
+    }
+    
+    Solution {
+        uuid id
+        uuid bounty_id
+        uuid author_id
+        text content
+        string status
+    }
+```
+
+---
+
+*文档版本: 1.0 | 更新: 2026-04-29*

@@ -1,0 +1,499 @@
+openapi: 3.0.3
+info:
+  title: My Evo API
+  description: My Evo 进化图谱平台 API. Bearer token auth required.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3001
+  - url: https://api.myevo.ai
+tags:
+  - name: Health
+  - name: Auth
+  - name: Map
+  - name: Graph
+  - name: Dashboard
+  - name: AI
+  - name: Export
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags: [Health]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  timestamp: { type: string, format: date-time }
+                  mode: { type: string, enum: [mock, production] }
+  /api/v1/auth/register:
+    post:
+      summary: Register new user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+                name: { type: string }
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+                  token: { type: string }
+  /api/v1/auth/login:
+    post:
+      summary: Login user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+                  token: { type: string }
+  /api/v1/auth/logout:
+    post:
+      summary: Logout user
+      tags: [Auth]
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: Logout successful
+  /api/v1/auth/me:
+    get:
+      summary: Get current user
+      tags: [Auth]
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+  /api/v1/map/nodes:
+    get:
+      summary: List nodes
+      tags: [Map]
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Node list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Node' }
+                  total: { type: integer }
+    post:
+      summary: Create node
+      tags: [Map]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+                type: { type: string, default: concept }
+                category: { type: string }
+                metadata: { type: object }
+                position: { type: object, properties: { x: { type: number }, y: { type: number } } }
+      responses:
+        '201':
+          description: Node created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Node' }
+  /api/v1/map/nodes/{id}:
+    get:
+      summary: Get node by ID
+      tags: [Map]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Node details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Node' }
+        '404':
+          description: Not found
+    put:
+      summary: Update node
+      tags: [Map]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+                type: { type: string }
+                category: { type: string }
+                metadata: { type: object }
+      responses:
+        '200':
+          description: Node updated
+    delete:
+      summary: Delete node
+      tags: [Map]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Node deleted
+  /api/v1/map/edges:
+    get:
+      summary: List edges
+      tags: [Map]
+      responses:
+        '200':
+          description: Edge list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Edge' }
+    post:
+      summary: Create edge
+      tags: [Map]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceId, targetId]
+              properties:
+                sourceId: { type: string, format: uuid }
+                targetId: { type: string, format: uuid }
+                type: { type: string, default: related }
+                weight: { type: number, default: 1.0 }
+                description: { type: string }
+      responses:
+        '201':
+          description: Edge created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Edge' }
+  /api/v1/map/edges/{id}:
+    delete:
+      summary: Delete edge
+      tags: [Map]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Edge deleted
+  /api/v1/graph/layout:
+    post:
+      summary: Compute graph layout
+      tags: [Graph]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nodes, edges]
+              properties:
+                nodes: { type: array }
+                edges: { type: array }
+                algorithm: { type: string, enum: [force, grid, radial], default: force }
+      responses:
+        '200':
+          description: Layout computed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes: { type: array, items: { $ref: '#/components/schemas/LayoutNode' } }
+                  layoutTime: { type: integer }
+  /api/v1/graph/validate:
+    post:
+      summary: Validate graph structure
+      tags: [Graph]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nodes, edges]
+              properties:
+                nodes: { type: array }
+                edges: { type: array }
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+                  errors: { type: array, items: { type: string } }
+  /api/v2/dashboard/stats:
+    get:
+      summary: Get user statistics
+      tags: [Dashboard]
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: User statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      totalNodes: { type: integer }
+                      totalEdges: { type: integer }
+  /api/v2/dashboard/credits:
+    get:
+      summary: Get credit balance
+      tags: [Dashboard]
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: Credit balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      balance: { type: number }
+                      currency: { type: string }
+  /api/v2/dashboard/reputation:
+    get:
+      summary: Get reputation metrics
+      tags: [Dashboard]
+      security: [{ BearerAuth: [] }]
+      responses:
+        '200':
+          description: Reputation metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      score: { type: number }
+                      level: { type: integer }
+  /api/v1/ai/generate:
+    post:
+      summary: Generate node content
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt: { type: string }
+                type: { type: string, enum: [concept, model, skill], default: concept }
+      responses:
+        '200':
+          description: Generated content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Node' }
+  /api/v1/ai/expand:
+    post:
+      summary: Expand knowledge graph
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nodeId]
+              properties:
+                nodeId: { type: string }
+                count: { type: integer, default: 5 }
+      responses:
+        '200':
+          description: Expanded nodes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes: { type: array, items: { $ref: '#/components/schemas/Node' } }
+                  edges: { type: array, items: { $ref: '#/components/schemas/Edge' } }
+  /api/v1/export/json:
+    get:
+      summary: Export data as JSON
+      tags: [Export]
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [full, nodes-only, edges-only], default: full }
+      responses:
+        '200':
+          description: JSON export
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/export/csv:
+    get:
+      summary: Export data as CSV
+      tags: [Export]
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string, enum: [nodes, edges], default: nodes }
+      responses:
+        '200':
+          description: CSV export
+          content:
+            text/csv:
+              schema:
+                type: string
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        avatar: { type: string }
+        role: { type: string, enum: [user, admin] }
+        level: { type: integer }
+        reputation: { type: number }
+        credits: { type: number }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Node:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        type: { type: string }
+        category: { type: string }
+        metadata: { type: object }
+        position: { type: object, properties: { x: { type: number }, y: { type: number } } }
+        level: { type: integer }
+        reputation: { type: number }
+        viewCount: { type: integer }
+        ownerId: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Edge:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        sourceId: { type: string }
+        targetId: { type: string }
+        type: { type: string }
+        weight: { type: number }
+        description: { type: string }
+        createdAt: { type: string, format: date-time }
+    LayoutNode:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        position: { type: object, properties: { x: { type: number }, y: { type: number } } }
+

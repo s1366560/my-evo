@@ -1,0 +1,329 @@
+# My Evo 核心交互流程图 (Mermaid)
+
+**版本**: 1.0 | **日期**: 2026-04-29 | **类型**: Mermaid图表
+
+---
+
+## 1. 用户旅程总览
+
+```mermaid
+flowchart LR
+    subgraph Journey["用户旅程"]
+        A[访问落地页] --> B[注册登录]
+        B --> C[首次引导]
+        C --> D[探索市场]
+        D --> E[参与贡献]
+    end
+    
+    subgraph Loop["持续循环"]
+        E --> F[浏览资产]
+        F --> G[购买/发布]
+        G --> H[赚取积分]
+        H --> I[提升声誉]
+        I --> E
+    end
+```
+
+---
+
+## 2. 注册与引导流程
+
+```mermaid
+flowchart TB
+    Start([访问]) --> Landing[落地页]
+    Landing --> Register{注册?}
+    
+    Register -->|登录| Login[登录页]
+    Register -->|注册| Form[注册表单]
+    
+    Form --> Method{注册方式}
+    Method -->|邮箱| Email[邮箱验证]
+    Method -->|社交| Social[社交登录]
+    
+    Email --> Profile[完善资料]
+    Social --> Profile
+    
+    Profile --> Role[选择角色]
+    
+    Role -->|发布者| Publisher[发布者向导]
+    Role -->|消费者| Consumer[消费者向导]
+    Role -->|开发者| Developer[开发者向导]
+    
+    Publisher --> Dashboard
+    Consumer --> Dashboard
+    Developer --> Dashboard
+    
+    Dashboard[进入仪表盘]
+```
+
+---
+
+## 3. 资产发布流程
+
+```mermaid
+flowchart TB
+    Start([仪表盘]) --> Publish[发布中心]
+    Publish --> Type{资产类型}
+    
+    Type -->|Gene| GeneForm[Gene表单]
+    Type -->|Capsule| CapsuleForm[Capsule表单]
+    Type -->|Recipe| RecipeForm[Recipe表单]
+    
+    GeneForm --> Step1[基本信息]
+    Step1 --> Step2[代码内容]
+    Step2 --> Step3[预览验证]
+    
+    CapsuleForm --> CStep1[基本信息]
+    CStep1 --> CStep2[Gene组合]
+    CStep2 --> CStep3[预览验证]
+    
+    RecipeForm --> RStep1[基本信息]
+    RStep1 --> RStep2[节点连接]
+    RStep2 --> RStep3[预览验证]
+    
+    Step3 --> Pricing[定价策略]
+    CStep3 --> Pricing
+    RStep3 --> Pricing
+    
+    Pricing --> Price{定价方式}
+    Price -->|免费| Free[免费发布]
+    Price -->|积分| Paid[积分定价]
+    
+    Free --> Review[提交审核]
+    Paid --> Review
+    
+    Review --> Approved{审核结果}
+    Approved -->|通过| Success[发布成功]
+    Approved -->|拒绝| Fail[修改重提]
+    
+    Fail --> GeneForm
+    Success --> Manage[管理资产]
+```
+
+---
+
+## 4. 资产购买流程
+
+```mermaid
+flowchart TB
+    Start([市场页]) --> Browse[浏览资产]
+    Browse --> Search[搜索筛选]
+    Search --> Detail[资产详情]
+    
+    Detail --> Action{选择操作}
+    
+    Action -->|立即购买| BuyNow
+    Action -->|加入购物车| Cart
+    
+    BuyNow --> Check[余额检查]
+    Cart --> Continue[继续购物]
+    Continue --> Browse
+    
+    Check --> Balance{余额充足?}
+    
+    Balance -->|是| Confirm[确认购买]
+    Balance -->|否| Recharge[充值引导]
+    
+    Recharge --> Payment[选择支付]
+    Payment --> Balance
+    
+    Confirm --> Deduct[积分扣除]
+    Deduct --> Record[交易记录]
+    Record --> Download[下载资产]
+    
+    Download --> Review[评价资产]
+    Review --> Reward[赚取积分]
+```
+
+---
+
+## 5. 赏金任务流程
+
+### 5.1 发布者流程
+
+```mermaid
+flowchart TB
+    Start([仪表盘]) --> Create[创建赏金]
+    Create --> Fill[填写详情]
+    
+    Fill --> Details{任务详情}
+    Details -->|问题描述| D1
+    Details -->|期望结果| D2
+    Details -->|信号标签| D3
+    Details -->|赏金金额| D4
+    Details -->|截止日期| D5
+    
+    D1 & D2 & D3 & D4 & D5 --> Preview[预览确认]
+    Preview --> Publish[发布赏金]
+    
+    Publish --> Wait{等待解决者}
+    
+    Wait -->|有人认领| Claimed
+    Wait -->|无人认领| Extend[延长期限]
+    
+    Claimed --> Submit[方案提交]
+    Extend --> Wait
+    
+    Submit --> Review{验收}
+    Review -->|通过| Accept[验收通过]
+    Review -->|拒绝| Reject[需要修改]
+    
+    Reject --> Submit
+    
+    Accept --> Reward[发放赏金]
+    Reward --> Done([完成])
+```
+
+### 5.2 解决者流程
+
+```mermaid
+flowchart TB
+    Start([赏金大厅]) --> Browse[浏览赏金]
+    Browse --> Filter[筛选任务]
+    Filter --> Select{选择任务}
+    
+    Select -->|立即认领| Claim
+    Select -->|稍后再说| Later[收藏稍后]
+    
+    Later --> Start
+    
+    Claim --> Lock[锁定任务]
+    Lock --> Solve[解决问题]
+    
+    Solve --> Test[测试验证]
+    Test -->|通过| Submit[提交方案]
+    Test -->|失败| Solve
+    
+    Submit --> Wait{等待验收}
+    
+    Wait -->|通过| Win[获得赏金]
+    Wait -->|拒绝| Iterate[继续迭代]
+    
+    Iterate --> Solve
+    
+    Win --> End([完成])
+```
+
+---
+
+## 6. Swarm 多智能体协作
+
+```mermaid
+flowchart TB
+    Start([Swarm页面]) --> Create[创建会话]
+    Create --> Define[任务定义]
+    
+    Define --> Config[Agent配置]
+    
+    Config --> Agents{选择Agent}
+    Agents -->|Orchestrator| Orch[编排者]
+    Agents -->|Specialist| Spec1[专家1]
+    Agents -->|Specialist| Spec2[专家2]
+    Agents -->|Specialist| Spec3[专家3]
+    
+    Orch --> Dispatch[任务分发]
+    
+    Dispatch --> Task1[子任务1]
+    Dispatch --> Task2[子任务2]
+    Dispatch --> Task3[子任务3]
+    
+    Task1 --> Spec1
+    Task2 --> Spec2
+    Task3 --> Spec3
+    
+    Spec1 --> Result1[结果1]
+    Spec2 --> Result2[结果2]
+    Spec3 --> Result3[结果3]
+    
+    Result1 & Result2 & Result3 --> Collect[收集结果]
+    
+    Collect --> Integrate[整合输出]
+    Integrate --> Final([最终结果])
+```
+
+---
+
+## 7. Evolver 节点运行
+
+```mermaid
+flowchart TB
+    Start([启动]) --> Init[初始化]
+    Init --> Connect[连接Hub]
+    Connect --> Register[注册节点]
+    
+    Register --> Loop{守护循环}
+    
+    Loop --> Monitor[监控任务]
+    Monitor --> Status{检测状态}
+    
+    Status -->|正常运行| Normal[任务执行]
+    Status -->|发现错误| Error[错误处理]
+    
+    Normal --> Report[上报结果]
+    Error --> Evolve[触发进化]
+    
+    Evolve --> Analyze[分析原因]
+    Analyze --> Generate[生成修复]
+    Generate --> Sandbox[沙箱测试]
+    
+    Sandbox --> Valid{验证通过?}
+    Valid -->|是| Solidify[固化Gene]
+    Valid -->|否| Generate
+    
+    Solidify --> Sync[同步Hub]
+    Sync --> Report
+    
+    Report --> Reward[获得积分]
+    Reward --> Loop
+    
+    Report --> Stop([停止])
+```
+
+---
+
+## 8. 页面跳转关系
+
+```mermaid
+flowchart LR
+    subgraph Landing["落地"]
+        Home[/]
+    end
+    
+    subgraph Auth["认证"]
+        Login[/login]
+        Register[/register]
+    end
+    
+    subgraph Market["市场"]
+        Market[/market]
+        AssetDetail[/market/[id]]
+        Browse[/browse]
+    end
+    
+    subgraph Dashboard["工作区"]
+        Dashboard[/dashboard]
+        Publish[/publish]
+        Bounty[/bounty]
+        Swarm[/swarm]
+    end
+    
+    Home --> Login
+    Home --> Register
+    Home --> Market
+    
+    Login --> Dashboard
+    Register --> Dashboard
+    Market --> AssetDetail
+    Browse --> AssetDetail
+    
+    Dashboard --> Publish
+    Dashboard --> Bounty
+    Dashboard --> Swarm
+    
+    Publish --> AssetDetail
+    Bounty --> AssetDetail
+```
+
+---
+
+*文档版本: 1.0 | 更新: 2026-04-29*
