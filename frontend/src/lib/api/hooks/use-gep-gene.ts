@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { RegisterGeneRequest } from "../../../../../src/gep/types";
 import type {
+  RegisterGeneRequest,
   GepPublishGeneResponse,
   GepGenesParams,
   GepValidationResponse,
