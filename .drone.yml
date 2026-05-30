@@ -59,24 +59,40 @@ steps:
         - custom
 
   - name: docker-build
-    image: plugins/docker:20
-    settings:
-      repo: host.docker.internal:5001/my-evo
-      tags:
-        - drone-docker-e2e
-        - latest
-      registry: host.docker.internal:5001
-      insecure: true
-      purge: true
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - name: docker-sock
+        path: /var/run/docker.sock
+    commands:
+      - "echo '[docker-build] Building backend image with docker CLI...'"
+      - "docker build -t my-evo:drone-docker-e2e -t my-evo:latest -f Dockerfile ."
+      - "docker tag my-evo:drone-docker-e2e host.docker.internal:5001/my-evo:drone-docker-e2e"
+      - "docker tag my-evo:latest host.docker.internal:5001/my-evo:latest"
+      - "docker push host.docker.internal:5001/my-evo:drone-docker-e2e"
+      - "docker push host.docker.internal:5001/my-evo:latest"
+      - "echo '[docker-build] Backend image built and pushed successfully'"
     when:
       event:
         - push
         - custom
 
   - name: docker-build-frontend
-    image: alpine:latest
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - name: docker-sock
+        path: /var/run/docker.sock
     commands:
-      - "echo '[docker-build-frontend] Skipping separate frontend build - handled in deploy step'"
+      - "echo '[docker-build-frontend] Building frontend image with docker CLI...'"
+      - "docker build -t my-evo-frontend:drone-docker-e2e -t my-evo-frontend:latest -f frontend/Dockerfile ./frontend"
+      - "docker tag my-evo-frontend:drone-docker-e2e host.docker.internal:5001/my-evo-frontend:drone-docker-e2e"
+      - "docker tag my-evo-frontend:latest host.docker.internal:5001/my-evo-frontend:latest"
+      - "docker push host.docker.internal:5001/my-evo-frontend:drone-docker-e2e"
+      - "docker push host.docker.internal:5001/my-evo-frontend:latest"
+      - "echo '[docker-build-frontend] Frontend image built and pushed successfully'"
     when:
       event:
         - push
