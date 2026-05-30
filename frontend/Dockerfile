@@ -9,14 +9,14 @@ WORKDIR /app
 # Copy package files (context is ./frontend)
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (with retry for transient network errors)
+RUN sh -c 'for i in 1 2 3; do npm ci && break || { echo "[npm ci retry $i]"; sleep 3; }; done'
 
 # Copy source code
 COPY . .
 
-# Build Next.js application
-RUN npm run build
+# Build Next.js application (with retry)
+RUN sh -c 'for i in 1 2 3; do npm run build && break || { echo "[npm build retry $i]"; sleep 2; }; done'
 
 # Environment
 ENV NODE_ENV=production
