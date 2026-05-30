@@ -534,3 +534,51 @@ Frontend build in Drone pipeline environment: verified via npm install + build c
 |------|--------|
 | `.drone.yml` | retry_npm_be/retry_npm_fe: npm install separated from npm audit --json; audit non-fatal |
 | `SANDBOX-PREVIEW-EVIDENCE.md` | Added iteration 27 evidence |
+
+---
+
+## Iteration 28 - Deploy Stage OOM Fix (Retry)
+
+**Date:** 2026-05-31
+**Worktree:** workspace/node-ea330aa8b833-59026e02-51f
+**Branch:** workspace/node-ea330aa8b833-59026e02-51f
+**Base Ref:** 54bdb1e
+
+### Problem
+
+Drone build s1366560/my-evo#369 failed at `workspace-ci/deploy` stage with exit code 137 (OOM kill).
+Previous Drone build s1366560/my-evo#370 also failed at deploy stage with exit 137.
+Root cause: deploy stage runs Docker-in-Docker with 4 containers (postgres 256MB, redis 128MB, backend 512MB, frontend 256MB)
+under a memory-constrained CI pod. The combined 1.15GB limit caused the pod to OOM-kill the container running the deploy step.
+
+### Fix Applied
+
+`.drone.yml` deploy stage: removed `--memory=256m`, `--memory=512m`, `--memory-swap=256m/512m`, and `--pids-limit=N` flags from all 4 container run commands.
+Previous similar fix (commit 784637e, 9ac274c) used the same approach successfully.
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `.drone.yml` | Removed 4 memory limit flags from drone-postgres, drone-redis, drone-backend, drone-frontend docker run commands |
+
+### Drone Pipeline Status
+
+- **Prior pipeline (build #369):** Failed at deploy stage (exit 137)
+- **Prior pipeline (build #370):** Failed at deploy stage (exit 137), same root cause — triggered on main branch which still had memory limits
+- **Fix commit:** 58e7668 on branch `workspace/node-ea330aa8b833-59026e02-51f`
+- **Fix diff:** `.drone.yml` -4 lines (removed memory limits), +4 lines (cleaned docker run commands)
+
+### Platform Harness Required Actions
+
+1. Push branch `workspace/node-ea330aa8b833-59026e02-51f` (commit 58e7668) to GitHub/source-publish
+2. Trigger Drone pipeline on that branch
+3. Expected: All 7 stages (repository-smoke, backend-test, frontend-build, docker-build, docker-build-frontend, deploy, e2e-test) pass
+
+### Verification Evidence
+
+- Git status: Clean worktree (no uncommitted changes)
+- Commit: 58e7668 `fix(CI): remove container memory limits in deploy stage to prevent OOM (exit 137)`
+- YAML validation: `python3 yaml.safe_load` passes
+- Deploy stage docker run commands now: `drone-postgres`, `drone-redis`, `drone-backend`, `drone-frontend` — all without memory/pids limits
+- Sandbox limitations: Cannot push to GitHub/source-publish from sandbox (no SSH, GitHub token invalid); platform harness owns remote push
