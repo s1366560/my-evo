@@ -34,6 +34,60 @@
 
 ---
 
+## Iteration 6 - Playwright E2E Suite (20 Tests)
+
+**Date:** 2026-05-30
+**Worktree:** workspace/node-feef391e598b-976ff308-61b
+**Branch:** workspace/node-feef391e598b-976ff308-61b
+**Base Ref:** HEAD (789d080)
+
+---
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| git-status | Clean worktree (no uncommitted changes) |
+| read-progress | Read from worktree |
+| frontend build | Next.js build success (35 pages) |
+
+---
+
+### Playwright E2E Test Results
+
+**Test File:** `frontend/e2e/journey.spec.ts`
+**Config:** `frontend/e2e/playwright.config.ts`
+**Frontend:** `next start -p 3002` (built with `next build`)
+**Base URL:** `http://127.0.0.1:3002`
+
+| # | Test | Result | Duration |
+|---|------|--------|----------|
+| 01 | Landing -- homepage loads | ✓ PASS | 3.4s |
+| 02 | Onboarding -- page renders | ✓ PASS | 613ms |
+| 03 | Auth -- register form renders | ✓ PASS | 394ms |
+| 04 | Auth -- login form renders | ✓ PASS | 433ms |
+| 05 | Browse -- page loads | ✓ PASS | 456ms |
+| 06 | Map -- page loads | ✓ PASS | 2.4s |
+| 07 | Editor -- page loads | ✓ PASS | 2.6s |
+| 08 | Marketplace -- heading visible | ✓ PASS | 469ms |
+| 09 | Marketplace -- empty assets handled gracefully | ✓ PASS | 3.4s |
+| 10 | Marketplace -- purchase/content verified (200/empty handled) | ✓ PASS | 3.2s |
+| 11 | Publish -- page loads | ✓ PASS | 2.2s |
+| 12 | Workspace -- page loads | ✓ PASS | 295ms |
+| 13 | Pricing -- page loads | ✓ PASS | 285ms |
+| 14 | Bounty Hall -- page loads | ✓ PASS | 289ms |
+| 15 | Dashboard -- page loads | ✓ PASS | 2.2s |
+| 16 | Arena -- page loads | ✓ PASS | 2.3s |
+| 17 | Profile -- page loads | ✓ PASS | 2.2s |
+| 18 | Swarm -- page loads | ✓ PASS | 2.2s |
+| 19 | Credits -- page loads | ✓ PASS | 2.2s |
+| 20 | Council -- page loads | ✓ PASS | 2.2s |
+
+**Summary: 20/20 passed, 0 failed, 33.0s total**
+
+---
+
+>>>>>>> 9dd3ef4 (docs: add iteration 18 Playwright E2E 20/20 results (33.0s))
 ## Drone CI/CD Pipeline
 
 **Latest Pipeline Run:** 1941a3f9-3d6e-4351-9223-3c4fb573d971
