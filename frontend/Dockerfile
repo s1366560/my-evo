@@ -10,13 +10,27 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies (with retry for transient network errors)
-RUN sh -c 'for i in 1 2 3; do npm ci && break || { echo "[npm ci retry $i]"; sleep 3; }; done'
+# Try npm ci with cache, fall back to npm install if needed
+RUN /bin/sh -c ' \
+    for i in 1 2 3; do \
+        npm ci --ignore-scripts && exit 0; \
+        echo "[npm ci retry $i of 3]"; \
+        sleep 3; \
+    done; \
+    npm ci --ignore-scripts && exit 0; \
+    npm install'
 
 # Copy source code
 COPY . .
 
 # Build Next.js application (with retry)
-RUN sh -c 'for i in 1 2 3; do npm run build && break || { echo "[npm build retry $i]"; sleep 2; }; done'
+RUN /bin/sh -c ' \
+    for i in 1 2 3; do \
+        npm run build && exit 0; \
+        echo "[npm run build retry $i of 3]"; \
+        sleep 2; \
+    done; \
+    npm run build'
 
 # Environment
 ENV NODE_ENV=production
