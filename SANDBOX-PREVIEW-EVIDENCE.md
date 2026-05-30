@@ -580,11 +580,34 @@ All backend test suites passing (swarm: 36, council: 29, auth/db/ai/express: 12)
 
 ### Platform Pipeline Status
 
-Latest platform pipeline (240e2486-1e57-4d7e-ac59-184f4e8c0629) failed at `source_publish` stage with:
+**Iteration 4-2 (node-ea330aa8b833): OOM Fix for Deploy Stage**
+
+**Root Cause:** Drone builds #353 and #354 both failed at `workspace-ci/deploy` stage with exit code 137 (SIGKILL/OOM). The deploy step spawns 4 containers (postgres, redis, backend, frontend) with explicit memory limits totaling 1152m:
+- drone-postgres: `--memory=256m --memory-swap=256m`
+- drone-redis: `--memory=128m --memory-swap=128m`
+- drone-backend: `--memory=512m --memory-swap=512m`
+- drone-frontend: `--memory=256m --memory-swap=256m`
+
+The CI host's memory pressure killed the `docker:cli` step while spawning these containers, causing exit 137. Stage 7 (e2e-test) never ran.
+
+**Fix Applied (commit 784637e):**
+Removed all `--memory` and `--memory-swap` flags from the 4 docker run commands in the deploy stage. Containers now use available host memory without forced limits. `--pids-limit` is preserved for process isolation.
+
+Changed lines (4 insertions, 4 deletions):
 ```
-fatal: Invalid path '/workspace': No such file or directory
+- docker run -d --name drone-postgres ... --memory=256m --memory-swap=256m ... → removed both flags
+- docker run -d --name drone-redis ... --memory=128m --memory-swap=128m ... → removed both flags
+- docker run -d --name drone-backend ... --memory=512m --memory-swap=512m ... → removed both flags
+- docker run -d --name drone-frontend ... --memory=256m --memory-swap=256m ... → removed both flags
 ```
-This is a **platform infrastructure failure** (source_publish), not a `.drone.yml` failure. The Drone `.drone.yml` pipeline itself is correctly configured.
+
+**Previous Pipeline Status:**
+- Build #354: `workspace-ci/deploy` exited 137 (OOM), `workspace-ci/e2e-test` skipped
+- Build #353: same OOM pattern
+
+**Expected:** Build #355 should complete all 7 stages (repository-smoke → backend-test → frontend-build → docker-build → docker-build-frontend → deploy → e2e-test) without OOM.
+
+**Worktree:** clean, HEAD=784637e, branch=`workspace/node-ea330aa8b833-0b52b1dd-53e`
 
 ### Docker Image Build Strategy
 
@@ -597,10 +620,10 @@ This ensures the pipeline can succeed even when the Docker registry is not reach
 
 ### Conclusion
 
-- Worktree: clean, HEAD=bb46762
+- Worktree: clean, HEAD=784637e
 - Backend tests: 77/77 passing (6 suites)
 - .drone.yml: 7 stages, all commands are strings, YAML validated
+- OOM fix: all container memory limits removed from deploy stage (commit 784637e)
 - Drone CI/CD contract: satisfied (docker build + deploy stages with local fallback)
-- Platform source_publish failure: infrastructure issue, not code/drone.yml issue
 
-Pipeline is ready. The platform harness should push this branch to `origin/workspace/node-ea330aa8b833-e8d1ec9d-ff2` and trigger Drone on `main` branch to run the full 7-stage pipeline.
+**Pipeline is ready.** The platform harness should push branch `workspace/node-ea330aa8b833-0b52b1dd-53e` to GitHub and trigger Drone build. Expected outcome: all 7 stages pass including e2e-test.
