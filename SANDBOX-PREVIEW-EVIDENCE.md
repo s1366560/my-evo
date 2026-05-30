@@ -547,9 +547,11 @@ E2E_BASE_URL: http://host.docker.internal:18081
 - Backend runs on port 3000 in mock in-memory mode (no DATABASE_URL)
 - Frontend production build: 31 routes compiled successfully
 
-### Verification Summary
+### Verification Summary (attempt 13bb947d, 2026-05-30T19:50Z)
 
-- All 20 Playwright E2E journey tests: PASS (0 failures)
+- All 20 Playwright E2E journey tests: PASS (0 failures, 20 passed)
 - Both swarm and council new routes: verified functional
-- Services health: backend 200 OK, frontend 200 OK
-- Test duration: 32.9s (production mode, fast)
+- Services health: backend 200 OK (mock mode), frontend 200 OK (production build)
+- Test duration: 32.1s (production mode, single worker)
+- Note: dev server (next dev) OOMs after ~5 routes; used `next build` + `next start` for stable execution
+- Frontend build: 31 static pages compiled successfully
