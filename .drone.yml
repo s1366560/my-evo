@@ -78,11 +78,7 @@ steps:
     commands:
       - "echo '[docker-build] Building backend image with docker CLI...'"
       - "docker build -t my-evo:drone-docker-e2e -t my-evo:latest -f Dockerfile ."
-      - "docker tag my-evo:drone-docker-e2e host.docker.internal:5001/my-evo:drone-docker-e2e"
-      - "docker tag my-evo:latest host.docker.internal:5001/my-evo:latest"
-      - "docker push host.docker.internal:5001/my-evo:drone-docker-e2e"
-      - "docker push host.docker.internal:5001/my-evo:latest"
-      - "echo '[docker-build] Backend image built and pushed successfully'"
+      - "echo '[docker-build] Backend image built successfully (local tag)'"
     when:
       event:
         - push
@@ -98,11 +94,7 @@ steps:
     commands:
       - "echo '[docker-build-frontend] Building frontend image with docker CLI...'"
       - "docker build -t my-evo-frontend:drone-docker-e2e -t my-evo-frontend:latest -f frontend/Dockerfile ./frontend"
-      - "docker tag my-evo-frontend:drone-docker-e2e host.docker.internal:5001/my-evo-frontend:drone-docker-e2e"
-      - "docker tag my-evo-frontend:latest host.docker.internal:5001/my-evo-frontend:latest"
-      - "docker push host.docker.internal:5001/my-evo-frontend:drone-docker-e2e"
-      - "docker push host.docker.internal:5001/my-evo-frontend:latest"
-      - "echo '[docker-build-frontend] Frontend image built and pushed successfully'"
+      - "echo '[docker-build-frontend] Frontend image built successfully (local tag)'"
     when:
       event:
         - push
@@ -135,16 +127,8 @@ steps:
       - "docker run -d --name drone-redis --network workspace-deploy --memory=128m --memory-swap=128m --pids-limit=64 redis:7-alpine"
       - "echo '[deploy] Waiting for postgres to be ready...'"
       - "for i in $(seq 1 30); do docker exec drone-postgres pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
-      - "echo '[deploy] Pulling images from registry...'"
-      - "docker pull host.docker.internal:5001/my-evo:drone-docker-e2e || echo '[deploy] Registry pull failed, building locally...'"
-      - "docker pull host.docker.internal:5001/my-evo:latest || echo '[deploy] latest tag not found, using drone-docker-e2e...'"
-      - "docker pull host.docker.internal:5001/my-evo-frontend:drone-docker-e2e || echo '[deploy] Frontend registry pull failed, building locally...'"
-      - "docker pull host.docker.internal:5001/my-evo-frontend:latest || echo '[deploy] Frontend latest tag not found...'"
-      - "docker tag host.docker.internal:5001/my-evo:drone-docker-e2e my-evo:drone-docker-e2e 2>/dev/null || true"
-      - "docker tag host.docker.internal:5001/my-evo:latest my-evo:latest 2>/dev/null || true"
-      - "docker tag host.docker.internal:5001/my-evo-frontend:drone-docker-e2e my-evo-frontend:drone-docker-e2e 2>/dev/null || true"
-      - "docker tag host.docker.internal:5001/my-evo-frontend:latest my-evo-frontend:latest 2>/dev/null || true"
-      - "docker images | grep my-evo || echo '[deploy] WARNING: No pre-built images in registry cache...'"
+      - "echo '[deploy] Verifying local images from docker-build steps...'"
+      - "docker images | grep my-evo || echo '[deploy] WARNING: No pre-built images found...'"
       - "echo '[deploy] Starting backend on host port 18080...'"
       - "docker run -d --name drone-backend --network workspace-deploy -p 18080:3001 --memory=512m --memory-swap=512m --pids-limit=128 -e NODE_ENV=production -e PORT=3001 -e DATABASE_URL=postgresql://evomap:evomap@drone-postgres:5432/evomap -e REDIS_URL=redis://drone-redis:6379 -e NODE_SECRET=dev-jwt-secret -e SESSION_SECRET=dev-session-secret my-evo:drone-docker-e2e"
       - "sleep 5"
