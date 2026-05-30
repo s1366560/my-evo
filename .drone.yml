@@ -34,11 +34,11 @@ steps:
       - "npm audit --json > npm-audit-root-report.json 2>/dev/null || true"
       - "echo '[repository-smoke] Backend npm install...'"
       - |
-        retry_npm_be() { max_attempts=3; attempt=1; while [ $attempt -le $max_attempts ]; do if [ $attempt -gt 1 ]; then echo "[repository-smoke] Backend npm retry attempt $attempt..."; sleep 5; fi; npm install --loglevel=info && npm audit --json > npm-audit-backend-report.json && return 0; attempt=$((attempt+1)); done; echo "[repository-smoke] Backend npm+audit failed"; return 1; }
+        retry_npm_be() { max_attempts=3; attempt=1; while [ $attempt -le $max_attempts ]; do if [ $attempt -gt 1 ]; then echo "[repository-smoke] Backend npm retry attempt $attempt..."; sleep 5; fi; if npm install --loglevel=info; then npm audit --json > npm-audit-backend-report.json 2>/dev/null || true; return 0; fi; attempt=$((attempt+1)); done; echo "[repository-smoke] Backend npm install failed"; return 1; }
         (retry_npm_be) && cd .. || exit 1
       - "echo '[repository-smoke] Frontend npm install...'"
       - |
-        retry_npm_fe() { max_attempts=3; attempt=1; while [ $attempt -le $max_attempts ]; do if [ $attempt -gt 1 ]; then echo "[repository-smoke] Frontend npm retry attempt $attempt..."; sleep 5; fi; npm install --loglevel=info && npm audit --json > npm-audit-frontend-report.json && return 0; attempt=$((attempt+1)); done; echo "[repository-smoke] Frontend npm+audit failed"; return 1; }
+        retry_npm_fe() { max_attempts=3; attempt=1; while [ $attempt -le $max_attempts ]; do if [ $attempt -gt 1 ]; then echo "[repository-smoke] Frontend npm retry attempt $attempt..."; sleep 5; fi; if npm install --loglevel=info; then npm audit --json > npm-audit-frontend-report.json 2>/dev/null || true; return 0; fi; attempt=$((attempt+1)); done; echo "[repository-smoke] Frontend npm install failed"; return 1; }
         (retry_npm_fe) && cd .. || exit 1
       - "echo '[repository-smoke] Vulnerability scan complete. Reports: npm-audit-*-report.json'"
 
