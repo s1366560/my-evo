@@ -555,3 +555,64 @@ E2E_BASE_URL: http://host.docker.internal:18081
 - Test duration: 32.1s (production mode, single worker)
 - Note: dev server (next dev) OOMs after ~5 routes; used `next build` + `next start` for stable execution
 - Frontend build: 31 static pages compiled successfully
+
+---
+
+## Iteration 14 - Playwright E2E Journey Verification (attempt 6dac5daf, 2026-05-30T20:00Z)
+
+**Date:** 2026-05-30
+**Worktree:** workspace/node-a5ed591ebc00-6dac5daf-95e
+**Branch:** workspace/node-a5ed591ebc00-6dac5daf-95e
+**Base Ref:** d7a4e5e
+
+### Playwright E2E Journey Test Results
+
+**Config:** `frontend/e2e/playwright.config.ts`
+**Suite:** `frontend/e2e/journey.spec.ts`
+**Result:** **20/20 passed (0 failed)**
+**Duration:** 32.7s
+**Workers:** 1 (sequential)
+**Browser:** Chromium Headless Shell 145.0.7632.6
+**Mode:** Production build (`npm run build` + `npm start`)
+
+| # | Test | Status | Duration |
+|---|------|--------|----------|
+| 1 | Landing -- homepage loads | PASS | 3.3s |
+| 2 | Onboarding -- page renders | PASS | 231ms |
+| 3 | Auth -- register form renders | PASS | 291ms |
+| 4 | Auth -- login form renders | PASS | 288ms |
+| 5 | Browse -- page loads | PASS | 285ms |
+| 6 | Map -- page loads | PASS | 2.2s |
+| 7 | Editor -- page loads | PASS | 2.2s |
+| 8 | Marketplace -- heading visible | PASS | 202ms |
+| 9 | Marketplace -- empty assets handled gracefully | PASS | 3.2s |
+| 10 | Marketplace -- purchase/content verified | PASS | 3.2s |
+| 11 | Publish -- page loads | PASS | 2.2s |
+| 12 | Workspace -- page loads | PASS | 245ms |
+| 13 | Pricing -- page loads | PASS | 210ms |
+| 14 | Bounty Hall -- page loads | PASS | 275ms |
+| 15 | Dashboard -- page loads | PASS | 2.2s |
+| 16 | Arena -- page loads | PASS | 2.2s |
+| 17 | Profile -- page loads | PASS | 2.2s |
+| 18 | Swarm -- page loads | PASS | 2.2s |
+| 19 | Credits -- page loads | PASS | 2.2s |
+| 20 | Council -- page loads | PASS | 2.2s |
+
+### New Routes Verified
+
+- `/swarm` (test 18) — Swarm module page loads correctly
+- `/council` (test 20) — Council module page loads correctly
+
+### Test Execution Notes
+
+- **Dev server instability:** `next dev` crashes (OOM) when compiling /map route after ~5 routes pass. Root cause: sandbox memory pressure during hot-module-replacement + sequential test compilation.
+- **Fix:** Used `npm run build` (production build, all 31 routes pre-compiled) + `npm start` for stable execution.
+- Backend runs on port 3000 in mock in-memory mode (no DATABASE_URL).
+- Frontend runs on port 3002 (production mode) with API pointing to port 3000.
+- Test suite ran sequentially (1 worker) to avoid port/resource conflicts.
+
+### Services Health
+
+- Backend `/health`: HTTP 200 OK (mock mode)
+- Frontend `/`: HTTP 200 OK (production build)
+- All 20 routes: HTTP 200, page content renders correctly
