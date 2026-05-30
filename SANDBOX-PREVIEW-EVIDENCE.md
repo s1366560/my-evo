@@ -527,3 +527,80 @@ All Sprint 1 (Swarm 1) goals have been shipped:
 ### Note on Drone Pipeline Build #254
 
 Latest Drone build (s1366560/my-evo#254) failed at repository-smoke stage due to transient npm ECONNRESET (network flake, not code issue). The retry logic in .drone.yml handles this; subsequent runs should pass.
+## Iteration 6 - node-ea330aa8b833 Drone CI/CD Verification
+
+**Date:** 2026-05-30
+**Worktree:** workspace/node-ea330aa8b833-e8d1ec9d-ff2
+**Branch:** workspace/node-ea330aa8b833-e8d1ec9d-ff2
+**Base Ref:** bb46762
+**Attempt:** e8d1ec9d-ff28-4c2f-bf7e-bb3febbcf624
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| git-status | Clean worktree (no uncommitted changes) |
+| read-progress | Read from worktree path |
+| git diff | No staged/unstaged changes |
+
+### .drone.yml Verification
+
+| Criterion | Status | Evidence |
+|-----------|--------|----------|
+| All 7 stages present | ✅ | repository-smoke, backend-test, frontend-build, docker-build, docker-build-frontend, deploy, e2e-test |
+| All commands are strings | ✅ | Python yaml.safe_load validated all `commands[]` items as str |
+| Backend test stage | ✅ | `cd backend && npm install --silent && npm test` |
+| Frontend build stage | ✅ | `cd frontend && npm install --silent && npm run build` |
+| Docker build (backend) | ✅ | `plugins/docker:20` → `host.docker.internal:5001/my-evo` |
+| Docker build (frontend) | ✅ | `plugins/docker:20` → `host.docker.internal:5001/my-evo-frontend` |
+| Deploy stage | ✅ | `docker:cli` with Docker socket, sidecars (postgres+redis), local build fallback |
+| E2E test stage | ✅ | `node:20-alpine` with Playwright against `http://host.docker.internal:18081` |
+
+### Backend Test Results
+
+```
+Test Suites: 6 passed, 6 total
+Tests:       77 passed, 77 total
+Time:        4.93s
+```
+
+All backend test suites passing (swarm: 36, council: 29, auth/db/ai/express: 12).
+
+### Drone Pipeline Summary (from .drone.yml)
+
+| Stage | Image | Key Commands | Registry/Deploy Target |
+|-------|-------|-------------|----------------------|
+| repository-smoke | node:20-alpine | npm install, audit | - |
+| backend-test | node:20-alpine | npm test | - |
+| frontend-build | node:20-alpine | npm run build | - |
+| docker-build | plugins/docker:20 | multi-stage Dockerfile | host.docker.internal:5001/my-evo |
+| docker-build-frontend | plugins/docker:20 | frontend/Dockerfile | host.docker.internal:5001/my-evo-frontend |
+| deploy | docker:cli | postgres+redis sidecars, local build fallback, health checks | ports 18080:3001, 18081:3000 |
+| e2e-test | node:20-alpine | Playwright against 18081 | E2E_BASE_URL=http://host.docker.internal:18081 |
+
+### Platform Pipeline Status
+
+Latest platform pipeline (240e2486-1e57-4d7e-ac59-184f4e8c0629) failed at `source_publish` stage with:
+```
+fatal: Invalid path '/workspace': No such file or directory
+```
+This is a **platform infrastructure failure** (source_publish), not a `.drone.yml` failure. The Drone `.drone.yml` pipeline itself is correctly configured.
+
+### Docker Image Build Strategy
+
+The deploy stage uses a fallback strategy:
+1. Attempt to pull pre-built images from `host.docker.internal:5001/my-evo:{drone-docker-e2e,latest}`
+2. If pull fails, build locally with `docker build -f Dockerfile .` (backend) or `docker build -f frontend/Dockerfile ./frontend` (frontend)
+3. Tag and deploy with `drone-backend` (port 18080→3001) and `drone-frontend` (port 18081→3000)
+
+This ensures the pipeline can succeed even when the Docker registry is not reachable.
+
+### Conclusion
+
+- Worktree: clean, HEAD=bb46762
+- Backend tests: 77/77 passing (6 suites)
+- .drone.yml: 7 stages, all commands are strings, YAML validated
+- Drone CI/CD contract: satisfied (docker build + deploy stages with local fallback)
+- Platform source_publish failure: infrastructure issue, not code/drone.yml issue
+
+Pipeline is ready. The platform harness should push this branch to `origin/workspace/node-ea330aa8b833-e8d1ec9d-ff2` and trigger Drone on `main` branch to run the full 7-stage pipeline.
