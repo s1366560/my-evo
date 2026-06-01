@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - Iteration 34 Drone Re-Trigger Verification (2026-06-01)
+
+### Verified
+- Worktree HEAD fa6a7d1 (attempt 1903c4cd-0258-45d0-9071-f70f95000a8c, node-840d6f93966f attempt 5)
+- `.drone.yml` re-validated: 7 stages, 73 commands, 100% string-typed (passes YAML contract check)
+- Slim OOM-safe `repository-smoke` step: structural checks only (no `npm install`, no `retry_npm` block, `set -e` present at top)
+- OOM caps in deploy step: postgres 256m, redis 128m, backend 512m, frontend 256m (--memory-swap equals --memory, --pids-limit set)
+- Drone build #394 triggered via cicd_run_pipeline against memstack-source-publish/main@ef94fd1 (pre-slim; status=failed at workspace-ci/repository-smoke, expected)
+- Drone API commit override for fa6a7d1 returned 404 (commit not reachable from platform ref, expected)
+
+### Action Required
+- Platform harness must fast-forward `memstack-source-publish/main` past ef94fd1 to fa6a7d1 (or de9b4d5+) to consume the slim OOM-safe .drone.yml
+- Sandbox cannot push (no GITHUB_TOKEN/DRONE_TOKEN); left on worktree branch `workspace/node-840d6f93966f-1903c4cd-025` for harness publish
+- This is attempt 5 of this node; blocker is consistent across all attempts
+
 ## [Unreleased] - Iteration 31 Drone Re-Trigger Verification (2026-06-01)
 
 ### Verified

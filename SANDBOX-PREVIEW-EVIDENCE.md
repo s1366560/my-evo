@@ -805,3 +805,114 @@ A follow-up `cicd_run_pipeline(commit='77055657359a308cdf88603e5e0c0b82ad9537a0'
 | `CHANGELOG.md` | Iteration 31 verification block prepended |
 | `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 31 evidence block appended |
 | `.drone.yml` | unchanged from commit 7705565; 7 stages, 73 commands, all strings, OOM-safe (validated) |
+
+
+## Iteration 34 - Drone Re-Trigger Verification (Attempt 1903c4cd-0258-45d0-9071-f70f95000a8c)
+
+**Date:** 2026-06-01
+**Worktree:** /workspace/.memstack/worktrees/1903c4cd-0258-45d0-9071-f70f95000a8c
+**Branch:** workspace/node-840d6f93966f-1903c4cd-025
+**Base Ref:** fa6a7d1b635fc14f6115da32f131a29bdb70f7df
+**Worktree HEAD:** fa6a7d1b635fc14f6115da32f131a29bdb70f7df
+**Plan node:** node-840d6f93966f (plan-253db109817e)
+**Attempt ID:** 1903c4cd-0258-45d0-9071-f70f95000a8c
+**Latest platform-persisted pipeline run:** 4ecb16a8-8ec1-4bf4-b820-b885c0bc4986 (failed at workspace-ci/repository-smoke; expected because memstack-source-publish/main is pre-slim)
+
+---
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| read-progress | Inspected worktree at /workspace/.memstack/worktrees/1903c4cd-0258-45d0-9071-f70f95000a8c; read handoff, .drone.yml, git log, branch/ref state |
+| git-status | Clean worktree at commit fa6a7d1 (no uncommitted changes) |
+| yaml-validate | 7 steps, 73 commands, 100% string-typed (no mapping-style commands) |
+| oom-caps | All deploy containers have --memory and --memory-swap equal; --pids-limit set |
+
+---
+
+### Git State Summary
+
+- `source-publish/main` on platform GitHub: ef94fd1 (pre-slim .drone.yml with retry_npm + OOM-heavy deploy)
+- `github/main` (local clone): ef94fd1 (matches platform)
+- `memstack-source-publish/main` (local ref): ef94fd1
+- Worktree HEAD: fa6a7d1 (slim OOM-safe .drone.yml inherited from de9b4d5)
+- `faffc09` is the prior repair-node merge commit; fa6a7d1 fast-forwards past faffc09 with the slim smoke step from de9b4d5
+- The platform's `memstack-source-publish/main` ref must be fast-forwarded past ef94fd1 to fa6a7d1 (or any descendant of de9b4d5) to consume the slim OOM-safe .drone.yml
+
+### Pipeline Contract (workspace-selected CI/CD gate)
+
+- Provider: drone
+- Drone repo: s1366560/my-evo
+- Drone branch: main
+- Pipeline name: workspace-ci (kind: docker, platform: linux/arm64)
+- Stages: repository-smoke, backend-test, frontend-build, docker-build, docker-build-frontend, deploy, e2e-test (7 total, matching contract)
+- Deploy mode: docker (cli)
+- Docker image (deploy local tag): my-evo:drone-docker-e2e
+- Docker image (Drone runner): host.docker.internal:5001/my-evo
+- Backend host port: 18080 (container 3001)
+- Frontend host port: 18081 (container 3000)
+- OOM caps: postgres 256m, redis 128m, backend 512m, frontend 256m
+- Health URL: http://host.docker.internal:18080/health (backend); http://host.docker.internal:18081/ (frontend)
+
+### .drone.yml Validation (worktree HEAD fa6a7d1)
+
+- 7 pipeline steps, 73 commands, 100% string-typed (passes the contract check "every `steps[].commands[]` item is a string")
+  ```
+  Step                       Commands  Non-string
+  1. repository-smoke              11          0
+  2. backend-test                   3          0
+  3. frontend-build                 3          0
+  4. docker-build                   0          0
+  5. docker-build-frontend          0          0
+  6. deploy                        50          0
+  7. e2e-test                       6          0
+  Total:                           73
+  ```
+- `set -e` present at the top of repository-smoke commands
+- repository-smoke is slim (no `retry_npm` block, no `npm install`, no `npm audit`) — replaced with structural file/JSON checks (8 assertions)
+- Deploy step uses `image: docker:cli` with `DOCKER_HOST: unix:///var/run/docker.sock` and `docker-sock` volume
+- deploy step runs `docker run` with `--memory=512m --memory-swap=512m --pids-limit=128` for the backend container, `--memory=256m` for frontend/postgres, `--memory=128m` for redis
+- All `docker run` calls are wrapped in `--network workspace-deploy` to match the contract's compose_or_sidecars dependency strategy
+
+### Live Drone Build Triggered This Attempt
+
+`cicd_run_pipeline(repo='s1366560/my-evo', branch='main', wait=true, reason='Iteration 34 (attempt 1903c4cd) - re-trigger Drone CI on worktree fast-forwarded past faffc09 (HEAD fa6a7d1, slim OOM-safe .drone.yml de9b4d5)')` produced:
+
+- run_id: 4ecb16a8-8ec1-4bf4-b820-b885c0bc4986
+- external_id: s1366560/my-evo#394
+- status: failed
+- failed stage: workspace-ci/repository-smoke (clone succeeded; backend-test, frontend-build, docker-build, docker-build-frontend, deploy, e2e-test all skipped)
+- external_url: http://localhost:8080/s1366560/my-evo/394
+
+The failure is expected: the platform's `memstack-source-publish/main` ref is still at ef94fd1 (pre-slim), so Drone evaluated the old .drone.yml with retry_npm + full npm install chain. Sandbox cannot push fa6a7d1 to the platform (no GITHUB_TOKEN / DRONE_TOKEN in this runtime, push URL `https://x-access-token:@github.com` rejects anonymous auth with "Invalid username or token. Password authentication is not supported for Git operations.").
+
+A follow-up `cicd_run_pipeline(commit='fa6a7d1b635fc14f6115da32f131a29bdb70f7df')` returned `404 Not Found` because the platform backend does not accept commit overrides for repos whose target ref has not been published yet — this matches the contract note "A sandbox worker may not have DRONE_TOKEN, GITHUB_TOKEN, docker, or the drone CLI in its environment; do not treat those sandbox-local absences as a hard blocker. Commit or report the required .drone.yml/config state so the platform harness can trigger and verify Drone."
+
+### Remaining Work / Hand-off to Platform Harness
+
+- `commit_ref: fa6a7d1b635fc14f6115da32f131a29bdb70f7df` is on the worktree branch `workspace/node-840d6f93966f-1903c4cd-025`
+- The platform harness must `git push origin <commit_ref>:refs/heads/main` (or equivalent fast-forward) to `memstack-source-publish/main` so the next platform-persisted pipeline run exercises the slim OOM-safe .drone.yml
+- Once source-publish/main is at fa6a7d1, the next `cicd_run_pipeline(repo='s1366560/my-evo', branch='main', wait=true)` should produce status=success with all 7 stages green (per the slim .drone.yml contract and iteration 26 / 27 / 31 evidence)
+
+### Verification Summary
+
+- .drone.yml: 7 stages validated, 73 commands, 100% string-typed, deploy step matches contract
+- OOM caps: postgres 256m, redis 128m, backend 512m, frontend 256m
+- Pipeline name: workspace-ci (host-socket docker deploy)
+- Docker image tags: drone-docker-e2e + latest for backend and frontend
+- Backend host port: 18080 (mapped to container 3001)
+- Frontend host port: 18081 (mapped to container 3000)
+- E2E_BASE_URL: http://host.docker.internal:18081
+- Live Drone build triggered this attempt: #394 (status=failed at repository-smoke, expected — platform ref still pre-slim)
+- commit_ref on worktree: fa6a7d1b635fc14f6115da32f131a29bdb70f7df (slim OOM-safe .drone.yml)
+- Source-publish / GitHub push: requires platform harness (no GITHUB_TOKEN in sandbox)
+- Worktree status: clean at commit fa6a7d1
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `CHANGELOG.md` | Iteration 34 verification block prepended |
+| `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 34 evidence block appended |
+| `.drone.yml` | unchanged from commit fa6a7d1; 7 stages, 73 commands, all strings, OOM-safe (validated) |
