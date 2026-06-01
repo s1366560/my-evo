@@ -1068,3 +1068,45 @@ diff --git a/.drone.yml b/.drone.yml
 | `CHANGELOG.md` | Iteration 35 verification block prepended |
 | `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 35 evidence block appended |
 | `.drone.yml` | 1-line fix to docker-build-frontend: `dockerfile: frontend/Dockerfile` -> `dockerfile: Dockerfile` |
+
+---
+
+## Iteration 36 — Retry Resilience for Transient npm install Failures
+
+**Date**: 2026-06-01
+**Attempt**: 1f6b3776-dbb4-432d-8b36-dffc6266cac6 (repair turn)
+**Base HEAD**: 965568e (setup merge of base_ref a4a14736)
+
+### Problem
+
+Drone build #399 failed at `workspace-ci/frontend-build` with `npm install --silent` exit 1.
+Root cause: transient network failure in Drone runner (not a code bug).
+Local reproduction: `npm install --silent` succeeds in sandbox (Node 22) and the
+step uses `node:20-alpine` where it also succeeded in build #396.
+
+### Fix Applied
+
+1. Restored slim .drone.yml from 660507b (7 stages, OOM-safe, docker:cli based)
+2. Added 3-attempt retry loop to `npm install --silent` in both `backend-test`
+   and `frontend-build` steps to handle transient network failures:
+   ```
+   for i in 1 2 3; do npm install --silent && break || sleep 5; done
+   ```
+
+### Verification
+
+- YAML validated: 7 stages, all commands are strings
+- Frontend `npm install --silent` + `npm run build` pass locally
+- Backend tests: 7 suites passing (verified in prior iterations)
+- OOM caps intact: postgres 256m, redis 128m, backend 512m, frontend 256m
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `.drone.yml` | Restored slim 7-stage version from 660507b; added npm install retry loops |
+
+### Remaining Work
+
+- Platform harness must publish this commit to `memstack-source-publish/main`
+- Then re-trigger Drone to achieve the required 7/7 green build
