@@ -799,3 +799,77 @@ Per the workspace delivery contract: "Drone/GitHub tokens and the Drone API are 
 |------|--------|
 | `.drone.yml` | unchanged from 7705565 (slimmed repository-smoke from de9b4d5 already in worktree) |
 | `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 28 evidence block appended |
+
+---
+
+## Iteration 5 - Password Reset E2E Coverage (P0 gap closure)
+
+**Worktree:** `workspace/node-a5e8017a60bd-6d9c552c-db3`
+**Base Ref:** f19c33b (password reset flow P0 commit)
+**Test File:** `frontend/e2e/journey.spec.ts`
+**Config:** `frontend/e2e/playwright.config.ts`
+**Frontend:** `next start -p 3002` (built with `next build`, NEXT_PUBLIC_API_URL=http://localhost:8001)
+**Backend:** `tsx watch src/index.ts` on PORT=8001 (MOCK mode, no DATABASE_URL)
+**Base URL:** `http://127.0.0.1:3002`
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| git-status | Clean worktree (changes staged in this commit) |
+| read-progress | Read from worktree |
+| frontend build | Next.js build success (37 pages including /forgot-password and /reset-password) |
+| backend health | `curl http://127.0.0.1:8001/health` -> 200 |
+| backend forgot-password | `curl -X POST http://127.0.0.1:8001/api/v1/auth/forgot-password -d '{"email":"x@y.com"}'` -> 202 with `If the email exists, a reset link has been sent.` |
+
+### New Password-Reset E2E Tests (added on top of 20-test baseline)
+
+| # | Test | Result | Duration |
+|---|------|--------|----------|
+| 04a | Auth -- forgot-password page renders email input and submit | ✓ PASS | 204ms |
+| 04b | Auth -- forgot-password unknown email shows generic message (no enumeration) | ✓ PASS | 303ms |
+| 04c | Auth -- 'Forgot password?' link on /login navigates to /forgot-password | ✓ PASS | 310ms |
+
+### Full Playwright Run Totals (this iteration)
+
+| # | Test | Result | Duration |
+|---|------|--------|----------|
+| 01 | Landing -- homepage loads | ✓ PASS | 3.3s |
+| 02 | Onboarding -- page renders | ✓ PASS | 213ms |
+| 03 | Auth -- register form renders | ✓ PASS | 205ms |
+| 04 | Auth -- login form renders | ✓ PASS | 275ms |
+| 04a | Auth -- forgot-password page renders email input and submit | ✓ PASS | 204ms |
+| 04b | Auth -- forgot-password unknown email shows generic message (no enumeration) | ✓ PASS | 303ms |
+| 04c | Auth -- 'Forgot password?' link on /login navigates to /forgot-password | ✓ PASS | 310ms |
+| 05 | Browse -- page loads | ✓ PASS | 360ms |
+| 06 | Map -- page loads | ✓ PASS | 2.3s |
+| 07 | Editor -- page loads | ✓ PASS | 2.2s |
+| 08 | Marketplace -- heading visible | ✓ PASS | 195ms |
+| 09 | Marketplace -- empty assets handled gracefully | ✓ PASS | 3.2s |
+| 10 | Marketplace -- purchase/content verified (200/empty handled) | ✓ PASS | 3.2s |
+| 11 | Publish -- page loads | ✓ PASS | 2.2s |
+| 12 | Workspace -- page loads | ✓ PASS | 266ms |
+| 13 | Pricing -- page loads | ✓ PASS | 180ms |
+| 14 | Bounty Hall -- page loads | ✓ PASS | 212ms |
+| 15 | Dashboard -- page loads | ✓ PASS | 2.2s |
+| 16 | Arena -- page loads | ✓ PASS | 2.2s |
+| 17 | Profile -- page loads | ✓ PASS | 2.2s |
+| 18 | Swarm -- page loads | ✓ PASS | 2.2s |
+| 19 | Credits -- page loads | ✓ PASS | 2.2s |
+| 20 | Council -- page loads | ✓ PASS | 2.1s |
+
+**Summary: 23/23 passed, 0 failed, 33.3s total** (was 20/20 → now 23/23)
+
+### Implementation Notes
+
+- 04a verifies `/forgot-password` renders `#email` input, "Send reset link" submit button, and the "Reset your password" heading.
+- 04b uses `page.route("**/api/v1/auth/forgot-password", ...)` to intercept the backend call and fulfill the exact 202 `{success, data: {message: "If the email exists, a reset link has been sent.", resetToken: null, expiresAt}}` payload the controller returns for unknown emails (no enumeration). It then asserts the `role="status"` element contains `/if an account exists/i`.
+- 04c uses `.first()` to disambiguate the two `Forgot password?` links on `/login` (one inside `LoginForm`, one below the form in `login/page.tsx`); clicks the first one and asserts the URL ends with `/forgot-password` and the page heading + email input are visible.
+- Test file was extended in place; the existing 20 tests were untouched (test numbers preserved; new tests inserted between 04 and 05 to keep the auth-flow ordering). File header comment updated from "20 tests" to "23 tests".
+
+### Changed Files (iteration 5)
+
+| File | Change |
+|------|--------|
+| `frontend/e2e/journey.spec.ts` | +3 password-reset tests (04a, 04b, 04c); header comment "20 tests" -> "23 tests" |
+| `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 5 evidence block appended |
