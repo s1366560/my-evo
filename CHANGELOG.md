@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - Sprint 2+3 Integration Merge (2026-05-31)
+
+### Merged
+- Fast-forward of `workspace/node-29508e20c89d-d0b68761-823` (bb46762) to main
+- Swarm module (`src/swarm/`): task orchestration, agent scheduling, 36 tests
+- Council module (`src/council/`): proposal CRUD, voting, tallying, 29 tests
+- Frontend pages: `/swarm`, `/council`
+- Playwright E2E suite: `frontend/e2e/journey.spec.ts` (20 tests)
+- CI/CD pipeline: `.drone.yml` with 7 stages
+- Sprint 2 CHANGELOG and SANDBOX-PREVIEW-EVIDENCE entries
+
 ## [Unreleased] - Sprint Plan (2026-05-19)
 
 ### Implemented (2026-05-19)
