@@ -9,6 +9,15 @@ export interface LoginDto {
   password: string;
 }
 
+export interface ForgotPasswordDto {
+  email: string;
+}
+
+export interface ResetPasswordDto {
+  token: string;
+  password: string;
+}
+
 export interface TokenPayload {
   userId: string;
   email: string;

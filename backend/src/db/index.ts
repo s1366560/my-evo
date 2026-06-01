@@ -33,6 +33,14 @@ export interface MockUser {
   level: number; reputation: number; credits: number;
   createdAt: Date; updatedAt: Date;
 }
+export interface MockPasswordResetToken {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: Date;
+  usedAt?: Date | null;
+  createdAt: Date;
+}
 export interface MockMap {
   id: string; userId: string; name: string; description: string;
   isPublic: boolean; createdAt: Date; updatedAt: Date;

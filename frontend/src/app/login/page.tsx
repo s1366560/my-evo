@@ -27,6 +27,13 @@ export default function LoginPage() {
         <LoginForm />
       </Suspense>
       <p className="mt-4 text-center text-sm text-[var(--color-muted-foreground)]">
+        <Link
+          href="/forgot-password"
+          className="font-medium text-[var(--color-gene-green)] hover:underline"
+        >
+          Forgot password?
+        </Link>
+        {" \u00b7 "}
         Don&apos;t have an account?{" "}
         <Link
           href="/register"
