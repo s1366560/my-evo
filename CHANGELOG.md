@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - Iteration 31 Drone Re-Trigger Verification (2026-06-01)
+
+### Verified
+- Worktree fast-forwarded to commit 7705565 (worktree node-840d6f93966f, attempt deb96d6e-5ebc-43d0-95df-5a27bec86272)
+- `.drone.yml` validated: 7 stages, 73 commands, 100% string-typed (passes YAML contract check)
+- Slim OOM-safe `repository-smoke` step: structural checks only (no `npm install`, no `retry_npm` block, `set -e` present)
+- OOM caps in deploy step: postgres 256m, redis 128m, backend 512m, frontend 256m (--memory-swap equals --memory, --pids-limit set)
+- Pipeline: workspace-ci (kind: docker, platform arm64)
+- Pipeline external URL: http://localhost:8080/s1366560/my-evo (Drone)
+- Drone build #390 re-triggered via cicd_run_pipeline against GitHub main HEAD ef94fd1 (pre-slim; status=failed at workspace-ci/repository-smoke, expected)
+
+### Action
+- commit_ref 7705565 is the worktree HEAD with the slim OOM-safe `.drone.yml`; platform harness must fast-forward `memstack-source-publish/main` past faffc09 to 7705565 for the next pipeline run to exercise the slimmed step
+- Sandbox cannot push 7705565 to GitHub (no GITHUB_TOKEN/DRONE_TOKEN); left on worktree branch `workspace/node-840d6f93966f-deb96d6e-5eb` for harness publish
+
 ## [Unreleased] - Sprint 2+3 Integration Merge (2026-05-31)
 
 ### Merged
