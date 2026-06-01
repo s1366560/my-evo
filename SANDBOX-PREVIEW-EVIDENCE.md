@@ -1110,3 +1110,106 @@ step uses `node:20-alpine` where it also succeeded in build #396.
 
 - Platform harness must publish this commit to `memstack-source-publish/main`
 - Then re-trigger Drone to achieve the required 7/7 green build
+
+---
+
+## Iteration 37 — `.drone.yml` go-yaml v2 escape fix (2026-06-01)
+
+**Node:** workspace/node-840d6f93966f-5c319728-357 | **Attempt:** 5c319728-3575-4bde-9ac0-e743427548e1 | **Worker:** Workspace Verifier
+
+### Triggering Pipeline Feedback
+
+Drone build `s1366560/my-evo#400` failed at stage `workspace-ci` with:
+
+```
+yaml: line 150: found unknown escape character
+```
+
+### Root Cause
+
+Line 150 in the prior `.drone.yml` was:
+
+```yaml
+- "grep -E '(passed|failed|\\d+ test)' /tmp/e2e-output.txt || true"
+```
+
+In a **double-quoted** YAML scalar, `\\d` is interpreted as a single backslash
+followed by `d`. go-yaml v2 (which Drone uses for strict parsing) treats the
+`\` as the start of an escape sequence, but `\d` is not a valid YAML/JSON
+escape — hence the "unknown escape character" error and the parse-time exit
+255. The shell never got a chance to run the grep.
+
+### Fix Applied
+
+Replaced the double-quoted YAML string with a folded block scalar `>-` and
+replaced the `\d` shorthand with the POSIX-compatible `[0-9]+` character
+class, which uses no backslashes:
+
+```yaml
+      - "echo '--- E2E Test Summary ---'"
+      - >-
+        grep -E '(passed|failed|[0-9]+ test)' /tmp/e2e-output.txt || true
+```
+
+The `>-` folded block scalar strips the trailing newline and yields a single
+plain string with no escapes. The shell sees the regex exactly as written.
+
+### Verification
+
+Re-parsed the updated `.drone.yml` with PyYAML (`yaml.safe_load`) and asserted
+every `steps[].commands[]` item is a plain string:
+
+```
+Steps: ['repository-smoke', 'backend-test', 'frontend-build', 'docker-build',
+        'docker-build-frontend', 'deploy', 'e2e-test']
+Total commands: 63
+Total command issues: 0
+```
+
+Manual repr check on the e2e-test commands confirms zero backslash escapes
+remain in any scalar value:
+
+```
+CMD: 'cd frontend'
+CMD: 'npm install --silent'
+CMD: 'npx playwright install chromium --with-deps'
+CMD: 'npx playwright test --config playwright.test.config.ts --reporter=list 2>&1 | tee /tmp/e2e-output.txt'
+CMD: "echo '--- E2E Test Summary ---'"
+CMD: "grep -E '(passed|failed|[0-9]+ test)' /tmp/e2e-output.txt || true"
+```
+
+The contract surface is unchanged: same 7 stages, same step order, same
+OOM caps, same docker:cli based deploy with sidecars, same `set -e` /
+`set -o pipefail` in `repository-smoke`. The fix is the smallest possible
+edit that resolves the YAML parse error.
+
+### Pipeline Status Before vs After
+
+| Build | Commit | Stage | Status | Root Cause |
+|-------|--------|-------|--------|------------|
+| #396 | 60599e4 | docker-build-frontend | failed | dockerfile path (fixed in iter 35) |
+| #397 | 60599e4 | docker-build | failed | registry network blip (intermittent) |
+| #398 | 7705565 | repository-smoke | green | — |
+| #399 | 660507b | frontend-build | failed | npm install transient network (fixed in iter 36) |
+| #400 | ba5642c | workspace-ci (parse) | error | YAML escape `\d` (fixed in iter 37, this iteration) |
+
+### Action Required
+
+- Platform harness must publish the new worktree commit to
+  `memstack-source-publish/main` (a fast-forward from `ba5642c`).
+- Once published, the next `cicd_run_pipeline(repo='s1366560/my-evo',
+  branch='main', wait=true)` should pass YAML parsing and proceed to
+  execute the 7 stages. All prior product issues (dockerfile path,
+  npm install retries, OOM caps) are already in this commit chain.
+
+### Acceptance Gate for This Iteration
+
+- [x] `.drone.yml` parses with no escape character warnings
+- [x] All 7 stages present and in correct order
+- [x] All 63 commands are plain strings (no mapping, no sequence)
+- [x] Slim OOM-safe `repository-smoke` retained (`set -e` at top)
+- [x] Deploy step uses OOM caps from contract (postgres 256m / redis 128m
+      / backend 512m / frontend 256m)
+- [x] Worktree clean (no untracked files, no unrelated dirty files)
+- [x] Commit staged with explicit `git add .drone.yml CHANGELOG.md
+      SANDBOX-PREVIEW-EVIDENCE.md` (not `git add -A` or `git add .`)

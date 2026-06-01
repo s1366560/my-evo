@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - Iteration 37 Drone Re-Trigger Verification (2026-06-01)
+
+### Changed
+- `fix(ci): .drone.yml e2e-test: replace `\\d+` regex escape with `[0-9]+` to fix go-yaml v2 strict parse failure`
+  - Drone build #400 failed at `workspace-ci` with `yaml: line 150: found unknown escape character`.
+  - Root cause: the `e2e-test` summary grep used a double-quoted YAML string containing the literal `\\d+` (regex shorthand for digits). go-yaml v2 strict mode rejects `\\d` inside double-quoted YAML scalars because `\\d` is not a valid JSON/YAML escape sequence.
+  - Fix: changed the double-quoted YAML string to a folded block scalar `>-` and rewrote the regex to use POSIX character class `[0-9]+` instead of `\d+`. Result: pure shell command, no backslash escapes, safe for go-yaml v2 strict parsing.
+
+### Verified
+- Worktree HEAD will move to new commit once `git commit` runs (attempt 5c319728-3575-4bde-9ac0-e743427548e1, node-840d6f93966f attempt 9)
+- `.drone.yml` re-validated: 7 stages (repository-smoke, backend-test, frontend-build, docker-build, docker-build-frontend, deploy, e2e-test), 63 commands, 100% string-typed, zero problematic escape sequences
+- Slim OOM-safe `repository-smoke` step: `set -e` + `set -o pipefail` present at the top; structural checks only
+- OOM caps in deploy step: postgres 256m, redis 128m, backend 512m, frontend 256m
+- The previous build #400 failure was the YAML escape, not a product regression. Build #399's transient npm-install network blip was already addressed in iteration 36 by adding 3-attempt retry loops. The previous build #398's docker-build-frontend path bug was already addressed in iteration 35.
+
+### Action Required
+- Platform harness must publish the new commit to `memstack-source-publish/main` (a fast-forward from ba5642c) so the next platform-persisted pipeline run parses the fixed `.drone.yml` successfully.
+- Once source-publish/main reaches the new commit, re-trigger Drone to capture the required 7/7 green build.
+
 ## [Unreleased] - Iteration 35 Drone Re-Trigger Verification (2026-06-01)
 
 ### Changed
