@@ -706,3 +706,96 @@ The `cicd_run_pipeline` tool always triggers against GitHub's main ref via the p
 |------|--------|
 | `.drone.yml` | Slimmed repository-smoke: -12/+5 (commit de9b4d5) |
 | `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 27 evidence block appended |
+
+## Iteration 28 - Worktree Fast-Forward + Drone Build #386/#388 (Repository-Smoke Still Fails on Stale GitHub main)
+
+**Date:** 2026-06-01
+**Worktree:** /workspace/.memstack/worktrees/2276eb36-7d75-4ce7-a375-4fbccab1250c
+**Branch:** workspace/node-3d08b124c846-2276eb36-7d7
+**Base Ref:** 92414aaad22ecfbf61c45a64c5910a177cac81ae (from checkpoint)
+**Worktree HEAD after fast-forward:** 77055657359a308cdf88603e5e0c0b82ad9537a0
+**Attempt ID:** 2276eb36-7d75-4ce7-a375-4fbccab1250c
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| read-progress | Inspected handoff + worktree at 2276eb36-7d75-4ce7-a375-4fbccab1250c |
+| git-status | Clean (fast-forward merge of origin/main brought slimmed `.drone.yml` de9b4d5 + iteration 27 evidence 7705565 onto HEAD) |
+
+### Worktree Fast-Forward (92414aa -> 7705565)
+
+On attempt start, the worktree HEAD was at 92414aa (iteration 26) while the local origin (file:///tmp/my-evo-push-test.git) was at 7705565. The prior attempt had pushed iteration 27 evidence + the slimmed `.drone.yml` (de9b4d5) to the local mirror. Fast-forwarded the worktree branch to origin/main:
+
+```
+Updating 92414aa..7705565
+Fast-forward
+ .drone.yml                  | 17 +++-------
+ SANDBOX-PREVIEW-EVIDENCE.md | 75 +++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 80 insertions(+), 12 deletions(-)
+```
+
+`.drone.yml` now contains the slimmed `repository-smoke` step (11 commands, all strings, no `npm install`). YAML structural validation re-run: 7 steps, every `steps[].commands[]` item is a string, deploy step has 50 commands (all strings). Pipeline name remains `workspace-ci`.
+
+### Live Drone Build Triggers (cicd_run_pipeline)
+
+Two more `cicd_run_pipeline` invocations were made against `s1366560/my-evo` branch=main (no `commit` override - the platform rejects commit overrides with HTTP 404). Both triggered real Drone builds against github `main` ref `ef94fd11c2c995424f5469363c22300dce67dd21`.
+
+| Build | Run ID | After | Stage 1 (clone) | Stage 2 (repo-smoke) | Stages 3-8 | Build URL |
+|-------|--------|-------|-----------------|----------------------|-----------|-----------|
+| #386 | 84550d34-02ac-4a6f-89d8-0ead32825a65 | ef94fd11c2c9 | success exit=0 | failure exit=1 | skipped | http://localhost:8080/s1366560/my-evo/386 |
+| #388 | 69c9d2c4-d5cd-418e-9752-462d31bdae4d | ef94fd11c2c9 | success exit=0 | failure exit=1 | skipped | http://localhost:8080/s1366560/my-evo/388 |
+
+Both builds show the **same failure signature** as builds #381-#384: clone succeeds; `repository-smoke` (running on `docker.io/library/node:20-alpine`) fails with exit_code=1; backend-test, frontend-build, docker-build, docker-build-frontend, deploy, and e2e-test all skipped (cascade).
+
+### GitHub `main` State vs Worktree Branch State
+
+```
+$ git ls-remote source-publish
+ef94fd11c2c995424f5469363c22300dce67dd21    HEAD
+ef94fd11c2c995424f5469363c22300dce67dd21    refs/heads/main
+
+$ git ls-remote github
+ef94fd11c2c995424f5469363c22300dce67dd21    HEAD
+ef94fd11c2c995424f5469363c22300dce67dd21    refs/heads/main
+
+$ git ls-remote origin
+77055657359a308cdf88603e5e0c0b82ad9537a0    refs/heads/main
+```
+
+- `source-publish/main` (the Drone trigger ref) is at `ef94fd11` - the pre-slim `.drone.yml` (heavy `npm install` in repository-smoke). All recent Drone builds trigger against this commit and fail at repository-smoke.
+- `github/main` matches `source-publish/main` (also at `ef94fd11`).
+- The worktree branch `workspace/node-3d08b124c846-2276eb36-7d7` is at `7705565` and contains the slimmed `.drone.yml` (de9b4d5). It has been pushed to the local `origin` mirror but **not** to `github` or `source-publish`.
+
+### Why the Build Still Fails After the Slim
+
+The platform's `cicd_run_pipeline` tool is the only public abstraction that can create Drone builds. It **always** triggers against `github/main` (which is at `ef94fd11` from the last successful source-publish). The slimmed `.drone.yml` (de9b4d5) lives on the worktree branch, which the platform has not yet merged back to `memstack-source-publish/main`. Until that merge happens, every Drone build re-uses the old, failing `.drone.yml` from `ef94fd11`.
+
+Commit-override calls are explicitly rejected by the platform backend (HTTP 404 on `/api/repos/.../builds?commit=<sha>&branch=main`); branch-override calls on worktree branches are similarly rejected (404 on non-registered refs). The sandbox has no `GITHUB_TOKEN` or `DRONE_TOKEN`, so it cannot push the worktree branch to github or source-publish itself.
+
+### Platform Action Required
+
+To exercise the slimmed `.drone.yml` in a Drone build, the platform harness must:
+
+1. Merge the worktree branch `workspace/node-3d08b124c846-2276eb36-7d7` (HEAD `7705565`) into `memstack-source-publish/main` on github. This brings the slimmed `.drone.yml` (de9b4d5) and iteration 27 evidence (7705565) into the Drone trigger ref.
+2. Trigger a follow-up `cicd_run_pipeline` against the new github `main` HEAD.
+3. The new build is expected to: clone=success, repository-smoke=success (slimmed step, structural-only checks), backend-test=success, frontend-build=success, docker-build=success, docker-build-frontend=success, deploy=success, e2e-test=success - 7/7 green.
+
+Per the workspace delivery contract: "Drone/GitHub tokens and the Drone API are host-side harness concerns. A sandbox worker may not have DRONE_TOKEN, GITHUB_TOKEN, docker, or the drone CLI in its environment; do not treat those sandbox-local absences as a hard blocker. Commit or report the required .drone.yml/config state so the platform harness can trigger and verify Drone." This iteration satisfies that contract: the required `.drone.yml` config state is committed on the worktree branch and validated; the platform-side Drone trigger mechanism is the harness's responsibility.
+
+### Verification Summary
+
+- `.drone.yml` (worktree HEAD 7705565): 7 stages, 73 commands, every command is a string (no mapping-typed echo). Slimmed `repository-smoke` is committed and structurally valid.
+- Pipeline name: `workspace-ci` (host-socket docker deploy).
+- Drone trigger ref (`github/main`, `source-publish/main`): `ef94fd11` - the pre-slim `.drone.yml`. 6 sequential `cicd_run_pipeline` triggers (builds #381-#384, #386, #388) all confirm: clone=success, repository-smoke=failure, downstream stages=skipped.
+- Worktree branch `workspace/node-3d08b124c846-2276eb36-7d7`: HEAD `7705565` (slimmed `.drone.yml` de9b4d5 + iteration 27 evidence), pushed to local `origin` mirror only.
+- Sandbox has no `GITHUB_TOKEN`/`DRONE_TOKEN`; push to github is impossible from the sandbox.
+- Platform harness must merge worktree branch to `memstack-source-publish/main` to refresh the Drone trigger ref before the next build can exercise the slimmed step.
+- Worktree status: clean at `7705565`.
+
+### Changed Files (iteration 28)
+
+| File | Change |
+|------|--------|
+| `.drone.yml` | unchanged from 7705565 (slimmed repository-smoke from de9b4d5 already in worktree) |
+| `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 28 evidence block appended |
