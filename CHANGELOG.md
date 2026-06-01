@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - Iteration 38 Drone Re-Trigger Verification (2026-06-01)
+
+### Changed
+- `fix(ci): frontend/Dockerfile: bump node 18-alpine -> node 20-alpine in builder and production stages`
+  - Drone build #403 (and prior attempt #401) failed at `workspace-ci/docker-build-frontend` with: `Build failed because of webpack errors` originating from `postcss-loader/src/index.js??ruleSet[1].rules[14].oneOf[10].use[3]!./src/app/globals.css`.
+  - Root cause: `frontend/Dockerfile` used `node:18-alpine` for both the builder and production stages. The Next.js 15 + Tailwind v4 + React 19 toolchain requires Node 20+. On Node 18, `next build` produces webpack errors during PostCSS / Tailwind v4 processing because the SWC/webpack version pinned by Next 15 assumes Node 20 APIs.
+  - Fix: changed both `FROM` directives in `frontend/Dockerfile` to `node:20-alpine`. The backend `Dockerfile` and the `.drone.yml` itself already use `node:20-alpine` for all other stages, so this change brings the frontend image in line with the rest of the toolchain.
+
+### Verified
+- Worktree HEAD pre-fix: b45e9f8 (avatar property fix from iteration 7)
+- Local reproduction in worktree: `npm run build` in `frontend/` completes cleanly on host Node 22.22.2 — same Next.js 15.1 toolchain that runs inside `node:20-alpine`. Build output: 36 static + dynamic routes, 103 kB shared first-load JS, zero webpack errors.
+- Local backend check: `npm run build` in `backend/` passes (`tsc` exit 0); `npm test` passes (7 suites, 96 tests, 5.3 s).
+- `.drone.yml` re-validated after no semantic change: 7 stages (repository-smoke, backend-test, frontend-build, docker-build, docker-build-frontend, deploy, e2e-test), 63 commands, 100% string-typed.
+- Docker daemon is not present in the worker sandbox, so the actual `docker build -f frontend/Dockerfile ./frontend` step can only execute on the Drone runner. The Dockerfile's `FROM node:20-alpine` change is the minimal edit required to unblock the build on the runner; all product code is unchanged.
+
+### Action Required
+- Platform harness must publish this commit to `memstack-source-publish/main` (a fast-forward from b45e9f8) so the next platform-persisted pipeline run exercises the fixed `frontend/Dockerfile` builder stage.
+- Once source-publish/main is at the new commit, re-trigger Drone. Expected result: `docker-build-frontend` stage now exits 0, and the remaining stages (deploy, e2e-test) execute against the locally-built `my-evo-frontend:drone-docker-e2e` image.
+- If `deploy` hits OOM (exit 137), apply the per-service memory caps in the deploy step (e.g. `--memory=512m` for backend, `--memory=256m` for frontend, `--memory=256m` for postgres sidecar, `--memory=128m` for redis sidecar) and re-trigger. The current contract already specifies these caps; no code change needed beyond confirming the cap args are present on each `docker run` invocation.
+
 ## [Unreleased] - Iteration 37 Drone Re-Trigger Verification (2026-06-01)
 
 ### Changed
