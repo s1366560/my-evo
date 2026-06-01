@@ -527,3 +527,107 @@ All Sprint 1 (Swarm 1) goals have been shipped:
 ### Note on Drone Pipeline Build #254
 
 Latest Drone build (s1366560/my-evo#254) failed at repository-smoke stage due to transient npm ECONNRESET (network flake, not code issue). The retry logic in .drone.yml handles this; subsequent runs should pass.
+
+
+---
+
+## Iteration 26 - Drone CI 7-Stage Contract Verification (Harness-Triggered)
+
+**Date:** 2026-06-01
+**Worktree:** workspace/node-3d08b124c846-55fe8521-5f2
+**Branch:** workspace/node-3d08b124c846-55fe8521-5f2
+**Base Ref:** 0c66afd640452ceea34dbaad92443408ec9327e2
+**Attempt ID:** 55fe8521-5f26-4a61-8a51-c6aa35e6216a
+**Latest commit:** 0c66afd640452ceea34dbaad92443408ec9327e2
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| read-progress | Worktree inspected at /workspace/.memstack/worktrees/55fe8521-5f26-4a61-8a51-c6aa35e6216a |
+| git-status | Clean worktree (no uncommitted changes) |
+
+### .drone.yml 7-Stage Contract Validation
+
+Drone pipeline `workspace-ci` validates the 7-stage contract required by the workspace delivery CI/CD:
+
+| # | Stage | Status | Notes |
+|---|-------|--------|-------|
+| 1 | repository-smoke | Validated | 18 commands, all strings; runs node version checks, package.json presence, npm install, audit at critical level |
+| 2 | backend-test | Validated | 3 commands, all strings; cd backend, npm install, npm test |
+| 3 | frontend-build | Validated | 3 commands, all strings; cd frontend, npm install, npm run build |
+| 4 | docker-build | Validated | plugins/docker:20, host.docker.internal:5001/my-evo, tags drone-docker-e2e + latest, insecure registry |
+| 5 | docker-build-frontend | Validated | plugins/docker:20, host.docker.internal:5001/my-evo-frontend, drone-docker-e2e + latest, frontend/Dockerfile |
+| 6 | deploy | Validated | docker:cli + docker-sock volume, 50 commands, all strings; cleanup, sidecars, image pull, build fallback, host ports 18080:3001/18081:3000, docker exec health checks |
+| 7 | e2e-test | Validated | node:20-alpine, E2E_BASE_URL=http://host.docker.internal:18081, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1, runs Playwright journey spec |
+
+**YAML structural validation** (python3 yaml.safe_load):
+- Steps: 7 (matches required 7-stage contract)
+- All `steps[].commands[]` items are strings (no mapping-typed echo commands)
+- Deploy step has 50 commands, all strings
+- Pipeline name: workspace-ci
+
+**Deploy stage contract alignment:**
+- DOCKER_HOST=unix:///var/run/docker.sock (host-socket deploy per contract)
+- docker-sock volume mounted at /var/run/docker.sock
+- POSTGRES_PASSWORD=evomap, NODE_SECRET, SESSION_SECRET env vars present
+- docker pull host.docker.internal:5001/my-evo:drone-docker-e2e with local-build fallback
+- Backend container: `drone-backend` on workspace-deploy network, port 18080:3001
+- Frontend container: `drone-frontend` on workspace-deploy network, port 18081:3000
+- Backend health probe: docker exec wget http://localhost:3001/health (in-container)
+- Frontend health probe: docker exec wget http://localhost:3000 (in-container)
+- Postgres sidecar: drone-postgres on workspace-deploy (no host port)
+- Redis sidecar: drone-redis on workspace-deploy (no host port)
+
+**E2E test contract alignment:**
+- E2E_BASE_URL=http://host.docker.internal:18081 (host-mapped port, not container port)
+- PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+- Runs `npx playwright test --config playwright.test.config.ts --reporter=list`
+
+### Drone Trigger Status
+
+- **Latest platform pipeline run:** 72eb4b3e-27be-4f20-8bc4-4f0d49234acd (status=failed)
+- **Failure stage:** source_publish
+- **Failure reason:** `! [rejected] main -> memstack-source-publish/main (non-fast-forward)`
+- **Interpretation:** The platform harness attempted to push the worktree branch to `memstack-source-publish/main` on github, but the target moved. This is a source-publish non-fast-forward, NOT a 7-stage Drone pipeline failure. The 7 Drone CI stages themselves were not run by the latest platform attempt because the source-publish step failed first.
+- **Prior successful harness-triggered Drone build:** s1366560/my-evo#291 (commit 942d3c2, status=accepted per iteration 21 prior evidence)
+
+### Sandbox-Local Drone Trigger Attempt
+
+`cicd_run_pipeline` tool invocation against `s1366560/my-evo` branch=main commit=0c66afd returned:
+
+```
+run_id: 8e30d837-a8ef-47ad-954e-563ae744fcac
+status: failed
+reason: Client error '404 Not Found' for url
+        'http://localhost:8080/api/repos/s1366560/my-evo/builds?branch=main&commit=0c66afd'
+```
+
+This is a host-side Drone API concern: the localhost:8080 endpoint does not expose a registered `s1366560/my-evo` repo in the sandbox harness, and no DRONE_TOKEN is available in this sandbox. Per the workspace contract: "Drone/GitHub tokens and the Drone API are host-side harness concerns. A sandbox worker may not have DRONE_TOKEN, GITHUB_TOKEN, docker, or the drone CLI in its environment; do not treat those sandbox-local absences as a hard blocker. Commit or report the required .drone.yml/config state so the platform harness can trigger and verify Drone."
+
+### Docker Image Tags (Contract-Defined)
+
+- `host.docker.internal:5001/my-evo:drone-docker-e2e` (backend)
+- `host.docker.internal:5001/my-evo:latest` (backend latest)
+- `host.docker.internal:5001/my-evo-frontend:drone-docker-e2e` (frontend)
+- `host.docker.internal:5001/my-evo-frontend:latest` (frontend latest)
+- Local fallback tags: `my-evo:drone-docker-e2e`, `my-evo-frontend:drone-docker-e2e`
+
+### Verification Summary
+
+- .drone.yml: 7 stages validated, all commands strings, deploy step matches contract
+- Pipeline name: workspace-ci (host-socket docker deploy)
+- Docker image tags: drone-docker-e2e + latest for backend and frontend
+- Backend host port: 18080 (mapped to container 3001)
+- Frontend host port: 18081 (mapped to container 3000)
+- E2E_BASE_URL: http://host.docker.internal:18081
+- Source publish: platform harness concern; .drone.yml/config state committed for downstream trigger
+- Worktree status: clean at commit 0c66afd
+- External Drone run: requires platform harness (DRONE_TOKEN/GITHUB_TOKEN not in sandbox)
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `.drone.yml` | unchanged from 0c66afd; 7 stages contract-verified |
+| `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 26 evidence block appended |
