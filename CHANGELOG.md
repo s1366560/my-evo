@@ -202,6 +202,26 @@ Created stub implementations for:
 
 ---
 
+## Iteration 29 - 2026-06-01 - Repair Drone CI verification blockers
+
+### Fixed
+- Drone CI verification blocker where `memstack-source-publish/main` sat at `ef94fd11` (pre-slim `.drone.yml`) while
+  the worktree branch contained the validated slimmed `.drone.yml` at `de9b4d5` with iteration evidence on top
+  (`7705565` → `72311a2` → `f19c33b` → `0525606`). The two branches had no common ancestor, so the platform harness
+  could not fast-forward `source-publish/main` to the worktree HEAD and the `source_publish` gate failed with
+  `non-fast-forward`. Merged `source-publish/main` into the worktree branch with `--allow-unrelated-histories -X ours`
+  (commit `faffc09`) so the slim `.drone.yml` and worktree artifacts remain authoritative and HEAD is a descendant
+  of `source-publish/main`. The harness can now fast-forward `source-publish/main` to `faffc09` and run a fresh
+  Drone build with the validated 7-stage slimmed pipeline (repository-smoke, backend-test, frontend-build,
+  docker-build, docker-build-frontend, deploy, e2e-test).
+
+### Added
+- Iteration 29 evidence block in `SANDBOX-PREVIEW-EVIDENCE.md` documenting the merge, the slim-`.drone.yml`
+  preservation proof (md5 `f8c0657f9e2eec502433c9d1c49bbab7`, 172 lines, 7 stages, all string commands), and the
+  fast-forward check (`ef94fd11` is ancestor of `faffc09`).
+
+---
+
 ## [0.1.0] - 2026-04-28
 
 ### Added
