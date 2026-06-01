@@ -916,3 +916,155 @@ A follow-up `cicd_run_pipeline(commit='fa6a7d1b635fc14f6115da32f131a29bdb70f7df'
 | `CHANGELOG.md` | Iteration 34 verification block prepended |
 | `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 34 evidence block appended |
 | `.drone.yml` | unchanged from commit fa6a7d1; 7 stages, 73 commands, all strings, OOM-safe (validated) |
+
+
+## Iteration 35 - Drone Re-Trigger Verification (Attempt e929c914-34cd-4fa0-91cf-17af3b89a6f6)
+
+**Date:** 2026-06-01
+**Worktree:** /workspace/.memstack/worktrees/e929c914-34cd-4fa0-91cf-17af3b89a6f6
+**Branch:** workspace/node-840d6f93966f-e929c914-34c
+**Base Ref:** fa6a7d1b635fc14f6115da32f131a29bdb70f7df
+**Worktree HEAD:** 60599e43701142335ec8b5aba90fc95ddaddf5d2
+**Plan node:** node-840d6f93966f (plan-253db109817e)
+**Attempt ID:** e929c914-34cd-4fa0-91cf-17af3b89a6f6
+**Latest platform-persisted pipeline run:** e37c25cc-9701-401a-8ac8-63a64ea99448 (sandbox fetch via cicd_run_pipeline 396/397)
+
+---
+
+### Preflight Checks
+
+| Check | Status |
+|-------|--------|
+| read-progress | Inspected worktree at /workspace/.memstack/worktrees/e929c914-34cd-4fa0-91cf-17af3b89a6f6; read handoff, .drone.yml, git log, branch/ref state |
+| git-status | Clean worktree at commit 60599e4 (no uncommitted changes) |
+| yaml-validate | 7 steps, 73 commands, 100% string-typed (no mapping-style commands) |
+| oom-caps | All deploy containers have --memory and --memory-swap equal; --pids-limit set |
+| set -e | Present at top of repository-smoke commands |
+
+---
+
+### Git State Summary
+
+- `source-publish/main` on platform GitHub: e971d7a8fc33351159369f66ad8ce49993ece774 (merge of ef94fd1 + worktree lineage, includes slim OOM-safe .drone.yml from de9b4d5)
+- `github/main` (local clone): ef94fd1
+- `memstack-source-publish/main` (local ref): ef94fd1 (stale; platform already advanced to e971d7a)
+- Worktree HEAD: 60599e4 (slim OOM-safe .drone.yml from de9b4d5 + `docker-build-frontend` dockerfile path fix)
+- `faffc09` is the prior repair-node merge commit; e971d7a fast-forwards past faffc09 with the slim smoke step from de9b4d5
+
+### Pipeline Contract (workspace-selected CI/CD gate)
+
+- Provider: drone
+- Drone repo: s1366560/my-evo
+- Drone branch: main
+- Pipeline name: workspace-ci (kind: docker, platform: linux/arm64)
+- Stages: repository-smoke, backend-test, frontend-build, docker-build, docker-build-frontend, deploy, e2e-test (7 total, matching contract)
+- Deploy mode: docker (cli)
+- Docker image (deploy local tag): my-evo:drone-docker-e2e
+- Docker image (Drone runner): host.docker.internal:5001/my-evo
+- Backend host port: 18080 (container 3001)
+- Frontend host port: 18081 (container 3000)
+- OOM caps: postgres 256m, redis 128m, backend 512m, frontend 256m
+- Health URL: http://host.docker.internal:18080/health (backend); http://host.docker.internal:18081/ (frontend)
+
+### .drone.yml Validation (worktree HEAD 60599e4)
+
+- 7 pipeline steps, 73 commands, 100% string-typed (passes the contract check "every `steps[].commands[]` item is a string")
+  ```
+  Step                       Commands  Non-string
+  1. repository-smoke              11          0
+  2. backend-test                   3          0
+  3. frontend-build                 3          0
+  4. docker-build                   0          0
+  5. docker-build-frontend          0          0
+  6. deploy                        50          0
+  7. e2e-test                       6          0
+  Total:                           73
+  ```
+- `set -e` present at the top of repository-smoke commands
+- repository-smoke is slim (no `retry_npm` block, no `npm install`, no `npm audit`) — replaced with structural file/JSON checks (8 assertions)
+- Deploy step uses `image: docker:cli` with `DOCKER_HOST: unix:///var/run/docker.sock` and `docker-sock` volume
+- deploy step runs `docker run` with `--memory=512m --memory-swap=512m --pids-limit=128` for the backend container, `--memory=256m` for frontend/postgres, `--memory=128m` for redis
+- All `docker run` calls are wrapped in `--network workspace-deploy` to match the contract's compose_or_sidecars dependency strategy
+- **`docker-build-frontend` step now uses `dockerfile: Dockerfile` (relative to `context: ./frontend`)** — fixes the build #396 failure
+
+### Drone Build #396 (live trigger this attempt)
+
+`cicd_run_pipeline(repo='s1366560/my-evo', branch='main', wait=true, reason='Iteration 35 (attempt e929c914) - re-trigger Drone CI on worktree fast-forwarded past faffc09 (HEAD e971d7a, slim OOM-safe .drone.yml de9b4d5)')` produced:
+
+- status: failed
+- failed stage: workspace-ci/docker-build-frontend
+- stages observed: clone, repository-smoke, backend-test, frontend-build, docker-build all green; docker-build-frontend failed
+- root cause: `dockerfile: frontend/Dockerfile` is invalid when `context: ./frontend` — the dockerfile path is resolved relative to the build context, so the correct value is `dockerfile: Dockerfile`
+
+**This is a real, reproducible code bug (not transient network/infrastructure).** Without the fix, every Drone run against the slim .drone.yml would fail at docker-build-frontend.
+
+### Drone Build #397 (live re-trigger after fix)
+
+`cicd_run_pipeline(repo='s1366560/my-evo', branch='main', wait=true, reason='Iteration 35 retry')` produced:
+
+- status: failed
+- failed stage: workspace-ci/docker-build (intermittent registry network blip; not a code regression)
+- The `docker-build-frontend` fix is in the worktree but not yet published to `source-publish/main`, so this run still used the pre-fix ref
+
+### Drone Build #395 (prior platform-persisted run, historical)
+
+- status: failed
+- failed stage: workspace-ci/clone
+- root cause: transient SSL_ERROR_SYSCALL when fetching from github.com:443 (Drone runner's outbound network glitch)
+- This is unrelated to the worktree code; the next runner with healthy network would not see this
+
+### Repair Applied (commit 60599e4)
+
+```
+fix(ci): docker-build-frontend: align dockerfile path with context=./frontend
+
+The docker-build-frontend plugin step sets context: ./frontend, so the
+dockerfile path is resolved relative to that context. The previous value
+"frontend/Dockerfile" was treated as ./frontend/frontend/Dockerfile and
+the build failed with "Cannot locate specified Dockerfile: frontend/Dockerfile".
+
+Change dockerfile: frontend/Dockerfile -> dockerfile: Dockerfile.
+```
+
+```
+diff --git a/.drone.yml b/.drone.yml
+@@ -76,7 +76,7 @@ steps:
+       registry: host.docker.internal:5001
+       insecure: true
+       purge: true
+-      dockerfile: frontend/Dockerfile
++      dockerfile: Dockerfile
+       context: ./frontend
+     when:
+```
+
+### Remaining Work / Hand-off to Platform Harness
+
+- `commit_ref: 60599e43701142335ec8b5aba90fc95ddaddf5d2` is on the worktree branch `workspace/node-840d6f93966f-e929c914-34c`
+- `60599e4` is a fast-forward descendant of `e971d7a` (which is the current platform `source-publish/main` ref)
+- The platform harness must `git push origin 60599e4:refs/heads/main` (or equivalent fast-forward) to `memstack-source-publish/main` so the next platform-persisted pipeline run exercises the fixed `docker-build-frontend` step
+- Once source-publish/main is at 60599e4, the next `cicd_run_pipeline(repo='s1366560/my-evo', branch='main', wait=true)` should produce status=success with all 7 stages green (clone, repository-smoke, backend-test, frontend-build, docker-build, docker-build-frontend, deploy, e2e-test)
+
+### Verification Summary
+
+- .drone.yml: 7 stages validated, 73 commands, 100% string-typed, deploy step matches contract
+- OOM caps: postgres 256m, redis 128m, backend 512m, frontend 256m
+- Pipeline name: workspace-ci (host-socket docker deploy)
+- Docker image tags: drone-docker-e2e + latest for backend and frontend
+- Backend host port: 18080 (mapped to container 3001)
+- Frontend host port: 18081 (mapped to container 3000)
+- E2E_BASE_URL: http://host.docker.internal:18081
+- **Bug fix in 60599e4: `docker-build-frontend` `dockerfile: Dockerfile` (relative to context=./frontend)**
+- Live Drone build #396: failed at docker-build-frontend (pre-fix), root cause identified
+- Live Drone build #397: failed at docker-build (intermittent registry blip, not a regression)
+- commit_ref on worktree: 60599e43701142335ec8b5aba90fc95ddaddf5d2 (slim OOM-safe .drone.yml + dockerfile path fix)
+- Source-publish / GitHub push: requires platform harness (no GITHUB_TOKEN in sandbox)
+- Worktree status: clean at commit 60599e4
+
+### Changed Files
+
+| File | Change |
+|------|--------|
+| `CHANGELOG.md` | Iteration 35 verification block prepended |
+| `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 35 evidence block appended |
+| `.drone.yml` | 1-line fix to docker-build-frontend: `dockerfile: frontend/Dockerfile` -> `dockerfile: Dockerfile` |

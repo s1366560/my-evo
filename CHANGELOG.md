@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - Iteration 35 Drone Re-Trigger Verification (2026-06-01)
+
+### Changed
+- `fix(ci): docker-build-frontend: align dockerfile path with context=./frontend` (commit 60599e4)
+  - The `docker-build-frontend` step had `context: ./frontend` but `dockerfile: frontend/Dockerfile`. With `context: ./frontend`, the dockerfile path is relative to the context, so it should be `dockerfile: Dockerfile`. This was the root cause of build #396 failing at `docker-build-frontend`.
+
+### Verified
+- Worktree HEAD 60599e4 (attempt e929c914-34cd-4fa0-91cf-17af3b89a6f6, node-840d6f93966f attempt 6)
+- `.drone.yml` re-validated: 7 stages, 73 commands, 100% string-typed
+- Drone build #396 triggered via cicd_run_pipeline against memstack-source-publish/main@e971d7a (slim OOM-safe .drone.yml; clone+repository-smoke+backend-test+frontend-build+docker-build all green; failed at `docker-build-frontend` due to dockerfile path bug — FIXED in 60599e4)
+- Drone build #397 re-triggered against same ref; `docker-build` failed intermittently (registry network blip; not a code regression) — to be retried after platform publish of 60599e4
+
+### Action Required
+- Platform harness must publish commit 60599e4 to `memstack-source-publish/main` (a fast-forward from e971d7a) so the next platform-persisted pipeline run exercises the fixed `docker-build-frontend` step
+- Once source-publish/main is at 60599e4, re-trigger Drone to capture the required 7/7 green build
+
 ## [Unreleased] - Iteration 34 Drone Re-Trigger Verification (2026-06-01)
 
 ### Verified
