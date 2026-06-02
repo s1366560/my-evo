@@ -222,6 +222,28 @@ Created stub implementations for:
 
 ---
 
+## Iteration 30 - 2026-06-02 - Fix GEP types import path blocking Drone #404
+
+### Fixed
+- Drone build `s1366560/my-evo#404` failed at the `docker-build-frontend` stage with
+  `Type error: Cannot find module '../../../../../src/gep/types'`. Three frontend hook files
+  (`use-gep-gene.ts`, `use-gep-capsule.ts`, `use-gep-validate.ts`) imported GEP request types from a 5-`..`
+  relative path that escapes the `frontend/` directory entirely. The same types are defined locally in
+  `frontend/src/lib/api/hooks/use-gep-types.ts`, which itself notes `backend src/gep/types.ts not bundled in
+  frontend`. Consolidated all imports onto the local `./use-gep-types` module. Also removed the now-redundant
+  `RegisterGeneRequest`/`RegisterCapsuleRequest` imports from `use-gep-validate.ts` (the hook consumes
+  `Partial<...>` via `GepValidationRequest`, so no direct type reference is required).
+
+### Verified
+- `frontend npx tsc --noEmit` returns exit 0 with no type errors (full project).
+- `.drone.yml` slim pipeline remains authoritative: 7 steps (repository-smoke, backend-test, frontend-build,
+  docker-build, docker-build-frontend, deploy, e2e-test), 73 commands, 100% string type.
+- The iteration 29 merge (`faffc09`) is preserved: this commit (`1dce4a5`) is a descendant of `ef94fd11`, so
+  the platform harness can fast-forward `source-publish/main` to `1dce4a5` and re-trigger Drone to exercise the
+  fixed `docker-build-frontend` step.
+
+---
+
 ## [0.1.0] - 2026-04-28
 
 ### Added

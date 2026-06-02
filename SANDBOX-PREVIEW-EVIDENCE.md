@@ -973,3 +973,162 @@ The structural `repository-smoke` checks (line 22-28 of `.drone.yml`) are intact
 | (merge commit `faffc09`) | tree identical to `0525606`; adds `ef94fd1` as second parent so the worktree branch is a fast-forward of `source-publish/main` |
 | `SANDBOX-PREVIEW-EVIDENCE.md` | this iteration 29 evidence block appended |
 | `CHANGELOG.md` | iteration 29 entry appended |
+
+## Iteration 30 - Fix GEP types import path blocking Drone build #404 docker-build-frontend
+
+### Problem
+
+The platform-persisted pipeline evidence for run `eec342d1-...` reports:
+
+```
+Drone build s1366560/my-evo#404 finished with status failure
+failing stage: workspace-ci/docker-build-frontend
+Type error: Cannot find module '../../../../../src/gep/types'
+```
+
+Three frontend hook files imported GEP request types from a 5-`..` relative path
+that escapes the `frontend/` directory entirely. The same types are defined
+locally in `frontend/src/lib/api/hooks/use-gep-types.ts`, which itself notes
+`backend src/gep/types.ts not bundled in frontend`.
+
+### Fix (commit `1dce4a5`)
+
+Consolidate all GEP-related imports onto the local `./use-gep-types` module in:
+
+- `frontend/src/lib/api/hooks/use-gep-gene.ts`
+- `frontend/src/lib/api/hooks/use-gep-capsule.ts`
+- `frontend/src/lib/api/hooks/use-gep-validate.ts`
+
+Also remove the now-redundant `RegisterGeneRequest`/`RegisterCapsuleRequest`
+imports from `use-gep-validate.ts` (the hook consumes `Partial<...>` via
+`GepValidationRequest`, so no direct type reference is required).
+
+### Diff (3 files, 9 insertions, 7 deletions)
+
+```text
+$ git show --stat 1dce4a5
+ frontend/src/lib/api/hooks/use-gep-capsule.ts  | 7 +++++--
+ frontend/src/lib/api/hooks/use-gep-gene.ts     | 2 +-
+ frontend/src/lib/api/hooks/use-gep-validate.ts | 7 +++----
+ 3 files changed, 9 insertions(+), 7 deletions(-)
+```
+
+`use-gep-validate.ts`:
+
+```diff
+ import { useMutation } from "@tanstack/react-query";
+ import type {
+-  RegisterGeneRequest,
+-  RegisterCapsuleRequest,
+-} from "../../../../../src/gep/types";
+-import type { GepValidationRequest, GepValidationResponse } from "./use-gep-types";
++  GepValidationRequest,
++  GepValidationResponse,
++} from "./use-gep-types";
+```
+
+`use-gep-gene.ts`:
+
+```diff
+-import type { RegisterGeneRequest } from "../../../../../src/gep/types";
+ import type {
++  RegisterGeneRequest,
+   GepPublishGeneResponse,
+   GepGenesParams,
+   GepValidationResponse,
+ } from "./use-gep-types";
+```
+
+`use-gep-capsule.ts`:
+
+```diff
+-import type { RegisterCapsuleRequest } from "../../../../../src/gep/types";
+ import type {
++  RegisterCapsuleRequest,
+   GepPublishCapsuleResponse,
+   GepValidationResponse,
+ } from "./use-gep-types";
+```
+
+### Local verification
+
+```text
+$ cd frontend && npx tsc --noEmit
+(no output)
+exit=0
+```
+
+The full project `tsc --noEmit` returns exit 0 with no type errors. The
+`frontend-build` step in `.drone.yml` runs `npm run build` inside
+`node:20-alpine`; with the import paths corrected, the type-check during
+build will pass and the docker-build-frontend step will succeed.
+
+Sandbox note: `npx next build` is OOM-killed in this low-memory sandbox
+(17Gi total, 9.7Gi used by other processes) and cannot be used to validate
+the full production build locally. The build is deferred to the Drone CI
+runner which has dedicated memory. The type-checker (`tsc --noEmit`) is
+the authoritative signal because the build worker runs the same TypeScript
+compiler over the same source.
+
+### Slim `.drone.yml` preserved (iteration 29 fix intact)
+
+```text
+$ python3 -c "import yaml; d=yaml.safe_load(open('.drone.yml')); print(len(d['steps']))"
+7
+
+$ python3 -c "import yaml; d=yaml.safe_load(open('.drone.yml')); [print(x['name']) for x in d['steps']]"
+repository-smoke
+backend-test
+frontend-build
+docker-build
+docker-build-frontend
+deploy
+e2e-test
+
+$ python3 -c "
+import yaml
+d=yaml.safe_load(open('.drone.yml'))
+total=sum(len(s.get('commands', []) or []) for s in d['steps'])
+nonstr=sum(1 for s in d['steps'] for c in s.get('commands', []) or [] if not isinstance(c, str))
+print(f'total={total} nonstr={nonstr}')
+"
+total=73 nonstr=0
+```
+
+### Fast-forward status (iteration 29 merge preserved)
+
+```text
+$ git log --oneline -3
+1dce4a5 fix(frontend): resolve GEP types import path blocking Drone docker-build-frontend
+76b783c docs(evidence): add iteration 29 repair block
+faffc09 merge source-publish/main into worktree to enable fast-forward
+
+$ git merge-base --is-ancestor ef94fd11 HEAD && echo "OK: ef94fd11 is ancestor of HEAD"
+OK: ef94fd11 is ancestor of HEAD
+```
+
+Commit `1dce4a5` is a descendant of `ef94fd11` (source-publish/main at the time
+of iteration 29). The platform harness can fast-forward
+`memstack-source-publish/main` from its current position to `1dce4a5` and
+trigger a fresh Drone build that will exercise the fixed `docker-build-frontend`
+step.
+
+### Expected Drone outcome after merge
+
+After the harness fast-forwards `source-publish/main` to `1dce4a5` and triggers
+a Drone build, the `docker-build-frontend` step should pass because:
+
+1. `frontend/Dockerfile` runs `npm run build` inside `node:20-alpine`
+2. `next build` invokes the TypeScript compiler on all source files
+3. The 3 previously-broken hook files now resolve `./use-gep-types` locally
+4. No import references escape the `frontend/` directory
+
+### Changed Files (iteration 30)
+
+| File | Change |
+|------|--------|
+| `frontend/src/lib/api/hooks/use-gep-gene.ts` | Import `RegisterGeneRequest` from `./use-gep-types` instead of `../../../../../src/gep/types` |
+| `frontend/src/lib/api/hooks/use-gep-capsule.ts` | Import `RegisterCapsuleRequest` from `./use-gep-types` instead of `../../../../../src/gep/types` |
+| `frontend/src/lib/api/hooks/use-gep-validate.ts` | Import `GepValidationRequest`, `GepValidationResponse` from `./use-gep-types`; drop unused `RegisterGeneRequest`/`RegisterCapsuleRequest` |
+| `CHANGELOG.md` | Iteration 30 entry |
+| `SANDBOX-PREVIEW-EVIDENCE.md` | This iteration 30 evidence block |
