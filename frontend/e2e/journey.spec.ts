@@ -1,6 +1,6 @@
 /**
- * E2E Journey Test Suite — 20 tests
- * Covers onboarding → browse → marketplace → workspace
+ * E2E Journey Test Suite — 23 tests
+ * Covers onboarding → browse → marketplace → workspace → password reset
  * Fix: handles 200/empty-assets gracefully
  */
 import { test, expect, type Page } from "@playwright/test";
@@ -43,6 +43,52 @@ test.describe("E2E Journey", () => {
     await expect(page.locator("#email")).toBeVisible({ timeout: 15000 });
     await expect(page.locator("#password")).toBeVisible();
     await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
+  });
+
+  test("04a Auth -- forgot-password page renders email input and submit", async ({ page }) => {
+    await page.goto(`${BASE}/forgot-password`);
+    await expect(page.locator("#email")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: /send reset link/i })).toBeVisible();
+    // Page heading confirms the reset flow context
+    await expect(page.getByRole("heading", { name: /Reset your password/i })).toBeVisible();
+  });
+
+  test("04b Auth -- forgot-password unknown email shows generic message (no enumeration)", async ({ page }) => {
+    // Intercept the backend forgot-password call so this test is independent of DB state
+    await page.route("**/api/v1/auth/forgot-password", (route) => {
+      route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            message: "If the email exists, a reset link has been sent.",
+            resetToken: null,
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          },
+        }),
+      });
+    });
+
+    await page.goto(`${BASE}/forgot-password`);
+    await expect(page.locator("#email")).toBeVisible({ timeout: 15000 });
+    // Use a syntactically valid but never-registered email
+    await page.fill("#email", `unknown+${Date.now()}@example.com`);
+    await page.getByRole("button", { name: /send reset link/i }).click();
+    // Generic success state — same copy the backend returns for known AND unknown emails
+    await expect(page.getByRole("status")).toContainText(/if an account exists/i, { timeout: 10000 });
+  });
+
+  test("04c Auth -- 'Forgot password?' link on /login navigates to /forgot-password", async ({ page }) => {
+    await page.goto(`${BASE}/login`);
+    // /login renders two 'Forgot password?' links (one inside LoginForm, one below it).
+    // Either is a valid entry to /forgot-password; use .first() to avoid strict-mode violation.
+    const link = page.getByRole("link", { name: /forgot password\?/i }).first();
+    await expect(link).toBeVisible({ timeout: 15000 });
+    await link.click();
+    await page.waitForURL(/\/forgot-password$/, { timeout: 15000 });
+    await expect(page.locator("#email")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Reset your password/i })).toBeVisible();
   });
 
   test("05 Browse -- page loads", async ({ page }) => {
@@ -166,6 +212,19 @@ test.describe("E2E Journey", () => {
     await page.waitForTimeout(2000);
     const body = await page.textContent("body");
     expect(body!.length).toBeGreaterThan(20);
+  });
+
+  test("21 URL parity -- /economics redirects 308 to /credits (200)", async ({ page }) => {
+    // URL parity nit with evomap.ai: /economics should 308-redirect to /credits
+    // and the final page should respond with HTTP 200.
+    injectAuth(page);
+    const resp = await page.goto(`${BASE}/economics`, { waitUntil: "load", timeout: 30000 });
+    // Wait for the final URL to settle on /credits after the 308 redirect.
+    await page.waitForURL(/\/credits$/, { timeout: 15000 });
+    // Final request (after 308) should be 200.
+    expect(resp!.status()).toBe(200);
+    // Final URL should be /credits, not /economics.
+    expect(new URL(page.url()).pathname).toBe("/credits");
   });
 
 }); // end E2E Journey

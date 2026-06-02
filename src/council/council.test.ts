@@ -3,8 +3,10 @@
  * Tests proposal CRUD, voting logic, and tallying.
  */
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import fastify, { type FastifyInstance } from 'fastify';
 import * as councilService from './service';
 import { COUNCIL_CONFIG } from './types';
+import { councilRoutes } from './routes';
 
 // ============================================================
 // In-memory mock data
@@ -386,6 +388,388 @@ describe('Council Service', () => {
       const now = new Date();
       proposals.push(makeProposal(now, 'pc3', { status: 'active', proposer_id: 'n_rep' }));
       await expect(councilService.cancelProposal(mp, 'pc3', 'n_rep')).rejects.toThrow();
+    });
+  });
+});
+
+// ============================================================
+// HTTP E2E Route Tests
+// ============================================================
+
+// Mock auth module to bypass real DB auth
+jest.mock('../shared/auth', () => ({
+  requireNodeSecretAuth: () => async (request: any) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      const err: any = new Error('Unauthorized');
+      err.statusCode = 401;
+      throw err;
+    }
+    request.auth = {
+      node_id: 'n_rep',
+      auth_type: 'node_secret' as const,
+      trust_level: 'trusted' as const,
+    };
+  },
+}));
+
+function buildRouteApp(): FastifyInstance {
+  const app = fastify({ logger: false });
+  app.decorate('prisma', mp as any);
+  return app;
+}
+
+describe('Council E2E Routes', () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    resetState();
+    jest.clearAllMocks();
+    app = buildRouteApp();
+    await app.register(councilRoutes, { prefix: '/a2a/council' });
+    await app.ready();
+  });
+
+  afterEach(async () => { await app.close(); });
+
+  const AUTH = { authorization: 'Bearer ns_testsecret' };
+
+  // ── GET /history ──
+  describe('GET /a2a/council/history', () => {
+    it('returns empty list with 200', async () => {
+      const res = await app.inject({ method: 'GET', url: '/a2a/council/history' });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.proposals).toEqual([]);
+      expect(body.meta).toBeDefined();
+      expect(body.meta.total).toBe(0);
+    });
+
+    it('returns proposals with status filter', async () => {
+      const now = new Date();
+      proposals.push(makeProposal(now, 'p1', { status: 'active' }));
+      proposals.push(makeProposal(now, 'p2', { status: 'draft' }));
+      const res = await app.inject({
+        method: 'GET', url: '/a2a/council/history?status=active',
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.proposals).toHaveLength(1);
+      expect(body.proposals[0].status).toBe('active');
+    });
+
+    it('respects limit and offset', async () => {
+      const now = new Date();
+      for (let i = 0; i < 5; i++) proposals.push(makeProposal(now, `pl${i}`));
+      const res = await app.inject({
+        method: 'GET', url: '/a2a/council/history?limit=2&offset=0',
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.meta.total).toBe(5);
+      expect(body.proposals).toHaveLength(2);
+    });
+  });
+
+  // ── GET /proposal/:proposalId ──
+  describe('GET /a2a/council/proposal/:proposalId', () => {
+    it('returns 404 for missing proposal', async () => {
+      const res = await app.inject({
+        method: 'GET', url: '/a2a/council/proposal/nonexist',
+      });
+      expect(res.statusCode).toBe(404);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(false);
+      expect(body.error).toBe('NOT_FOUND');
+    });
+
+    it('returns proposal with votes', async () => {
+      const now = new Date();
+      proposals.push(makeProposal(now, 'pv', { status: 'active' }));
+      votes.push({
+        id: 1, voter_id: 'v1', proposal_id: 'pv',
+        decision: 'approve', weight: 2, reason: null, cast_at: now,
+      });
+      const res = await app.inject({
+        method: 'GET', url: '/a2a/council/proposal/pv',
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.proposal.proposal_id).toBe('pv');
+      expect(body.votes).toHaveLength(1);
+      expect(body.votes[0].decision).toBe('approve');
+    });
+  });
+
+  // ── POST /proposal ──
+  describe('POST /a2a/council/proposal', () => {
+    it('returns 401 without auth', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal',
+        payload: { title: 'Test', description: 'A valid description body', category: 'protocol' },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('creates draft proposal with 201', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal',
+        headers: AUTH,
+        payload: {
+          title: 'Test Proposal',
+          description: 'A test proposal description body',
+          category: 'protocol',
+        },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.proposal.status).toBe('draft');
+      expect(body.proposal.proposer_id).toBe('n_rep');
+      expect(body.message).toBe('Proposal created in draft status');
+    });
+
+    it('rejects invalid category with 400', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal',
+        headers: AUTH,
+        payload: {
+          title: 'Bad Cat',
+          description: 'Invalid category test',
+          category: 'invalid_cat',
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(false);
+      expect(body.error).toBe('VALIDATION_ERROR');
+    });
+  });
+
+  // ── POST /proposal/:proposalId/vote ──
+  describe('POST /a2a/council/proposal/:proposalId/vote', () => {
+    it('returns 401 without auth', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/p1/vote',
+        payload: { vote: 'approve' },
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('casts approve vote on active proposal', async () => {
+      const now = new Date();
+      const dl = new Date(now.getTime() + 86400000);
+      proposals.push(makeProposal(now, 'pv1', { status: 'active', voting_deadline: dl }));
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/pv1/vote',
+        headers: AUTH,
+        payload: { vote: 'approve', reason: 'Good idea' },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.vote.decision).toBe('approve');
+      expect(body.vote.voter_id).toBe('n_rep');
+    });
+
+    it('casts reject vote', async () => {
+      const now = new Date();
+      const dl = new Date(now.getTime() + 86400000);
+      proposals.push(makeProposal(now, 'pv2', { status: 'active', voting_deadline: dl }));
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/pv2/vote',
+        headers: AUTH,
+        payload: { vote: 'reject' },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.vote.decision).toBe('reject');
+    });
+
+    it('casts abstain vote', async () => {
+      const now = new Date();
+      const dl = new Date(now.getTime() + 86400000);
+      proposals.push(makeProposal(now, 'pv3', { status: 'active', voting_deadline: dl }));
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/pv3/vote',
+        headers: AUTH,
+        payload: { vote: 'abstain' },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.vote.decision).toBe('abstain');
+    });
+  });
+
+  // ── POST /proposal/:proposalId/second ──
+  describe('POST /a2a/council/proposal/:proposalId/second', () => {
+    it('seconds a draft proposal', async () => {
+      const now = new Date();
+      proposals.push(makeProposal(now, 'ps1', { proposer_id: 'n_other' }));
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/ps1/second',
+        headers: AUTH,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+    });
+  });
+
+  // ── POST /proposal/:proposalId/activate ──
+  describe('POST /a2a/council/proposal/:proposalId/activate', () => {
+    it('activates proposal with enough seconds', async () => {
+      const now = new Date();
+      proposals.push(makeProposal(now, 'pa1', {
+        seconds: ['s1', 's2', 's3'],
+      }));
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/pa1/activate',
+        headers: AUTH,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.proposal.status).toBe('active');
+    });
+  });
+
+  // ── POST /proposal/:proposalId/finalize ──
+  describe('POST /a2a/council/proposal/:proposalId/finalize', () => {
+    it('finalizes active proposal as passed', async () => {
+      const now = new Date();
+      proposals.push(makeProposal(now, 'pf1', { status: 'active' }));
+      votes.push({
+        id: 1, voter_id: 'v1', proposal_id: 'pf1',
+        decision: 'approve', weight: 2, reason: null, cast_at: now,
+      });
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/pf1/finalize',
+        headers: AUTH,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.proposal.status).toBe('passed');
+    });
+
+    it('finalizes as rejected when more reject weight', async () => {
+      const now = new Date();
+      proposals.push(makeProposal(now, 'pf2', { status: 'active' }));
+      votes.push({
+        id: 2, voter_id: 'v1', proposal_id: 'pf2',
+        decision: 'reject', weight: 5, reason: null, cast_at: now,
+      });
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/pf2/finalize',
+        headers: AUTH,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.proposal.status).toBe('rejected');
+    });
+  });
+
+  // ── POST /proposal/:proposalId/cancel ──
+  describe('POST /a2a/council/proposal/:proposalId/cancel', () => {
+    it('cancels own draft proposal', async () => {
+      const now = new Date();
+      proposals.push(makeProposal(now, 'pc1', { proposer_id: 'n_rep' }));
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/pc1/cancel',
+        headers: AUTH,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.proposal.status).toBe('cancelled');
+    });
+  });
+
+  // ── Response shape verification ──
+  describe('Response shapes match types.ts', () => {
+    it('CouncilProposalsResponse shape', async () => {
+      const now = new Date();
+      proposals.push(makeProposal(now, 'pshape'));
+      const res = await app.inject({
+        method: 'GET', url: '/a2a/council/history',
+      });
+      const body = JSON.parse(res.payload);
+      // Must have proposals array and meta object
+      expect(Array.isArray(body.proposals)).toBe(true);
+      expect(typeof body.meta.total).toBe('number');
+      expect(typeof body.meta.limit).toBe('number');
+      expect(typeof body.meta.offset).toBe('number');
+      // ProposalSummary fields
+      const p = body.proposals[0];
+      expect(typeof p.proposal_id).toBe('string');
+      expect(typeof p.title).toBe('string');
+      expect(typeof p.description).toBe('string');
+      expect(typeof p.status).toBe('string');
+      expect(typeof p.category).toBe('string');
+      expect(typeof p.proposer_id).toBe('string');
+      expect(typeof p.votes_for).toBe('number');
+      expect(typeof p.votes_against).toBe('number');
+      expect(typeof p.votes_abstain).toBe('number');
+      expect(typeof p.deposit).toBe('number');
+      expect(typeof p.created_at).toBe('string');
+      expect(typeof p.updated_at).toBe('string');
+    });
+
+    it('ProposalDetailsResponse shape', async () => {
+      const now = new Date();
+      proposals.push(makeProposal(now, 'pdetail', { status: 'active' }));
+      const res = await app.inject({
+        method: 'GET', url: '/a2a/council/proposal/pdetail',
+      });
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(typeof body.proposal.proposal_id).toBe('string');
+      expect(Array.isArray(body.proposal.seconds)).toBe(true);
+      expect(Array.isArray(body.votes)).toBe(true);
+      // ProposalWithStats extra fields
+      expect(typeof body.proposal.total_votes).toBe('number');
+      expect(typeof body.proposal.approval_rate).toBe('number');
+      expect(typeof body.proposal.voter_count).toBe('number');
+    });
+
+    it('CastVoteResponse shape', async () => {
+      const now = new Date();
+      const dl = new Date(now.getTime() + 86400000);
+      proposals.push(makeProposal(now, 'pvshape', { status: 'active', voting_deadline: dl }));
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal/pvshape/vote',
+        headers: AUTH,
+        payload: { vote: 'approve' },
+      });
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(typeof body.vote.voter_id).toBe('string');
+      expect(typeof body.vote.proposal_id).toBe('string');
+      expect(['approve', 'reject', 'abstain']).toContain(body.vote.decision);
+      expect(typeof body.vote.weight).toBe('number');
+      expect(typeof body.vote.cast_at).toBe('string');
+    });
+
+    it('CreateProposalResponse shape', async () => {
+      const res = await app.inject({
+        method: 'POST', url: '/a2a/council/proposal',
+        headers: AUTH,
+        payload: {
+          title: 'Shape Test',
+          description: 'Verify response shape matches types',
+          category: 'governance',
+        },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(typeof body.proposal.proposal_id).toBe('string');
+      expect(typeof body.message).toBe('string');
     });
   });
 });

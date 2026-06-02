@@ -1,11 +1,12 @@
 // In-memory mock store
-import { MockUser, MockMap, MockNode, MockEdge } from './index.js';
+import { MockUser, MockMap, MockNode, MockEdge, MockPasswordResetToken } from './index.js';
 
 export class MockStore {
   users = new Map<string, MockUser>();
   maps = new Map<string, MockMap>();
   nodes = new Map<string, MockNode>();
   edges = new Map<string, MockEdge>();
+  passwordResetTokens = new Map<string, MockPasswordResetToken>();
 
   private genId(prefix: string): string {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -20,6 +21,11 @@ export class MockStore {
     return null;
   }
   async findUserById(id: string): Promise<MockUser|null> { return this.users.get(id) || null; }
+  async updateUser(id: string, data: Partial<MockUser>): Promise<MockUser|null> {
+    const u = this.users.get(id); if (!u) return null;
+    const updated = { ...u, ...data, updatedAt: new Date() };
+    this.users.set(id, updated); return updated;
+  }
 
   async createMap(data: Omit<MockMap, 'id'|'createdAt'|'updatedAt'>): Promise<MockMap> {
     const m: MockMap = { ...data, id: this.genId('map'), createdAt: new Date(), updatedAt: new Date() };
@@ -69,7 +75,42 @@ export class MockStore {
   }
   async deleteEdge(id: string): Promise<boolean> { return this.edges.delete(id); }
 
-  clear(): void { this.users.clear(); this.maps.clear(); this.nodes.clear(); this.edges.clear(); }
+  clear(): void { this.users.clear(); this.maps.clear(); this.nodes.clear(); this.edges.clear(); this.passwordResetTokens.clear(); }
+
+  // --- Password reset token methods ---
+  async createPasswordResetToken(data: Omit<MockPasswordResetToken, 'id' | 'createdAt'>): Promise<MockPasswordResetToken> {
+    const tok: MockPasswordResetToken = { ...data, id: this.genId('prt'), createdAt: new Date() };
+    this.passwordResetTokens.set(tok.id, tok);
+    return tok;
+  }
+  async findPasswordResetToken(id: string): Promise<MockPasswordResetToken | null> {
+    return this.passwordResetTokens.get(id) || null;
+  }
+  async findPasswordResetTokenByHash(tokenHash: string): Promise<MockPasswordResetToken | null> {
+    for (const t of this.passwordResetTokens.values()) if (t.tokenHash === tokenHash) return t;
+    return null;
+  }
+  async markPasswordResetTokenUsed(id: string): Promise<MockPasswordResetToken | null> {
+    const t = this.passwordResetTokens.get(id);
+    if (!t) return null;
+    const updated: MockPasswordResetToken = { ...t, usedAt: new Date() };
+    this.passwordResetTokens.set(id, updated);
+    return updated;
+  }
+  async deletePasswordResetTokensForUser(userId: string): Promise<number> {
+    let n = 0;
+    for (const [k, t] of this.passwordResetTokens.entries()) {
+      if (t.userId === userId) { this.passwordResetTokens.delete(k); n++; }
+    }
+    return n;
+  }
+  async updateUserPassword(id: string, hashedPassword: string): Promise<MockUser | null> {
+    const u = this.users.get(id);
+    if (!u) return null;
+    const updated: MockUser = { ...u, password: hashedPassword, updatedAt: new Date() };
+    this.users.set(id, updated);
+    return updated;
+  }
 }
 
 export const mockStore = new MockStore();

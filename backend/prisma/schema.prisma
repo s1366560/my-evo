@@ -32,8 +32,25 @@ model User {
   assets      Asset[]
   votes       Vote[]
   sessions    Session[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
+}
+
+// Password reset token model
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // Session model

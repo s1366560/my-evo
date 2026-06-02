@@ -7,16 +7,25 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install build tools
-RUN apk add --no-cache python3 make g++
+# Cap Node.js heap to fit within constrained Drone runner
+ENV NODE_OPTIONS="--max-old-space-size=1500"
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
+ENV NPM_CONFIG_FUND=false
+ENV NPM_CONFIG_AUDIT=false
+ENV CI=true
+
+# Install build tools (use virtual package to allow easy removal)
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+    && apk add --no-cache dumb-init wget ca-certificates openssl
 
 # Copy package files
 COPY package*.json ./
+COPY backend/package*.json ./backend/
 
 # Install all dependencies (including dev for build)
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
-# Copy source code
+# Copy source code (pruned via .dockerignore)
 COPY . .
 
 # Generate Prisma client
@@ -26,10 +35,13 @@ RUN npx prisma generate
 RUN npm run build
 
 # Build my-evo backend TypeScript
-RUN cd backend && npm install && npm run build
+RUN cd backend && npm install --no-audit --no-fund && npm run build
 
 # Prune dev dependencies
 RUN npm prune --production
+
+# Remove build tools to slim runtime image
+RUN apk del .build-deps
 
 
 # ---- Production Stage ----

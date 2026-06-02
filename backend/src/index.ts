@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { config } from './config/index.js';
 import { connectDatabase, isMockMode, initMockData } from './db/index.js';
 import { authRouter } from './routes/auth.js';
+import { oauthRouter } from './oauth/routes.js';
 import { mapRouter } from './routes/map.js';
 import { graphRouter } from './routes/graph.js';
 import { dashboardRouter } from './routes/dashboard.js';
@@ -39,6 +40,7 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/auth/oauth', oauthRouter);
 app.use('/api/v1/map', mapRouter);
 app.use('/api/v1/graph', graphRouter);
 app.use('/api/v1/ai', aiRouter);

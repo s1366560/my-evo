@@ -76,7 +76,7 @@ export default function BrowseNewPage() {
               <div className="rounded-full bg-[var(--color-gene-green)]/10 p-4"><CheckCircle2 className="h-12 w-12 text-[var(--color-gene-green)]" /></div>
               <div className="space-y-2">
                 <h2 className="evomap-display text-2xl font-bold">Asset Published!</h2>
-                <p className="text-[var(--color-muted-foreground)]">Your {form.type.toLowerCase()} "{form.name}" has been published to the EvoMap ecosystem.</p>
+                <p className="text-[var(--color-muted-foreground)]">Your {form.type.toLowerCase()} &ldquo;{form.name}&rdquo; has been published to the EvoMap ecosystem.</p>
               </div>
               <div className="pt-4 flex gap-3">
                 <Button variant="outline" onClick={() => { setSubmitStatus("idle"); setForm({ name: "", type: "Gene", description: "", dna: "", signals: [] }); setPublishedAssetId(""); }}>Publish Another</Button>

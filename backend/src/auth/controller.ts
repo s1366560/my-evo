@@ -44,6 +44,49 @@ export class AuthController {
       next(error);
     }
   }
+
+  async forgotPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        throw new HttpError(400, 'Email is required');
+      }
+      // Always respond 202 to avoid email enumeration. In dev/mock we surface
+      // the token for testing; in production an email side-channel is used.
+      const isProd = process.env.NODE_ENV === 'production';
+      const result = await authService.forgotPassword(email);
+      res.status(202).json({
+        success: true,
+        data: {
+          message: 'If the email exists, a reset link has been sent.',
+          // Only return the token outside production for testing/E2E
+          ...(isProd || !result.resetToken ? {} : { resetToken: result.resetToken }),
+          expiresAt: result.expiresAt.toISOString(),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async resetPassword(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) {
+        throw new HttpError(400, 'Token and password are required');
+      }
+      const result = await authService.resetPassword(token, password);
+      res.json({
+        success: true,
+        data: {
+          userId: result.userId,
+          message: 'Password has been reset successfully.',
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const authController = new AuthController();
