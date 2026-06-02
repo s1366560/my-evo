@@ -135,6 +135,16 @@ const nextConfig = {
         destination: '/credits',
         permanent: true,
       },
+      {
+        // P1 gap closure: /pricing and /subscription had two conflicting
+        // plan definitions (Free/$20/$100 vs Free/$29/$99). The single
+        // source of truth now lives in frontend/src/lib/plans.ts and is
+        // rendered by /pricing. /subscription 308-redirects to /pricing
+        // so users always see the same plan cards.
+        source: '/subscription',
+        destination: '/pricing',
+        permanent: true,
+      },
     ];
   },
 };

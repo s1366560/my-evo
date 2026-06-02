@@ -227,4 +227,67 @@ test.describe("E2E Journey", () => {
     expect(new URL(page.url()).pathname).toBe("/credits");
   });
 
+  test("22 URL parity -- /subscription redirects 308 to /pricing (200)", async ({ page }) => {
+    // P1 gap closure: /subscription had conflicting plan definitions
+    // (Free/$29/$99) versus /pricing (Free/$20/$100). The single source
+    // of truth is now @/lib/plans. /subscription 308-redirects to /pricing.
+    const resp = await page.goto(`${BASE}/subscription`, { waitUntil: "load", timeout: 30000 });
+    await page.waitForURL(/\/pricing$/, { timeout: 15000 });
+    expect(resp!.status()).toBe(200);
+    expect(new URL(page.url()).pathname).toBe("/pricing");
+  });
+
+  test("23 Pricing -- plan cards show evomap-parity prices (Free/$20/$100)", async ({ page }) => {
+    // Verify the three plan cards render with the correct price labels
+    // from the single source of truth (@/lib/plans).
+    await page.goto(`${BASE}/pricing`, { waitUntil: "load", timeout: 30000 });
+    await expect(page.getByRole("heading", { name: /Choose your plan/i })).toBeVisible({ timeout: 15000 });
+    // Free plan
+    const freeCard = page.locator("div", { hasText: /^Free$/ }).first();
+    await expect(freeCard).toBeVisible({ timeout: 10000 });
+    // Premium plan with $20 price
+    await expect(page.locator("text=$20")).toBeVisible({ timeout: 10000 });
+    // Ultra plan with $100 price
+    await expect(page.locator("text=$100")).toBeVisible({ timeout: 10000 });
+    // Conflicting legacy prices must NOT be present
+    await expect(page.locator("text=$29")).not.toBeVisible();
+    await expect(page.locator("text=$99")).not.toBeVisible();
+  });
+
+  test("24 Pricing -- /subscription (after redirect) shows identical plan cards to /pricing", async ({ page }) => {
+    // Navigate to /pricing and collect the three plan-card price labels.
+    await page.goto(`${BASE}/pricing`, { waitUntil: "load", timeout: 30000 });
+    await expect(page.getByRole("heading", { name: /Choose your plan/i })).toBeVisible({ timeout: 15000 });
+    const pricingPrices = await collectPlanPriceLines(page);
+
+    // Now navigate to /subscription, which 308-redirects to /pricing.
+    // The final page must be /pricing with the same plan cards.
+    await page.goto(`${BASE}/subscription`, { waitUntil: "load", timeout: 30000 });
+    await page.waitForURL(/\/pricing$/, { timeout: 15000 });
+    await expect(page.getByRole("heading", { name: /Choose your plan/i })).toBeVisible({ timeout: 15000 });
+    const subscriptionPrices = await collectPlanPriceLines(page);
+
+    // After the redirect, the two pages must show the same plan cards.
+    expect(subscriptionPrices).toEqual(pricingPrices);
+    // The plan set must be the evomap-parity Free / $20 / $100 set.
+    expect(pricingPrices).toEqual(["Free", "$20", "$100"]);
+  });
+
 }); // end E2E Journey
+
+/**
+ * Collects the headline price text for each of the three plan
+ * cards on /pricing. Cards are rendered in the document order
+ * declared by PLANS in @/lib/plans (Free, Premium, Ultra).
+ */
+async function collectPlanPriceLines(page: import("@playwright/test").Page): Promise<string[]> {
+  // The pricing card renders the plan name + price prominently. We
+  // grab every visible $NN / "Free" headline price line that lives
+  // inside the plan grid (first <section> after the hero).
+  const prices = await page
+    .locator("section")
+    .nth(1) // 0 = hero, 1 = plans grid
+    .locator("p.text-2xl")
+    .allTextContents();
+  return prices.map((s) => s.trim());
+}

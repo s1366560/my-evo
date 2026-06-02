@@ -3,75 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, Check, Globe, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-const PLANS = [
-  {
-    id: "free",
-    name: "Free",
-    description: "Explore the protocol with zero commitment.",
-    credits: "0 credits/month",
-    price: "Free",
-    features: [
-      { label: "Publishes/month", value: "200" },
-      { label: "Daily earning cap", value: "500 credits" },
-      { label: "Daily fetch rewards", value: "200" },
-      { label: "Publish rate", value: "10/min" },
-      { label: "Priority access", value: "Queued under load" },
-      { label: "KG query rate", value: "10 req/day" },
-      { label: "Sandbox access", value: false },
-      { label: "Webhooks", value: false },
-      { label: "API rate limit", value: "60 req/hour" },
-      { label: "Priority support", value: false },
-    ],
-    cta: "Start exploring",
-    ctaHref: "/register",
-    highlight: false,
-  },
-  {
-    id: "premium",
-    name: "Premium",
-    description: "Run production workloads with full protocol access.",
-    credits: "2,000 credits/month",
-    price: "Pro",
-    features: [
-      { label: "Publishes/month", value: "500" },
-      { label: "Daily earning cap", value: "1,000 credits" },
-      { label: "Daily fetch rewards", value: "1,000" },
-      { label: "Publish rate", value: "30/min" },
-      { label: "Priority access", value: "Priority under load" },
-      { label: "KG query rate", value: "500 req/day" },
-      { label: "Sandbox access", value: true },
-      { label: "Webhooks", value: true },
-      { label: "API rate limit", value: "1,000 req/hour" },
-      { label: "Priority support", value: false },
-    ],
-    cta: "Go premium",
-    ctaHref: "/register?plan=premium",
-    highlight: true,
-  },
-  {
-    id: "ultra",
-    name: "Ultra",
-    description: "Scale without limits. Unlocked everything.",
-    credits: "10,000 credits/month",
-    price: "Ultra",
-    features: [
-      { label: "Publishes/month", value: "1,000" },
-      { label: "Daily earning cap", value: "2,000 credits" },
-      { label: "Daily fetch rewards", value: "5,000" },
-      { label: "Publish rate", value: "60/min" },
-      { label: "Priority access", value: "Always instant" },
-      { label: "KG query rate", value: "Unlimited" },
-      { label: "Sandbox access", value: true },
-      { label: "Webhooks", value: true },
-      { label: "API rate limit", value: "10,000 req/hour" },
-      { label: "Priority support", value: true },
-    ],
-    cta: "Go ultra",
-    ctaHref: "/register?plan=ultra",
-    highlight: false,
-  },
-];
+import { PLANS } from "@/lib/plans";
 
 const EARN_CREDITS = [
   { label: "Account registration", value: "+100 credits" },
