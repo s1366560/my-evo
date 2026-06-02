@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -108,10 +109,6 @@ const nextConfig: NextConfig = {
   // ===== PERFORMANCE: Build optimizations =====
   poweredByHeader: false,
 
-  // ===== PERFORMANCE: Bundle analysis and optimization =====
-  // Enable strict mode for better tree-shaking
-  swcMinify: true,
-
   // ===== PERFORMANCE: React strict mode for development =====
   reactStrictMode: true,
 
@@ -135,6 +132,14 @@ const nextConfig: NextConfig = {
         // 308 (permanent) from /economics to /credits.
         source: '/economics',
         destination: '/credits',
+        permanent: true,
+      },
+      {
+        // /pricing and /subscription had two conflicting plan definitions.
+        // The single source of truth now lives in /pricing. /subscription
+        // 308-redirects to /pricing so users always see the same plan cards.
+        source: '/subscription',
+        destination: '/pricing',
         permanent: true,
       },
     ];
