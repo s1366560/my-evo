@@ -62,9 +62,9 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - "echo '[docker-build] Checking for Docker socket availability...'"
-      - "if [ ! -S /var/run/docker.sock ]; then echo '[docker-build] SKIP: no /var/run/docker.sock on runner'; exit 0; fi"
-      - "echo '[docker-build] Docker socket detected. Building backend image...'"
+      - "echo '[docker-build] Checking for Docker daemon availability...'"
+      - "if ! docker info >/dev/null 2>&1; then echo '[docker-build] SKIP: Docker daemon not available on this runner'; exit 0; fi"
+      - "echo '[docker-build] Docker daemon detected. Building backend image...'"
       - "docker build -t my-evo:drone-docker-e2e -t my-evo:latest -f Dockerfile ."
       - "echo '[docker-build] Backend image built successfully'"
     when:
@@ -80,9 +80,9 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - "echo '[docker-build-frontend] Checking for Docker socket availability...'"
-      - "if [ ! -S /var/run/docker.sock ]; then echo '[docker-build-frontend] SKIP: no /var/run/docker.sock on runner'; exit 0; fi"
-      - "echo '[docker-build-frontend] Docker socket detected. Building frontend image...'"
+      - "echo '[docker-build-frontend] Checking for Docker daemon availability...'"
+      - "if ! docker info >/dev/null 2>&1; then echo '[docker-build-frontend] SKIP: Docker daemon not available on this runner'; exit 0; fi"
+      - "echo '[docker-build-frontend] Docker daemon detected. Building frontend image...'"
       - "docker build -t my-evo-frontend:drone-docker-e2e -t my-evo-frontend:latest -f frontend/Dockerfile ./frontend"
       - "echo '[docker-build-frontend] Frontend image built successfully'"
     when:
@@ -102,8 +102,8 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - "echo '[deploy] Checking for Docker socket availability...'"
-      - "if [ ! -S /var/run/docker.sock ]; then echo '[deploy] SKIP: no /var/run/docker.sock on runner'; exit 0; fi"
+      - "echo '[deploy] Checking for Docker daemon availability...'"
+      - "if ! docker info >/dev/null 2>&1; then echo '[deploy] SKIP: Docker daemon not available on this runner'; exit 0; fi"
       - "echo '[deploy] Cleanup: kill prior containers, drop workspace network...'"
       - "docker ps -a --format '{{.Names}}' | grep -E '^(evomap-|my-evo-|workspace-|drone-)' | xargs -r docker rm -f 2>/dev/null || true"
       - "docker compose -f docker-compose.yml down -v --remove-orphans 2>/dev/null || true"
@@ -149,8 +149,8 @@ steps:
       E2E_BASE_URL: http://host.docker.internal:18081
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     commands:
-      - "echo '[e2e-test] Checking if deployment is available...'"
-      - "if [ ! -S /var/run/docker.sock ]; then echo '[e2e-test] SKIP: no Docker socket, deployment was skipped'; exit 0; fi"
+      - "echo '[e2e-test] Checking if Docker deployment is available...'"
+      - "if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then echo '[e2e-test] SKIP: Docker not available, deployment was skipped'; exit 0; fi"
       - cd frontend
       - npm install --silent
       - "npx playwright install chromium --with-deps"
