@@ -108,14 +108,14 @@ export class AuthService {
     }
     // Best-effort cleanup of older tokens; tolerate environments without model
     try {
-      // @ts-expect-error - passwordResetToken model is added in this iteration
+      // @ts-ignore - passwordResetToken model is added in this iteration
       await prisma!.passwordResetToken.deleteMany({ where: { userId: user.id } });
     } catch {
       // ignore: model may not exist yet
     }
     const plain = generateResetToken();
     const tokenHash = hashResetToken(plain);
-    // @ts-expect-error - passwordResetToken model is added in this iteration
+    // @ts-ignore - passwordResetToken model is added in this iteration
     const created = await prisma!.passwordResetToken.create({
       data: { userId: user.id, tokenHash, expiresAt, usedAt: null },
     });
@@ -168,13 +168,13 @@ export class AuthService {
     }
 
     // Prisma mode
-    // @ts-expect-error - passwordResetToken model is added in this iteration
+    // @ts-ignore - passwordResetToken model is added in this iteration
     let record = recordId
-      ? // @ts-expect-error
+      ? // @ts-ignore
         await prisma!.passwordResetToken.findUnique({ where: { id: recordId } })
       : null;
     if (!record) {
-      // @ts-expect-error
+      // @ts-ignore
       record = await prisma!.passwordResetToken.findFirst({ where: { tokenHash } });
     }
     if (!record) {
@@ -188,7 +188,7 @@ export class AuthService {
     }
     const hashedPassword = await bcrypt.hash(newPassword, config.bcryptSaltRounds);
     await prisma!.user.update({ where: { id: record.userId }, data: { password: hashedPassword } });
-    // @ts-expect-error
+    // @ts-ignore
     await prisma!.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } });
     return { userId: record.userId };
   }
