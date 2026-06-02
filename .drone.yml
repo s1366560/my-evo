@@ -110,7 +110,7 @@ steps:
       - "echo '[deploy] Checking for Docker daemon availability...'"
       - "if ! docker info >/dev/null 2>&1; then echo '[deploy] SKIP: Docker daemon not available on this runner'; exit 0; fi"
       - "echo '[deploy] Cleanup: kill prior containers, drop workspace network...'"
-      - "docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^(evomap-|my-evo-|workspace-|drone-)' | xargs -r docker rm -f 2>/dev/null || true"
+      - "docker rm -f drone-postgres drone-redis drone-backend drone-frontend evomap-postgres evomap-redis evomap-backend evomap-frontend my-evo my-evo-frontend 2>/dev/null || true"
       - "docker compose -f docker-compose.yml down -v --remove-orphans 2>/dev/null || true"
       - "docker network rm workspace-deploy 2>/dev/null || true"
       - "docker network prune -f 2>/dev/null || true"
