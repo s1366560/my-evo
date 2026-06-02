@@ -89,6 +89,14 @@ else
   START_CMD="exec node dist/index.js"
 fi
 
+# If port is already bound (a previous smoke run left a process), kill it
+# and re-check so the new process can bind. This makes the script idempotent.
+if fuser "${BACKEND_PORT}/tcp" >/dev/null 2>&1; then
+  ylw "  port ${BACKEND_PORT} already in use, killing stale process"
+  fuser -k "${BACKEND_PORT}/tcp" >/dev/null 2>&1 || true
+  sleep 1
+fi
+
 ( cd "$BACKEND_DIR" \
   && setsid env -u DATABASE_URL sh -lc "$START_CMD" \
        > "$BACKEND_LOG" 2>&1 < /dev/null & echo $! > "$BACKEND_PID_FILE" )
