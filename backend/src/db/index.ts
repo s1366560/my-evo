@@ -3,7 +3,7 @@ let _prisma: PrismaClient | null = null;
 // eslint-disable-next-line prefer-const
 export let prisma: PrismaClient | null = _prisma; // For Prisma-based code compatibility
 export const getPrisma = (): PrismaClient | null => _prisma;
-export const isMockMode = (): boolean => !process.env.DATABASE_URL;
+export const isMockMode = (): boolean => prisma === null;
 
 export const connectDatabase = async (): Promise<void> => {
   if (!process.env.DATABASE_URL) {
