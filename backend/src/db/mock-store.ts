@@ -21,6 +21,11 @@ export class MockStore {
     return null;
   }
   async findUserById(id: string): Promise<MockUser|null> { return this.users.get(id) || null; }
+  async updateUser(id: string, data: Partial<MockUser>): Promise<MockUser|null> {
+    const u = this.users.get(id); if (!u) return null;
+    const updated = { ...u, ...data, updatedAt: new Date() };
+    this.users.set(id, updated); return updated;
+  }
 
   async createMap(data: Omit<MockMap, 'id'|'createdAt'|'updatedAt'>): Promise<MockMap> {
     const m: MockMap = { ...data, id: this.genId('map'), createdAt: new Date(), updatedAt: new Date() };

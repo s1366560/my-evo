@@ -3,7 +3,7 @@
 # ============================================================
 
 # ---- Build Stage ----
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ COPY . .
 RUN npm run build
 
 # ---- Production Stage (Static) ----
-FROM node:18-alpine AS production
+FROM node:20-alpine AS production
 
 # Security: create non-root user
 RUN addgroup -g 1001 -S evomap && adduser -S evomap -u 1001

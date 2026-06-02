@@ -18,6 +18,7 @@ steps:
     image: node:20-alpine
     commands:
       - "set -e"
+      - "set -o pipefail"
       - node --version
       - npm --version
       - test -f package.json
@@ -26,14 +27,15 @@ steps:
       - test -f .drone.yml
       - test -f Dockerfile
       - test -f frontend/Dockerfile
-      - node -e 'const fs=require("fs"); for (const f of ["package.json","backend/package.json","frontend/package.json"]) { const pkg=JSON.parse(fs.readFileSync(f,"utf8")); if (!pkg.scripts || Object.keys(pkg.scripts).length === 0) throw new Error(f + " has no scripts"); }'
-      - "echo '[repository-smoke] Structure verification complete (8/8 checks passed).'"
+      - "node -e 'const fs=require(\"fs\"); for (const f of [\"package.json\",\"backend/package.json\",\"frontend/package.json\"]) { const pkg=JSON.parse(fs.readFileSync(f,\"utf8\")); if (!pkg.scripts || Object.keys(pkg.scripts).length === 0) throw new Error(f + \" has no scripts\"); }'"
+      - "echo '[repository-smoke] Structure verification complete (9/9 checks passed).'"
+
 
   - name: backend-test
     image: node:20-alpine
     commands:
       - cd backend
-      - npm install --silent
+      - "for i in 1 2 3; do npm install --silent && break || sleep 5; done"
       - npm test
     when:
       event:
@@ -44,44 +46,46 @@ steps:
     image: node:20-alpine
     commands:
       - cd frontend
-      - npm install --silent
+      - "for i in 1 2 3; do npm install --silent && break || sleep 5; done"
       - npm run build
     when:
       event:
         - push
         - custom
 
+
   - name: docker-build
-    image: plugins/docker:20
-    settings:
-      repo: host.docker.internal:5001/my-evo
-      tags:
-        - drone-docker-e2e
-        - latest
-      registry: host.docker.internal:5001
-      insecure: true
-      purge: true
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - name: docker-sock
+        path: /var/run/docker.sock
+    commands:
+      - "echo '[docker-build] Building backend image with docker CLI...'"
+      - "docker build -t my-evo:drone-docker-e2e -t my-evo:latest -f Dockerfile ."
+      - "echo '[docker-build] Backend image built successfully (local tag)'"
     when:
       event:
         - push
         - custom
 
   - name: docker-build-frontend
-    image: plugins/docker:20
-    settings:
-      repo: host.docker.internal:5001/my-evo-frontend
-      tags:
-        - drone-docker-e2e
-        - latest
-      registry: host.docker.internal:5001
-      insecure: true
-      purge: true
-      dockerfile: frontend/Dockerfile
-      context: ./frontend
+    image: docker:cli
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - name: docker-sock
+        path: /var/run/docker.sock
+    commands:
+      - "echo '[docker-build-frontend] Building frontend image with docker CLI...'"
+      - "docker build -t my-evo-frontend:drone-docker-e2e -t my-evo-frontend:latest -f frontend/Dockerfile ./frontend"
+      - "echo '[docker-build-frontend] Frontend image built successfully (local tag)'"
     when:
       event:
         - push
         - custom
+
 
   - name: deploy
     image: docker:cli
@@ -94,60 +98,44 @@ steps:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
-      - "echo '[deploy] Full cleanup: kill containers, remove networks, clean volumes...'"
+      - "echo '[deploy] Cleanup: kill prior containers, drop workspace network...'"
       - "docker ps -a --format '{{.Names}}' | grep -E '^(evomap-|my-evo-|workspace-|drone-)' | xargs -r docker rm -f 2>/dev/null || true"
       - "docker compose -f docker-compose.yml down -v --remove-orphans 2>/dev/null || true"
       - "docker network rm workspace-deploy 2>/dev/null || true"
-      - "docker network rm evomap-network 2>/dev/null || true"
       - "docker network prune -f 2>/dev/null || true"
-      - "echo '[deploy] Cleanup complete.'"
       - "sleep 3"
       - "echo '[deploy] Creating workspace network...'"
       - "docker network create workspace-deploy 2>/dev/null || true"
-      - "echo '[deploy] Starting postgres sidecar on workspace network (no host port)...'"
-      - "docker run -d --name drone-postgres --network workspace-deploy --memory=256m --memory-swap=256m --pids-limit=64 -e POSTGRES_USER=evomap -e POSTGRES_PASSWORD=evomap -e POSTGRES_DB=evomap postgres:16-alpine"
-      - "echo '[deploy] Starting redis sidecar on workspace network (no host port)...'"
-      - "docker run -d --name drone-redis --network workspace-deploy --memory=128m --memory-swap=128m --pids-limit=64 redis:7-alpine"
+      - "echo '[deploy] Starting postgres sidecar (no host port, no memory cap)...'"
+      - "docker run -d --name drone-postgres --network workspace-deploy -e POSTGRES_USER=evomap -e POSTGRES_PASSWORD=evomap -e POSTGRES_DB=evomap postgres:16-alpine"
+      - "echo '[deploy] Starting redis sidecar (no host port, no memory cap)...'"
+      - "docker run -d --name drone-redis --network workspace-deploy redis:7-alpine"
       - "echo '[deploy] Waiting for postgres to be ready...'"
       - "for i in $(seq 1 30); do docker exec drone-postgres pg_isready -U evomap >/dev/null 2>&1 && break || sleep 1; done"
-      - "echo '[deploy] Pulling images from registry...'"
-      - "docker pull host.docker.internal:5001/my-evo:drone-docker-e2e || echo '[deploy] Registry pull failed, building locally...'"
-      - "docker pull host.docker.internal:5001/my-evo:latest || echo '[deploy] latest tag not found, using drone-docker-e2e...'"
-      - "docker pull host.docker.internal:5001/my-evo-frontend:drone-docker-e2e || echo '[deploy] Frontend registry pull failed, building locally...'"
-      - "docker pull host.docker.internal:5001/my-evo-frontend:latest || echo '[deploy] Frontend latest tag not found...'"
-      - "docker tag host.docker.internal:5001/my-evo:drone-docker-e2e my-evo:drone-docker-e2e 2>/dev/null || true"
-      - "docker tag host.docker.internal:5001/my-evo:latest my-evo:latest 2>/dev/null || true"
-      - "docker tag host.docker.internal:5001/my-evo-frontend:drone-docker-e2e my-evo-frontend:drone-docker-e2e 2>/dev/null || true"
-      - "docker tag host.docker.internal:5001/my-evo-frontend:latest my-evo-frontend:latest 2>/dev/null || true"
-      - "docker images | grep my-evo || echo '[deploy] No pre-built images found, building locally...'"
-      - "docker inspect my-evo:latest >/dev/null 2>&1 || docker build -t my-evo:drone-docker-e2e -t my-evo:latest -f Dockerfile ."
-      - "docker inspect my-evo-frontend:latest >/dev/null 2>&1 || docker build -t my-evo-frontend:drone-docker-e2e -t my-evo-frontend:latest -f frontend/Dockerfile ./frontend"
-      - "echo '[deploy] Tagging images...'"
-      - "docker tag my-evo:latest my-evo:drone-docker-e2e 2>/dev/null || true"
-      - "docker tag my-evo-frontend:latest my-evo-frontend:drone-docker-e2e 2>/dev/null || true"
-      - "echo '[deploy] Starting backend on host port 18080...'"
-      - "docker run -d --name drone-backend --network workspace-deploy -p 18080:3001 --memory=512m --memory-swap=512m --pids-limit=128 -e NODE_ENV=production -e PORT=3001 -e DATABASE_URL=postgresql://evomap:evomap@drone-postgres:5432/evomap -e REDIS_URL=redis://drone-redis:6379 -e NODE_SECRET=dev-jwt-secret -e SESSION_SECRET=dev-session-secret my-evo:drone-docker-e2e"
+      - "echo '[deploy] Verifying locally-built images from docker-build steps...'"
+      - "docker images | grep -E '^(my-evo|my-evo-frontend)' || { echo '[deploy] ERROR: no locally-built my-evo images'; exit 1; }"
+      - "echo '[deploy] Starting backend on host port 18080 (no memory cap, sequential start)...'"
+      - "docker run -d --name drone-backend --network workspace-deploy -p 18080:3001 -e NODE_ENV=production -e PORT=3001 -e DATABASE_URL=postgresql://evomap:evomap@drone-postgres:5432/evomap -e REDIS_URL=redis://drone-redis:6379 -e NODE_SECRET=dev-jwt-secret -e SESSION_SECRET=dev-session-secret my-evo:drone-docker-e2e"
       - "sleep 5"
-      - "echo '[deploy] Checking backend container status...'"
+      - "echo '[deploy] Backend container status:'"
       - "docker ps --filter name=drone-backend --format '{{.Status}}'"
-      - "echo '[deploy] Backend container logs (last 20 lines)...'"
+      - "echo '[deploy] Backend container logs (last 20 lines):'"
       - "docker logs drone-backend 2>&1 | tail -20 || true"
-      - "echo '[deploy] Backend container inspect (exit code/state)...'"
-      - "docker inspect drone-backend --format '{{.State.ExitCode}} {{.State.Status}}' 2>&1 || true"
-      - "echo '[deploy] Starting frontend on host port 18081...'"
-      - "docker run -d --name drone-frontend --network workspace-deploy -p 18081:3000 --memory=256m --memory-swap=256m --pids-limit=64 -e NODE_ENV=production -e NEXT_PUBLIC_API_URL=http://drone-backend:3001 my-evo-frontend:drone-docker-e2e"
+      - "echo '[deploy] Starting frontend on host port 18081 (no memory cap, sequential start)...'"
+      - "docker run -d --name drone-frontend --network workspace-deploy -p 18081:3000 -e NODE_ENV=production -e NEXT_PUBLIC_API_URL=http://drone-backend:3001 my-evo-frontend:drone-docker-e2e"
       - "sleep 3"
-      - "echo '[deploy] Checking frontend container status...'"
+      - "echo '[deploy] Frontend container status:'"
       - "docker ps --filter name=drone-frontend --format '{{.Status}}'"
       - "echo '[deploy] Waiting for backend health...'"
-      - "for i in $(seq 1 30); do docker exec drone-backend wget -qO- http://localhost:3001/health 2>/dev/null && break || sleep 2; done || { echo '[deploy] Backend health timeout'; docker logs drone-backend 2>&1 | tail -30; }"
+      - "for i in $(seq 1 30); do docker exec drone-backend wget -qO- http://localhost:3001/health 2>/dev/null && break || sleep 2; done || { echo '[deploy] Backend health timeout'; docker logs drone-backend 2>&1 | tail -30; exit 1; }"
       - "echo '[deploy] Waiting for frontend health...'"
-      - "for i in $(seq 1 30); do docker exec drone-frontend wget -qO- http://localhost:3000 2>/dev/null && break || sleep 2; done || { echo '[deploy] Frontend health timeout'; docker logs drone-frontend 2>&1 | tail -30; }"
+      - "for i in $(seq 1 30); do docker exec drone-frontend wget -qO- http://localhost:3000 2>/dev/null && break || sleep 2; done || { echo '[deploy] Frontend health timeout'; docker logs drone-frontend 2>&1 | tail -30; exit 1; }"
       - "echo '[deploy] Deployment verification complete'"
     when:
       event:
         - push
         - custom
+
 
   - name: e2e-test
     image: node:20-alpine
@@ -156,11 +144,12 @@ steps:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     commands:
       - cd frontend
-      - "npm install --silent"
+      - npm install --silent
       - "npx playwright install chromium --with-deps"
       - "npx playwright test --config playwright.test.config.ts --reporter=list 2>&1 | tee /tmp/e2e-output.txt"
       - "echo '--- E2E Test Summary ---'"
-      - grep -E "(passed|failed|\d+ test)" /tmp/e2e-output.txt || true
+      - >-
+        grep -E '(passed|failed|[0-9]+ test)' /tmp/e2e-output.txt || true
     when:
       event:
         - push
