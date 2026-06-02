@@ -171,3 +171,231 @@ describe('AssetService (mock mode)', () => {
     expect(byText.data.length).toBe(2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HTTP / route-level tests for the assets controller.
+import express from 'express';
+import http from 'node:http';
+import jwt from 'jsonwebtoken';
+import { config } from '../config/index.js';
+import { mockStore } from '../db/mock-store.js';
+import { assetRouter } from './routes.js';
+
+function buildApp() {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/v1/assets', assetRouter);
+  const server = app.listen(0);
+  const addr = server.address();
+  const port = typeof addr === 'object' && addr ? addr.port : 0;
+  return { port, close: () => server.close() };
+}
+
+function authHeader(userId = 'user_test_1') {
+  const token = jwt.sign({ userId, email: 't@example.com', role: 'user' }, config.jwtSecret, { expiresIn: '1h' });
+  return { authorization: `Bearer ${token}` };
+}
+
+function req(opts: { port: number; method: string; path: string; body?: unknown; headers?: Record<string, string> }) {
+  return new Promise<{ status: number; body: any }>((resolve, reject) => {
+    const data = opts.body !== undefined ? JSON.stringify(opts.body) : null;
+    const r = http.request({
+      hostname: '127.0.0.1', port: opts.port, path: opts.path, method: opts.method,
+      headers: { 'content-type': 'application/json', ...(data ? { 'content-length': Buffer.byteLength(data) } : {}), ...(opts.headers || {}) },
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf-8');
+        let body: any = text;
+        try { body = JSON.parse(text); } catch { /* keep text */ }
+        resolve({ status: res.statusCode || 0, body });
+      });
+    });
+    r.on('error', reject);
+    if (data) r.write(data);
+    r.end();
+  });
+}
+
+describe('Asset routes (in-process HTTP)', () => {
+  let port: number; let close: () => void;
+  beforeEach(() => { const t = buildApp(); port = t.port; close = t.close; });
+  afterEach(() => close());
+
+  test('GET / lists assets (200, public)', async () => {
+    const r = await req({ port, method: 'GET', path: '/api/v1/assets' });
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+    expect(Array.isArray(r.body.data)).toBe(true);
+  });
+
+  test('GET /?type=Gene filters by type', async () => {
+    const r = await req({ port, method: 'GET', path: '/api/v1/assets?type=Gene' });
+    expect(r.status).toBe(200);
+  });
+
+  test('GET /?status=draft filters by status', async () => {
+    const r = await req({ port, method: 'GET', path: '/api/v1/assets?status=draft' });
+    expect(r.status).toBe(200);
+  });
+
+  test('GET /:assetId returns 404 for unknown asset', async () => {
+    const r = await req({ port, method: 'GET', path: '/api/v1/assets/00000000-0000-0000-0000-000000000000' });
+    expect(r.status).toBe(404);
+  });
+
+  test('POST / rejects anonymous (401)', async () => {
+    const r = await req({ port, method: 'POST', path: '/api/v1/assets', body: { title: 'X', type: 'Gene' } });
+    expect(r.status).toBe(401);
+  });
+
+  test('POST / creates a draft asset (201)', async () => {
+    const r = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader(),
+      body: { title: 'My Gene', type: 'Gene', description: 'd' },
+    });
+    expect(r.status).toBe(201);
+    expect(r.body.data.title).toBe('My Gene');
+    expect(r.body.data.status).toBe('draft');
+  });
+
+  test('POST / validates missing title (400)', async () => {
+    const r = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader(),
+      body: { type: 'Gene' },
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test('POST / validates invalid type (400)', async () => {
+    const r = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader(),
+      body: { title: 'T', type: 'Invalid' },
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test('GET /:assetId returns the asset after creation', async () => {
+    const create = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader(),
+      body: { title: 'L', type: 'Capsule' },
+    });
+    const id = create.body.data.id;
+    const r = await req({ port, method: 'GET', path: `/api/v1/assets/${id}` });
+    expect(r.status).toBe(200);
+    expect(r.body.data.id).toBe(id);
+  });
+
+  test('PATCH /:assetId updates the asset', async () => {
+    const create = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader(),
+      body: { title: 'orig', type: 'Gene' },
+    });
+    const id = create.body.data.id;
+    const r = await req({
+      port, method: 'PATCH', path: `/api/v1/assets/${id}`, headers: authHeader(),
+      body: { title: 'new' },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.data.title).toBe('new');
+  });
+
+  test('POST /:assetId/publish creates a version (201)', async () => {
+    const create = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader(),
+      body: { title: 'P', type: 'Recipe' },
+    });
+    const id = create.body.data.id;
+    const r = await req({
+      port, method: 'POST', path: `/api/v1/assets/${id}/publish`, headers: authHeader(),
+      body: { changelog: 'first' },
+    });
+    expect(r.status).toBe(201);
+    expect(r.body.data.versionNo).toBe(1);
+  });
+
+  test('GET /:assetId/versions lists version history', async () => {
+    const create = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader(),
+      body: { title: 'V', type: 'Gene' },
+    });
+    const id = create.body.data.id;
+    await req({
+      port, method: 'POST', path: `/api/v1/assets/${id}/publish`, headers: authHeader(),
+      body: { changelog: 'v1' },
+    });
+    const r = await req({ port, method: 'GET', path: `/api/v1/assets/${id}/versions` });
+    expect(r.status).toBe(200);
+    expect(r.body.data).toHaveLength(1);
+  });
+
+  test('POST /:assetId/recycle recycles the asset', async () => {
+    const create = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader(),
+      body: { title: 'R', type: 'Gene' },
+    });
+    const id = create.body.data.id;
+    const r = await req({
+      port, method: 'POST', path: `/api/v1/assets/${id}/recycle`, headers: authHeader(),
+      body: {},
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.data.status).toBe('recycled');
+  });
+
+  test('POST /:assetId/reviews rejects review of unpublished asset (400)', async () => {
+    const create = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader('author-id'),
+      body: { title: 'Q', type: 'Gene' },
+    });
+    const id = create.body.data.id;
+    const r = await req({
+      port, method: 'POST', path: `/api/v1/assets/${id}/reviews`, headers: authHeader('reviewer-id'),
+      body: { rating: 5, comment: 'great' },
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test('POST /:assetId/purchase rejects self-purchase (400)', async () => {
+    const uid = 'author-2';
+    const create = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader(uid),
+      body: { title: 'P', type: 'Gene', price: 100 },
+    });
+    const id = create.body.data.id;
+    await req({
+      port, method: 'POST', path: `/api/v1/assets/${id}/publish`, headers: authHeader(uid),
+      body: { changelog: 'v1' },
+    });
+    const r = await req({
+      port, method: 'POST', path: `/api/v1/assets/${id}/purchase`, headers: authHeader(uid),
+      body: {},
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test('POST /:assetId/purchase succeeds with a different user (201)', async () => {
+    // Pre-create the buyer with 500 credits (in the same store the controller reads from)
+    const hashed = await (await import('bcryptjs')).default.hash('Password123!', 4);
+    const buyer = await mockStore.createUser({
+      email: 'prebuyer-3@e.com', password: hashed, name: 'PreBuyer3',
+      level: 1, reputation: 0, credits: 500,
+    });
+    const create = await req({
+      port, method: 'POST', path: '/api/v1/assets', headers: authHeader('author-3'),
+      body: { title: 'P', type: 'Gene', price: 100 },
+    });
+    const id = create.body.data.id;
+    await req({
+      port, method: 'POST', path: `/api/v1/assets/${id}/publish`, headers: authHeader('author-3'),
+      body: { changelog: 'v1' },
+    });
+    const r = await req({
+      port, method: 'POST', path: `/api/v1/assets/${id}/purchase`, headers: authHeader(buyer.id),
+      body: { idempotencyKey: 'k_real_12345' },
+    });
+    expect(r.status).toBe(201);
+    expect(r.body.data.status).toBe('completed');
+  });
+});
