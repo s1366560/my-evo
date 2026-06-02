@@ -214,4 +214,17 @@ test.describe("E2E Journey", () => {
     expect(body!.length).toBeGreaterThan(20);
   });
 
+  test("21 URL parity -- /economics redirects 308 to /credits (200)", async ({ page }) => {
+    // URL parity nit with evomap.ai: /economics should 308-redirect to /credits
+    // and the final page should respond with HTTP 200.
+    injectAuth(page);
+    const resp = await page.goto(`${BASE}/economics`, { waitUntil: "load", timeout: 30000 });
+    // Wait for the final URL to settle on /credits after the 308 redirect.
+    await page.waitForURL(/\/credits$/, { timeout: 15000 });
+    // Final request (after 308) should be 200.
+    expect(resp!.status()).toBe(200);
+    // Final URL should be /credits, not /economics.
+    expect(new URL(page.url()).pathname).toBe("/credits");
+  });
+
 }); // end E2E Journey

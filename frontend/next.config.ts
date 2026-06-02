@@ -129,6 +129,14 @@ const nextConfig: NextConfig = {
         destination: '/',
         permanent: true,
       },
+      {
+        // URL parity with evomap.ai: /economics is the legacy/alias name.
+        // Internal links and the page source live at /credits, so redirect
+        // 308 (permanent) from /economics to /credits.
+        source: '/economics',
+        destination: '/credits',
+        permanent: true,
+      },
     ];
   },
 };
