@@ -7,6 +7,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Cap Node.js heap to fit within constrained Drone runner
+ENV NODE_OPTIONS="--max-old-space-size=1500"
+ENV NEXT_TELEMETRY_DISABLED=1
+
 # Copy package files
 COPY package*.json ./
 

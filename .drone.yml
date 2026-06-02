@@ -58,13 +58,16 @@ steps:
     image: docker:cli
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_BUILDKIT: "1"
+      BUILDKIT_PROGRESS: plain
+      NODE_OPTIONS: "--max-old-space-size=1500"
     volumes:
       - name: docker-sock
         path: /var/run/docker.sock
     commands:
       - "echo '[docker-build] Checking for Docker daemon availability...'"
       - "if ! docker info >/dev/null 2>&1; then echo '[docker-build] SKIP: Docker daemon not available on this runner'; exit 0; fi"
-      - "echo '[docker-build] Docker daemon detected. Building backend image...'"
+      - "echo '[docker-build] Docker daemon detected. Building backend image (BuildKit + lowmem)...'"
       - "docker build -t my-evo:drone-docker-e2e -t my-evo:latest -f Dockerfile ."
       - "echo '[docker-build] Backend image built successfully'"
     when:

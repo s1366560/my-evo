@@ -7,6 +7,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Cap Node.js heap to fit within constrained Drone runner (1.5GB)
+ENV NODE_OPTIONS="--max-old-space-size=1500"
+
 # Install build tools
 RUN apk add --no-cache python3 make g++
 
