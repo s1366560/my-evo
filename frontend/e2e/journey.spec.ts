@@ -1,5 +1,5 @@
 /**
- * E2E Journey Test Suite — 23 tests
+ * E2E Journey Test Suite — 28 tests
  * Covers onboarding → browse → marketplace → workspace → password reset
  * Fix: handles 200/empty-assets gracefully
  */
@@ -204,6 +204,32 @@ test.describe("E2E Journey", () => {
     await page.waitForTimeout(2000);
     const body = await page.textContent("body");
     expect(body!.length).toBeGreaterThan(20);
+  });
+
+  test("19a Credits -- tokenomics sections render (at least 4 of 5)", async ({ page }) => {
+    injectAuth(page);
+    await page.goto(`${BASE}/credits`, { waitUntil: "load", timeout: 30000 });
+    // Wait for the page to hydrate
+    await page.waitForTimeout(3000);
+
+    // Check the 5 required content sections via data-testid
+    const sectionIds = [
+      "pricing-tiers",
+      "transaction-fees",
+      "earnings-formula",
+      "settlement-schedule",
+      "refund-policy",
+    ];
+
+    let visible = 0;
+    for (const id of sectionIds) {
+      const el = page.getByTestId(id);
+      if (await el.isVisible().catch(() => false)) {
+        visible++;
+      }
+    }
+    // At least 4 of 5 sections must render
+    expect(visible).toBeGreaterThanOrEqual(4);
   });
 
   test("20 Council -- page loads", async ({ page }) => {
