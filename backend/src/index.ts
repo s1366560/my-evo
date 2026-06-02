@@ -12,6 +12,7 @@ import { graphRouter } from './routes/graph.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { aiRouter } from './routes/ai.js';
 import { exportRouter } from './routes/export.js';
+import { assetRouter } from './assets/routes.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
@@ -45,6 +46,8 @@ app.use('/api/v1/map', mapRouter);
 app.use('/api/v1/graph', graphRouter);
 app.use('/api/v1/ai', aiRouter);
 app.use('/api/v1/export', exportRouter);
+app.use('/api/v1/assets', assetRouter);
+app.use('/api/v1/marketplace', assetRouter);
 app.use('/api/v2/dashboard', dashboardRouter);
 
 app.use(notFoundHandler);

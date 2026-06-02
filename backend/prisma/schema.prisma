@@ -33,6 +33,8 @@ model User {
   votes       Vote[]
   sessions    Session[]
   passwordResetTokens PasswordResetToken[]
+  assetReviews    AssetReview[]
+  assetPurchases  AssetPurchase[]
 
   @@map("users")
 }
@@ -142,17 +144,26 @@ model Edge {
   @@map("edges")
 }
 
-// Asset model
+// Asset model — GEP protocol base (Gene / Capsule / Recipe share this shape)
 model Asset {
   id          String   @id @default(uuid())
   title       String
   description String?
+  // GEP type: 'Gene' | 'Capsule' | 'Recipe'
   type        String
+  // Optional GEP subkind (e.g. 'strategy', 'tool', 'workflow')
+  kind        String?
   content     String?
   url         String?
   metadata    Json     @default("{}")
   published   Boolean  @default(false)
+  // null = free, >0 = paid asset priced in credits
   price       Float?
+  // Lifecycle: 'draft' | 'published' | 'recycled'
+  status      String   @default("draft")
+  // Currently published version pointer (denormalized for cheap reads)
+  publishedVersionId String? @unique
+  publishedVersion   AssetVersion? @relation("AssetPublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
 
   authorId    String
   author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -164,10 +175,106 @@ model Asset {
   updatedAt   DateTime @updatedAt
 
   votes       Vote[]
+  versions    AssetVersion[] @relation("AssetVersions")
+  reviews     AssetReview[]
+  purchases   AssetPurchase[]
 
   @@index([authorId])
   @@index([nodeId])
+  @@index([type])
+  @@index([status])
+  @@index([published])
   @@map("assets")
+}
+
+// Asset version — immutable snapshot per publish
+model AssetVersion {
+  id           String   @id @default(uuid())
+  assetId      String
+  asset        Asset    @relation("AssetVersions", fields: [assetId], references: [id], onDelete: Cascade)
+  // Monotonically increasing per asset, starts at 1
+  versionNo    Int
+  // Snapshot of the editable fields at publish time
+  title        String
+  description  String?
+  content      String?
+  url          String?
+  metadata     Json     @default("{}")
+  price        Float?
+  // Author of this specific version (can differ from current asset author after transfer)
+  authorId     String
+  // Optional changelog / release notes
+  changelog    String?
+  createdAt    DateTime @default(now())
+
+  steps        RecipeStep[] @relation("VersionSteps")
+  publishedFor Asset?       @relation("AssetPublishedVersion")
+
+  @@unique([assetId, versionNo])
+  @@index([assetId])
+  @@map("asset_versions")
+}
+
+// Recipe step — only used when asset.type = 'Recipe'
+model RecipeStep {
+  id           String   @id @default(uuid())
+  versionId    String
+  version      AssetVersion @relation("VersionSteps", fields: [versionId], references: [id], onDelete: Cascade)
+  // 1-based ordering
+  order        Int
+  // Step type: 'prompt' | 'tool_call' | 'http' | 'note'
+  kind         String
+  title        String
+  // Step body — interpreted based on kind
+  body         String
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now())
+
+  @@unique([versionId, order])
+  @@index([versionId])
+  @@map("recipe_steps")
+}
+
+// Asset review — user rating + optional comment
+model AssetReview {
+  id          String   @id @default(uuid())
+  assetId     String
+  asset       Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 1..5 stars
+  rating      Int
+  comment     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([assetId, userId])
+  @@index([assetId])
+  @@index([userId])
+  @@map("asset_reviews")
+}
+
+// Asset purchase — append-only transaction log
+model AssetPurchase {
+  id            String   @id @default(uuid())
+  assetId       String
+  asset         Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  // versionId the buyer received (denormalized for receipts)
+  versionId     String
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Price paid in credits at purchase time (snapshot)
+  pricePaid     Float
+  // 'completed' | 'refunded'
+  status        String   @default("completed")
+  // Optional idempotency key
+  idempotencyKey String?  @unique
+  createdAt     DateTime @default(now())
+
+  @@index([assetId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("asset_purchases")
 }
 
 // Vote model

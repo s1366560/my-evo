@@ -1,5 +1,6 @@
 // In-memory mock store
 import { MockUser, MockMap, MockNode, MockEdge, MockPasswordResetToken } from './index.js';
+import type { AssetDto, AssetVersionDto, AssetReviewDto, AssetPurchaseDto } from '../shared/types.js';
 
 export class MockStore {
   users = new Map<string, MockUser>();
@@ -7,6 +8,14 @@ export class MockStore {
   nodes = new Map<string, MockNode>();
   edges = new Map<string, MockEdge>();
   passwordResetTokens = new Map<string, MockPasswordResetToken>();
+  // Asset marketplace state (see assets/service.ts)
+  assetDtos = new Map<string, AssetDto>();
+  /** assetId -> versions */
+  assetVersionDtos = new Map<string, AssetVersionDto[]>();
+  /** assetId -> reviews */
+  assetReviewDtos = new Map<string, AssetReviewDto[]>();
+  /** assetId -> purchases */
+  assetPurchaseDtos = new Map<string, AssetPurchaseDto[]>();
 
   private genId(prefix: string): string {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -75,7 +84,12 @@ export class MockStore {
   }
   async deleteEdge(id: string): Promise<boolean> { return this.edges.delete(id); }
 
-  clear(): void { this.users.clear(); this.maps.clear(); this.nodes.clear(); this.edges.clear(); this.passwordResetTokens.clear(); }
+  clear(): void {
+    this.users.clear(); this.maps.clear(); this.nodes.clear(); this.edges.clear();
+    this.passwordResetTokens.clear();
+    this.assetDtos.clear(); this.assetVersionDtos.clear();
+    this.assetReviewDtos.clear(); this.assetPurchaseDtos.clear();
+  }
 
   // --- Password reset token methods ---
   async createPasswordResetToken(data: Omit<MockPasswordResetToken, 'id' | 'createdAt'>): Promise<MockPasswordResetToken> {
