@@ -6,6 +6,9 @@ platform:
   os: linux
   arch: arm64
 
+clone:
+  retries: 3
+
 trigger:
   event:
     - push
