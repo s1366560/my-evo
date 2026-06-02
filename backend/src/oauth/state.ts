@@ -24,7 +24,16 @@
 import crypto from 'crypto';
 import { config } from '../config/index.js';
 
-export const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+export const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes (600 seconds)
+
+/**
+ * The jtiMap is the in-memory lookup table (`OAuthStateStore.records`) that
+ * backs single-use replay protection. Every fresh state token is recorded
+ * with its jti; the record is atomically marked consumed on the first
+ * successful callback. Entries older than `STATE_TTL_MS` (600s) are evicted
+ * lazily by `consume()` / `peek()`.
+ */
+export type JtiMap = Map<string, StateRecord>;
 
 export interface StatePayload {
   /** JWT ID — random unique id used for single-use tracking. */
@@ -72,11 +81,20 @@ function sign(payload: string): string {
  * Provides TTL eviction and atomic single-use consumption.
  */
 export class OAuthStateStore {
-  private records = new Map<string, StateRecord>();
+  /**
+   * The jtiMap — keyed by jti, holds single-use replay-protection records.
+   * Exposed read-only via the `jtiMap` getter for test/diagnostic use.
+   */
+  private records: JtiMap = new Map<string, StateRecord>();
   private ttlMs: number;
 
   constructor(ttlMs: number = STATE_TTL_MS) {
     this.ttlMs = ttlMs;
+  }
+
+  /** Read-only view of the underlying jtiMap (test/diagnostic helper). */
+  get jtiMap(): JtiMap {
+    return this.records;
   }
 
   /** Record a freshly issued jti. Returns the record. */

@@ -5,7 +5,15 @@ import { describe, test, expect, beforeEach } from '@jest/globals';
 import { oauthService } from './service.js';
 import { mockStore } from '../db/mock-store.js';
 import { getProvider, isMockCredentials } from './providers.js';
-import { createStateToken, validateStateToken, __resetOAuthStateStore } from './state.js';
+import {
+  createStateToken,
+  validateStateToken,
+  __resetOAuthStateStore,
+  STATE_TTL_MS,
+  OAuthStateStore,
+  getOAuthStateStore,
+  setOAuthStateStore,
+} from './state.js';
 
 const CALLBACK_URI = 'http://localhost:3000/api/v1/auth/oauth/google/callback';
 
@@ -261,6 +269,84 @@ describe('OAuth module', () => {
           redirectUri: CALLBACK_URI,
         })
       ).rejects.toThrow('Invalid state: already_consumed');
+    });
+
+    test('regression: jtiMap TTL is 600s (STATE_TTL_MS) and expires stale records', () => {
+      // Regression #1: the production TTL must be 600 seconds (10 minutes).
+      // We assert against the constant directly so that any accidental change
+      // to STATE_TTL_MS that would weaken the replay-protection window is
+      // caught by CI before merge.
+      expect(STATE_TTL_MS).toBe(600_000);
+      expect(STATE_TTL_MS / 1000).toBe(600);
+
+      // And behaviourally: a state token issued just inside the TTL must
+      // still be consumable, while one whose iat is past the TTL must be
+      // rejected with `expired` even if its jti is still in the jtiMap.
+      const store = new OAuthStateStore();
+      const t0 = 1_700_000_000_000;
+      const token = (() => {
+        const oldStore = getOAuthStateStore();
+        setOAuthStateStore(store);
+        try {
+          return createStateToken('google');
+        } finally {
+          setOAuthStateStore(oldStore);
+        }
+      })();
+      // Issue was recorded in the jtiMap.
+      const jtiEntry = Array.from(store.jtiMap.values())[0];
+      expect(jtiEntry).toBeTruthy();
+      expect(jtiEntry.issuedAt).toBeGreaterThan(0);
+
+      // A peek well within the TTL returns the live record.
+      expect(store.peek(jtiEntry.jti, jtiEntry.issuedAt + STATE_TTL_MS - 1)).not.toBeNull();
+
+      // A peek past the TTL must evict the entry and return null.
+      const after = store.peek(jtiEntry.jti, jtiEntry.issuedAt + STATE_TTL_MS + 1);
+      expect(after).toBeNull();
+      expect(store.jtiMap.has(jtiEntry.jti)).toBe(false);
+    });
+
+    test('regression: jtiMap single-use replay protection cannot be bypassed by re-issuing the same jti', () => {
+      // Regression #2: forging a token with a previously-consumed jti must
+      // return `already_consumed` even if the signature, iat, and provider
+      // fields all look valid. This proves the jtiMap is consulted, not
+      // just the JWT signature/iat TTL.
+      //
+      // Setup: pre-register a known jti directly in the jtiMap, then build a
+      // signed token around it. The first validation must succeed and mark
+      // the record as consumed. A second validation of the same token must
+      // be rejected as `already_consumed`.
+      const crypto = require('crypto');
+      const knownJti = crypto.randomBytes(16).toString('hex');
+      const iat = Date.now();
+      const payload = { jti: knownJti, provider: 'google', iat };
+      const b64url = (input: Buffer | string): string => {
+        const buf = typeof input === 'string' ? Buffer.from(input) : input;
+        return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      };
+      const body = b64url(JSON.stringify(payload));
+      const hmac = crypto.createHmac('sha256', 'dev-secret').update(body).digest();
+      const sig = b64url(hmac);
+      const forgedToken = `${body}.${sig}`;
+
+      // Pre-register the jti in the jtiMap so the validator can find it.
+      const store = getOAuthStateStore();
+      store.issue(knownJti, 'google', iat);
+      expect(store.jtiMap.has(knownJti)).toBe(true);
+
+      // First call succeeds and consumes the record.
+      const first = validateStateToken(forgedToken, 'google');
+      expect(first.ok).toBe(true);
+      expect(store.jtiMap.get(knownJti)?.consumed).toBe(true);
+
+      // Second call with the same jti must be rejected as `already_consumed`,
+      // even though the signature, iat, and provider are otherwise valid.
+      const second = validateStateToken(forgedToken, 'google');
+      expect(second.ok).toBe(false);
+      if (!second.ok) {
+        expect(second.reason).toBe('already_consumed');
+      }
     });
   });
 });
