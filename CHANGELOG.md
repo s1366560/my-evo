@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 修复部署后前端首页异常 (2026-06-02)
+
+### Root Cause Analysis (调研与根因定位 — node-ec7199e91753)
+
+Goal: 修复 my-evo 项目部署后，前端 UI 打开不是正常的首页问题 (root goal task `240d0e2b-28cf-4e9a-b069-629cb037b1ad`).
+This node is a **research / root-cause node** — it only documents the diagnosis; the actual code-level fix is a follow-up node.
+
+### Diagnosis Summary (TL;DR)
+- `frontend/Dockerfile` 的 production stage 启动了 `serve -s . -l 3000`（一个**静态文件服务器**），而本项目是 **Next.js 15 App Router** 应用，需要 **Node.js 运行时** (`next start`) 才能解析 RSC payload、middleware 和 dynamic routes。
+- `docker-compose.yml` 与 `.drone.yml` 的 `deploy` stage 启动的是 `my-evo-frontend` 镜像，启动后容器在 :3000 上听到的是 `serve`，不是 `next start`。
+- 进一步：`frontend/next.config.mjs` 与 `frontend/next.config.ts` 都没有设置 `output: 'standalone'`，因此 `frontend/.next/standalone/` 目录根本**不存在**，workspace contract 中 `node .next/standalone/server.js -p 3000` 这条启动命令就算被替换进来也会立刻 ENOENT。
+- 现存的 `frontend/.next/` 产物是**dev server / 早期增量构建**的残留，不是 `next build` 的 production 产物：
+  - `frontend/.next/server/app-paths-manifest.json` 内容只有 `{ "/page": "app/page.js" }` 一条路由，而本项目 `frontend/src/app/` 下有 **28 个路由段** (api, (app), asset, bounty, bounty-hall, browse, checkout, council, credits, editor, forgot-password, login, map, marketplace, onboarding, page, pricing, privacy, register, reset-password, swarm, terms, workspace, ...)。
+  - `frontend/.next/trace` 头部 trace event 携带 `isDev=true` 标志（在 `next-app-loader` 的 query string 中），直接证明这是 dev 模式构建产物，不是 `next build` 产物。
+  - `frontend/.next/build-manifest.json` 的 `rootMainFiles` 只有 webpack/main-app 两个 dev 入口，没有 production 入口与 `BUILD_ID`。
+  - `frontend/.next/prerender-manifest.json` 的 `routes` 为空，说明没有任何 static-prerender 步骤执行过（生产 `next build` 会把所有可静态化的 App Router 路由预渲染到该字段）。
+
+### Root Cause
+**Dockerfile 用错了 server 范式** — `serve` (static SPA server) + 残留的 dev 产物，既不能渲染 RSC，也不能加载 dynamic route 段。访问 `http://<host>:3000/` 时容器返回的是 `serve` 试图把 `/` 当作静态文件提供，而 `.next/server/app/page.js` 这个 dev 产物又没被 `serve` 服务到任何路径，结果就是用户看到的"不是正常的首页"。
+
+具体由 **3 个独立缺陷**叠加：
+1. **错误的 runtime 选型**（Dockerfile 缺陷）：`frontend/Dockerfile:60` 使用 `CMD ["serve", "-s", ".", "-l", "3000"]`。`serve` 是 Vercel/zeit 的 **静态 SPA 静态文件服务器**，不能解析 App Router 的 RSC streaming、不能调用 `route handler` (`app/api/**/route.ts`)、不能执行 server actions / middleware、不能命中任何 dynamic route 段 (`/bounty/[id]`、`/workspace/...` 等)。
+2. **缺失 `output: 'standalone'`**（next.config 缺陷）：`frontend/next.config.mjs` 和 `frontend/next.config.ts` 都没有声明 `output: 'standalone'`，所以 `npm run build` 不会在 `.next/standalone/` 下输出可独立部署的 server.js，workspace contract 的 `node .next/standalone/server.js -p 3000` 这条启动命令无法生效。
+3. **构建产物本身是 dev 残留**（build/deploy 流程缺陷）：当前磁盘上的 `frontend/.next/` 是某次 `next dev` 或 dev 模式热构建的产物（`isDev=true`、仅 1 个路由、prerender 空），不是 production `next build` 产物。即使换成 `next start` 也无法正常起服务。
+
+### Evidence (read-only inspection)
+- `read:frontend/Dockerfile` — 第 60 行 `CMD ["serve", "-s", ".", "-l", "3000"]`（静态文件服务器）；production stage 只 COPY `.next/` 和 `public/`，没有 `node_modules`、没有 standalone server。
+- `read:frontend/next.config.mjs` — `outputFileTracingRoot: __dirname`，但**没有** `output: 'standalone'` 字段。
+- `read:frontend/next.config.ts` — 同上，没有 `output: 'standalone'`。
+- `read:frontend/package.json` — `"start": "next start -p 3002"`（端口 3002，与 Dockerfile 的 3000 也不一致），`"build": "next build"`（无 `output` 参数）。
+- `read:frontend/.next/server/app-paths-manifest.json` — `{ "/page": "app/page.js" }`（只有 1 条路由，而源代码有 28 个路由段）。
+- `grep "isDev=true" frontend/.next/trace` — 在 `next-app-loader` 的 query 中存在 `isDev=true` 标志，确认是 dev 构建。
+- `read:frontend/.next/build-manifest.json` — `rootMainFiles` 仅 `static/chunks/{webpack,main-app}.js`，`lowPriorityFiles` 含 `static/development/_buildManifest.js`，与 dev 模式产物特征一致。
+- `read:frontend/.next/prerender-manifest.json` — `routes: {}` 与 `dynamicRoutes: {}` 均为空。
+- `ls frontend/.next/standalone` — **目录不存在** (ENOENT)，证明 standalone build 从未跑过。
+- `read:frontend/src/app/page.tsx`、`read:frontend/src/app/layout.tsx`、`read:frontend/src/components/landing/*.tsx` — 源代码侧正常，根因不在产品代码 (page.tsx 第 1-6 行 import 6 个 landing 组件，layout.tsx 正常挂 ThemeProvider/NavBar/Footer)。
+- `read:docker-compose.yml` — 第 51-66 行 `frontend` 服务使用 `./frontend/Dockerfile`，无 healthcheck，无 `output: standalone` 相关挂载。
+- `read:.drone.yml` — `frontend-build` stage 执行 `npm run build`，`docker-build-frontend` 阶段 `docker build -f frontend/Dockerfile ./frontend`，均不会生成 standalone 产物。
+
+### Fix Direction (for follow-up node, NOT this research node)
+- **必须**修改 `frontend/Dockerfile` 的 CMD，把 `serve` 替换成 `next start` 或 `node .next/standalone/server.js`。
+- **必须**在 `frontend/next.config.mjs` 与 `frontend/next.config.ts` 中加入 `output: 'standalone'`（或统一合并两份 config，删除其中一份），让 `npm run build` 产出 `frontend/.next/standalone/server.js`。
+- **必须**确保 build stage 完整 COPY `package.json`、`package-lock.json`，production stage 用 `npm ci --omit=dev` 安装 `next` runtime 依赖（Next.js standalone 已经把大部分依赖打进 `node_modules`，但 `next` CLI 本身仍需安装）。
+- **建议**把 `frontend/package.json` 的 `start` 脚本端口改为 `3000` 与 Dockerfile/healthcheck 对齐，或明确二选一。
+- **建议**在 `docker-compose.yml` 的 `frontend` 服务加 `healthcheck: ["CMD", "wget", "-qO-", "http://localhost:3000/"]`，与 `frontend/Dockerfile` 的 HEALTHCHECK 一致，让 `depends_on` 真正起作用。
+- 修复后必须重新跑 `npm run build` 并用 `cat .next/server/app-paths-manifest.json` 验证 manifest 包含全部 28 个路由段，以及 `test -f .next/standalone/server.js` 验证 standalone server 存在；然后用 `curl -s http://127.0.0.1:3000/` 验证首页返回正常 HTML。
+
+### Scope Guard
+本 node **仅做调研与根因定位，不做任何代码改动**；不在 worktree 提交 application code fix。Application fix 留给后续 plan 节点（`修复 Dockerfile / next.config / 部署链路`），后者在修复时必须保留本节作为诊断上下文。
+
 ## [Unreleased] - Iteration 38 Drone Re-Trigger Verification (2026-06-01)
 
 ### Changed
