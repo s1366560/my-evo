@@ -1,5 +1,5 @@
 # ============================================================
-# EvoMap Hub - Frontend Dockerfile (Next.js)
+# EvoMap Hub - Frontend Dockerfile (Next.js standalone)
 # ============================================================
 
 # ---- Build Stage ----
@@ -20,10 +20,10 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build Next.js application
+# Build Next.js application (output: 'standalone' in next.config.mjs)
 RUN npm run build
 
-# ---- Production Stage (Static) ----
+# ---- Production Stage ----
 FROM node:20-alpine AS production
 
 # Security: create non-root user
@@ -31,15 +31,14 @@ RUN addgroup -g 1001 -S evomap && adduser -S evomap -u 1001
 
 WORKDIR /app
 
-# Install serve to serve static files
-RUN npm install -g serve
+# Set environment variables before COPY
+ENV NODE_ENV=production
+ENV PORT=3000
 
-# Copy built artifacts
-COPY --from=builder /app/.next ./.next
+# Copy standalone output from builder
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-
-# Copy package.json for reference
-COPY --from=builder /app/package.json ./package.json
 
 # Set ownership
 RUN chown -R evomap:evomap /app
@@ -47,14 +46,12 @@ RUN chown -R evomap:evomap /app
 # Switch to non-root user
 USER evomap
 
-# Environment
-ENV NODE_ENV=production
-ENV PORT=3000
-
+# Expose port
 EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3000 || exit 1
+  CMD wget -qO- http://localhost:3000/ || exit 1
 
-CMD ["serve", "-s", ".", "-l", "3000"]
+# Start standalone Next.js server
+CMD ["sh", "-c", "node server.js"]
