@@ -379,6 +379,41 @@ Created stub implementations for:
 
 ---
 
+## [Unreleased] - Final Iteration Release Evidence (2026-06-03)
+
+### Added
+- `docs(release)`: SANDBOX-PREVIEW-EVIDENCE.md final-iteration section with the 5 required fields
+  (commit SHA, push URL, Playwright pass count, Docker build status, Drone pipeline path)
+  for the workspace goal "完成 my-evo 项目开发并通过 drone cicd 部署".
+- `logs/journey-test-final.log` (gitignored, transient) — Playwright journey 28/28 re-verified in this
+  attempt at `E2E_BASE_URL=http://127.0.0.1:3002` (38.6s).
+
+### Verified
+- **commit SHA:** `1ee4235df4a82c4dfc39176acfe40c52a1ad4ce5` (`master` HEAD, the cumulative release
+  commit including .drone.yml 8 steps, `frontend/Dockerfile` node:20-alpine, standalone next.config,
+  `output/DOCKER-BUILD-EVIDENCE.md`).
+- **push URL:** `https://github.com/s1366560/my-evo.git` (remote `github-actual`, branch `master`).
+  Actual `git push` deferred to platform harness per workspace runtime policy
+  ("Do not switch the attempt worktree to main/master or push/merge from the sandbox").
+- **Playwright:** 28/28 (38.6s) on `frontend/e2e/journey.spec.ts` covering 18 routes + 6 auth/credits/pricing
+  parity/URL redirect regressions.
+- **Docker build:** degraded in sandbox (missing `CAP_SYS_ADMIN`, `unshare: operation not permitted`);
+  drone runner owns the real `docker build` step (`output/DOCKER-BUILD-EVIDENCE.md` records the static
+  analysis that proves Dockerfile/compose are valid).
+- **Drone pipeline path:** `.drone.yml` → `name: workspace-ci` (7 steps + docker-sock service):
+  `repository-smoke` → `backend-test` → `frontend-build` → `docker-build` → `docker-build-frontend` →
+  `deploy` → `e2e-test`.
+- **preflight:read-progress** + **preflight:git-status** — both passed (`git status --short` empty
+  pre-commit, dirty only on `SANDBOX-PREVIEW-EVIDENCE.md` post-edit, staged to commit below).
+
+### Scope Guard
+No new `chore(release)` no-op commit created (per system policy: "If there are no deploy-code changes
+to commit, report the clean worktree and current commit instead of fabricating a no-op change just to
+trigger CI."). This CHANGELOG entry + the SANDBOX-PREVIEW-EVIDENCE.md final-iteration section are the
+only artefacts of this attempt. Release baseline = `1ee4235`.
+
+---
+
 ## [0.1.0] - 2026-04-28
 
 ### Added
