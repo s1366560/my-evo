@@ -450,7 +450,7 @@ describe('oauthService Prisma paths', () => {
       }));
       const o = (await import('../oauth/service.js')).oauthService;
       const auth = o.buildAuthorizeUrl('github', 'http://localhost/cb');
-      const r = await o.handleCallback('github', { code: 'test-code', state: auth.state });
+      const r = await o.handleCallback('github', { code: 'test-code', state: auth.state, redirectUri: 'http://localhost/cb' });
       expect(r.authResponse.accessToken).toBeTruthy();
     });
   });
@@ -463,7 +463,7 @@ describe('oauthService Prisma paths', () => {
         getPrisma: () => null,
       }));
       const o = (await import('../oauth/service.js')).oauthService;
-      await expect(o.handleCallback('github', { code: 'c', state: 'bad' })).rejects.toThrow();
+      await expect(o.handleCallback('github', { code: 'c', state: 'bad', redirectUri: 'http://localhost/cb' })).rejects.toThrow();
     });
   });
 

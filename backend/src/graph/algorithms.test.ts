@@ -145,15 +145,15 @@ describe('GraphAlgorithms with fake Prisma', () => {
     );
     const r = await graphAlgorithms.topologicalSort('o');
     expect(r.success).toBe(true);
-    expect(r.data.order).toEqual(['a', 'b', 'c']);
-    expect(r.data.levels).toEqual({ b: 1, c: 2 });
+    expect(r.data!.order).toEqual(['a', 'b', 'c']);
+    expect(r.data!.levels).toEqual({ b: 1, c: 2 });
   });
 
   test('topologicalSort returns empty for empty graph', async () => {
     fakeDb = makeFakePrisma([], []);
     const r = await graphAlgorithms.topologicalSort('o');
     expect(r.success).toBe(true);
-    expect(r.data.order).toEqual([]);
+    expect(r.data!.order).toEqual([]);
   });
 });
 
@@ -188,7 +188,7 @@ describe('GraphEngine with fake Prisma', () => {
     };
     const r = await graphEngine.calculateMetrics('root');
     expect(r.success).toBe(true);
-    expect(r.data.nodeCount).toBeGreaterThan(0);
+    expect(r.data!.nodeCount).toBeGreaterThan(0);
   });
 
   test('calculateNodeMetrics returns error for unknown node', async () => {
@@ -212,7 +212,7 @@ describe('GraphEngine with fake Prisma', () => {
     };
     const r = await graphEngine.calculateNodeMetrics('n');
     expect(r.success).toBe(true);
-    expect(r.data.inDegree).toBe(2);
-    expect(r.data.outDegree).toBe(3);
+    expect(r.data!.inDegree).toBe(2);
+    expect(r.data!.outDegree).toBe(3);
   });
 });

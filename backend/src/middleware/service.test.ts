@@ -73,7 +73,7 @@ describe('authenticate middleware', () => {
 
 describe('assetAuth middleware (3-layer resolution)', () => {
   test('anonymous request resolves to anonymous identity', async () => {
-    const req: AssetAuthRequest = { headers: {} };
+    const req = { headers: {} } as unknown as AssetAuthRequest;
     const { nextCalled } = await runMiddleware(assetAuth, req);
     expect(nextCalled).toBe(true);
     expect(req.assetAuth?.kind).toBe('anonymous');
@@ -81,7 +81,7 @@ describe('assetAuth middleware (3-layer resolution)', () => {
 
   test('resolves a valid session Bearer token', async () => {
     const t = jwt.sign({ userId: 'sess-u', email: 's@e.com', role: 'user' }, config.jwtSecret, { expiresIn: '1h' });
-    const req: AssetAuthRequest = { headers: { authorization: `Bearer ${t}` } };
+    const req = { headers: { authorization: `Bearer ${t}` } } as unknown as AssetAuthRequest;
     await runMiddleware(assetAuth, req);
     expect(req.assetAuth?.kind).toBe('session');
     expect(req.assetAuth?.userId).toBe('sess-u');
@@ -89,7 +89,7 @@ describe('assetAuth middleware (3-layer resolution)', () => {
 
   test('resolves a valid API key', async () => {
     registerApiKey({ userId: 'ak-u', email: 'a@e.com', role: 'user', key: 'ek_secret_abc' });
-    const req: AssetAuthRequest = { headers: { 'x-api-key': 'ek_secret_abc' } };
+    const req = { headers: { 'x-api-key': 'ek_secret_abc' } } as unknown as AssetAuthRequest;
     await runMiddleware(assetAuth, req);
     expect(req.assetAuth?.kind).toBe('api_key');
     expect(req.assetAuth?.userId).toBe('ak-u');
@@ -98,20 +98,20 @@ describe('assetAuth middleware (3-layer resolution)', () => {
 
   test('resolves a valid node secret', async () => {
     registerNodeSecret({ nodeId: 'node_abc', secret: 'sek' });
-    const req: AssetAuthRequest = { headers: { 'x-node-id': 'node_abc', 'x-node-secret': 'sek' } };
+    const req = { headers: { 'x-node-id': 'node_abc', 'x-node-secret': 'sek' } } as unknown as AssetAuthRequest;
     await runMiddleware(assetAuth, req);
     expect(req.assetAuth?.kind).toBe('node_secret');
     expect(req.assetAuth?.nodeId).toBe('node_abc');
   });
 
   test('falls back to anonymous when API key is unknown', async () => {
-    const req: AssetAuthRequest = { headers: { 'x-api-key': 'ek_unknown' } };
+    const req = { headers: { 'x-api-key': 'ek_unknown' } } as unknown as AssetAuthRequest;
     await runMiddleware(assetAuth, req);
     expect(req.assetAuth?.kind).toBe('anonymous');
   });
 
   test('assetAuthRequired rejects anonymous (401)', async () => {
-    const req: AssetAuthRequest = { headers: {} };
+    const req = { headers: {} } as unknown as AssetAuthRequest;
     await runMiddleware(assetAuth, req);
     const { nextErr } = await runMiddleware(assetAuthRequired, req);
     expect(nextErr).toBeTruthy();
@@ -120,7 +120,7 @@ describe('assetAuth middleware (3-layer resolution)', () => {
 
   test('assetAuthRequired accepts a session identity', async () => {
     const t = jwt.sign({ userId: 'u1', email: 'a@b.com', role: 'user' }, config.jwtSecret, { expiresIn: '1h' });
-    const req: AssetAuthRequest = { headers: { authorization: `Bearer ${t}` } };
+    const req = { headers: { authorization: `Bearer ${t}` } } as unknown as AssetAuthRequest;
     await runMiddleware(assetAuth, req);
     const { nextErr } = await runMiddleware(assetAuthRequired, req);
     expect(nextErr).toBeFalsy();
@@ -128,7 +128,7 @@ describe('assetAuth middleware (3-layer resolution)', () => {
 
   test('requireHumanIdentity rejects node_secret (403)', async () => {
     registerNodeSecret({ nodeId: 'node_x', secret: 's' });
-    const req: AssetAuthRequest = { headers: { 'x-node-id': 'node_x', 'x-node-secret': 's' } };
+    const req = { headers: { 'x-node-id': 'node_x', 'x-node-secret': 's' } } as unknown as AssetAuthRequest;
     await runMiddleware(assetAuth, req);
     const { nextErr } = await runMiddleware(requireHumanIdentity, req);
     expect(nextErr).toBeTruthy();
@@ -137,7 +137,7 @@ describe('assetAuth middleware (3-layer resolution)', () => {
 
   test('requireHumanIdentity accepts a session identity', async () => {
     const t = jwt.sign({ userId: 'u1', email: 'a@b.com', role: 'user' }, config.jwtSecret, { expiresIn: '1h' });
-    const req: AssetAuthRequest = { headers: { authorization: `Bearer ${t}` } };
+    const req = { headers: { authorization: `Bearer ${t}` } } as unknown as AssetAuthRequest;
     await runMiddleware(assetAuth, req);
     const { nextErr } = await runMiddleware(requireHumanIdentity, req);
     expect(nextErr).toBeFalsy();
@@ -181,7 +181,7 @@ describe('errorHandler middleware', () => {
   });
 
   test('handles generic Error with 500', () => {
-    const err = new Error('something broke');
+    const err = new Error('something broke') as HttpError;
     const req: any = {};
     const res: any = { statusCode: 200, body: undefined, status(code: number) { this.statusCode = code; return this; }, json(b: any) { this.body = b; return this; } };
     errorHandler(err, req, res, () => {});

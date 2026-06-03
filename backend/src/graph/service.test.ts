@@ -152,7 +152,7 @@ describe('GraphAlgorithms (no DB)', () => {
   test('topologicalSort returns empty order without DB', async () => {
     const result = await graphAlgorithms.topologicalSort('owner');
     expect(result.success).toBe(true);
-    expect(result.data.order).toEqual([]);
-    expect(result.data.levels).toEqual({});
+    expect(result.data!.order).toEqual([]);
+    expect(result.data!.levels).toEqual({});
   });
 });
