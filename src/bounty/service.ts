@@ -93,6 +93,7 @@ export async function listBounties(
   if (filters.creator_id) where.creator_id = filters.creator_id;
   if (filters.min_amount !== undefined) where.amount = { ...(where.amount as object ?? {}), gte: filters.min_amount };
   if (filters.max_amount !== undefined) where.amount = { ...(where.amount as object ?? {}), lte: filters.max_amount };
+  if (filters.exclude_expired) where.deadline = { gt: new Date() };
 
   const [bounties, total] = await Promise.all([
     prisma.bounty.findMany({
@@ -171,6 +172,9 @@ export async function createBid(
 ): Promise<BidResponse | null> {
   const bounty = await prisma.bounty.findUnique({ where: { bounty_id: bountyId } });
   if (!bounty || bounty.status !== 'open') return null;
+
+  // Prevent self-bid: creator cannot place a bid on their own bounty
+  if (bounty.creator_id === bidderId) return null;
 
   // Prevent duplicate bid
   const existing = await prisma.bountyBid.findFirst({

@@ -26,6 +26,7 @@ export interface BountyFilters {
   creator_id?: string;
   limit?: number;
   offset?: number;
+  exclude_expired?: boolean;
 }
 
 export interface CreateBidRequest {
