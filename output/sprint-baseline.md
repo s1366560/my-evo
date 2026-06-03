@@ -78,6 +78,17 @@ Sandbox Docker state (per `output/DOCKER-BUILD-EVIDENCE.md`): `docker build` fal
 9. **P1-T1/T5** — asset detail reviews and full subscription page (replacing the `/pricing` redirect fallback).
 10. **P2 + DOC** — settings, i18n, analytics, email, then DOC_01 (OpenAPI) → DOC_03 (deployment guide) → DOC_04 (testing strategy).
 
+## Sprint Scope (node-53c7584472ce — 6 sub-tasks, P0/P1 final-sprint cap)
+
+> Evidence refs: `src/bounty/service.ts:39-308` (real functions), `src/marketplace/routes.ts:243-380` (real purchases/transactions), `backend/src/assets/service.ts` `purchaseAsset`, `frontend/src/lib/api/client.ts:337-360` (`getBountyStats`/`getBountyById`/`createBounty`), `frontend/src/lib/api/endpoints.ts:29-32` (`assetById`/`assetLineage`). All scope lines point to a concrete file in this worktree and reuse an existing backend or frontend contract — no greenfield APIs.
+
+1. **S-T1** — implement `src/bounty/routes.ts` + `src/bounty/compat-routes.ts` (currently 11L/10L stubs) by binding to `src/bounty/service.ts:39-308`; verify with `src/bounty/bounty.test.ts` (350L suite) passing against `/api/v2/bounty/*` and `/api/v2/bounties/*` registrations in `src/app.ts:216-219`.
+2. **S-T2** — extend `src/marketplace/routes.ts:243-380` to emit a single end-to-end transaction record (purchase → escrow → confirm/dispute → `/transactions`) in one Prisma `$transaction`; verify via curl: `POST /api/v2/marketplace/purchases` then `GET /api/v2/marketplace/transactions` and assert `transaction_id` + `escrow` round-trip.
+3. **S-T3** — finalize `frontend/src/app/bounty/[bountyId]/page.tsx` (56L) and `frontend/src/app/bounty/create/page.tsx` (220L, already wired to `apiClient.createBounty`) by adding a `BidForm` panel inside `BountyDetail` that calls `createBid`; verify with `apiClient.getBountyById` + a new `apiClient.createBid` round-trip, asserting `bid_count` increments.
+4. **S-T4** — extend `frontend/src/app/asset/[assetId]/page.tsx` (56L) by enriching `AssetDetail` with reviews list + a "Buy" button that hits `frontend/src/lib/api/endpoints.ts:30` `assetById`; verify with `apiClient.assetById` + the new `purchaseAsset` mutation, asserting 201 + `transaction_id`.
+5. **S-T5** — add `frontend/src/components/CartDrawer.tsx` (new) and replace the mock handler in `frontend/src/app/checkout/[assetId]/page.tsx` (120L) with a real call to `POST /api/v1/assets/:assetId/purchase` (Express contract per `backend/src/assets/routes.ts:25`); verify by running `backend/src/assets/service.test.ts` HTTP cases (lines 244–311) and observing `purchase` 201.
+6. **S-T6** — add `frontend/src/app/dashboard/purchases/page.tsx` (new) that lists the authenticated user's purchases by calling `GET /api/v2/marketplace/purchases` (Fastify) and `GET /api/v1/assets/:assetId` (Express) for enrichment; verify via `apiClient` + the existing `purchasesQueryKey` cache in `frontend/src/lib/api/query-keys.ts`, asserting the page renders ≥ 1 row after the S-T5 flow.
+
 ## 8. Verification checklist for the implementer
 
 - `preflight:read-progress` — this baseline file is the read.
