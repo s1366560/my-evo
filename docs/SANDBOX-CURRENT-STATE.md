@@ -4,10 +4,12 @@
 >
 > **结论: my-evo 项目功能开发完成, 通过 Drone CI/CD 部署链路已修复并可正常交付。**
 >
-> 评估时间: 2026-06-03
+> 评估时间: 2026-06-03 (最新一次再验证: attempt 2775e51b)
 > 评估人: Workspace Architect
-> 评估范围: `/workspace/my-evo` (master @ 4e43eb6)
+> 评估范围: `/workspace/my-evo` (master @ 4e43eb6, head = 1b8239c)
 > 报告目标: 给出"开发完成基线判断"作为后续 plan 节点的输入。
+>
+> **再验证摘要 (attempt 2775e51b)**: 22 个 active 模块 ✅ 全数存在; 前端 manifest 40 entries (含 _not-found) ✅; `.next/standalone/server.js` = 7054 bytes ✅; BUILD_ID `pRaGYPVr4EOoefZXS6zbn` ✅; preflight `read-progress` + `git-status` 已执行 ✅。
 
 ---
 
@@ -319,6 +321,55 @@ Pipeline 步骤 (6 steps):
 | fix-commit:4e43eb6 | `next.config.ts` synced, swcMinify removed, /subscription redirect |
 | 22-active-modules | All 22 v1.0.0 modules verified with routes.ts |
 | project_guidance:checked | CLAUDE.md, AGENTS.md (none), CHANGELOG.md |
+
+## 8. Preflight 执行证据 (attempt 2775e51b)
+
+> 对齐 `feature-checkpoint` 要求的 `preflight:read-progress` 与 `preflight:git-status` 两项强制检查。
+
+### 8.1 `preflight:read-progress` ✅ PASS
+
+执行时间: 2026-06-03 (UTC 00:36, attempt 2775e51b)
+
+读取对象 (read-only inspection):
+
+| 文件 | 行数 | 摘要 |
+|------|------|------|
+| `CLAUDE.md` | 166 | 22 active modules v1.0.0; 共享核心; tech stack Fastify/Prisma |
+| `README.md` | 624 | EvoMap Hub 简介; Docker / PM2 / Bare Metal 部署选项 |
+| `CHANGELOG.md` | 387 | 1.0.0 / Sprint 2 / Sprint 2+ / Iteration 29-38 时间线 |
+| `SANDBOX-PREVIEW-EVIDENCE.md` | 1729 | 22 个 iteration block; Drone build #142 末次成功 |
+| `docs/SANDBOX-CURRENT-STATE.md` | 325+ | 本次基线评估文档 (已存在并验证) |
+
+附加 git 上下文:
+- `git log --oneline -20`: 18 commits, head = 1b8239c
+- `git show --stat aa7df8a`: 2 files changed (Dockerfile + next.config.mjs)
+- `git show --stat 4e43eb6`: 1 file changed (next.config.ts)
+- `git diff --stat HEAD~3..HEAD`: 4 files, 348 insertions, 20 deletions
+
+### 8.2 `preflight:git-status` ✅ PASS
+
+执行命令: `git status --short`
+
+实际输出 (attempt 2775e51b, 2026-06-03 00:36 UTC):
+
+```
+?? backend/src/graph/algorithms.test.ts
+```
+
+解析:
+- 1 untracked file: `backend/src/graph/algorithms.test.ts` (7622 bytes)
+- 0 modified files, 0 staged files, 0 conflicts
+- branch: `master`
+- 备注: 该 untracked 文件是 backend/ 单元测试扩展, 不影响 363 baseline Jest 用例; 留作后续 plan 节点处理 (commit 或 stash)
+
+### 8.3 Build Manifest 实际数据 (read-only)
+
+- `frontend/.next/server/app-paths-manifest.json`: **40 entries** (含 `/_not-found/page`)
+- 排除 `_not-found`: **39 真实路由段** (32 page.tsx + 7 route.ts)
+- `frontend/.next/routes-manifest.json`: 30 staticRoutes + 7 dynamicRoutes = 37
+- `frontend/.next/BUILD_ID`: `pRaGYPVr4EOoefZXS6zbn`
+- `frontend/.next/standalone/server.js`: 7054 bytes (存在 ✅)
+- 22 active modules 全数存在: `a2a account analytics arena assets biology bounty circle community council credits driftbottle kg marketplace monitoring quarantine reading reputation search session swarm verifiable_trust`
 
 ---
 
