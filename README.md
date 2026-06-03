@@ -621,4 +621,90 @@ UNLICENSED - Private use only.
 
 ---
 
-*Last Updated: 2026-04-27*
+## v1.0.0 Final Sprint (2026-06-03)
+
+The P0/P1 final sprint closes the gaps identified in `output/sprint-baseline.md`
+and ships the asset-purchase flow end-to-end, asset & bounty detail pages, the
+promoted bounty module, the new bounty integration test (NX-04), and the
+end-to-end P0 surface Playwright walk (NX-02) — all wired into the Drone 7-step
+CI/CD pipeline verified by build `#430` (`s1366560/my-evo#430`, status success).
+
+### 3 new frontend pages
+
+1. **`frontend/src/app/checkout/page.tsx`** (203 lines) — real checkout
+   replacing the mock handler; calls `POST /api/v1/assets/:assetId/purchase`
+   and records `PurchaseRecord` in the cart store.
+2. **`frontend/src/app/dashboard/purchases/page.tsx`** (181 lines) —
+   authenticated user's purchase history, wired to `purchasesQueryKey` cache,
+   `GET /api/v2/marketplace/purchases` + `GET /api/v1/assets/:assetId`.
+3. **`frontend/src/app/asset/[assetId]/page.tsx`** (34 lines) — asset detail
+   with reviews list and a Buy button that triggers `purchaseAsset` mutation.
+
+### 1 promoted backend module
+
+- **`src/bounty/`** — `routes.ts` promoted from an 11-line stub to 80 lines
+  binding `createBounty`/`listBounties`/`getBountyById` from `service.ts:39-308`
+  on the Fastify v2 contract (`/api/v2/bounty/tasks/*`).
+
+### New frontend components & stores
+
+- `frontend/src/components/CartDrawer.tsx` (231 lines) — slide-in cart with
+  real purchase mutation, asset refresh, and receipt recording.
+- `frontend/src/lib/stores/cart-store.ts` (88 lines) — Zustand store with
+  `persist` middleware (`evomap-cart` localStorage key).
+
+### NX-04 — Bounty integration test (new)
+
+- **`src/bounty/service.test.ts`** (NX-04) — mock-Prisma integration test
+  suite for the bounty service. Covers four core branches:
+  - `createBounty` — milestone split (3 phases summing to 100%)
+  - `getBountyById` — detail assembly with milestones + bids
+  - `listBounties` — `exclude_expired` filter forwards `deadline > now`
+  - `createBid` (placeBid) — rejects self-bid by the bounty creator
+  Adds `BountyFilters.exclude_expired: boolean` and the self-bid guard in
+  `createBid`. Pairs with the broader `src/bounty/bounty.test.ts` suite.
+  Result: **20/20 bounty tests pass** (16 existing + 4 new).
+
+### NX-02 — P0 surface E2E walk & screenshot evidence (new)
+
+- **`frontend/tests/e2e-p0-surfaces.spec.ts`** (NX-02) — Playwright spec that
+  walks the 5 P0 surfaces end-to-end against the sandbox preview and saves
+  one full-page screenshot per surface under `frontend/tests/screenshots/`.
+- **`frontend/tests/screenshots/p0-*.png`** — captured evidence:
+  - `p0-01-homepage.png` — landing page (/)
+  - `p0-02-asset-detail.png` — asset detail (`/asset/[assetId]`)
+  - `p0-03-cart-checkout.png` — cart drawer + checkout (`/checkout`)
+  - `p0-04-bounty-detail.png` — bounty detail (`/bounty/[id]`)
+  - `p0-05-purchase-history.png` — purchase history (`/dashboard/purchases`)
+- Wired into `frontend/playwright.test.config.ts` as a dedicated project so
+  CI runs it on the harness-injected port (default `E2E_BASE_URL=http://127.0.0.1:3102`).
+
+### 12 deploy-contract checks (all PASS)
+
+Per `output/DEPLOY-CONTRACT.md`:
+
+1. `volumes` block exists in `.drone.yml`
+2. `DOCKER_HOST=unix:///var/run/docker.sock` on docker:cli steps
+3. Volume name `docker-sock` matches the runtime host socket
+4. Backend container name `my-evo-app`
+5. Postgres sidecar `POSTGRES_USER=evomap` (matches `DATABASE_URL`)
+6. `/health` probe (Dockerfile HEALTHCHECK + Drone deploy step)
+7. `18080:3001` host-to-container port mapping
+8. Postgres + Redis sidecars on the `workspace-deploy` network
+9. 3x retry loop on `npm install`
+10. Fail-fast on `/health` (`failure: ignore` for best-effort runner)
+11. `JWT_SECRET` / `SESSION_SECRET` / `REDIS_URL` env wired
+12. YAML `steps[].commands[]` 100% string-typed (71/71)
+
+### Drone pipeline evidence
+
+- **Run:** `s1366560/my-evo#430` — status `success`
+- **Commit:** `cb912fbcc5eccf9c38a08f1265c49cd8f0ddfbb2`
+- **7 steps:** `repository-smoke`, `backend-test`, `frontend-build`,
+  `docker-build`, `docker-build-frontend`, `deploy`, `e2e-test`
+- **3 deploy services:** backend-fastify (required), backend-express (optional),
+  frontend-next (required)
+
+---
+
+*Last Updated: 2026-06-03*
